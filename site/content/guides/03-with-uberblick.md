@@ -1,0 +1,61 @@
+# How it works with Uberblick
+
+[Uberblick](https://next.uberblick.ai) is a shared workspace of documents for people and agents: what the product should do, plans and the decisions behind them. ub-agents runs the loop on GitHub. Each works without the other. Together, every issue starts from the pages that describe the product, and every pull request keeps them true. This is how Uberblick itself is built.
+
+## What changes in the loop
+
+ub-agents doesn't know about Uberblick. Your agents use it because their instructions say so, through the Uberblick MCP server.
+
+- **Prepare.** The issue-preparer reads the pages and decisions the issue touches and points to them in the issue, instead of restating them. The page stays the one place to be right.
+- **Implement.** The implementer reads those pages before it writes code. When the change makes a page wrong, or adds something no page describes yet, it drafts the new text in the pull request.
+- **Review.** The reviewer checks the pull request against the pages, not only against the issue text, and reviews the drafted page changes with the code.
+- **Merge.** After the merge, the integrator applies the drafted page changes. The workspace describes the product as shipped, never code that hasn't merged.
+
+## Set it up
+
+Install Uberblick:
+
+```sh
+brew install uberblick-ai/tap/uberblick
+```
+
+Then add its MCP server to `.mcp.json` in your repository and commit it, so every launcher picks it up:
+
+```json
+{
+  "mcpServers": {
+    "uberblick": { "command": "ub", "args": ["mcp", "serve"] }
+  }
+}
+```
+
+`ub mcp install claude` writes this entry for you. [Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the details.
+
+## Let the agents use it
+
+Loop runs can't answer permission prompts, so allow the Uberblick tools for each role that reads the workspace, next to its [other permissions](/docs/configuration/permissions.html):
+
+- **Claude Code:** add `"mcp__uberblick__*"` to `--allowedTools`.
+- **Codex:** add `-c, 'mcp_servers.uberblick.default_tools_approval_mode="approve"'` to `runtime-args`.
+
+## Tell the roles what to do
+
+Put the rule in your [shared policy](/docs/configuration/instructions.html#shared-policy), so every role follows it. Keep it short, for example:
+
+```text
+## Product pages
+
+What the product should do lives in our Uberblick workspace. Before you change
+behavior, search it for the pages the change touches and read them. Point to
+pages by title in issues instead of restating them. When a pull request makes a
+page wrong, put the new text under "Page updates" in its description. The
+integrator applies it after the merge.
+```
+
+For what else belongs in the shared policy, see [What goes in the shared policy](/docs/best-practices/instructions-as-code.html#what-goes-in-the-shared-policy).
+
+## More than one launcher
+
+A local workspace lives on one computer. When the loop runs on [more launchers](/docs/guides/add-a-launcher.html), share the workspace through a [hub](https://next.uberblick.ai/docs/hub), so every agent reads the same pages. Commit `.uberblick.json`, and on each launcher machine install `ub` and sign in with `ub auth login`.
+
+If agents start while the workspace can't be reached, they work without the pages. A [health check](/docs/configuration/agents.html#health-check), a command of yours that checks the workspace answers, makes the launcher wait instead, and it picks up work again once the check passes.
