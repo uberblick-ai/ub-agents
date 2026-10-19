@@ -184,7 +184,7 @@ def fix_links(body, here):
 
 def header(here):
     return f'''<header class="top">
-  <a class="mark" href="{rel('index.html', here)}">ub-agents</a>
+  <span class="brand"><a class="parent" href="https://next.uberblick.ai">uberblick</a><span class="sep">/</span><a class="mark" href="{rel('index.html', here)}">ub-agents</a></span>
   <a class="ver" href="{REPO}/releases">v{VERSION}</a>
   <nav>
     <a href="{rel('docs/installation.html', here)}">Docs</a>
