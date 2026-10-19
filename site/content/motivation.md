@@ -42,7 +42,7 @@ Corrections typed into a chat are lost by the next session. Agents start fresh e
 
 ## People decide
 
-Agents are good at doing the work and less good at judging what matters. So the loop is built to stop and ask on the issue when a decision belongs to a person, and to leave the merges you choose to a maintainer. On a public repository, outside input waits until a maintainer starts the work. See [Approvals](/docs/configuration/approvals.html).
+Agents are good at doing the work and less good at judging what matters. Outside contributions require authorization before entering the workflow. When an agent needs a decision, it stops and asks. Merges reserved for maintainers wait for approval. See [Approvals](/docs/configuration/approvals.html).
 
 ## Take what fits
 
