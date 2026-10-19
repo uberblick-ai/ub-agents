@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import re
+import unicodedata
 
 from .bots import is_bot, listed_bot
 from .errors import AgentError, GitHubError, LostOwnership
@@ -14,10 +15,27 @@ from .trust import LauncherTrust
 
 MAINTAINERS = {"maintain", "admin"}
 TRUSTED = MAINTAINERS | {"write"}
+HIDDEN_CONTENT_MARKER = "[hidden content removed]"
 
 
 def body_sha(body):
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def clean_outside_text(text):
+    """Replace hidden markup for input only; approval evidence stays raw."""
+    text = re.sub(r"<!--.*?(?:-->|\Z)", HIDDEN_CONTENT_MARKER, text, flags=re.DOTALL)
+    parts = []
+    in_format_run = False
+    for char in text:
+        if unicodedata.category(char) == "Cf":
+            if not in_format_run:
+                parts.append(HIDDEN_CONTENT_MARKER)
+            in_format_run = True
+        else:
+            parts.append(char)
+            in_format_run = False
+    return "".join(parts)
 
 
 class Roles:
@@ -230,7 +248,9 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
         cleared_groups[name] = frozenset(cleared)
     snapshot = {"title": content["title"], "body": content["body"]}
     for name, rows in groups.items():
-        snapshot[name] = [c for c in rows if not is_record(c) and
+        snapshot[name] = [c | {"body": clean_outside_text(c["body"])}
+                          if c["id"] in cleared_groups[name] else c
+                          for c in rows if not is_record(c) and
                           (roles.feedback(c.get("user")) or c["id"] in cleared_groups[name])]
     snapshot["withheld_counts"] = {name: sum(not is_record(c) for c in rows) - len(snapshot[name])
                                    for name, rows in groups.items()}
@@ -262,6 +282,8 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
             reason = f"Outside {name} edit; a maintainer must re-apply a trigger label"
         if reason:
             snapshot[name] = {"withheld": True, "reason": reason}
+        elif not trusted_author or changes:
+            snapshot[name] = clean_outside_text(snapshot[name])
     if read_only:
         return verdict(True, "Filtered input; pickup authorization is not required")
 

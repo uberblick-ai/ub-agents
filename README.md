@@ -192,6 +192,9 @@ warnings do not fail doctor; tailor the policy using repository evidence.
 Now add `needs-preparation` to an issue. In a public repository, a label added
 by someone with `maintain` or `admin` access starts work on an issue, and outside
 edits wait for their approval ([approvals](docs/approvals.md)).
+With approvals on, the launcher replaces HTML comments and Unicode format
+characters in cleared outside text with `[hidden content removed]` before agents
+receive it. This cleanup does not guarantee that agents see only what a maintainer saw.
 
 ## The starter workflow
 

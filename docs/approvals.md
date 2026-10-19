@@ -95,6 +95,26 @@ input; other GitHub comments are not input, even when project instructions ask
 agents to read comments. Outside edits during execution do not stop that run or
 change its input.
 
+Before supplying assignment context or `read` output, the launcher cleans outside
+text. Each HTML comment (`<!-- ... -->`), including comments inside code and an
+unterminated comment through the end of the text, becomes
+`[hidden content removed]`. Each consecutive run of Unicode format characters
+(category `Cf`, including zero-width characters, bidi controls and tag characters)
+becomes the same marker. Other text is unchanged.
+
+This cleanup applies to the title when the author is outside or its history
+includes an outside rename, and to the body when the author is outside or its
+history includes an outside body edit. Cleared outside comments, review bodies
+and review comments are cleaned too. Trusted authors' fields without outside
+edits and trusted or listed-bot feedback are unchanged byte for byte. Withheld
+fields remain withheld objects, and `withheld_counts` does not change.
+
+Approval checks, parking reasons, gates and gate keys use the raw GitHub text.
+Cleanup changes only what agents receive and is disabled with approvals off,
+which still reads no edit history. It does not guarantee that agents see only
+what the maintainer saw: link targets, collapsed sections and diffs can still
+carry unseen text.
+
 ## Reading other issues and PRs
 
 ```sh
