@@ -1008,8 +1008,12 @@ launchers: [operator]
         config = load_config(self.path)
         for remote in ('https://github.com/org/project', 'git@github.com:org/project.git',
                        'ssh://git@github.com/org/project.git'):
-            self.assertTrue(all(error is None for _, error in repository_checks(
-                config, lambda root, *args: str(root) if args[0] == 'rev-parse' else remote)))
+            for suffix in ('', '/', '.git', '.git/'):
+                with self.subTest(remote=remote, suffix=suffix):
+                    self.assertTrue(all(error is None for _, error in repository_checks(
+                        config, lambda root, *args: str(root) if args[0] == 'rev-parse'
+                        else remote.removesuffix('.git') + suffix, self.runner)))
+        self.assertEqual(self.runner.calls, [])
         self.runner.responses[("git", "-C", str(self.root), "rev-parse", "--show-toplevel")] = str(self.root.parent)
         self.runner.responses[("git", "-C", str(self.root), "remote", "get-url", "origin")] = "https://github.com/wrong/repo"
         self.github.metadata["full_name"] = "new-owner/new-project"
@@ -1028,6 +1032,73 @@ launchers: [operator]
         self.github.repository_error = AgentError("sk-repository-secret")
         self.assertEqual(self.one(self.diagnose(), "github-repository")["status"], "fail")
         self.assertEqual(self.one(self.diagnose(), "github-permissions")["status"], "skip")
+
+    def test_ssh_alias_matches_repository_in_doctor_online_and_offline(self):
+        remote_command = ("git", "-C", str(self.root), "remote", "get-url", "origin")
+        ssh_command = ("ssh", "-G", "--", "github.com-kihaki")
+        self.path.write_text(self.path.read_text().replace('org/project', 'back-channel/campfire-android'))
+        self.github.metadata['full_name'] = 'back-channel/campfire-android'
+        self.runner.responses[ssh_command] = 'host github.com-kihaki\nuser git\nhostname GitHub.COM\nport 22\n'
+        for remote in ('git@github.com-kihaki:back-channel/campfire-android',
+                       'ssh://git@github.com-kihaki/back-channel/campfire-android'):
+            for suffix in ('', '.git', '/', '.git/'):
+                for offline in (False, True):
+                    with self.subTest(remote=remote, suffix=suffix, offline=offline):
+                        self.runner.calls.clear()
+                        self.runner.responses[remote_command] = remote + suffix
+                        result = self.diagnose(offline=offline)
+                        self.assertTrue(result['ok'])
+                        self.assertEqual(self.one(result, 'repository-remote')['status'], 'ok')
+                        calls = [kwargs for command, kwargs in self.runner.calls if command == ssh_command]
+                        self.assertEqual(len(calls), 1)
+                        self.assertEqual(calls[0]['stdin'], subprocess.DEVNULL)
+                        self.assertEqual(calls[0]['timeout'], 20)
+
+    def test_ssh_alias_resolution_failures_preserve_remote_error_and_offer_ssh_remedy(self):
+        remote_command = ("git", "-C", str(self.root), "remote", "get-url", "origin")
+        ssh_command = ("ssh", "-G", "--", "github-work")
+        self.runner.responses[remote_command] = 'git@github-work:org/project.git'
+        for response in ('hostname other.example\n', 'host github-work\n', 'hostname github.com.evil.example\n',
+                         FileNotFoundError('ssh'), subprocess.TimeoutExpired('ssh', 20),
+                         UnicodeError('private output'),
+                         subprocess.CompletedProcess([], 1, 'hostname github.com\n', 'private error')):
+            for offline in (False, True):
+                with self.subTest(response=response, offline=offline):
+                    self.runner.responses[ssh_command] = response
+                    check = self.one(self.diagnose(offline=offline), 'repository-remote')
+                    self.assertEqual((check['status'], check['required']), ('fail', True))
+                    self.assertEqual(check['message'], 'origin must point to the configured GitHub repository')
+                    self.assertIn('git@github.com:org/project.git', check['remedy'])
+                    self.assertIn('SSH host alias for github.com', check['remedy'])
+
+    def test_wrong_repository_and_unsupported_remote_forms_never_consult_ssh(self):
+        remote_command = ("git", "-C", str(self.root), "remote", "get-url", "origin")
+        for remote in ('git@github-work:wrong/repo.git', 'ssh://git@github-work/wrong/repo.git',
+                       'https://github-work/org/project.git', 'user@github-work:org/project.git',
+                       'ssh://user@github-work/org/project.git', 'github-work:org/project.git',
+                       'ssh://git@github-work:22/org/project.git'):
+            with self.subTest(remote=remote):
+                self.runner.calls.clear()
+                self.runner.responses[remote_command] = remote
+                check = self.one(self.diagnose(offline=True), 'repository-remote')
+                self.assertEqual(check['status'], 'fail')
+                self.assertEqual(check['message'], 'origin must point to the configured GitHub repository')
+                self.assertFalse(any(command[0] == 'ssh' for command, _ in self.runner.calls))
+
+    def test_launch_accepts_ssh_alias_using_local_resolution(self):
+        def read_git(root, *args):
+            return str(root) if args[0] == 'rev-parse' else 'ssh://git@github-work/org/project.git'
+        self.runner.responses[("ssh", "-G", "--", "github-work")] = 'hostname github.com\n'
+        with patch('ub_agents.execution.git', side_effect=read_git), \
+                patch('ub_agents.execution.subprocess.run', self.runner), \
+                patch('ub_agents.refresh.git', side_effect=lambda root, *args:
+                      self.runner(['git', '-C', str(root), *args]).stdout.strip()), \
+                patch('ub_agents.cli.GitHub', return_value=self.github), \
+                patch('ub_agents.cli.Loop') as loop:
+            self.assertEqual(main(['--config', str(self.path), 'launch', '--once']), 0)
+            loop.return_value.launch.assert_called_once_with(once=True)
+        self.assertTrue(any(command == ('ssh', '-G', '--', 'github-work')
+                            for command, _ in self.runner.calls))
 
     def test_local_state_symlink_and_ignore(self):
         local = self.root / ".ub-agents"
