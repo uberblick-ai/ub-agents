@@ -23,7 +23,7 @@
     <p>Labels are the queue. You start a launcher, and it runs the agent whose label matches each issue or pull request. When the agent finishes, its outcome moves the labels on to the next role. <code>ub-agents init</code> sets up this starter workflow:</p>
 <pre><code><span class="k">needs-preparation</span>  issue-preparer  <span class="c">→</span> ready, or needs-human to ask
 <span class="k">ready</span>              implementer     <span class="c">→</span> a pull request with needs-review
-<span class="k">needs-review</span>       reviewer        <span class="c">→</span> ready-to-merge, or needs-changes back
+<span class="k">needs-review</span>       reviewer        <span class="c">→</span> ready-to-merge, or needs-changes <span class="c">→</span> implementer
 <span class="k">ready-to-merge</span>     integrator      <span class="c">→</span> merged, or needs-human for a maintainer</code></pre>
     <p>Each role is a few lines of YAML. It names a CLI such as <code>claude</code> or <code>codex</code>, a model, and instructions that live in your repository:</p>
 <pre><code><span class="k">implementer</span>:
@@ -33,7 +33,7 @@
     <span class="k">handed-off</span>: {add: [needs-review]}
   <span class="k">instructions</span>: .agents/implementer.md
   <span class="k">worktree</span>: true</code></pre>
-    <p>Rename a label, drop a role or add one; the launcher follows the file. After a run, agents report missing context, unclear rules and avoidable rework. Use their <a href="/docs/best-practices/retrospectives.html">retros</a> to fix the instructions once, instead of repeating the same correction in every chat. See <a href="/docs/how-the-loop-works.html">how the loop works</a> and the <a href="/docs/configuration/index.html">configuration docs</a>.</p>
+    <p>Rename a label, drop a role or add one; the launcher follows the file. After a run, agents report missing context, unclear rules and avoidable rework. Use their <a href="/docs/best-practices/retrospectives.html">retros</a> to improve the instructions instead of repeating the same correction in every chat. See <a href="/docs/how-the-loop-works.html">how the loop works</a> and the <a href="/docs/configuration/index.html">configuration docs</a>.</p>
   </section>
 
   <section>
