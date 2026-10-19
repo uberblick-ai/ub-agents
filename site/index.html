@@ -68,9 +68,9 @@
       <li>The checks that gate a merge, such as your CI, and a merge policy that says which changes wait for a maintainer.</li>
     </ul>
     <p>Agents run on your machine with the access you configure. Review their <a href="/docs/configuration/permissions.html">permissions</a> before launching. Work happens on branches, and your merge policy determines which changes need a maintainer. Outside issues and pull requests wait for authorization under the <a href="/docs/configuration/approvals.html">approval rules</a>. When an agent needs a decision, it marks the item <code>needs-human</code> and asks.</p>
-<pre><code><span class="p">$ </span>cd your-project
-<span class="p">$ </span>ub-agents init     <span class="c"># opens the setup wizard; review before Apply</span>
-<span class="p">$ </span>ub-agents launch   <span class="c"># runs the loop; q stops after the current run</span></code></pre>
+<pre><code><span class="c"># run in your local checkout</span>
+<span class="p">$ </span>ub-agents init
+<span class="p">$ </span>ub-agents launch</code></pre>
     <p><code>init</code> shows every change before applying it. Review the starter instructions and merge policy, merge them, and launch from a clean default-branch checkout. More capacity is one more <code>ub-agents launch</code>, on a teammate's laptop or a server; every launcher shares the same queue. See <a href="/docs/installation.html">installation</a> and <a href="/docs/guides/add-a-launcher.html">add more launchers</a>.</p>
   </section>
 </div>
