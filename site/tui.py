@@ -9,7 +9,7 @@ CL, CR = W_L - 6, W_R - 6  # content widths (border + 2 padding each side)
 # width and height. Lines and corners are drawn with CSS, one cell per column,
 # and every other non-ASCII glyph is held to one column.
 LINES = {'─': 'h', '┄': 'd'}
-CELLS = {'│': 'v', '╭': 'k tl', '╮': 'k tr', '╰': 'k bl', '╯': 'k br'}
+CELLS = {'│': 'v', '╭': 'corner tl', '╮': 'corner tr', '╰': 'corner bl', '╯': 'corner br'}
 
 def seg(t, c=None): return (t, c)
 def length(segs): return sum(len(t) for t, _ in segs)

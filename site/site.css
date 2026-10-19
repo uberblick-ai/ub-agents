@@ -70,9 +70,9 @@ pre code { font: inherit; background: none; padding: 0 }
 .term .acc { color: var(--term-acc) } .term .rule { color: var(--term-rule) } .term .dim { color: var(--term-dim) }
 .term .blue { color: var(--term-blue) } .term .red { color: var(--term-red) } .term .green { color: var(--term-green) }
 .term .g { display: inline-block; width: 1ch; text-align: center; font-style: normal }
-.term .v, .term .h, .term .d, .term .k, .term .sel { display: inline-block; vertical-align: top; height: 1.42em; position: relative }
-.term .v, .term .k { width: 1ch }
-.term .v::before, .term .h::before, .term .d::before, .term .k::before { content: ""; position: absolute; border: 0 solid currentColor }
+.term .v, .term .h, .term .d, .term .corner, .term .sel { display: inline-block; vertical-align: top; height: 1.42em; position: relative }
+.term .v, .term .corner { width: 1ch }
+.term .v::before, .term .h::before, .term .d::before, .term .corner::before { content: ""; position: absolute; border: 0 solid currentColor }
 .term .v::before { left: calc(50% - .5px); top: 0; bottom: 0; border-left-width: 1px }
 .term .h::before, .term .d::before { left: 0; right: 0; top: calc(50% - .5px); border-top-width: 1px }
 .term .d::before { border-top-style: dashed }
