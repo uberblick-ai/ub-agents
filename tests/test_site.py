@@ -68,6 +68,11 @@ class SiteTests(unittest.TestCase):
                                  f'<a href="codex://new?prompt={q}" title="Opens the Codex app"><svg>openai</svg>Codex</a></span>')
                 self.assertIn('{{discuss example}}', build.markdown('```text\n{{discuss example}}\n```')[1])
 
+    def test_shell_blocks_get_a_copy_button(self):
+        _, body = build.markdown('```sh\nub-agents init\n```\n\n```text\nub-agents init\n```')
+        self.assertEqual(body.count('class="copy-code"'), 1)
+        self.assertTrue(body.startswith('<div class="code"><pre class="lang-sh"><code><span class="p">$ </span>ub-agents init</code></pre><button'))
+
     def test_loop_page_navigation_diagrams_and_links(self):
         # Help expansion is unrelated to diagram rendering and would start a CLI
         # process for every command page during each test worker's discovery.

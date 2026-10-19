@@ -77,6 +77,23 @@ def highlight(code, lang):
         lines.append(esc)
     return '\n'.join(lines)
 
+# Shell blocks get a copy button; COPY_JS copies the commands without their "$ " prompts.
+COPY_BUTTON = ('<button class="copy-code" type="button" aria-label="Copy command" title="Copy">'
+               '<svg class="i-copy" aria-hidden="true" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/>'
+               '<path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"/></svg>'
+               '<svg class="i-done" aria-hidden="true" viewBox="0 0 16 16"><path d="m3 8.5 3 3 7-7"/></svg></button>')
+
+COPY_JS = '''<script>
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest && e.target.closest('.copy-code'); if (!btn) return;
+  var code = btn.parentNode.querySelector('code'), copy = code.cloneNode(true);
+  copy.querySelectorAll('.p').forEach(function (p) { p.remove(); });
+  function done() { btn.classList.add('done'); setTimeout(function () { btn.classList.remove('done'); }, 1600); }
+  function select() { var r = document.createRange(); r.selectNodeContents(code); var s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+  try { navigator.clipboard.writeText(copy.textContent).then(done, select); } catch (err) { select(); }
+});
+</script>'''
+
 def markdown(src):
     lines = src.split('\n')
     out, i, title = [], 0, None
@@ -88,7 +105,8 @@ def markdown(src):
             while not lines[j].startswith('```'):
                 j += 1
             code = '\n'.join(lines[i + 1:j])
-            out.append(f'<pre class="lang-{lang}"><code>{highlight(code, lang)}</code></pre>')
+            pre = f'<pre class="lang-{lang}"><code>{highlight(code, lang)}</code></pre>'
+            out.append(f'<div class="code">{pre}{COPY_BUTTON}</div>' if lang == 'sh' else pre)
             i = j + 1
         elif m := FLOW.fullmatch(line):
             svg = (ROOT / 'diagrams' / f'{m.group(1)}.svg').read_text()
@@ -271,7 +289,7 @@ def doc_page(pages, i):
     {pager(pages, i)}
   </main>
 </div>
-''' + FOOTER + MENU_JS + '\n</body>\n</html>\n')
+''' + FOOTER + MENU_JS + (COPY_JS if 'copy-code' in p['body'] else '') + '\n</body>\n</html>\n')
 
 def not_found():
     """404.html is served at any depth, so its links are root-absolute."""

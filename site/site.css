@@ -44,6 +44,13 @@ pre code { font: inherit; background: none; padding: 0 }
 .c, .p { color: var(--muted) }
 .p { user-select: none }
 .k { color: var(--accent) }
+.code { position: relative }
+.code pre { padding-right: 52px }
+.copy-code { position: absolute; top: 10px; right: 10px; display: flex; padding: 6px; color: var(--muted); background: var(--code); border: 1px solid var(--line); border-radius: 4px; cursor: pointer }
+.copy-code:hover { color: var(--fg); border-color: var(--muted) }
+.copy-code svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round }
+.copy-code .i-done, .copy-code.done .i-copy { display: none }
+.copy-code.done .i-done { display: block; color: var(--accent) }
 
 /* Landing */
 .wrap { max-width: 720px; margin: 0 auto }
