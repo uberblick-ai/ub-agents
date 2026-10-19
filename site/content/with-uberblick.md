@@ -13,20 +13,14 @@ ub-agents doesn't know about Uberblick. Your agents use it because their instruc
 
 ## Set it up
 
-Install the `ub` command first, then pick **Uberblick** under the extras in [`ub-agents init`](/docs/commands/init.html):
+Install Uberblick and connect your agent to it, in your project's checkout:
 
 ```sh
 brew install uberblick-ai/tap/uberblick
-ub-agents init
-```
-
-Init finds the workspace your checkout already uses, or offers to create a local one or join your team's. It then connects your agent to the workspace in the project and adds those files to the setup PR. When it can't, it prints the command to run yourself.
-
-For an existing setup, run this in your checkout and commit the file it writes:
-
-```sh
 ub mcp install claude   # or: ub mcp install codex
 ```
+
+Commit the file it writes, so every launcher picks it up. [Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the details.
 
 ## Let the agents use it
 
