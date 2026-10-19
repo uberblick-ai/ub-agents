@@ -46,7 +46,9 @@ it. Issue and PR reviewers share `needs-review`, so labels remain deduplicated.
 └
 ```
 
-Hints show only on the highlighted option. Disabled extras show their reason:
+Hints show only on the highlighted option. Disabled extras show their reason.
+In the inline prompt below, the Retrospectives label is also struck through when
+Discussions are off; its reason stays unstruck. The numbered prompt uses plain text.
 
 ```text
 ◆  Extras  (space selects, enter confirms)

@@ -73,7 +73,10 @@ class Question(App):
                     t.append("◼ " if picked else "◻ ", style=DIM if option.disabled else GREEN if picked else CYAN if on else DIM)
                 else:
                     t.append("● " if on else "○ ", style=GREEN if on else DIM)
-                t.append(option.label, style=DIM if option.disabled or not (on or index in self.checked) else "")
+                style = DIM if option.disabled or not (on or index in self.checked) else ""
+                if option.disabled and option.strike:
+                    style += " strike"
+                t.append(option.label, style=style)
                 hint = option.disabled or (option.hint if on else "")
                 if hint:
                     t.append(f" ({hint})", style=DIM)

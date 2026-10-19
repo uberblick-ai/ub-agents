@@ -292,7 +292,7 @@ class Flow:
         note = self.probes.discussions_note if self.probes else "unattended"
         options = [Option("priority", "Priorities", "order the queue by labels"),
                    Option("retrospectives", "Retrospectives", "agents post learnings per run; used to optimize delivery",
-                          "" if available else note),
+                          "" if available else note, strike=bool(self.probes and self.probes.discussions_off)),
                    Option("uberblick", "Uberblick", "shared knowledge for agents and humans",
                           "" if self.probes and self.probes.ub else f"needs ub: {UB_INSTALL}"),
                    Option("tailoring", "Tailor loop policy", "first loop issue drafts repository-specific rules")]

@@ -25,6 +25,7 @@ class Option:
     label: str
     hint: str = ""
     disabled: str = ""
+    strike: bool = False
 
 
 class Transcript:

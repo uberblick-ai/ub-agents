@@ -1,3 +1,4 @@
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import unittest
@@ -192,7 +193,11 @@ class ExistingSetupTests(unittest.TestCase):
 
     def test_board_preflight_errors_prevent_all_writes(self):
         self.starter()
-        for problem, remedy in [('disabled', 'Enable GitHub Discussions'), ('permission', 'cannot create requested boards'),
+        disabled = ("GitHub Discussions are turned off in org/project, so retrospective boards can't be created.\n"
+                    'Turn them on under Settings > General > Features > Discussions '
+                    '(https://github.com/org/project/settings; needs admin),\n'
+                    'then run ub-agents init --create-boards again.')
+        for problem, remedy in [('disabled', disabled), ('permission', 'cannot create requested boards'),
                                 ('duplicate', 'set the board numbers'), ('locked', 'repair Discussions write access')]:
             with self.subTest(problem=problem):
                 self.github.discussion_metadata['hasDiscussionsEnabled'] = problem != 'disabled'
@@ -202,10 +207,33 @@ class ExistingSetupTests(unittest.TestCase):
                     self.github.boards[204] = self.github.board(204, 'Implementer retrospectives')
                 if problem == 'locked':
                     self.github.boards[203]['locked'] = True
-                with self.assertRaisesRegex(AgentError, remedy):
+                with self.assertRaises(AgentError) as error:
                     self.run_flow(priorities=True)
+                self.assertIn(remedy, str(error.exception))
+                if problem == 'disabled':
+                    self.assertEqual(str(error.exception), remedy)
                 self.assertEqual(self.github.writes, [])
                 self.assertEqual(self.path.read_bytes(), self.before[self.path.relative_to(self.root)])
+
+    def test_cli_disabled_discussions_error_preserves_line_breaks(self):
+        self.starter()
+        self.github.discussion_metadata['hasDiscussionsEnabled'] = False
+        doctor = Doctor(runner=self.runner, which=lambda name: '/bin/' + name if name in self.installed else None,
+                        github=self.github)
+        with patch('ub_agents.cli.GitHub', return_value=self.github), \
+                patch('ub_agents.init_probes.Doctor', return_value=doctor), \
+                patch('subprocess.run', self.runner), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
+            code = main(['--config', str(self.path), 'init', '--create-boards', '--use-defaults'])
+        self.assertEqual(code, 1)
+        self.assertEqual(stderr.getvalue(),
+                         "ub-agents: GitHub Discussions are turned off in org/project, "
+                         "so retrospective boards can't be created.\n"
+                         'Turn them on under Settings > General > Features > Discussions '
+                         '(https://github.com/org/project/settings; needs admin),\n'
+                         'then run ub-agents init --create-boards again.\n')
+        self.assertEqual(self.github.writes, [])
+        self.assertEqual(self.path.read_bytes(), self.before[self.path.relative_to(self.root)])
 
     def test_unusual_layout_keeps_whole_file_and_prints_manual_entries(self):
         self.starter()

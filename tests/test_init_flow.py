@@ -19,7 +19,7 @@ from ub_agents.doctor import Doctor
 from ub_agents.errors import AgentError
 from ub_agents.init_flow import Flow
 from ub_agents.init_inline import Question
-from ub_agents.init_prompts import Cancelled, LinePrompter, Option, Transcript
+from ub_agents.init_prompts import DIM, Cancelled, LinePrompter, Option, Transcript
 from ub_agents.init_tailoring import BODY as TAILOR_BODY, TITLE as TAILOR_TITLE, command as tailoring_command
 
 
@@ -277,6 +277,34 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(retrospectives.disabled, 'Discussions are off in org/project')
         self.assertIn('Want retrospectives later? Turn on Discussions if needed, then run '
                       'ub-agents init --create-boards', text)
+
+    def test_retrospectives_label_is_struck_only_when_discussions_are_off(self):
+        metadata = self.github.discussion_metadata.copy()
+        cases = [({}, ''),
+                 ({'hasDiscussionsEnabled': False}, 'Discussions are off in org/project'),
+                 ({'viewerPermission': 'READ'}, "this account can't create discussions"),
+                 ({'discussionCategories': {'nodes': [], 'pageInfo': {'hasNextPage': False}}},
+                  'the repository has no discussion categories'),
+                 ({'hasDiscussionsEnabled': None}, "Discussions can't be checked")]
+        console = Console()
+        for change, disabled in cases:
+            with self.subTest(disabled=disabled):
+                self.github.discussion_metadata = metadata | change
+                self.run_flow(Script(Write=False))
+                options = self.script.options['Extras']
+                self.assertEqual(options[1].disabled, disabled)
+                rendered = Question({'kind': 'multi', 'message': 'Extras', 'options': options,
+                                     'cursor': 1, 'checked': {3}}).render_question()
+                label_start = rendered.plain.index('Retrospectives')
+                label_end = label_start + len('Retrospectives')
+                for offset in range(len(rendered)):
+                    style = rendered.get_style_at_offset(console, offset)
+                    in_label = label_start <= offset < label_end
+                    self.assertEqual(bool(style.strike), in_label and change.get('hasDiscussionsEnabled') is False)
+                    if in_label and disabled:
+                        self.assertEqual(style.color, console.get_style(DIM).color)
+                if disabled:
+                    self.assertIn(f'Retrospectives ({disabled})', rendered.plain)
 
     def test_questions_go_to_a_maintaining_team_or_the_logged_in_account(self):
         self.github.team_handles = ['@org/core']
@@ -627,9 +655,11 @@ class LinePrompterTests(unittest.TestCase):
 
     def test_disabled_extra_explains_why_before_retrying(self):
         options = [Option('priority', 'Priorities'),
-                   Option('retrospectives', 'Retrospectives', disabled='Discussions are off in org/project')]
+                   Option('retrospectives', 'Retrospectives', disabled='Discussions are off in org/project', strike=True)]
         value, output = self.ask('multiselect', ['1,2', '1'], 'Extras', options)
         self.assertEqual(value, ['priority'])
+        self.assertIn('  2. Retrospectives (Discussions are off in org/project)\n', output)
+        self.assertNotIn('\x1b', output)
         self.assertIn('Retrospectives is unavailable: Discussions are off in org/project', output)
 
     def test_plain_multiselect_takes_defaults_and_can_deselect_them(self):
@@ -657,7 +687,7 @@ class QuestionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.answer(question, 'right', 'l', 'h', 'enter'))[0], 'b')
 
     async def test_multiselect_toggles_but_skips_disabled(self):
-        options = [Option('a', 'A'), Option('b', 'B', disabled='off'), Option('c', 'C')]
+        options = [Option('a', 'A'), Option('b', 'B', disabled='off', strike=True), Option('c', 'C')]
         question = {'kind': 'multi', 'message': 'Pick', 'options': options, 'cursor': 0}
         self.assertEqual((await self.answer(question, 'space', 'down', 'space', 'down', 'space', 'enter'))[0],
                          ['a', 'c'])
