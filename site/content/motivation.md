@@ -20,9 +20,11 @@ So the agent is a setting per role, and a role can list alternatives. Your roles
 
 ## Developer machines sit idle
 
-Most developer laptops are fast machines with the whole toolchain set up, and much of the day they wait for their owner. That setup is also where your project builds and its tests run.
+Most developer laptops are fast machines, and much of the day they wait for their owner.
 
-So a launcher runs on the machine you already have, next to your own checkout. Agents check their work with the same tools you use. A teammate who starts a launcher adds capacity to the same queue. See [Add more launchers](/docs/guides/add-a-launcher.html).
+Your development machine already has the toolchain: language versions, dependencies, Docker and tests. A launcher can use that environment instead of requiring another one.
+
+Each agent works in its own worktree. Multiple machines can share the GitHub queue, with claims coordinating which launcher handles each item. See [Add more launchers](/docs/guides/add-a-launcher.html).
 
 ## One small server runs it around the clock
 
