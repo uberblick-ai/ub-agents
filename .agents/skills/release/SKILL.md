@@ -13,6 +13,11 @@ is a separate loop issue; this workflow starts after its PR has merged. Work fro
 a clean checkout at current `origin/main` with `gh`, Git and Python 3.14 available.
 Use literal versions, PR numbers and commit SHAs in commands below.
 
+The release task updates `website` to the release tag's commit immediately after
+pushing the tag, without force, before creating the GitHub release. Cloudflare
+Pages builds production from `website`; changes under `site/content/`, including
+docs fixes between releases, go live at the next release.
+
 1. Establish go/no-go. Identify the release-prep PR and confirm its `MERGED` state
    with `gh pr view NUMBER --repo uberblick-ai/ub-agents --json state,mergeCommit,url`.
    Fetch `origin/main`, verify HEAD equals it, and check `pyproject.toml` and the

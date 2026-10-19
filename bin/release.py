@@ -21,7 +21,7 @@ REPOSITORY = "uberblick-ai/ub-agents"
 TAP = "uberblick-ai/homebrew-tap"
 FORMULA = "Formula/ub-agents.rb"
 WORKFLOW = "test.yml"
-STEPS = ("annotated tag created", "tag pushed", "GitHub release created",
+STEPS = ("annotated tag created", "tag pushed", "website branch updated", "GitHub release created",
          "tap PR opened", "formula tests passed", "formula test result posted")
 RESOURCE = re.compile(r'^  resource "([^"\n]+)" do\n(?:    [^\n]*\n|\n)*  end\n', re.M)
 
@@ -296,6 +296,9 @@ class Release:
         self.links.append(f"Tag: https://github.com/{REPOSITORY}/tree/{tag} ({sha})")
         self.done()
         self.step = STEPS[2]
+        self.call("git", "-C", self.root, "push", "origin", f"{tag}^{{commit}}:refs/heads/website")
+        self.done()
+        self.step = STEPS[3]
         notes_file = workspace / "release-notes.md"
         notes_file.write_text(notes)
         self.call("gh", "release", "create", tag, "--repo", REPOSITORY, "--verify-tag",
@@ -303,7 +306,7 @@ class Release:
         release_url = f"https://github.com/{REPOSITORY}/releases/tag/{tag}"
         self.links.append(f"Release: {release_url}")
         self.done()
-        self.step = STEPS[3]
+        self.step = STEPS[4]
         url = f"https://github.com/{REPOSITORY}/archive/refs/tags/{tag}.tar.gz"
         archive = workspace / f"ub-agents-{version}.tar.gz"
         digest = self.fetch(url, archive)
@@ -333,7 +336,7 @@ class Release:
                        "--title", f"ub-agents {version}", "--body-file", body)
         self.links.append(f"Tap PR: {pr}")
         self.done()
-        self.step = STEPS[4]
+        self.step = STEPS[5]
         try:
             result = test_formula(self.run, self.fetch, python, workspace, archive, formula, version)
         except (ReleaseError, OSError, ValueError, KeyError, TypeError) as exc:
@@ -342,13 +345,13 @@ class Release:
             body.write_text(result)
             try:
                 self.call("gh", "pr", "comment", pr, "--repo", TAP, "--body-file", body)
-                self.completed.append(STEPS[5])
+                self.completed.append(STEPS[6])
             except (ReleaseError, OSError) as posting:
                 print(f"release: could not post formula failure: {posting}", file=sys.stderr)
             raise
         print(result, flush=True)
         self.done()
-        self.step = STEPS[5]
+        self.step = STEPS[6]
         body.write_text(result)
         self.call("gh", "pr", "comment", pr, "--repo", TAP, "--body-file", body)
         self.done()

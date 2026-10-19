@@ -376,6 +376,7 @@ class ReleaseTests(unittest.TestCase):
         tap = workspace / "tap"
         self.git("tag", "-a", TAG, SHA, "-m", f"ub-agents {VERSION}")
         self.git("push", "origin", f"refs/tags/{TAG}:refs/tags/{TAG}")
+        self.git("push", "origin", f"{TAG}^{{commit}}:refs/heads/website")
         self.notes_command = ["gh", "release", "create", TAG, "--repo", release.REPOSITORY, "--verify-tag",
                               "--title", f"ub-agents {VERSION}", "--notes-file", workspace / "release-notes.md"]
         self.respond(self.notes_command)
@@ -466,6 +467,15 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn(self.pr_url, output)
         self.assertEqual([url for url, _ in self.downloads], [URL, *[item["url"] for item in self.packages]])
         args = [args for args, _ in self.runner.calls]
+        self.assertEqual([call for call in args if "push" in call], [
+            ("git", "-C", str(self.root), "push", "origin", f"refs/tags/{TAG}:refs/tags/{TAG}"),
+            ("git", "-C", str(self.root), "push", "origin", f"{TAG}^{{commit}}:refs/heads/website"),
+            ("git", "-C", str(self.workspace / "tap"), "push", "origin",
+             f"HEAD:refs/heads/ub-agents-{VERSION}")])
+        website_index = args.index(("git", "-C", str(self.root), "push", "origin",
+                                   f"{TAG}^{{commit}}:refs/heads/website"))
+        self.assertLess(website_index, args.index(tuple(str(arg) for arg in self.notes_command)))
+        self.assertIn("release: website branch updated\n", output)
         positions = [next(index for index, call in enumerate(args) if word in call)
                      for word in ("tag", "push", "release", "clone", "create", "--version", "comment")]
         # The first 'create' is release creation; the tap PR must precede tests.
@@ -508,10 +518,32 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError, "GitHub unavailable") as raised:
             self.publish()
         message = tool.failure(raised.exception)
-        self.assertIn("Completed: annotated tag created, tag pushed", message)
+        self.assertIn("Completed: annotated tag created, tag pushed, website branch updated\n", message)
         self.assertIn("Still to do: GitHub release created, tap PR opened, formula tests passed", message)
         self.assertIn(TAG, message)
         self.assertFalse(any("clone" in args for args, _ in self.runner.calls))
+
+    def test_rejected_website_push_stops_and_reports_remaining_steps(self):
+        tool = self.publication()
+        self.git("push", "origin", f"{TAG}^{{commit}}:refs/heads/website",
+                 response=self.result(1, stderr="[rejected] website (non-fast-forward)"))
+        with patch.object(release, "Release", return_value=tool), \
+                patch.object(release, "preflight", return_value=(SHA, NOTES)), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()) as error:
+            self.assertEqual(release.main([VERSION]), 1)
+        message = error.getvalue()
+        self.assertIn("failed during website branch updated", message)
+        self.assertIn("non-fast-forward", message)
+        self.assertIn("Completed: annotated tag created, tag pushed\n", message)
+        self.assertIn("Still to do: website branch updated, GitHub release created, tap PR opened, "
+                      "formula tests passed, formula test result posted\n", message)
+        self.assertIn(f"Tag: https://github.com/{release.REPOSITORY}/tree/{TAG} ({SHA})", message)
+        self.assertEqual([args for args, _ in self.runner.calls], [
+            ("git", "-C", str(self.root), "tag", "-a", TAG, SHA, "-m", f"ub-agents {VERSION}"),
+            ("git", "-C", str(self.root), "push", "origin", f"refs/tags/{TAG}:refs/tags/{TAG}"),
+            ("git", "-C", str(self.root), "push", "origin", f"{TAG}^{{commit}}:refs/heads/website")])
+        self.assertEqual(self.downloads, [])
 
     def test_formula_failure_prints_and_posts_failure_without_merging(self):
         tool = self.publication()
@@ -520,7 +552,7 @@ class ReleaseTests(unittest.TestCase):
             self.publish()
         self.assertIn("Formula tests: FAIL", self.comment_body)
         self.assertIn("wrong configuration", self.comment_body)
-        self.assertEqual(tool.completed, [*release.STEPS[:4], release.STEPS[5]])
+        self.assertEqual(tool.completed, [*release.STEPS[:5], release.STEPS[6]])
         self.assertIn(self.pr_url, tool.failure(raised.exception))
         self.assertIn("Still to do: formula tests passed\n", tool.failure(raised.exception))
 
@@ -553,7 +585,7 @@ class ReleaseTests(unittest.TestCase):
         self.respond(self.comment_command, self.result(1, stderr="comment unavailable"))
         with self.assertRaisesRegex(release.ReleaseError, "comment unavailable") as raised:
             self.publish()
-        self.assertEqual(tool.completed, list(release.STEPS[:5]))
+        self.assertEqual(tool.completed, list(release.STEPS[:6]))
         self.assertIn("Still to do: formula test result posted", tool.failure(raised.exception))
 
 
