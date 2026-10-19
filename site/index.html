@@ -63,9 +63,9 @@
     <h2>Before you run it</h2>
     <p>You provide the machine, the accounts and the rules:</p>
     <ul>
-      <li>A Mac or Linux machine with git, an authenticated <code>gh</code> and your agent CLIs signed in. A laptop runs the loop while it is awake; an always-on server keeps it going overnight.</li>
+      <li>A Mac or Linux machine with your agent CLIs signed in. A laptop runs the loop while it is awake; an always-on server keeps it going overnight.</li>
       <li>A GitHub account for the launcher with write access to the repository. We recommend <a href="/docs/best-practices/launcher-account.html">a dedicated account</a>, not an admin.</li>
-      <li>The checks that gate a merge, such as your CI, and a merge policy that says which changes wait for a maintainer.</li>
+      <li>The checks that gate a merge, such as your CI.</li>
     </ul>
     <p>Agents run on your machine with the access you configure. Review their <a href="/docs/configuration/permissions.html">permissions</a> before launching. Work happens on branches, and your merge policy determines which changes need a maintainer. Outside issues and pull requests wait for authorization under the <a href="/docs/configuration/approvals.html">approval rules</a>. When an agent needs a decision, it marks the item <code>needs-human</code> and asks.</p>
 <pre><code><span class="c"># run in your local checkout</span>
