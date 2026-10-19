@@ -1,6 +1,6 @@
 # Add a launcher
 
-Run more launchers on other machines, or let teammates run one. They share one queue through GitHub, and a claim keeps two launchers off the same item.
+A launcher runs wherever you start it: your laptop, a teammate's, or any server you like. A laptop works while it is awake. For a loop that keeps going overnight, use an always-on machine, such as a small cloud server. All launchers for a project share one queue through GitHub, and a claim keeps two of them off the same item.
 
 ## On the new machine
 
@@ -30,15 +30,17 @@ launchers: [ub-bot, alice]
 
 ## Several launchers on one machine
 
-Each run gets its own worktree and scratch directory, and nothing else is checked. Runs from two launchers on one machine, in this project or another, can collide on shared resources: a Docker database, a fixed port, a shared cache. Give each run its own, for example by naming them after the worktree, and stop them in the [cleanup hook](/docs/configuration/cleanup.html). If that's not possible, run one launcher per machine.
+One machine can run several loops in parallel: one launcher per project, or several for one project, each in its own checkout. Each run gets its own worktree and scratch directory.
+
+Runs can still collide on resources outside the worktree, such as a Docker database, a fixed port or a shared cache. Give each run its own, for example by naming them after the worktree, and stop them in the [cleanup hook](/docs/configuration/cleanup.html).
 
 ## Keep versions together
 
 When a release note says launchers must be upgraded together, stop every launcher for the project before upgrading any. See [Upgrading](/docs/upgrading.html).
 
-## On a machine you log in to
+## On a server
 
-Run the launcher in tmux so it keeps running after you disconnect. Detach with Ctrl-b d.
+On a machine you log in to over SSH, run the launcher in tmux so it keeps running after you disconnect. Detach with Ctrl-b d.
 
 ```sh
 tmux new -A -s ub-agents      # attach, or create on first use

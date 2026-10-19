@@ -69,8 +69,6 @@ A nonzero exit, start failure or timeout makes ready items `waiting`, with the c
 
 `ub-agents status` runs the check itself, so it works without a launcher on the same machine. Claiming resumes automatically when the check passes, without `retry`. Checks do not interrupt active runs, stop recovery of recorded outcomes or reset previously parked items. `doctor --offline` validates the argv list without running it, and `doctor` does not run it. Project checks are separate from [daily runtime maintenance](/docs/configuration/runtime-updates.html).
 
-**Upgrading:** Upgrade every launcher of a project before adding `health-check`; older versions reject the unknown agent key.
-
 ## On conflict
 
 Send a pull request GitHub reports as conflicting straight to the agent that repairs it. Name one of this `pr` agent's outcomes that adds no stop label. After the claim, the launcher records that outcome with a summary naming the conflict instead of starting the agent, so the integrator does not spend a run only to send the conflict back. An unknown merge state starts the agent as usual.
@@ -79,8 +77,6 @@ Send a pull request GitHub reports as conflicting straight to the agent that rep
 integrator:
   on-conflict: changes-requested
 ```
-
-**Upgrading:** Upgrade every launcher of a project before adding `on-conflict`; older versions reject the unknown agent key.
 
 ## Outcomes
 

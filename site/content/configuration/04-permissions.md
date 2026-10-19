@@ -81,8 +81,6 @@ Runtime agents inherit the top-level mapping when they omit their own `runtime-a
 
 An agent's own `runtime-args` replaces the entire top-level mapping. It can be a list applying to every alternative or a mapping whose keys also appear in the agent's runtime list. An omitted CLI key in an agent mapping receives no arguments from the top level. An explicit `[]` or `{}` disables the defaults. YAML aliases can selectively reuse argument lists.
 
-Upgrade every launcher before adopting top-level `runtime-args` or agent mappings. Older builds reject these forms.
-
 ## Check
 
 `ub-agents doctor` warns when a runtime agent's effective arguments, after inheritance or replacement, leave any listed CLI with missing or empty arguments. Configure the top-level mapping or agent overrides to cover those CLIs. It does not test whether the arguments grant enough.

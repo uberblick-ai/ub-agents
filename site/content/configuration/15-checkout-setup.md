@@ -37,5 +37,3 @@ For a PR reviewer, setup installs the PR head's lockfile, so its install scripts
 A private-worktree setup failure counts toward the item's retry limit. Fix the hook or environment before using `ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"` to reset exhausted attempts.
 
 A failure ends the run before the agent starts, cleans up the private worktree, and reports the cause and log as a workspace-preparation failure. Interruption terminates setup like an interrupted agent. Timeout and interruption terminate and confirm the whole process group; crash recovery requires confirmed termination before releasing the item or removing the worktree. The item's stop labels, open state, trigger labels and candidate head are checked again after setup finishes.
-
-**Upgrading:** Upgrade every launcher before adding `checkout-setup` to the project's configuration. Older versions reject the unknown key.

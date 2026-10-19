@@ -7,7 +7,7 @@
 @font-face { font-family: "JetBrains Mono"; font-weight: 400 600; font-display: swap; src: url(/assets/fonts/jetbrains-mono.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD }
 :root {
   --bg: #f7f6f9; --fg: #1d1b24; --muted: #686476; --line: #dcd9e4; --accent: #6a4bd6; --code: #eeecf3;
-  --term-bg: #121019; --term-fg: #dcd9e6; --term-dim: #7f7a90; --term-rule: #3b3848; --term-acc: #ac94ff;
+  --term-bg: #121019; --term-fg: #dcd9e6; --term-dim: #7f7a90; --term-rule: #3b3848; --term-acc: #ac94ff; --term-sel: #262238;
   --term-blue: #73a9fb; --term-red: #ef766d; --term-green: #80c78d;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --term: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -70,6 +70,17 @@ pre code { font: inherit; background: none; padding: 0 }
 .term .acc { color: var(--term-acc) } .term .rule { color: var(--term-rule) } .term .dim { color: var(--term-dim) }
 .term .blue { color: var(--term-blue) } .term .red { color: var(--term-red) } .term .green { color: var(--term-green) }
 .term .g { display: inline-block; width: 1ch; text-align: center; font-style: normal }
+.term .v, .term .h, .term .d, .term .corner, .term .sel { display: inline-block; vertical-align: top; height: 1.42em; position: relative }
+.term .v, .term .corner { width: 1ch }
+.term .v::before, .term .h::before, .term .d::before, .term .corner::before { content: ""; position: absolute; border: 0 solid currentColor }
+.term .v::before { left: calc(50% - .5px); top: 0; bottom: 0; border-left-width: 1px }
+.term .h::before, .term .d::before { left: 0; right: 0; top: calc(50% - .5px); border-top-width: 1px }
+.term .d::before { border-top-style: dashed }
+.term .tl::before { left: calc(50% - .5px); top: calc(50% - .5px); right: 0; bottom: 0; border-width: 1px 0 0 1px; border-top-left-radius: 3px }
+.term .tr::before { left: 0; top: calc(50% - .5px); right: calc(50% - .5px); bottom: 0; border-width: 1px 1px 0 0; border-top-right-radius: 3px }
+.term .bl::before { left: calc(50% - .5px); top: 0; right: 0; bottom: calc(50% - .5px); border-width: 0 0 1px 1px; border-bottom-left-radius: 3px }
+.term .br::before { left: 0; top: 0; right: calc(50% - .5px); bottom: calc(50% - .5px); border-width: 0 1px 1px 0; border-bottom-right-radius: 3px }
+.term .sel { background: var(--term-sel); color: var(--term-acc) }
 .term .b { font-weight: 600 } .term .u { text-decoration: underline; text-underline-offset: 2px }
 .term .tab { background: var(--term-acc); color: var(--term-bg) }
 .term .green.dim, .term .acc.dim { opacity: .6 }
