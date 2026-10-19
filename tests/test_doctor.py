@@ -1004,6 +1004,15 @@ launchers: [operator]
                     self.assertIn('starter Merging section', check['message'])
                     self.assertEqual(len(self.checks(result, 'policy-placeholder')), int(owner == '@org/maintainers'))
 
+    def test_public_starter_merging_rule_still_warns_after_reflow(self):
+        policy = self.root / 'policy.md'
+        self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
+        starter = files('ub_agents').joinpath('templates/ub_agents.md').read_text()
+        policy.write_text(starter.replace('- changes setup, CI or release tooling;',
+            '- changes setup, CI or release tooling;\n'
+            '- is labelled `outside-input`\n  (built from outside text);'))
+        self.assertEqual(self.one(self.diagnose(offline=True), 'policy-merging')['status'], 'warn')
+
     def test_customized_or_absent_merging_section_has_no_starter_warning(self):
         policy = self.root / 'policy.md'
         self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')

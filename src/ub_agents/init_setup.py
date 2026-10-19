@@ -157,10 +157,6 @@ def make_plan(path, repository, choices):
               "- Build: `<project build command>`\n- Tests: `<project test command>`\n"
               "- Other checks: `<project lint or validation command>`")
     policy = templates.joinpath("ub_agents.md").read_text().replace("{checks}", checks)
-    if choices.visibility == "public":
-        policy = policy.replace("- changes setup, CI or release tooling;\n",
-                                "- changes setup, CI or release tooling;\n"
-                                "- is labelled `outside-input` (built from outside text);\n")
     if choices.owner:
         policy = policy.replace("; replace this handle with the\nproject's person or team", "").replace(
             "@org/maintainers", choices.owner)
@@ -177,6 +173,11 @@ def make_plan(path, repository, choices):
     plan = Plan(path, repository, targets, before, after, local_before, None, choices)
     plan.protect()
     plan.config = preview_config(content, path, {p.resolve() for p in targets})
+    if choices.visibility == "public" and plan.approvals == "on":
+        policy_path = root / ".agents" / "ub_agents.md"
+        plan.targets[policy_path] = policy.replace("- changes setup, CI or release tooling;\n",
+                                                 "- changes setup, CI or release tooling;\n"
+                                                 "- is labelled `outside-input` (built from outside text);\n")
     return plan
 
 

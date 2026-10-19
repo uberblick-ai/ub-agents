@@ -246,7 +246,7 @@ class FlowTests(unittest.TestCase):
         for visibility, override, labelled, merge_rule in (
                 ('public', None, True, True), ('private', None, False, False),
                 ('internal', None, False, False), ('private', 'on', True, False),
-                ('public', 'off', False, True)):
+                ('public', 'off', False, False)):
             with self.subTest(visibility=visibility, override=override):
                 self.setUp()
                 self.github.metadata['visibility'] = visibility

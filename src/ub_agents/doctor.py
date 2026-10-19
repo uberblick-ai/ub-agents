@@ -113,6 +113,7 @@ class Doctor:
                 return None
             # Init substitutes a person or team; that alone does not tailor the rules.
             normalized = re.sub(r"`@[A-Za-z0-9-]+(?:/[A-Za-z0-9._-]+)?`", "`@org/maintainers`", section[1])
+            normalized = " ".join(normalized.split())
             normalized = normalized.replace("- is labelled `outside-input` (built from outside text);", "")
             return " ".join(normalized.split())
 

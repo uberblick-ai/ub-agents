@@ -133,7 +133,7 @@ it alone, as they do the other launcher-owned workflow labels.
 
 The launcher gates no starts, inherited starts, parking or merges on this label.
 Applying it is not a maintainer start. Projects can refer to it in their own merge
-policy. On public repositories, `init` includes this rule in the new
+policy. On public repositories with approvals on, `init` includes this rule in the new
 `.agents/ub_agents.md` "Leave the merge to" list:
 
 ```markdown

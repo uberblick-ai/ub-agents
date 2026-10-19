@@ -44,7 +44,7 @@ Init offers to create the missing workflow labels, plus any extras you picked. T
 
 With [approvals on](/docs/configuration/approvals.html#outside-input-label), the
 optional labels include `outside-input` for work built from outside text. On
-public repositories, the new shared policy leaves PRs with that label to
+public repositories with approvals on, the new shared policy leaves PRs with that label to
 maintainers for merging. Existing policy files are kept unchanged.
 
 Fresh init selects **Tailor loop policy** by default and lists it in **Changes**. After opening the setup PR, it files **Tailor `.agents/ub_agents.md` to this repository** labeled `ready`; **Next** includes the issue's URL. The first loop issue asks the implementer to read the repository and propose its required CI check, additional maintainer merge rules and one to three review focus points. Every rule needs file evidence in the PR body; the issue says to avoid repeating the starter, agent guidance or general review advice. A maintainer merges the resulting policy PR.
