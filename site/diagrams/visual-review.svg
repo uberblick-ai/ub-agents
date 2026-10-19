@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ab" viewBox="0 0 542 460" width="542" height="460" role="img" aria-label="Flow: needs-review, reviewer, needs-visual-review, visual-review, ready-to-merge, human, The integrator merges, needs-changes. Legend: GitHub label, like ready, human involved">
+<style>.ab{--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--agent:var(--ab-agent,#0b6b67);--agent-bg:var(--ab-agent-bg,#dff1ee);--rework:var(--ab-rework,#a65f0c);--rework-bg:var(--ab-rework-bg,#fbefdc);--stop:var(--ab-stop,#b2382f);--stop-bg:var(--ab-stop-bg,#f9e2df);--done:var(--ab-done,#2a7845);--done-bg:var(--ab-done-bg,#e0f1e5);}@media (prefers-color-scheme:dark){.ab{--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--agent:var(--ab-agent,#5cc5bb);--agent-bg:var(--ab-agent-bg,#12302d);--rework:var(--ab-rework,#e3a250);--rework-bg:var(--ab-rework-bg,#33250f);--stop:var(--ab-stop,#ef7f73);--stop-bg:var(--ab-stop-bg,#3a1916);--done:var(--ab-done,#72cf91);--done-bg:var(--ab-done-bg,#142e1d);}}
+.ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
+.ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
+.ab .muted{fill:var(--muted)}.ab .b{font-weight:600}
+.ab .cap{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.08em;fill:var(--muted)}
+.ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
+.ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}</style>
+<defs>
+<marker id="visual-review-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
+<marker id="visual-review-rework" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-rework"/></marker>
+<marker id="visual-review-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
+</defs>
+<path d="M119,50 L119,80" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M119,126 L119,162" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M119,196 L119,270" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M221,103 L315,103" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M402,120 L402,156" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M402,202 L402,232" class="e e-stop" marker-end="url(#visual-review-stop)"/>
+<path d="M402,342 L402,372" class="e e-rework" marker-end="url(#visual-review-rework)"/>
+<path d="M277,287 L232,287 L232,179 L187,179" class="e e-stop" marker-end="url(#visual-review-stop)"/>
+<g><rect x="58" y="16" width="122" height="34" rx="17" class="pill"/>
+<circle cx="72" cy="33" r="5" class="t-agent"/>
+<text x="84" y="37" class="m s12">needs-review</text></g>
+<g>
+<rect x="16" y="80" width="205" height="46" rx="8" class="k-agent"/>
+<text x="119" y="99" text-anchor="middle" class="m s13 b t-agent">reviewer</text>
+<text x="119" y="116" text-anchor="middle" class="s11 muted">reviews the exact head commit</text>
+</g>
+<g><rect x="50" y="162" width="137" height="34" rx="17" class="pill"/>
+<circle cx="64" cy="179" r="5" class="t-done"/>
+<text x="76" y="183" class="m s12">ready-to-merge</text></g>
+<rect x="28" y="270" width="181" height="34" rx="17" class="k-done"/>
+<text x="119" y="291" text-anchor="middle" class="s12 b t-done">The integrator merges</text>
+<g><rect x="315" y="86" width="173" height="34" rx="17" class="pill"/>
+<circle cx="329" cy="103" r="5" class="t-agent"/>
+<text x="341" y="107" class="m s12">needs-visual-review</text></g>
+<g>
+<rect x="290" y="156" width="223" height="46" rx="8" class="k-agent"/>
+<text x="402" y="175" text-anchor="middle" class="m s13 b t-agent">visual-review</text>
+<text x="402" y="192" text-anchor="middle" class="s11 muted">posts screenshots and test steps</text>
+</g>
+<g><rect x="277" y="232" width="249" height="110" rx="10" class="k-stop panel"/>
+<rect x="345" y="244" width="115" height="30" rx="15" class="pill"/>
+<circle cx="359" cy="259" r="5" class="t-stop"/>
+<text x="371" y="263" class="m s12">needs-human</text>
+<text x="402" y="293" text-anchor="middle" class="s12 b">A person checks the screenshots</text>
+<text x="402" y="311" text-anchor="middle" class="s11 muted">or tries the branch,</text>
+<text x="402" y="329" text-anchor="middle" class="s11 muted">then approves or requests changes</text></g>
+<g><rect x="337" y="372" width="130" height="34" rx="17" class="pill"/>
+<circle cx="351" cy="389" r="5" class="t-rework"/>
+<text x="363" y="393" class="m s12">needs-changes</text></g>
+<text x="129" y="148" class="m s11">approved</text>
+<text x="231" y="96" class="m s11">ui-changed</text>
+<text x="412" y="221" class="m s11 t-stop">posted</text>
+<text x="412" y="361" class="m s11 t-rework">changes requested</text>
+<text x="197" y="172" class="m s11 t-stop">approved</text>
+<line x1="8" y1="422" x2="534" y2="422" class="rule"/>
+<g><rect x="16" y="436" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="442" r="3" class="t-done"/><text x="46" y="446" class="s11 muted">GitHub label, like ready</text></g>
+<g><rect x="212" y="436" width="24" height="12" rx="3" class="k-stop panel"/><text x="242" y="446" class="s11 muted">human involved</text></g>
+</svg>

@@ -1,0 +1,31 @@
+flow v0
+# A visual review after the reviewer: only UI changes wait for a person.
+
+columns main side
+
+pill needs-review col=main tone=agent
+box reviewer "reviews the exact head commit"
+pill ready-to-merge tone=done
+end merge "The integrator merges"
+
+pill needs-visual-review col=side row=reviewer tone=agent
+box visual-review row=ready-to-merge "posts screenshots and test steps"
+panel human row=merge tone=stop
+  pill needs-human
+  strong "A person checks the screenshots"
+  muted "or tries the branch,"
+  muted "then approves or requests changes"
+pill needs-changes col=side tone=rework
+
+needs-review --> reviewer
+reviewer --> ready-to-merge : approved
+ready-to-merge --> merge
+reviewer --> needs-visual-review : ui-changed
+needs-visual-review --> visual-review
+visual-review --> human tone=stop : posted
+human --> needs-changes tone=rework : changes requested
+human --> ready-to-merge tone=stop from=left to=right label=end : approved
+
+legend
+  pill tone=done "GitHub label, like ready"
+  panel tone=stop "human involved"
