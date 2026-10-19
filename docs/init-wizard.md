@@ -28,9 +28,9 @@ it. Issue and PR reviewers share `needs-review`, so labels remain deduplicated.
 ```
 
 ```text
-◆  Create 7 missing labels?
-│  Workflow:   needs-preparation, needs-changes, ready-to-merge
-│              trigger the loop; see https://agents.uberblick.ai/docs/configuration/
+◆  Create 8 missing labels?
+│  Workflow:   needs-preparation, needs-changes, ready-to-merge, outside-input
+│              used by the loop; see https://agents.uberblick.ai/docs/configuration/
 │  Priorities: prio:urgent, prio:high, prio:medium, prio:low
 │  ● Yes / ○ No
 └
@@ -158,7 +158,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 ◇  Set up an Uberblick workspace?
 │  Create a local workspace
 │
-◇  Create 7 missing labels?
+◇  Create 8 missing labels?
 │  Yes
 │
 ◇  Changes ─────────────────────────────────────────────────────────────────────────╮
@@ -166,7 +166,7 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 │  + ub-agents.yaml                                                                 │
 │  + .agents/ ub_agents.md and 5 role files                                         │
 │  ~ .gitignore +4 lines                                                            │
-│  + 7 labels on org/project                                                        │
+│  + 8 labels on org/project                                                        │
 │  + 5 retrospective boards (reused when the title exists)                          │
 │  + Tailor `.agents/ub_agents.md` to this repository · ready · file after the setup PR opens
 │  + .uberblick.json local Uberblick workspace                                      │
@@ -280,6 +280,9 @@ They set who answers the agents' questions to the first team with maintain or
 admin access, falling back to the current `gh` user, and print the choice and its
 source. If neither is readable, setup still completes, keeps the placeholder and
 prints `Replace @org/maintainers in .agents/ub_agents.md before launch`.
+Unless approvals are explicitly off, unattended init also tries to read repository
+visibility for the optional `outside-input` label and the public merge-policy
+rule. Unreadable visibility leaves those defaults unresolved; setup still completes.
 
 ```text
 ┌   ub-agents init  v0.3.1

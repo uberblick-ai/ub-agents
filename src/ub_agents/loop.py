@@ -13,6 +13,7 @@ from . import approvals as input_approvals
 from .agent_health import AgentHealth
 from .attention import latest_notice
 from .approvals import ApprovalCheck, resolve_policy
+from .labels import OUTSIDE_INPUT
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
 from .checkout_setup import discard_unused_baseline, preserve_baseline, run_setup
 from .coordination import Coordinator, Plan
@@ -1268,6 +1269,24 @@ class Loop:
                                     expires=iso(self.coordinator.clock()), summary=approval.reason)
             self.declined(plan, approval.reason, "parked")
             return True
+        if (self.approvals == "on" and approval.outside_input
+                and OUTSIDE_INPUT not in {label.casefold() for label in fresh.labels}):
+            self.coordinator.assert_owned(lease)
+            # If the label write and the subsequent withdrawal both fail, an
+            # expired pre-execution claim must still spend no attempt.
+            self.coordinator.update(lease, attempt_effect="unchanged")
+            try:
+                self.github.add_labels(fresh.number, [OUTSIDE_INPUT])
+            except LostOwnership:
+                raise
+            except (AgentError, OSError) as exc:
+                self.discovery.invalidate(fresh.number)
+                self.coordinator.assert_owned(lease)
+                self.coordinator.update(lease, state="withdrawn", started=False, attempt_effect="unchanged",
+                                        expires=iso(self.coordinator.clock()),
+                                        summary=f"Outside-input label write failed; retry: {exc}")
+                self.output(f"#{fresh.number}: outside-input label write failed; retry: {exc}")
+                return True
         if plan.agent.on_conflict and fresh.mergeable is False and fresh.head == plan.item.head:
             return self._route_conflict(plan, lease, fresh)
         plan = replace(plan, item=replace(plan.item, head_repository=fresh.head_repository,
@@ -1380,7 +1399,7 @@ class Loop:
             run_dir.mkdir(parents=True, exist_ok=True)
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, state="running", started=True,
-                                    host=socket.gethostname(), log_dir=str(run_dir))
+                                    attempt_effect="pending", host=socket.gethostname(), log_dir=str(run_dir))
             scratch.prepare()
             cwd = workspace.prepare()
             self.coordinator.update(lease, branch=lease.get("branch"))
@@ -1592,6 +1611,8 @@ class Loop:
         if matches is None or matches.configured != self.config.agents:
             matches = AgentMatches.for_item(plan.item, self.config.agents)
         workflow_labels = set(self.config.stop_labels).union(matches.workflow_triggers)
+        if self.approvals == "on":
+            workflow_labels.add(OUTSIDE_INPUT)
         for configured in self.config.agents:
             for changes in configured.outcomes.values():
                 workflow_labels.update(changes["add"])
@@ -1724,6 +1745,9 @@ class Loop:
         transition = self.validate_report(outcome)
         self.coordinator.assert_owned(lease)
         assignment = self.github.item(outcome["assignment"])
+        copied_labels = ({OUTSIDE_INPUT} if self.approvals == "on"
+                         and OUTSIDE_INPUT in {label.casefold() for label in assignment.labels}
+                         else set())
         target = outcome.get("handoff") or outcome["assignment"]
         destination = self.github.item(target)
         if not transition["started"]:
@@ -1745,12 +1769,13 @@ class Loop:
             if label in self.github.item(outcome["assignment"]).labels:
                 self.github.remove_label(outcome["assignment"], label)
         self.coordinator.assert_owned(lease)
-        missing = sorted(set(transition["add"]).difference(self.github.item(target).labels))
+        missing = sorted((set(transition["add"]) | copied_labels).difference(self.github.item(target).labels))
         if missing:
             self.github.add_labels(target, missing)
         for number in outcome.get("sub_issues", ()):
             self.coordinator.assert_owned(lease)
-            missing = sorted(set(transition["sub-issues"]["add"]).difference(self.github.item(number).labels))
+            missing = sorted((set(transition["sub-issues"]["add"]) | copied_labels)
+                             .difference(self.github.item(number).labels))
             if missing:
                 self.github.add_labels(number, missing)
         if not outcome.get("transition_complete"):

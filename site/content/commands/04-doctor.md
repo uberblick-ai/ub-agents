@@ -13,6 +13,9 @@ ub-agents doctor --json      # the same results, machine readable
 Doctor groups problems by machine, configuration, GitHub and agent CLIs, each with a fix. `--verbose` lists every check. It exits with 1 when a required check fails and 0 otherwise, so warnings alone don't fail it.
 
 When workflow labels are missing, doctor offers to create them. With `--json`, `--offline` or outside a terminal it creates nothing.
+With [approvals on](/docs/configuration/approvals.html#outside-input-label), a
+missing `outside-input` label produces a warning, like a missing stop label;
+neither prevents launch.
 
 When `shared-instructions` is configured, doctor warns once for each remaining starter placeholder: `@org/maintainers`, `<project build command>`, `<project test command>` and `<project lint or validation command>`. It also warns when the file's `## Merging` section still matches the starter word for word, ignoring line wrapping and any owner handle init substituted. Both checks run offline too and never make doctor fail.
 

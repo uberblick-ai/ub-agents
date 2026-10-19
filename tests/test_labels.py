@@ -24,7 +24,7 @@ class LabelTests(unittest.TestCase):
     def test_inventory_retains_all_consumers_and_deduplicates_case_insensitively(self):
         labels = configured_labels(self.config)
         self.assertEqual([label.name for label in labels],
-                         ['custom-start', 'custom-destination', 'legacy-state', 'custom-stop'])
+                         ['custom-start', 'custom-destination', 'legacy-state', 'custom-stop', 'outside-input'])
         self.assertEqual([use.agent for use in labels[1].uses], ['reviewer', 'worker'])
         self.assertEqual(labels[1].explanation, 'starts reviewer on a PR; added when worker reports done')
         self.assertEqual(labels[1].description, 'ub-agents: starts reviewer on a PR; added when worker reports done')
@@ -36,7 +36,7 @@ class LabelTests(unittest.TestCase):
     def test_workflow_colors_match_names_case_insensitively_with_a_fallback(self):
         expected = {'needs-preparation': 'c5def5', 'ready': '0e8a16', 'needs-review': 'fbca04',
                     'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db', 'custom-start': '1d76db',
-                    'needs-human': '1d76db'}
+                    'needs-human': '1d76db', 'outside-input': '1d76db'}
         for uppercase in (False, True):
             with self.subTest(uppercase=uppercase):
                 names = tuple(name.upper() if uppercase else name for name in expected)
@@ -48,10 +48,21 @@ class LabelTests(unittest.TestCase):
                       stop_labels=('ready', 'CUSTOM-STOP', 'needs-human'))
         labels = configured_labels(cfg)
         self.assertEqual({label.name: label.color for label in labels},
-                         {'READY': 'b60205', 'custom-stop': 'b60205', 'needs-human': 'b60205'})
+                         {'READY': 'b60205', 'custom-stop': 'b60205', 'needs-human': 'b60205',
+                          'outside-input': '1d76db'})
         for label in labels:
             command = shlex.split(label.command(cfg.repository))
-            self.assertEqual(command[command.index('--color') + 1], 'b60205')
+            self.assertEqual(command[command.index('--color') + 1], label.color)
+
+    def test_outside_input_is_optional_only_when_approvals_are_on(self):
+        for configured, resolved, expected in (('on', None, True), ('off', None, False),
+                                               (None, 'on', True), (None, 'off', False)):
+            with self.subTest(configured=configured, resolved=resolved):
+                labels = configured_labels(replace(self.config, approvals=configured), approvals=resolved)
+                outside = [label for label in labels if label.name == 'outside-input']
+                self.assertEqual(bool(outside), expected)
+                if outside:
+                    self.assertFalse(any(use.required for use in outside[0].uses))
 
     def test_description_keeps_whole_clauses_at_the_character_limit(self):
         effect = LabelUse('reviewer', 'starts reviewer on a PR')
@@ -73,7 +84,7 @@ class LabelTests(unittest.TestCase):
             with patch.object(output, 'isatty', return_value=True):
                 provision_labels(self.config, self.github)
         self.assertEqual([write[1] for write in self.github.writes],
-                         ['custom-destination', 'legacy-state', 'custom-stop'])
+                         ['custom-destination', 'legacy-state', 'custom-stop', 'outside-input'])
         self.assertIn('reports done', output.getvalue())
         self.assertIn('parks an issue or PR', output.getvalue())
 
@@ -84,7 +95,7 @@ class LabelTests(unittest.TestCase):
             with patch.object(output, 'isatty', return_value=True):
                 provision_labels(self.config, self.github)
         self.assertEqual(self.github.writes, [])
-        self.assertEqual(output.getvalue().count('gh label create '), 3)
+        self.assertEqual(output.getvalue().count('gh label create '), 4)
 
     def test_creation_commands_quote_label_names_and_descriptions(self):
         for name in ('needs review', "reviewer's input", 'label;$(echo unsafe)'):

@@ -198,6 +198,9 @@ edits wait for their approval ([approvals](docs/approvals.md)).
 With approvals on, the launcher replaces HTML comments and Unicode format
 characters in cleared outside text with `[hidden content removed]` before agents
 receive it. This cleanup does not guarantee that agents see only what a maintainer saw.
+Runs that receive outside text also carry `outside-input`; the launcher copies it
+to handoff PRs and started sub-issues. The label records provenance and does not
+gate work or merging. See [outside-input labels](docs/approvals.md#outside-input-label).
 
 ## The starter workflow
 

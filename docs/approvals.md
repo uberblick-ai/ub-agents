@@ -115,6 +115,40 @@ which still reads no edit history. It does not guarantee that agents see only
 what the maintainer saw: link targets, collapsed sections and diffs can still
 carry unseen text.
 
+## Outside-input label
+
+With approvals on, the launcher adds `outside-input` to the assigned issue or PR
+before the agent starts when its assignment input includes an outside author's
+title or body, an outside title or body edit, or cleared outside comments,
+reviews or review comments. Outside uses the [repository roles](#repository-roles)
+below. Trusted-bot feedback, withheld text and `read N` output of other items do
+not count. A failed label write prevents execution, spends no attempt and is
+retried on the next poll.
+
+When the assignment carries the label, an outcome's transition also adds it to
+the handoff PR and any qualifying sub-issues it starts. Recovery replays these
+copies. The label stays when comments are deleted. Maintainers may remove it; a
+later run adds it again if that run's input includes outside text. Agents leave
+it alone, as they do the other launcher-owned workflow labels.
+
+The launcher gates no starts, inherited starts, parking or merges on this label.
+Applying it is not a maintainer start. Projects can refer to it in their own merge
+policy. On public repositories, `init` includes this rule in the new
+`.agents/ub_agents.md` "Leave the merge to" list:
+
+```markdown
+- is labelled `outside-input` (built from outside text);
+```
+
+With approvals on, `init` offers to create the label and `doctor` warns if it is
+missing, just as for an optional stop label. A missing label does not prevent
+`launch`; GitHub creates it when the launcher first adds it. With approvals off,
+the launcher does not add, copy or list the label and makes no additional reads.
+
+**Upgrading:** Existing projects can create the label with `ub-agents doctor`
+and add the merge-policy line to their own `.agents/ub_agents.md`. Init does not
+edit existing policy files.
+
 ## Reading other issues and PRs
 
 ```sh

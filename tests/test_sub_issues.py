@@ -110,6 +110,35 @@ class SubIssueTests(unittest.TestCase):
             self.loop.apply_transition(lease, outcome)
         self.assertEqual([w[1] for w in self.github.writes if w[0] == 'add-labels'], [2])
 
+    def test_outside_input_copies_to_children_only_with_approvals_on(self):
+        for approvals in ('on', 'off'):
+            with self.subTest(approvals=approvals):
+                self.reset(approvals)
+                self.github.change(1, labels=self.github.item(1).labels | {'outside-input'})
+                self.split()
+                for number in (2, 3, 4):
+                    self.assertEqual('outside-input' in self.github.item(number).labels, approvals == 'on')
+
+    def test_recovery_copies_outside_input_to_every_recorded_child(self):
+        self.github.change(1, labels=self.github.item(1).labels | {'outside-input'})
+        lease, outcome = self.claim_and_report(lambda _: self.child(3))
+        def interrupt(number, labels):
+            if number == 3:
+                raise AgentError('Label write failed')
+            self.label(number, labels)
+        with patch.object(self.github, 'add_labels', side_effect=interrupt), \
+                self.assertRaisesRegex(AgentError, 'Label write failed'):
+            self.loop.apply_transition(lease, outcome)
+        self.assertIn('outside-input', self.github.item(2).labels)
+        self.assertNotIn('outside-input', self.github.item(3).labels)
+        self.now += 61
+        with patch.object(self.github, 'add_labels', side_effect=self.label), \
+                patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+            self.assertTrue(self.new_loop().tick())
+        for number in (2, 3):
+            self.assertIn('outside-input', self.github.item(number).labels)
+        self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
+
     def test_lost_ownership_stops_before_labeling_another_child(self):
         lease, outcome = self.claim_and_report(lambda _: self.child(3))
         def lose_lease(number, labels):

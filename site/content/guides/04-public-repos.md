@@ -10,6 +10,7 @@ Anyone can open issues, comment and send pull requests on a public repository. A
 - Outside edits after the start stop the item until a maintainer starts it again.
 - Hidden markup, such as HTML comments and invisible characters, is removed from outside text before agents read it.
 - Fork pull requests are reviewed as a diff. Their code never runs on a launcher; your CI tests them.
+- Work assigned outside text carries `outside-input`, including its handoff PRs and started sub-issues. The label stays after comments are deleted.
 
 ## What a start means
 
@@ -23,3 +24,8 @@ Read an outside issue as if you were about to do the work yourself:
 ## Limit what a start can reach
 
 Agents can do only what the launcher account and machine allow. Set those up as in [Give launchers their own account](/docs/best-practices/launcher-account.html).
+
+New public-repository policies from `init` leave PRs labelled `outside-input` to
+maintainers for merging. Existing projects can create the optional label with
+`ub-agents doctor` and add the same rule to `.agents/ub_agents.md`. The launcher
+does not gate work or merges on it; your merge policy decides what it means.

@@ -28,7 +28,7 @@ agents:
 """)
         self.runner = RecordingRunner(self.root)
         self.github = DoctorGitHub()
-        self.github.label_names = ["ready", "start", "review", "old", "needs-human"]
+        self.github.label_names = ["ready", "start", "review", "old", "needs-human", "outside-input"]
         self.clean = self.enterContext(patch("ub_agents.cleanup.Cleaner.clean"))
 
     def response(self, arguments, value):

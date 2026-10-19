@@ -44,6 +44,7 @@ class Probes:
         self.actor = None
         self.teams = []
         self.approvals = ""
+        self.visibility = None
 
     def collect(self, name, summary=()):
         group = Group(name, [part for part in summary if part])
@@ -84,6 +85,10 @@ class Probes:
         github = self.collect("GitHub", [actor, config.repository])
         if metadata and not github.problems:
             github.summary.append("labels writable")
+        try:
+            self.visibility = repository_visibility(metadata)
+        except AgentError:
+            self.visibility = None
         try:
             value, source = resolve_policy(config.approvals, lambda: repository_visibility(metadata))
             self.approvals = f"Approvals: {value} ({source})"

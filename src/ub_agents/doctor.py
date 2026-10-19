@@ -71,6 +71,7 @@ class Doctor:
         self.checks = []
         self.config = None
         self.missing_labels = []
+        self.approvals = None
 
     def add(self, id, status, message, remedy=None, *, required=True, agent=None, runtime=None, uses=None):
         # Scope repeated checks with stable configuration identities.
@@ -112,6 +113,7 @@ class Doctor:
                 return None
             # Init substitutes a person or team; that alone does not tailor the rules.
             normalized = re.sub(r"`@[A-Za-z0-9-]+(?:/[A-Za-z0-9._-]+)?`", "`@org/maintainers`", section[1])
+            normalized = normalized.replace("- is labelled `outside-input` (built from outside text);", "")
             return " ".join(normalized.split())
 
         starter = files("ub_agents").joinpath("templates/ub_agents.md").read_text(encoding="utf-8")
@@ -202,6 +204,10 @@ class Doctor:
                 self.add("github-auth", "skip", "gh unavailable")
             if config and gh_ready:
                 metadata = self.repository_access(config, github)
+                try:
+                    self.approvals, _ = resolve_policy(config.approvals, lambda: repository_visibility(metadata))
+                except AgentError:
+                    self.approvals = None
                 self.labels(config, github)
                 roles = Roles(github)
                 if login:
@@ -410,7 +416,7 @@ class Doctor:
             self.add("github-labels", "fail", self.github_failure("labels", exc),
                      f"Authenticate with gh auth login and obtain access to {config.repository}")
             return
-        for label in configured_labels(config):
+        for label in configured_labels(config, approvals=self.approvals):
             present = label.name.casefold() in existing
             required = any(use.required for use in label.uses)
             self.add(f"github-label:{label.name}", "ok" if present else "fail" if required else "warn",

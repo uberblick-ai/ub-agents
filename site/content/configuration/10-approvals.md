@@ -41,6 +41,33 @@ still use the raw GitHub text.
 This cleanup does not guarantee that agents see only what a maintainer saw.
 Link targets, collapsed sections and diffs can still carry unseen text.
 
+## Outside-input label
+
+With approvals on, runs that receive outside authors' titles or bodies, outside
+title or body edits, or cleared outside comments, reviews or review comments get
+`outside-input` before the agent starts. A failed label write prevents the run
+and spends no attempt; the next poll retries. Trusted-bot feedback, withheld text
+and reading other items with `read N` do not count.
+
+A labelled assignment passes the label to its handoff PR and the sub-issues its
+outcome starts, including during recovery. It survives comment deletion.
+Maintainers may remove it; a later run receiving outside text adds it again.
+Agents leave it alone. The launcher gates nothing on the label, and applying it
+does not start work. With approvals off, it is not added, copied or listed and
+causes no additional reads.
+
+The label is optional: `init` offers to create it, `doctor` warns when it is
+missing, and `launch` still works. On public repositories, new init policies leave
+PRs labelled `outside-input` to maintainers for merging.
+
+**Upgrading:** Run `ub-agents doctor` to create the label, and add this line to
+your policy's "Leave the merge to" list in `.agents/ub_agents.md`. Init keeps
+existing files.
+
+```markdown
+- is labelled `outside-input` (built from outside text);
+```
+
 ## Outside pull requests
 
 A pull request from outside the team needs a maintainer's trigger label and an approving review of its exact head commit. Accepted agent revisions from an eligible head inherit eligibility in the base repository. Agents can review fork pull requests but never push to them.

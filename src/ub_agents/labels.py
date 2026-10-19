@@ -16,6 +16,7 @@ WORKFLOW_COLORS = {
     "needs-changes": "d93f0b",
     "ready-to-merge": "1d76db",
 }
+OUTSIDE_INPUT = "outside-input"
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,7 @@ class Label:
                            "--description", self.description, "--color", self.color])
 
 
-def configured_labels(config):
+def configured_labels(config, *, approvals=None):
     """Deduplicate names and retain every consumer, with effects before transitions."""
     labels = {}
 
@@ -77,6 +78,8 @@ def configured_labels(config):
                 add(name, LabelUse(agent.name, f"added to sub-issues when {agent.name} reports {outcome}"))
     for name in config.stop_labels:
         add(name, LabelUse(None, "parks an issue or PR until a person decides", required=False), effect=True)
+    if (approvals or config.approvals) == "on":
+        add(OUTSIDE_INPUT, LabelUse(None, "built from outside text", required=False), effect=True)
     stops = {name.casefold() for name in config.stop_labels}
     return [Label(name, tuple(effects + transitions),
                   color="b60205" if name.casefold() in stops else WORKFLOW_COLORS.get(name.casefold(), "1d76db"))

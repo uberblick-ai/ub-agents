@@ -90,9 +90,9 @@ class InitTests(unittest.TestCase):
         self.assertIsNone(config.checkout_setup)
         self.assertIn('# checkout-setup:', self.path.read_text())
         self.assertIn('#   when-changed: [pnpm-lock.yaml, mise.toml]', self.path.read_text())
-        names = [label.name for label in configured_labels(config)]
+        names = [label.name for label in configured_labels(config, approvals='on')]
         self.assertEqual(set(names), {'needs-preparation', 'ready', 'needs-human', 'needs-changes',
-                                     'needs-review', 'ready-to-merge'})
+                                     'needs-review', 'ready-to-merge', 'outside-input'})
         self.assertEqual([command[3] for command in self.commands(output)], names)
         for command in self.commands(output):
             self.assertEqual(command[4:6], ['--repo', 'org/project'])
@@ -116,6 +116,15 @@ class InitTests(unittest.TestCase):
                          ['issue-preparer', 'issue-reviewer', 'implementer', 'reviewer', 'integrator'])
         self.assertEqual(config.shared_instructions, self.path.parent / '.agents/ub_agents.md')
         self.assertTrue(all(agent.worktree for agent in config.agents))
+
+    def test_unattended_off_adds_no_visibility_read_or_outside_input_defaults(self):
+        self.path.parent.mkdir()
+        (self.path.parent / 'ub-agents.local.yaml').write_text('approvals: off\n')
+        with patch.object(self.github, 'visibility', side_effect=AssertionError('new read')):
+            code, output, error, _ = self.init()
+        self.assertEqual((code, error), (0, ''))
+        self.assertNotIn('outside-input', output)
+        self.assertNotIn('outside-input', (self.path.parent / '.agents/ub_agents.md').read_text())
 
     def test_default_and_claude_starters_pass_offline_doctor_with_and_without_permissions(self):
         for runtime in (None, 'claude:opus:high'):
@@ -294,7 +303,7 @@ class InitTests(unittest.TestCase):
                 code, output, _, prompt = self.init(terminal=terminal, stdout_terminal=stdout_terminal, ci=ci,
                                                   permissions_answer='yes')
                 self.assertEqual(code, 0)
-                self.assertEqual(len(self.commands(output)), 6)
+                self.assertEqual(len(self.commands(output)), 7)
                 self.assertEqual(self.github.reads, ['repos/org/project/teams', 'user'])
                 self.assertEqual(self.github.writes, [])
                 prompt.assert_not_called()
@@ -402,7 +411,8 @@ class InitTests(unittest.TestCase):
             'needs-changes': 'ub-agents: starts implementer on an issue or PR; added when reviewer reports changes-requested',
         }
         colors = {'needs-preparation': 'c5def5', 'ready': '0e8a16', 'needs-review': 'fbca04',
-                  'needs-human': 'b60205', 'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db'}
+                  'needs-human': 'b60205', 'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db',
+                  'outside-input': '1d76db'}
         for terminal, answer in ((False, ''), (True, 'no')):
             with self.subTest(terminal=terminal, answer=answer), tempfile.TemporaryDirectory() as directory:
                 self.path = Path(directory) / 'ub-agents.yaml'

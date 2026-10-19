@@ -125,6 +125,13 @@ class Flow:
             names = [c["name"] for c in repo["discussionCategories"]["nodes"]]
             category = "General" if "General" in names else names[0]
             choices.board_requests = {role: boards.request(board_title(role), category, repo) for role in ROLES}
+        if self.probes:
+            choices.visibility = self.probes.visibility
+        elif make_plan(self.path, self.repository, choices).config.approvals != "off":
+            try:
+                choices.visibility = self.github.visibility()
+            except PROBE_ERRORS:
+                pass
         plan = make_plan(self.path, self.repository, choices)
         labels = self.choose_labels(plan)
         self.confirm_write(plan, labels)
@@ -340,7 +347,8 @@ class Flow:
         if existing is None:
             return []
         missing = {}
-        groups = {"workflow": configured_labels(plan.config), "priority": priority_labels(plan.choices)}
+        groups = {"workflow": configured_labels(plan.config, approvals=plan.approvals),
+                  "priority": priority_labels(plan.choices)}
         for group, labels in groups.items():
             for label in labels:
                 if label.name.casefold() not in existing:
@@ -350,7 +358,7 @@ class Flow:
         names = {group: ", ".join(label.name for g, label in missing.values() if g == group) for group in groups}
         note = []
         if names["workflow"]:
-            note += [f"Workflow:   {names['workflow']}", f"            trigger the loop; see {WORKFLOW_GUIDE}"]
+            note += [f"Workflow:   {names['workflow']}", f"            used by the loop; see {WORKFLOW_GUIDE}"]
         if names["priority"]:
             note.append(f"Priorities: {names['priority']}")
         message = f"Create {len(missing)} missing label{'s' if len(missing) > 1 else ''}?"
@@ -479,7 +487,7 @@ class Flow:
             steps.append("Want retrospectives later? Turn on Discussions if needed, then run ub-agents init --create-boards")
         self.t.note("Next", [f"{index}. {step}" for index, step in enumerate(steps, 1)])
         created = {label.name.casefold() for label in labels}
-        pending = [label for label in configured_labels(plan.config) + priority_labels(plan.choices)
+        pending = [label for label in configured_labels(plan.config, approvals=plan.approvals) + priority_labels(plan.choices)
                    if label.name.casefold() not in created and
                    (self.probes is None or self.probes.existing_labels is None or
                     label.name.casefold() not in self.probes.existing_labels)]

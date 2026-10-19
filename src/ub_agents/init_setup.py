@@ -60,6 +60,7 @@ class Choices:
     priority_labels: tuple[str, ...] = ()
     retrospectives: dict[str, int] = field(default_factory=dict)
     board_requests: dict = field(default_factory=dict)
+    visibility: str | None = None
 
 
 @dataclass
@@ -72,6 +73,14 @@ class Plan:
     local_before: bytes | None
     config: object
     choices: Choices
+
+    @property
+    def approvals(self):
+        if self.config.approvals is not None:
+            return self.config.approvals
+        if self.choices.visibility is not None:
+            return "on" if self.choices.visibility == "public" else "off"
+        return None
 
     def protect(self):
         existing = [str(p) for p in self.targets if p.exists() or p.is_symlink()]
@@ -148,6 +157,10 @@ def make_plan(path, repository, choices):
               "- Build: `<project build command>`\n- Tests: `<project test command>`\n"
               "- Other checks: `<project lint or validation command>`")
     policy = templates.joinpath("ub_agents.md").read_text().replace("{checks}", checks)
+    if choices.visibility == "public":
+        policy = policy.replace("- changes setup, CI or release tooling;\n",
+                                "- changes setup, CI or release tooling;\n"
+                                "- is labelled `outside-input` (built from outside text);\n")
     if choices.owner:
         policy = policy.replace("; replace this handle with the\nproject's person or team", "").replace(
             "@org/maintainers", choices.owner)
