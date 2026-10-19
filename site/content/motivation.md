@@ -20,7 +20,7 @@ So the agent is a setting per role, and a role can list alternatives. Your roles
 
 ## Developer machines sit idle
 
-Most developer laptops are fast machines, and much of the day they wait for their owner.
+Most developer laptops are fast machines, and much of the day they wait for their owner. We'd rather leave ours running overnight than pay a hosted agent another five dollars to fix a simple bug.
 
 Your development machine already has the toolchain: language versions, dependencies, Docker and tests. A launcher can use that environment instead of requiring another one.
 
