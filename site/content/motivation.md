@@ -8,7 +8,7 @@ The first version was a small script. Most of the work since then has been deali
 
 ## Why not just write a script?
 
-You can. Polling GitHub and starting an agent is straightforward. The harder parts are coordinating several launchers, recovering interrupted runs, limiting review cycles and keeping track of what happened. ub-agents packages those parts, so each project doesn't have to solve them again. If your workflow is simple enough for a short script, use the script.
+You can. Polling GitHub and starting an agent is straightforward. The harder parts are coordinating several launchers, recovering interrupted runs, limiting review cycles and keeping track of what happened. ub-agents packages those parts, so each project doesn't have to solve them again. Plus it has a nifty [terminal UI](/docs/commands/launch.html). If your workflow is simple enough for a short script, use the script.
 
 ## No platform to run
 
