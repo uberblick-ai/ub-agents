@@ -1340,8 +1340,9 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                 terminal.send(b'?')
                 help_view = terminal.checkpoint(lambda value: value['screen'] == 'KeyHelp')
                 self.assertEqual(help_view['screen'], 'KeyHelp')
-                for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Log', 'g on Issue', 'f   ', 'h   ',
-                            'u   ', 'p   ', 'Page Up', 'Page Down', 'Home', 'End', 'Escape', 'q   ', 'Ctrl-C'):
+                for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3   Agent / Issue / Runs',
+                            'g on Agent', 'g on Issue', 'f   ', 'h   ', 'u   ', 'p   ', 'Page Up', 'Page Down',
+                            'Home', 'End', 'Escape', 'q   ', 'Ctrl-C'):
                     self.assertIn(key, help_view['modal'])
                 terminal.send(b'?')
                 self.assertNotEqual(terminal.checkpoint(lambda value: value['screen'] != 'KeyHelp')['screen'], 'KeyHelp')

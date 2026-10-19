@@ -38,9 +38,9 @@ with its own loop.
 `ub-agents launch` opens a live view of its own work. An example session:
 
 ```text
-╭─ Work · pass complete ─────────────────────╮ ╭─ Log ─────────────────────────────────────────────────────────╮
+╭─ Work · pass complete ─────────────────────╮ ╭─ Agent ───────────────────────────────────────────────────────╮
 │                                            │ │                                                               │
-│  Running · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   1 Log  2 Issue  3 Runs │ Formatted  Raw (u)                 │
+│  Running · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   1 Agent  2 Issue  3 Runs │ Formatted  Raw (u)               │
 │  ⠇ #248 Refresh the queue while an… 04:13  │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
 │    implementer · this launcher · attempt…  │ │  #248 Refresh the queue while an agent runs                   │
 │                                            │ │  implementer · claude opus high · attempt 1                   │
@@ -74,8 +74,9 @@ ub-agents · running assignment                                                 
 
 The item tab bar shows `│ Formatted  Raw (u)` on every tab. Press `u` to toggle
 the selected log's mode; the active label stays accented (Formatted underlined,
-Raw reversed). The muted shortcut shortens to `u` when space is tight, including
-the 60-column item view with all four tabs. Clicking the indicator has no effect.
+Raw reversed). The muted shortcut shortens to `u` when space is tight; the
+60-column item view with all four tabs also uses one space between the mode labels.
+Clicking the indicator has no effect.
 
 The footer keeps navigation hints brief: `1-3 tabs ? keys q quit` in follow mode,
 or `? keys q quit` in the narrow Work list. Arrow keys still select rows and

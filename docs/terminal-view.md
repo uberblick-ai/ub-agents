@@ -47,7 +47,7 @@ and text shortened with `…` end inside the right padding.
 Tab labels have one space on either side, so labels sit one column right of the
 shared header and the inverted active tab has equal padding on both sides.
 
-Scrollbars stay hidden at rest in live Work, Recent activity, Log output, Issue,
+Scrollbars stay hidden at rest in live Work, Recent activity, Agent, Issue,
 Runs, Unblock and the `p`/`?` overlays. Scrolling with the wheel or keys, moving the cursor enough to
 scroll, or dragging a visible bar shows only that area's muted, one-column bar.
 It hides 1.5 seconds after the last scroll. Hovering or dragging keeps it visible;
@@ -58,7 +58,7 @@ positions and resizing do not show a bar.
 
 An ordinary mouse click on the shared header's `#N` or `⌥N` reference opens that
 issue or PR in the default browser, using the attached session's repository.
-This works on Log, Issue, Runs and Unblock, including the narrow item view and
+This works on Agent, Issue, Runs and Unblock, including the narrow item view and
 shortened titles. Only the marker and number open a page; the title, metadata
 (including linked handoff PRs), rule and blank space do not. Missing or malformed
 repository or item numbers leave the reference inert. The terminal must deliver
@@ -115,7 +115,7 @@ dimension, one pane fills the terminal width with the same padding: Work, or the
 selected item's tabs. `Enter` on a live or Recent activity row opens its tabs on
 the last active tab; `Esc` returns to Work with the same row selected. Help and
 raw-access overlays close first on `Esc`. The item view keeps the shared header,
-tab bar, formatted/raw indicator and Log status line.
+tab bar, formatted/raw indicator and Agent status line.
 
 Narrowing shows the item view when the item pane had focus, otherwise Work.
 Widening restores both panes with focus on the pane that was showing. Selection,
@@ -154,14 +154,14 @@ while an assignment runs; a failed pass keeps the previous rows.
 With no assignment, Running shows one dim placeholder line: `Idle · polling`
 while a pass is in progress, including the immediate pass after a run. It reads
 `Idle · nothing eligible for this launcher` only after a complete pass found
-nothing this launcher can claim. It is not a work item and has no log, Issue or
+nothing this launcher can claim. It is not a work item and has no Agent, Issue or
 Runs content. The line truncates to the pane width when needed.
 When usage pauses hold eligible items, the idle line names those CLIs and their
 remaining pauses instead, including in an agent queue: `Idle · claude paused for
 1d 4h, codex paused for 35m (usage limit)`. A pause with no eligible item appears
 only in the footer.
 The idle line shortens the wording when needed to keep CLI names and remaining times visible.
-When no row is selected, the Log status line reads
+When no row is selected, the Agent status line reads
 `○ Idle · waiting for the next poll`. Plans claimed by other launchers do not
 appear in the Work pane; their runs remain in an item's Runs tab.
 
@@ -351,8 +351,8 @@ Outcome completion and a human blocker are shown separately: a completed step
 can still be blocked. Until you select a row, the view selects the launcher's own
 run whenever one starts. Selection, focus and paused log positions survive refreshes,
 including when a row moves between sections. A selected claiming assignment stays
-selected when its run ID appears; Log picks up and follows its output as soon as
-the local `process.log` exists. Until that file first exists, Log shows
+selected when its run ID appears; Agent picks up and follows its output as soon as
+the local `process.log` exists. Until that file first exists, Agent shows
 `No log output yet.` without a read error. Other read failures, including a log
 that disappears after being read, still show `Read error`.
 A selected row that disappears
@@ -360,14 +360,14 @@ remains an earlier local observation in the right pane. A previous assignment or
 a plan now claimed by another launcher or parked for dependencies
 is omitted from the live work sections.
 
-The right pane has `1 Log`, `2 Issue` and `3 Runs` tabs, plus `4 Unblock` while the
+The right pane has `1 Agent`, `2 Issue` and `3 Runs` tabs, plus `4 Unblock` while the
 selected row is in Needs attention. The active tab is inverted
 and the others are dim. After a `│` separator, the inert `Formatted  Raw (u)` indicator
 shows the selected log's mode and the `u` toggle key on every tab. Formatted is
 underlined in accent when active, and Raw is reversed in accent when active. The
 muted `(u)` hint uses neither underline nor reverse; it shortens to `u` when space
-is tight, including the 60-column item view with all four tabs. Clicking the
-indicator has no effect, and it cannot receive focus.
+is tight. The 60-column item view with all four tabs also uses one space between
+the mode labels. Clicking the indicator has no effect, and it cannot receive focus.
 Each tab starts below the tab bar with
 the same two-line item header and a dashed rule. The bold first line shows `#N`
 for an issue or `⌥N` for a PR, followed by its title. The dim second line joins
@@ -409,7 +409,7 @@ while the view is open. Unknown times are omitted; loading a comment
 does not change this start time.
 The dashed rule follows as on the other tabs. Changing selection or refreshing
 the item out of Needs attention hides Unblock and returns an active Unblock pane
-to Log. `4` has no effect for other rows.
+to Agent. `4` has no effect for other rows.
 Unblock remains available while any contributing agent needs attention. Without
 an available action-needed comment, every blocked agent keeps its own
 `ub-agents retry N --agent AGENT` fallback and resume guidance. Issue also shows
@@ -556,16 +556,16 @@ Issue does not repeat the item reference or title in its
 content. Shortening notices sit outside the Markdown body, including
 when a description is cut inside a code fence. Runs and the raw log projection
 remain literal text with visibly escaped control characters. The formatted
-Claude and Codex Log transcripts are described below.
+Claude and Codex log transcripts are described below.
 
 | Key | Action |
 | --- | --- |
 | `Tab`, arrows, `Enter` | Focus a pane and select a work row |
 | `Enter` in the narrow Work list | Open the selected live or Recent activity item's tabs at full width |
 | `Esc` in the narrow item view | Return to Work; close help or raw access first |
-| `1`, `2`, `3` | Log, Issue, Runs |
+| `1`, `2`, `3` | Agent, Issue, Runs |
 | `4` on Needs attention | Unblock; ignored for other rows |
-| `g` on Log | Reload the selected row's log from the latest local snapshot, attach at the end and follow; no GitHub request |
+| `g` on Agent | Reload the selected row's log from the latest local snapshot, attach at the end and follow; no GitHub request |
 | `g` on Issue | Load the selected item's missing title/body, or retry a failed description read |
 | `g` on Unblock | Load the latest trusted action-needed comment, or retry a failed comment read |
 | `f` | Toggle follow/pause; resuming loads the latest generation |
@@ -574,7 +574,7 @@ Claude and Codex Log transcripts are described below.
 | `p` | Show the full raw file path, byte ranges and retention diagnostics; `Escape` closes it |
 | `r` (attached launcher) | Poll GitHub now while idle, or refresh the queue read-only during a continuous launch's run; at most once per 10 seconds |
 | `c` (attached launcher, macOS) | Toggle keeping the launcher's machine awake while idle; display sleep remains allowed |
-| `Page Up`, `Page Down`, `Home`, `End` | Scroll the active tab or overlay; scrolling up in Log pauses follow |
+| `Page Up`, `Page Down`, `Home`, `End` | Scroll the active tab or overlay; scrolling up in Agent pauses follow |
 | Mouse drag and release | Copy the selected text to the clipboard through OSC 52, including in the `p` and `?` overlays |
 | `y` | Copy the current selection again; do nothing without a selection |
 | `?` | Show all keys; `Escape` or `?` closes help |
@@ -651,7 +651,7 @@ for example `v0.2.1 · uberblick-ai/ub-agents · poll 26s` or
 `v0.2.1 · uberblick-ai/ub-agents · running assignment · polling`.
 Other activity and diagnostic labels keep their
 text. The list's right side reads `? keys q quit`; the item view
-reads `Esc back 1-3 tabs ? keys q quit`. On Log, the footer adds `g reload`,
+reads `Esc back 1-3 tabs ? keys q quit`. On Agent, the footer adds `g reload`,
 dropping it at narrow widths when it does not fit. Reloading before the log exists
 keeps the existing empty-log notice. A paused item uses the existing log keys,
 including on Issue and Runs, shortened only when they do not fit. Needs attention
@@ -713,7 +713,7 @@ in formatted mode and still available with `u`.
 Byte ranges, lag, older-page boundaries and render-limit counts include every
 record within the line budget, including records hidden by the formatted projection.
 
-Claude's formatted Log pane shows a compact transcript:
+Claude's formatted Agent pane shows a compact transcript:
 
 ```text
           · earlier output skipped · h older
@@ -797,7 +797,7 @@ the original bytes on disk are unchanged. Incremental validation keeps bounded
 state without changing read, record, pending-buffer, entry or page limits.
 Other unfinished and non-JSON fragments keep their labelled raw display.
 
-Codex's formatted Log pane uses the same time column, symbols, assistant styling,
+Codex's formatted Agent pane uses the same time column, symbols, assistant styling,
 red failures, escaping and projection limits. It is checked against complete,
 owned `codex exec --json` recordings from **codex-cli 0.160.0** (#126), with reasoning
 summaries checked against the **codex-cli 0.162.1** event shape (#550):
@@ -862,16 +862,16 @@ runtimes use the labelled plain/raw fallback. Read, pending-buffer, retained-ent
 projection and page limits still apply; validation across fragments keeps bounded
 state. Runtime output never establishes a workflow outcome.
 
-Log ends with a dashed rule and a one-line status showing the agent and its
+Agent ends with a dashed rule and a one-line status showing the agent and its
 process or plan state, plus `no outcome reported` or the reported result and
 acceptance. A spinner appears while the process runs. Other cached session
 outcomes for the same item appear at the right as `N earlier run(s)`, omitted
-when zero. Header, Log notice and status lines are shortened with `…` to fit the
+when zero. Header, log notice and status lines are shortened with `…` to fit the
 pane's width. A highlighted notice above the log appears only for file or
 generation changes, read errors, unfinished records, responses to `h`, or a
 runtime's plain/raw fallback.
 
-While stopping, selecting the current assignment replaces its Log status with
+While stopping, selecting the current assignment replaces its Agent status with
 `■ Stopping after this run (SIGTERM) · no new claims`. Other selected items keep
 their usual process or plan status. The stopping screen uses only the existing
 session snapshot and makes no GitHub reads.
@@ -977,7 +977,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    the pane title, which disappears when the pass completes. Confirm follow reaches
    recent output and cached Issue and per-item Runs tabs are readable. Check the
    shared two-line header and dashed rule on every tab, omission of missing values,
-   and the Log status, spinner, reported acceptance and earlier-run count. Confirm
+   and the Agent status, spinner, reported acceptance and earlier-run count. Confirm
    the assignment spinner animates without moving the row, selection or scroll
    position, while elapsed time changes in whole seconds and stopping stays static.
    In Runs, check the filing row, local and foreign hosts, in-progress and completed runs,
@@ -1022,13 +1022,13 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    details remain in the right pane.
 2. Pause, scroll, continue appending more than 200 entries and 400 wrapped lines,
    visit Issue/Runs and another work row, then return. The paused page and reading
-   position must remain stable; unread and lag must grow in the Log pill, which
+   position must remain stable; unread and lag must grow in the Agent pill, which
    appears only when paused or behind. Check the footer switches to log keys on
-   every tab, and the pill stays in Log.
+   every tab, and the pill stays in Agent.
 3. Read older pages toward byte zero, switch raw mode and resize. Check older-page
    notices and the pill's RAW marker. Open `p` and check the full raw path, byte
    ranges, eviction/skip/shortening counts and rendered-line limit there. Those
-   diagnostics no longer occupy the Log header. Resume follow; the pill disappears
+   diagnostics no longer occupy the Agent header. Resume follow; the pill disappears
    when caught up, and no FOLLOW badge appears.
    With `tests/fixtures/runtime_logs/claude.log` as the replay source, check the
    compact timestamps, thinking markers, tool calls, red failed Bash result and
@@ -1063,7 +1063,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    read, and vice versa; neither queues a second read. Check cache revisits,
    explicit retry and the shared cooldown. Move to an eligible row, or publish a
    refresh that resumes the selected item; Unblock must disappear and return to
-   Log if active. `4` must do nothing outside Needs attention.
+   Agent if active. `4` must do nothing outside Needs attention.
 7. Start a pending or hung description or comment load and press `q`; repeat with
    `Ctrl-C`. In an attached view, confirm that `q` replaces any overlay with the
    centered shutdown screen and waits for the run's report, label transitions and
@@ -1084,7 +1084,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    while stopping`. Ready/recovery rows must show `held`, while delayed rows
    keep their backoff, usage-pause cause or `waiting`. Select the assignment and check
    `■ Stopping after this run (SIGTERM) · no new claims`; select another item
-   and check its normal Log status. The footer must read `stopping`, and the
+   and check its normal Agent status. The footer must read `stopping`, and the
    launcher must stay alive until the current run finishes without claiming new
    work. Confirm final launcher output, unchanged exit codes, reaped UI
    and request processes, and cleaned owned agent groups.
@@ -1103,8 +1103,8 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
    states; sections, counts, idle/stopping states and the upper/lower split stay
    intact. Move across the split with arrows. Open live and recent rows with
    `Enter`, switch tabs, and return with `Esc`; reopening must keep the last tab
-   and selection. Check the full-width item header, tab bar and Log status line,
-   all log/Issue keys, and narrow list, item and paused footer keys.
+   and selection. Check the full-width item header, tab bar and Agent status line,
+   all Agent/Issue keys, and narrow list, item and paused footer keys.
    Pause and scroll a log, toggle raw mode, and resize across 110×32 in both
    directions with focus first on Work, then on the item pane. Selection, tab,
    follow/pause and log position must survive; widening keeps focus on the pane
@@ -1116,7 +1116,7 @@ or a local replay that appends to a session's `process.log` and publishes snapsh
 
 11. In iTerm2, ordinary clicks on the shared header's `#N` and `⌥N` references
    must open the selected issue and PR in the attached session's repository in
-   the default browser. Change selection and repeat on Log, Issue, Runs and
+   the default browser. Change selection and repeat on Agent, Issue, Runs and
    Unblock, in the combined and narrow item layouts, including a shortened title.
    A title click must open nothing; also check metadata, the rule and blank space.
    Command-click alone does not pass this check. Record any failure to deliver
