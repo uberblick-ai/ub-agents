@@ -94,4 +94,4 @@ To find your visual reviews quickly on GitHub, give them their own [stop label](
 
 ## More ideas
 
-The same pattern adds any check your team cares about, such as a security review for changes to sign-in code, or a docs check before merging. Keep each step small and its instructions short, and use [retrospectives](/docs/best-practices/retrospectives.html) to see whether it earns its run.
+The same pattern adds any check your team cares about, such as a security review for changes to sign-in code, or a docs check before merging. Keep each step small and its instructions short, and use [agent retros](/docs/best-practices/retrospectives.html) to see whether it earns its run.
