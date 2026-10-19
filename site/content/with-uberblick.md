@@ -52,6 +52,8 @@ page wrong, put the new text under "Page updates" in its description. The
 integrator applies it after the merge.
 ```
 
+For what else belongs in the shared policy, see [What goes in the shared policy](/docs/best-practices/instructions-as-code.html#what-goes-in-the-shared-policy).
+
 ## More than one launcher
 
 A local workspace lives on one computer. When the loop runs on [more launchers](/docs/guides/add-a-launcher.html), share the workspace through a [hub](https://github.com/uberblick-ai/uberblick-2/blob/main/REMOTE.md), so every agent reads the same pages. Commit `.uberblick.json`, and on each launcher machine install `ub` and sign in with `ub auth login`.
