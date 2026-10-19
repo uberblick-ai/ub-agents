@@ -67,7 +67,7 @@
       <li>A GitHub account for the launcher with write access to the repository. We recommend <a href="/docs/best-practices/launcher-account.html">a dedicated account</a>, not an admin.</li>
       <li>The checks that gate a merge, such as your CI, and a merge policy that says which changes wait for a maintainer.</li>
     </ul>
-    <p>Agents run on that machine with the permissions you grant each role; ub-agents adds none. They work in their own worktrees and branches and never commit to <code>main</code>. Only people with write access reach them: on a public repository, an outside issue or pull request waits until a maintainer starts it (see <a href="/docs/configuration/approvals.html">approvals</a>). When a decision belongs to a person, the agent parks the item with <code>needs-human</code> and asks.</p>
+    <p>Agents run on your machine with the access you configure. Review their <a href="/docs/configuration/permissions.html">permissions</a> before launching. Work happens on branches, and your merge policy determines which changes need a maintainer. Outside issues and pull requests wait for authorization under the <a href="/docs/configuration/approvals.html">approval rules</a>. When an agent needs a decision, it marks the item <code>needs-human</code> and asks.</p>
 <pre><code><span class="p">$ </span>cd your-project
 <span class="p">$ </span>ub-agents init     <span class="c"># opens the setup wizard; review before Apply</span>
 <span class="p">$ </span>ub-agents launch   <span class="c"># runs the loop; q stops after the current run</span></code></pre>
