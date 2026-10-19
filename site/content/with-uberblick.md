@@ -13,14 +13,23 @@ ub-agents doesn't know about Uberblick. Your agents use it because their instruc
 
 ## Set it up
 
-Install Uberblick and connect your agent to it, in your project's checkout:
+Install Uberblick:
 
 ```sh
 brew install uberblick-ai/tap/uberblick
-ub mcp install claude   # or: ub mcp install codex
 ```
 
-Commit the file it writes, so every launcher picks it up. [Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the details.
+Then add its MCP server to `.mcp.json` in your repository and commit it, so every launcher picks it up:
+
+```json
+{
+  "mcpServers": {
+    "uberblick": { "command": "ub", "args": ["mcp", "serve"] }
+  }
+}
+```
+
+[Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the details.
 
 ## Let the agents use it
 
