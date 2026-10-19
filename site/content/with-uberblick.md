@@ -52,8 +52,6 @@ page wrong, put the new text under "Page updates" in its description. The
 integrator applies it after the merge.
 ```
 
-Adjust the role files from there. [Treat instructions as code](/docs/best-practices/instructions-as-code.html) has more on what belongs where.
-
 ## More than one launcher
 
 A local workspace lives on one computer. When the loop runs on [more launchers](/docs/guides/add-a-launcher.html), share the workspace through a [hub](https://github.com/uberblick-ai/uberblick-2/blob/main/REMOTE.md), so every agent reads the same pages. Commit `.uberblick.json`, and on each launcher machine install `ub` and sign in with `ub auth login`.
