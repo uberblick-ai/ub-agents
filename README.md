@@ -1,6 +1,6 @@
 # ub-agents
 
-**A coding loop for GitHub.** Any agent, no server.
+**An autonomous coding loop for GitHub.** Any agent, no server.
 
 ```sh
 brew install uberblick-ai/tap/ub-agents

@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 import tui  # noqa: E402
 REPO = 'https://github.com/uberblick-ai/ub-agents'
 SITE = 'https://agents.uberblick.ai'
-TAGLINE = 'A coding loop for GitHub. Any agent, no server.'
+TAGLINE = 'An autonomous coding loop for GitHub. Any agent, no server.'
 SECTIONS = [  # (title, content entry, kind)
     ('Installation', 'installation.md', 'page'),
     ('How the loop works', 'how-the-loop-works.md', 'page'),
