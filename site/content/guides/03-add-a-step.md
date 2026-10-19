@@ -4,30 +4,38 @@ The starter workflow passes every change through four roles: the issue-preparer,
 
 ## How a step fits in
 
-A step is one more [agent](/docs/configuration/agents.html) with its own trigger label. To put it between two roles, point the earlier role's [outcome](/docs/configuration/outcomes.html) at the new label, and give the new agent outcomes that add the label the next role waits for. The launcher follows the file, so nothing else changes.
+A step is one more [agent](/docs/configuration/agents.html) with its own trigger label. To put it after a role, give that role an [outcome](/docs/configuration/outcomes.html) that adds the new label, and give the new agent outcomes that add the label the next role waits for. The launcher follows the file, so nothing else changes.
 
 ## Example: you look at every UI change
 
 Say you want to see every relevant UI change yourself before it merges. Agents check code and tests well, but whether a screen looks right is your call. Everything else, such as backend fixes and refactors, should keep flowing without you.
 
-So you add a visual review between the reviewer and the integrator. It lets pull requests without UI changes pass straight on, and stops the others for you.
+So you add a visual review between the reviewer and the integrator. The reviewer already reads the whole diff, so it decides which approved pull requests change the UI. Those go to the visual review, which posts screenshots and waits for you. The rest merge as before.
 
 {{flow visual-review}}
 
-### Send approved pull requests to the new step
+### Give the reviewer a new outcome
 
-Today the reviewer's approval adds `ready-to-merge`, and the integrator merges. In `ub-agents.yaml`, let it add `needs-visual-review` instead:
+In `ub-agents.yaml`, add `ui-changed` next to `approved`:
 
 ```yaml
 reviewer:
   outcomes:
-    approved: {add: [needs-visual-review]}
+    approved: {add: [ready-to-merge]}
+    ui-changed: {add: [needs-visual-review]}
     changes-requested: {add: [needs-changes], max-rounds: 3}
+```
+
+Then say when to use it in `.agents/reviewer.md`:
+
+```markdown
+When you approve a PR that changes what users see (pages, components, styles,
+copy or images), report ui-changed instead of approved.
 ```
 
 ### Add the agent
 
-The new agent picks up `needs-visual-review`. It either passes the pull request on to the integrator, or stops it for you with `needs-human`:
+The new agent picks up `needs-visual-review` and stops the pull request for you with `needs-human`:
 
 ```yaml
 visual-review:
@@ -37,25 +45,19 @@ visual-review:
   instructions: .agents/visual-review.md
   worktree: true
   outcomes:
-    no-ui-change: {add: [ready-to-merge]}
-    ui-changed: {add: [needs-human]}
+    posted: {add: [needs-human]}
 ```
 
 ### Tell it what you want to see
 
-In `.agents/visual-review.md`, say which changes you care about and what you need in order to judge them. Here, that's screenshots of each changed screen in a PR comment, and the steps to try it yourself:
+In `.agents/visual-review.md`, say what you need in order to judge the change. Here, that's screenshots of each changed screen in a PR comment, and the steps to try it yourself:
 
 ```markdown
 # Visual review
 
-Decide whether this pull request changes what users see: pages, components,
-styles, copy or images. Tests and refactors that leave the UI as it was don't count.
-
-If nothing visible changed, report no-ui-change.
-
-Otherwise, start the app at the PR head and take a screenshot of each changed
-screen, in each state that matters. Commit them to the ui-screenshots branch
-under pr-N/ and push it; create the branch without history if it doesn't exist.
+Start the app at the PR head and take a screenshot of each changed screen, in
+each state that matters. Commit them to the ui-screenshots branch under pr-N/
+and push it; create the branch without history if it doesn't exist.
 Then comment on the PR with:
 
 - what changed and what to look out for, with each screenshot embedded as
@@ -63,14 +65,11 @@ Then comment on the PR with:
 - how to try it yourself: `gh pr checkout N`, the commands that start the app,
   and where to click to reach each screen
 
-Report ui-changed with this action: "Maintainer: check the screenshots and steps
-in the comment above, then approve the PR and add ready-to-merge, or add
-needs-changes with what to fix."
+Report posted with this action: "Maintainer: check the screenshots and steps in
+the comment above, then approve the PR or request changes."
 ```
 
 GitHub doesn't let an agent attach images to a comment, so the screenshots live on a branch of their own and the comment shows them from there. Allow the agent to start your app and a browser in its [permissions](/docs/configuration/permissions.html).
-
-If a path rule is enough, for example any change under `web/`, a [command agent](/docs/configuration/command-agents.html) can make the call with a short script instead of a model.
 
 ### Make sure nothing skips you
 
@@ -91,7 +90,7 @@ A pull request with UI changes now waits for you with `needs-human` and an **Act
 - **Approve** it, then remove `needs-human` and add `ready-to-merge`. The integrator merges it.
 - **Request changes** and say what to fix, then remove `needs-human` and add `needs-changes`. The implementer reads your review, revises the pull request, and it comes back through review and visual review.
 
-To find your visual reviews quickly on GitHub, give them their own [stop label](/docs/configuration/stop-labels.html), such as `needs-look`, and let `ui-changed` add that instead.
+To find your visual reviews quickly on GitHub, give them their own [stop label](/docs/configuration/stop-labels.html), such as `needs-look`, and let `posted` add it instead of `needs-human`.
 
 ## More ideas
 

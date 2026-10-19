@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="ab" viewBox="0 0 633 512" width="633" height="512" role="img" aria-label="Flow: needs-review, reviewer, needs-visual-review, human, visual-review, ready-to-merge, The integrator merges. Legend: GitHub label, like ready, human involved">
+<svg xmlns="http://www.w3.org/2000/svg" class="ab" viewBox="0 0 542 396" width="542" height="396" role="img" aria-label="Flow: needs-review, reviewer, needs-visual-review, visual-review, ready-to-merge, human, The integrator merges. Legend: GitHub label, like ready, human involved">
 <style>.ab{--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--agent:var(--ab-agent,#0b6b67);--agent-bg:var(--ab-agent-bg,#dff1ee);--rework:var(--ab-rework,#a65f0c);--rework-bg:var(--ab-rework-bg,#fbefdc);--stop:var(--ab-stop,#b2382f);--stop-bg:var(--ab-stop-bg,#f9e2df);--done:var(--ab-done,#2a7845);--done-bg:var(--ab-done-bg,#e0f1e5);}@media (prefers-color-scheme:dark){.ab{--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--agent:var(--ab-agent,#5cc5bb);--agent-bg:var(--ab-agent-bg,#12302d);--rework:var(--ab-rework,#e3a250);--rework-bg:var(--ab-rework-bg,#33250f);--stop:var(--ab-stop,#ef7f73);--stop-bg:var(--ab-stop-bg,#3a1916);--done:var(--ab-done,#72cf91);--done-bg:var(--ab-done-bg,#142e1d);}}
 .ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
 .ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
@@ -14,46 +14,46 @@
 <marker id="visual-review-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
 <marker id="visual-review-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
 </defs>
-<path d="M149,50 L149,80" class="e e-ink" marker-end="url(#visual-review-ink)"/>
-<path d="M150,126 L150,156" class="e e-ink" marker-end="url(#visual-review-ink)"/>
-<path d="M150,190 L150,252" class="e e-ink" marker-end="url(#visual-review-ink)"/>
-<path d="M150,298 L150,360" class="e e-ink" marker-end="url(#visual-review-ink)"/>
-<path d="M150,394 L150,424" class="e e-ink" marker-end="url(#visual-review-ink)"/>
-<path d="M282,275 L368,275" class="e e-stop" marker-end="url(#visual-review-stop)"/>
-<path d="M493,330 L493,377 L218,377" class="e e-stop" marker-end="url(#visual-review-stop)"/>
-<g><rect x="88" y="16" width="122" height="34" rx="17" class="pill"/>
-<circle cx="102" cy="33" r="5" class="t-agent"/>
-<text x="114" y="37" class="m s12">needs-review</text></g>
+<path d="M119,50 L119,80" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M119,126 L119,162" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M119,196 L119,270" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M221,103 L315,103" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M402,120 L402,156" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M402,202 L402,232" class="e e-stop" marker-end="url(#visual-review-stop)"/>
+<path d="M277,287 L232,287 L232,179 L187,179" class="e e-stop" marker-end="url(#visual-review-stop)"/>
+<g><rect x="58" y="16" width="122" height="34" rx="17" class="pill"/>
+<circle cx="72" cy="33" r="5" class="t-agent"/>
+<text x="84" y="37" class="m s12">needs-review</text></g>
 <g>
-<rect x="16" y="80" width="266" height="46" rx="8" class="k-agent"/>
-<text x="149" y="99" text-anchor="middle" class="m s13 b t-agent">reviewer</text>
-<text x="149" y="116" text-anchor="middle" class="s11 muted">reviews the exact head commit</text>
+<rect x="16" y="80" width="205" height="46" rx="8" class="k-agent"/>
+<text x="119" y="99" text-anchor="middle" class="m s13 b t-agent">reviewer</text>
+<text x="119" y="116" text-anchor="middle" class="s11 muted">reviews the exact head commit</text>
 </g>
-<g><rect x="63" y="156" width="173" height="34" rx="17" class="pill"/>
-<circle cx="77" cy="173" r="5" class="t-agent"/>
-<text x="89" y="177" class="m s12">needs-visual-review</text></g>
+<g><rect x="50" y="162" width="137" height="34" rx="17" class="pill"/>
+<circle cx="64" cy="179" r="5" class="t-done"/>
+<text x="76" y="183" class="m s12">ready-to-merge</text></g>
+<rect x="28" y="270" width="181" height="34" rx="17" class="k-done"/>
+<text x="119" y="291" text-anchor="middle" class="s12 b t-done">The integrator merges</text>
+<g><rect x="315" y="86" width="173" height="34" rx="17" class="pill"/>
+<circle cx="329" cy="103" r="5" class="t-agent"/>
+<text x="341" y="107" class="m s12">needs-visual-review</text></g>
 <g>
-<rect x="16" y="252" width="266" height="46" rx="8" class="k-agent"/>
-<text x="149" y="271" text-anchor="middle" class="m s13 b t-agent">visual-review</text>
-<text x="149" y="288" text-anchor="middle" class="s11 muted">looks for UI changes, posts screenshots</text>
+<rect x="290" y="156" width="223" height="46" rx="8" class="k-agent"/>
+<text x="402" y="175" text-anchor="middle" class="m s13 b t-agent">visual-review</text>
+<text x="402" y="192" text-anchor="middle" class="s11 muted">posts screenshots and test steps</text>
 </g>
-<g><rect x="81" y="360" width="137" height="34" rx="17" class="pill"/>
-<circle cx="95" cy="377" r="5" class="t-done"/>
-<text x="107" y="381" class="m s12">ready-to-merge</text></g>
-<rect x="59" y="424" width="181" height="34" rx="17" class="k-done"/>
-<text x="150" y="445" text-anchor="middle" class="s12 b t-done">The integrator merges</text>
-<g><rect x="368" y="220" width="249" height="110" rx="10" class="k-stop panel"/>
-<rect x="436" y="232" width="115" height="30" rx="15" class="pill"/>
-<circle cx="450" cy="247" r="5" class="t-stop"/>
-<text x="462" y="251" class="m s12">needs-human</text>
-<text x="493" y="281" text-anchor="middle" class="s12 b">A person checks the screenshots</text>
-<text x="493" y="299" text-anchor="middle" class="s11 muted">or tries the branch,</text>
-<text x="493" y="317" text-anchor="middle" class="s11 muted">then approves or requests changes</text></g>
-<text x="160" y="145" class="m s11">approved</text>
-<text x="160" y="333" class="m s11">no-ui-change</text>
-<text x="292" y="268" class="m s11 t-stop">ui-changed</text>
-<text x="503" y="358" class="m s11 t-stop">approved</text>
-<line x1="8" y1="474" x2="625" y2="474" class="rule"/>
-<g><rect x="16" y="488" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="494" r="3" class="t-done"/><text x="46" y="498" class="s11 muted">GitHub label, like ready</text></g>
-<g><rect x="212" y="488" width="24" height="12" rx="3" class="k-stop panel"/><text x="242" y="498" class="s11 muted">human involved</text></g>
+<g><rect x="277" y="232" width="249" height="110" rx="10" class="k-stop panel"/>
+<rect x="345" y="244" width="115" height="30" rx="15" class="pill"/>
+<circle cx="359" cy="259" r="5" class="t-stop"/>
+<text x="371" y="263" class="m s12">needs-human</text>
+<text x="402" y="293" text-anchor="middle" class="s12 b">A person checks the screenshots</text>
+<text x="402" y="311" text-anchor="middle" class="s11 muted">or tries the branch,</text>
+<text x="402" y="329" text-anchor="middle" class="s11 muted">then approves or requests changes</text></g>
+<text x="129" y="148" class="m s11">approved</text>
+<text x="231" y="96" class="m s11">ui-changed</text>
+<text x="412" y="221" class="m s11 t-stop">posted</text>
+<text x="197" y="172" class="m s11 t-stop">approved</text>
+<line x1="8" y1="358" x2="534" y2="358" class="rule"/>
+<g><rect x="16" y="372" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="378" r="3" class="t-done"/><text x="46" y="382" class="s11 muted">GitHub label, like ready</text></g>
+<g><rect x="212" y="372" width="24" height="12" rx="3" class="k-stop panel"/><text x="242" y="382" class="s11 muted">human involved</text></g>
 </svg>
