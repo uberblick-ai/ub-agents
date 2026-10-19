@@ -82,7 +82,7 @@ A PR that changes the UI merges only after a maintainer's approving review of it
 
 ### Turn it on
 
-Run `ub-agents doctor`. It offers to create `needs-visual-review` on GitHub. Merge the change, and the next run uses it.
+Run `ub-agents doctor`. It offers to create `needs-visual-review` on GitHub. Merge the change, and the loops pick it up automatically.
 
 ### Your part
 
