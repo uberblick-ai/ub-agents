@@ -6,6 +6,10 @@ We wanted agents to take an issue through implementation, review and integration
 
 The first version was a small script. Most of the work since then has been dealing with what happens when things go wrong. For the bigger picture, see the [Uberblick motivation](https://next.uberblick.ai/docs/motivation/).
 
+## Why not just write a script?
+
+You can. Polling GitHub and starting an agent is straightforward. The harder parts are coordinating several launchers, recovering interrupted runs, limiting review cycles and keeping track of what happened. ub-agents packages those parts, so each project doesn't have to solve them again. If your workflow is simple enough for a short script, use the script.
+
 ## No platform to run
 
 A loop that needs its own server, database, queue and webhooks is one more system to host, secure and debug. It also keeps part of your work somewhere other than where your team already looks.
