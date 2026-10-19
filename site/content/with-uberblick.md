@@ -24,27 +24,7 @@ Commit the file it writes, so every launcher picks it up. [Agents over MCP](http
 
 ## Let the agents use it
 
-Loop runs can't answer permission prompts, so allow the Uberblick tools for each role that reads the workspace. For Claude Code, add them to `--allowedTools`, next to the [other permissions](/docs/configuration/permissions.html#claude-code):
-
-```yaml
-runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
-               --allowedTools, "Bash(git *)", "Bash(gh *)", "mcp__uberblick__*",
-               "Bash({report_command} report *)", "Bash({report_command} read *)",
-               --add-dir, "{scratch}"]
-```
-
-Claude Code starts a project's MCP server only after someone approves it, and a loop run can't. Approve it for every checkout by committing `.claude/settings.json`:
-
-```json
-{ "enabledMcpjsonServers": ["uberblick"] }
-```
-
-For Codex, approve the tools in the role's arguments:
-
-```yaml
-runtime-args: [--sandbox, danger-full-access,
-               -c, 'mcp_servers.uberblick.default_tools_approval_mode="approve"']
-```
+Loop runs can't answer permission prompts. Add `"mcp__uberblick__*"` to `--allowedTools` for each role that reads the workspace, next to its [other permissions](/docs/configuration/permissions.html#claude-code).
 
 ## Tell the roles what to do
 
