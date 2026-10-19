@@ -158,9 +158,9 @@ class KeyHelp(RawAccess, inherit_bindings=False):
             'Tab / arrows / Enter   Focus a pane and select a work row\n'
             'Enter below 110×32   Open the selected item at full width\n'
             'Esc below 110×32   Return to Work; close an overlay first\n'
-            '1 / 2 / 3   Log / Issue / Runs\n'
+            '1 / 2 / 3   Agent / Issue / Runs\n'
             + unblock_keys +
-            'g on Log   Reload the selected local log at the end and follow it\n'
+            'g on Agent   Reload the selected local log at the end and follow it\n'
             'g on Issue   Load a missing description or retry a failed read\n'
             'f   Toggle follow/pause; resuming loads the latest generation\n'
             'h   Read an older bounded page toward byte zero\n'
@@ -455,7 +455,7 @@ class View(App):
         Binding('c', 'keep_awake', 'Keep awake (macOS)', priority=True),
         Binding('question_mark', 'help', 'Keys', priority=True),
         Binding('g', 'load_description', 'Reload/load/retry', priority=True),
-        Binding('1', "tab('log')", 'Log', priority=True),
+        Binding('1', "tab('log')", 'Agent', priority=True),
         Binding('2', "tab('issue')", 'Issue', priority=True),
         Binding('3', "tab('runs')", 'Runs', priority=True),
         Binding('4', "tab('unblock')", 'Unblock', priority=True),
@@ -518,7 +518,7 @@ class View(App):
                 yield WorkTree('Work', id='work')
                 yield RecentActivity()
             with ItemTabs(id='panes'):
-                with TabPane('1 Log', id='log'):
+                with TabPane('1 Agent', id='log'):
                     yield Static('', id='log_note', markup=False)
                     yield LogPane(id='output')
                     yield Static('', id='log_state', markup=False)
@@ -551,7 +551,7 @@ class View(App):
         self.query_one(ItemTabs).hide_tab('unblock')
         self.update_layout(self.size)
         self.query_one('#work_pane').border_title = 'Work'
-        self.query_one(ItemTabs).border_title = 'Log'
+        self.query_one(ItemTabs).border_title = 'Agent'
         self.query_one(WorkTree).show_root = False
         self.theme_changed_signal.subscribe(self, self.restyle)
         self.worker.start()
@@ -1386,16 +1386,17 @@ class View(App):
             self.update_shutdown()
             return
         reading = self.reading
+        indicator = self.query_one('#log_mode', Static)
+        tab_width = sum(tab.region.width for tab in self.query('#panes Tab') if tab.display)
+        mode_width = self.query_one(ItemTabs).content_size.width - tab_width
         mode = Text('│ ', style=theme_style(self, 'view-muted'), no_wrap=True)
         mode.append('Formatted', style=theme_style(self, 'view-muted' if reading.raw else 'view-accent',
                                                    underline=not reading.raw))
-        mode.append('  ')
+        mode.append('  ' if len('│ Formatted  Raw u') <= mode_width else ' ')
         mode.append('Raw', style=theme_style(self, 'view-accent' if reading.raw else 'view-muted',
                                            reverse=reading.raw))
-        indicator = self.query_one('#log_mode', Static)
-        tab_width = sum(tab.region.width for tab in self.query('#panes Tab') if tab.display)
         hint = ' (u)'
-        if tab_width + mode.cell_len + len(hint) > self.query_one(ItemTabs).content_size.width:
+        if mode.cell_len + len(hint) > mode_width:
             hint = ' u'
         mode.append(hint, style=theme_style(self, 'view-muted'))
         indicator.styles.offset = (tab_width, 0)
@@ -1572,7 +1573,7 @@ class View(App):
 
     def on_tabbed_content_tab_activated(self, event):
         self.query_one(ItemTabs).border_title = Text(
-            {'log': 'Log', 'issue': 'Issue', 'runs': 'Runs', 'unblock': 'Unblock'}.get(event.pane.id, event.tab.label.plain))
+            {'log': 'Agent', 'issue': 'Issue', 'runs': 'Runs', 'unblock': 'Unblock'}.get(event.pane.id, event.tab.label.plain))
         if event.pane.id == 'log' and self.is_mounted:
             self.call_after_refresh(self.query_one('#output', LogPane).reflow)
         if self.is_mounted:

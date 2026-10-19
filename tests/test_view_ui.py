@@ -1050,13 +1050,16 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             (self.root / 'terminal-theme.svg').write_text(svg)
             visible = self.screenshot_text(svg)
             for value in ('╭', '╮', '╰', '╯', 'Work · pass complete',
-                          'Log', '1 Log', '2 Issue', '3 Runs', 'Formatted', 'Raw',
+                          'Agent', '1 Agent', '2 Issue', '3 Runs', 'Formatted', 'Raw',
                           'Running', 'Needs attention', 'Eligible', '┄'):
                 self.assertIn(value, visible)
             self.assertNotIn('Launcher work', visible)
             self.assertEqual(app.theme, 'ub-agents')
             self.assertEqual(app.title, 'ub-agents launch — example/repo')
             work, panes = app.query_one('#work_pane'), app.query_one('#panes')
+            self.assertEqual(panes.border_title, 'Agent')
+            binding = next(binding for binding in app.BINDINGS if binding.key == '1')
+            self.assertEqual(binding.description, 'Agent')
             self.assertEqual(work.border_title, 'Work · pass complete · omitted 2')
             self.assertEqual(app.query_one('#log_mode', Static).render().plain,
                              '│ Formatted  Raw (u)')
@@ -1104,7 +1107,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(indicator.region.x, last_tab.region.right)
             self.assertEqual(strips[tabs.region.y].crop(last_tab.region.right - 1, indicator.region.x + 1).text,
                              ' │')
-            self.assertEqual(strips[tabs.region.y].crop(tabs.region.x, tabs.region.x + 7).text, ' 1 Log ')
+            self.assertEqual(strips[tabs.region.y].crop(tabs.region.x, tabs.region.x + 9).text, ' 1 Agent ')
             self.assertFalse(indicator.can_focus)
             self.assertEqual(len([tab for tab in app.query('#panes Tab') if tab.display]), 3)
             self.assertTrue(all(not widget.display for widget in app.query('#panes Underline')))
@@ -1114,7 +1117,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(active.styles.color, app.screen.styles.background)
             self.assertEqual(active.styles.background.hex.lower(), '#d4d9e1')
             active_strip = strips[tabs.region.y].crop(active.region.x, active.region.right)
-            self.assertEqual(active_strip.text, ' 1 Log ')
+            self.assertEqual(active_strip.text, ' 1 Agent ')
             self.assertTrue(all(segment.style.bgcolor.name == '#d4d9e1' for segment in active_strip))
             selected = app.selected
             await pilot.click('#log_mode')
@@ -1129,7 +1132,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(panes.styles.border_top[1].hex.lower(), '#b79cff')
             self.assertEqual(work.styles.border_top[1].hex.lower(), '#2a303b')
-            for key, title in (('2', 'Issue'), ('3', 'Runs'), ('1', 'Log')):
+            for key, title in (('2', 'Issue'), ('3', 'Runs'), ('1', 'Agent')):
                 await pilot.press(key)
                 self.assertEqual(panes.border_title, title)
             await pilot.press('q')
@@ -1151,7 +1154,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tabs = app.query_one('#panes Tabs', Tabs)
             for theme in ('ub-agents', 'textual-light'):
                 app.theme = theme
-                for size, hint in (((110, 32), ' (u)'), ((60, 16), ' u')):
+                for size, hint, gap in (((110, 32), ' (u)', '  '), ((60, 16), ' u', ' ')):
                     await pilot.resize_terminal(*size)
                     if app.narrow and not app.item_view:
                         await pilot.press('enter')
@@ -1169,7 +1172,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                 self.assertEqual(panes.active, tab)
                                 self.assertEqual(app.reading.raw, raw)
                                 mode = indicator.render()
-                                self.assertEqual(mode.plain, '│ Formatted  Raw' + hint)
+                                self.assertEqual(mode.plain, '│ Formatted' + gap + 'Raw' + hint)
                                 accent = app.theme_variables['view-accent'].lower()
                                 muted = app.theme_variables['view-muted'].lower()
                                 formatted = mode.get_style_at_offset(mode.plain.index('Formatted'))
@@ -1241,7 +1244,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(app.query_one(selector).region.x, 3)
                 self.assertEqual(app.query_one(selector).region.width, 74)
             self.assertEqual(app.query_one('#panes Tabs').region.y, 2)
-            expected = ('1 Log', '2 Issue', '3 Runs', 'Formatted', 'Raw', '#114', 'no outcome reported')
+            expected = ('1 Agent', '2 Issue', '3 Runs', 'Formatted', 'Raw', '#114', 'no outcome reported')
             def screenshot_ready():
                 screen = self.screenshot_text(app.export_screenshot())
                 return all(value in screen for value in expected)
@@ -1481,7 +1484,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             for color in colors:
                 self.assertEqual(color.red, color.green)
                 self.assertEqual(color.green, color.blue)
-            self.assertIn('1 Log', self.screenshot_text(svg))
+            self.assertIn('1 Agent', self.screenshot_text(svg))
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -2295,8 +2298,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press('?')
                 self.assertIsInstance(app.screen, KeyHelp)
                 help_text = app.screen.query_one('#raw_details', Static).render().plain
-                for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3', 'g on Issue', 'f   ', 'h   ',
-                            'u   ', 'p   ', 'Page Up', 'Page Down', 'Home', 'End', '?', 'Escape', 'q   ', 'Ctrl-C'):
+                for key in ('Tab', 'arrows', 'Enter', '1 / 2 / 3   Agent / Issue / Runs',
+                            'g on Agent', 'g on Issue', 'f   ', 'h   ', 'u   ', 'p   ', 'Page Up', 'Page Down',
+                            'Home', 'End', '?', 'Escape', 'q   ', 'Ctrl-C'):
                     self.assertIn(key, help_text)
                 self.assertIn('q   Stop after run; close a standalone view', help_text)
                 self.assertIn('Ctrl-C   Stop now; close a standalone view', help_text)
@@ -3324,7 +3328,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await self.ready(app, pilot, lambda: any('event 01000' in line.text for line in output.lines))
                 self.assertIn('g reload', app.query_one('#status', Static).render().plain)
                 await pilot.press('?')
-                self.assertIn('g on Log', app.screen.query_one('#raw_details', Static).render().plain)
+                self.assertIn('g on Agent', app.screen.query_one('#raw_details', Static).render().plain)
                 await pilot.press('g', 'escape')
                 self.assertEqual(transport.calls, [])
                 await pilot.press('q')

@@ -22,7 +22,7 @@ A numbered launch skips the queue order, but every other check still applies: tr
 
 ## The terminal view
 
-In a terminal, launch opens a live view: what is running, what needs a person, what is next and what just finished. Select an item and press Enter to see its log, the issue, earlier runs and how to unblock it. Press `?` for all keys. A few you'll use often:
+In a terminal, launch opens a live view: what is running, what needs a person, what is next and what just finished. Select an item and press Enter to see its log in the Agent tab, the issue, earlier runs and how to unblock it. Press `?` for all keys. A few you'll use often:
 
 - `r` refreshes the queue now.
 - `u` switches the log between formatted and raw.
