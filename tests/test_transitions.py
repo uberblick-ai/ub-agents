@@ -362,7 +362,7 @@ class TransitionTests(unittest.TestCase):
         self.github.change(1, milestone=20, labels=self.github.item(1).labels | {'low'})
         self.github.change(2, labels=frozenset({'low'}))
         self.github.items[3] = issue(3, labels=('ready', 'urgent'), milestone=10)
-        self.github.milestones = [{'number': 10, 'state': 'open', 'created_at': iso(100)}]
+        self.github.milestones = [{'number': 10, 'title': 'v10', 'state': 'open', 'created_at': iso(100)}]
         self.now += 61
         reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
         restarted = Loop(config(self.root, self.agent, reviewer,
@@ -788,7 +788,7 @@ class TransitionTests(unittest.TestCase):
         self.github.change(1, milestone=20, labels=self.github.item(1).labels | {'low'})
         self.github.change(2, labels=frozenset({'low'}))
         self.github.items[3] = issue(3, labels=('ready', 'urgent'), milestone=10)
-        self.github.milestones = [{'number': 10, 'state': 'open', 'created_at': iso(100)}]
+        self.github.milestones = [{'number': 10, 'title': 'v10', 'state': 'open', 'created_at': iso(100)}]
         self.now += 61
         reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
         restarted = Loop(config(self.root, self.agent, reviewer,

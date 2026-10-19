@@ -247,7 +247,7 @@ class LaunchTests(unittest.TestCase):
                 with self.subTest(once=once, labels=labels):
                     github = FakeGitHub(issue(1, labels=(), milestone=12),
                                         issue(2, labels=labels, milestone=13))
-                    github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (12, 13)]
+                    github.milestones = [dict(number=n, title=f"v{n:02}", state="open", created_at=iso(n)) for n in (12, 13)]
                     settings = replace(self.config, queue=Queue(milestones="gate"))
                     publisher = MemoryPublisher()
 
@@ -569,7 +569,7 @@ class TargetedLaunchTests(unittest.TestCase):
 
     def use_milestone_gate(self, milestone=20):
         self.config = replace(self.config, queue=replace(self.config.queue, milestones="gate"))
-        self.github.milestones = [{"number": 3, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
+        self.github.milestones = [{"number": 3, "title": "v03", "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
         self.github.change(1, milestone=3)
         self.github.change(11, milestone=milestone)
 

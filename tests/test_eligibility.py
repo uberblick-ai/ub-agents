@@ -21,7 +21,7 @@ class EligibilityTests(unittest.TestCase):
 
     def loop(self, item, worker, queue, blocked=False):
         github = FakeGitHub(item, issue(31, labels=(), milestone=10))
-        github.milestones = [dict(number=10, state="open", created_at=item.created_at)]
+        github.milestones = [dict(number=10, title="v10", state="open", created_at=item.created_at)]
         if blocked:
             github.dependencies[item.number] = [31]
         return Loop(config(self.root, worker, queue=queue), github, "operator", output=lambda _: None)

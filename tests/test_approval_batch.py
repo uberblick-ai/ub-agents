@@ -345,7 +345,7 @@ class ApprovalBatchTests(unittest.TestCase):
                 if path.endswith("/milestones"):
                     self.calls.append(command)
                     return subprocess.CompletedProcess(command, 0, json.dumps([
-                        {"number": n, "state": "open", "created_at": iso(n), "open_issues": 83}
+                        {"number": n, "title": f"v{n:02}", "state": "open", "created_at": iso(n), "open_issues": 83}
                         for n in (10, 20)]), "")
                 response = super().__call__(command, **kwargs)
                 if path == "graphql" and "timelineItems" in kwargs["input"]:

@@ -605,7 +605,7 @@ class ItemStatusTests(unittest.TestCase):
 
     def test_later_and_unmilestoned_targets_are_ready_under_milestone_gate(self):
         self.config = config(self.root, queue=Queue(milestones="gate"))
-        self.github.milestones = [{"number": 3, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
+        self.github.milestones = [{"number": 3, "title": "v03", "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
         self.github.change(1, milestone=3)
         for milestone in (20, None):
             with self.subTest(milestone=milestone):

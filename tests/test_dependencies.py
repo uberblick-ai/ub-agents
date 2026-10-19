@@ -195,7 +195,7 @@ class DependencyTests(unittest.TestCase):
         self.add(issue(1, ("ready", "priority:low"), milestone=20),
                  issue(2, (), milestone=10), issue(21, ("priority:urgent",)))
         self.github.dependencies = {1: [2], 21: [1]}
-        self.github.milestones = [{"number": 10, "state": "open", "created_at": iso(1)}]
+        self.github.milestones = [{"number": 10, "title": "v10", "state": "open", "created_at": iso(1)}]
         self.loop = self.make_loop(milestones="order")
         plan = self.plans()[1]
         self.assertEqual(plan.priority, "priority:urgent")
@@ -206,8 +206,8 @@ class DependencyTests(unittest.TestCase):
     def test_milestone_inheritance_without_priority_includes_transitive_unqueued_dependents(self):
         self.add(issue(1, ("ready",), iso(300)), issue(2, (), milestone=20),
                  issue(21, (), milestone=10), issue(4, ("ready",), iso(1), 20))
-        self.github.milestones = [{"number": 20, "state": "open", "created_at": iso(2)},
-                                  {"number": 10, "state": "open", "created_at": iso(1)}]
+        self.github.milestones = [{"number": 20, "title": "v20", "state": "open", "created_at": iso(2)},
+                                  {"number": 10, "title": "v10", "state": "open", "created_at": iso(1)}]
         self.github.dependencies = {21: [2], 2: [1]}
         self.loop = Loop(config(self.root, self.worker, queue=Queue(milestones="order")),
                          self.github, "operator", output=lambda *_: None)
@@ -231,8 +231,8 @@ class DependencyTests(unittest.TestCase):
                  issue(21, ("priority:low",), milestone=10),
                  issue(22, ("priority:urgent",), milestone=20),
                  issue(23, ("priority:normal",), milestone=10))
-        self.github.milestones = [{"number": 10, "state": "open", "created_at": iso(1)},
-                                  {"number": 20, "state": "open", "created_at": iso(2)}]
+        self.github.milestones = [{"number": 10, "title": "v10", "state": "open", "created_at": iso(1)},
+                                  {"number": 20, "title": "v20", "state": "open", "created_at": iso(2)}]
         self.github.dependencies = {21: [1], 22: [1], 23: [1]}
         self.loop = self.make_loop(milestones="order")
         plan = self.plans()[1]
@@ -244,7 +244,7 @@ class DependencyTests(unittest.TestCase):
     def test_milestone_cycles_share_earliest_reachable_and_ignore_external_and_closed_dependents(self):
         self.add(issue(1, milestone=20), issue(2, milestone=10),
                  issue(3), replace(issue(21, (), milestone=5), state="closed"))
-        self.github.milestones = [{"number": n, "state": "open", "created_at": iso(n)}
+        self.github.milestones = [{"number": n, "title": f"v{n:02}", "state": "open", "created_at": iso(n)}
                                   for n in (5, 10, 20)]
         self.github.dependencies = {1: [2], 2: [3], 3: [1], 21: [1]}
         self.loop = self.make_loop(milestones="order")
@@ -256,7 +256,7 @@ class DependencyTests(unittest.TestCase):
 
     def test_dependency_ignore_disables_milestone_inheritance(self):
         self.add(issue(1), issue(21, (), milestone=10))
-        self.github.milestones = [{"number": 10, "state": "open", "created_at": iso(1)}]
+        self.github.milestones = [{"number": 10, "title": "v10", "state": "open", "created_at": iso(1)}]
         self.github.dependencies[21] = [1]
         self.loop = self.make_loop(milestones="order", dependencies="ignore")
         with patch.object(self.github, "blocked_by", side_effect=AssertionError("ignore must not read")):
@@ -265,7 +265,7 @@ class DependencyTests(unittest.TestCase):
     def test_gate_inherits_blocker_milestones_while_ignore_keeps_own_milestones(self):
         self.add(issue(1, ("ready", "priority:low"), milestone=20),
                  issue(21, ("priority:urgent",), milestone=10))
-        self.github.milestones = [{"number": n, "state": "open", "created_at": iso(n)}
+        self.github.milestones = [{"number": n, "title": f"v{n:02}", "state": "open", "created_at": iso(n)}
                                   for n in (10, 20)]
         self.github.dependencies[21] = [1]
         for mode in ("gate", "ignore"):
@@ -280,7 +280,7 @@ class DependencyTests(unittest.TestCase):
 
     def test_status_text_and_json_name_inherited_milestone(self):
         self.add(issue(1, ("ready", "priority:low")), issue(21, (), milestone=10))
-        self.github.milestones = [{"number": 10, "state": "open", "created_at": iso(1)}]
+        self.github.milestones = [{"number": 10, "title": "v10", "state": "open", "created_at": iso(1)}]
         self.github.dependencies[21] = [1]
         self.loop = self.make_loop(milestones="order")
         rows = status_rows(self.loop)
@@ -425,7 +425,7 @@ class DependencyTests(unittest.TestCase):
         self.add(issue(1, ("ready", "priority:low"), milestone=20),
                  issue(2, (), milestone=10), issue(21, ("priority:urgent",)))
         self.github.dependencies = {1: [2], 21: [1]}
-        self.github.milestones = [{"number": 10, "state": "open", "created_at": iso(1)}]
+        self.github.milestones = [{"number": 10, "title": "v10", "state": "open", "created_at": iso(1)}]
         self.loop = self.make_loop(milestones="gate")
         plan = self.plans()[1]
         self.assertEqual(plan.priority, "priority:urgent")

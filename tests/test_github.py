@@ -495,17 +495,17 @@ class GitHubTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(AgentError):
                 parse_item(raw | changes, "issue")
 
-    def test_milestone_order_reads_every_page_and_sorts_by_creation_then_number(self):
-        later = {"number": 1, "created_at": iso(300), "state": "open", "open_issues": 1}
-        first_page = [dict(later, number=n) for n in range(1, 101)]
-        older = dict(later, number=200, created_at=iso(100))
-        tie = dict(older, number=150)
-        empty = dict(later, number=300, created_at=iso(1), open_issues=0)
-        closed = dict(empty, number=400, state="closed", open_issues=1)
-        pages = [first_page, [older, tie, empty, closed]]
+    def test_milestone_order_reads_every_page_and_sorts_by_exact_title(self):
+        later = {"number": 1, "title": "v0.9.0", "created_at": iso(300), "state": "open", "open_issues": 1}
+        first_page = [dict(later, number=n, title=f"v0.9.{101 - n:03}") for n in range(1, 101)]
+        uppercase = dict(later, number=200, title="V9.0.0", created_at=iso(200))
+        double_digit = dict(later, number=150, title="v0.10.0", created_at=iso(100))
+        empty = dict(later, number=300, title="A empty", created_at=iso(1), open_issues=0)
+        closed = dict(empty, number=400, title="A closed", state="closed", open_issues=1)
+        pages = [first_page, [uppercase, double_digit, empty, closed]]
         results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]
         with patch("ub_agents.github.subprocess.run", side_effect=results) as run:
-            self.assertEqual(GitHub("org/project").milestone_order(), (150, 200, *range(1, 101)))
+            self.assertEqual(GitHub("org/project").milestone_order(), (200, 150, *range(100, 0, -1)))
         self.assertEqual(run.call_count, 2)
         for page, call in enumerate(run.call_args_list, 1):
             endpoint = call.args[0][-1]
@@ -514,16 +514,19 @@ class GitHubTests(unittest.TestCase):
             self.assertIn(f"page={page}", endpoint)
 
     def test_no_incomplete_milestones_returns_empty_order(self):
-        for rows in ([], [{"number": 1, "created_at": iso(1), "state": "open", "open_issues": 0}],
-                     [{"number": 1, "created_at": iso(1), "state": "closed", "open_issues": 2}]):
+        for rows in ([], [{"number": 1, "title": "v1", "created_at": iso(1), "state": "open", "open_issues": 0}],
+                     [{"number": 1, "title": "v1", "created_at": iso(1), "state": "closed", "open_issues": 2}]):
             with self.subTest(rows=rows):
                 github = GitHub("org/project")
                 with patch.object(github, "request", return_value=rows):
                     self.assertEqual(github.milestone_order(), ())
 
     def test_unreadable_milestones_fail_the_order_read(self):
-        valid = {"number": 1, "created_at": iso(1), "state": "open", "open_issues": 1}
-        for row in (None, {}, valid | {"created_at": "bad"}, valid | {"number": True},
+        valid = {"number": 1, "title": "v1", "created_at": iso(1), "state": "open", "open_issues": 1}
+        for row in (None, {}, {k: v for k, v in valid.items() if k != "title"},
+                    *(valid | {"title": title} for title in (None, 1, True, [], {})),
+                    valid | {"title": None, "open_issues": 0}, valid | {"title": None, "state": "closed"},
+                    valid | {"created_at": "bad"}, valid | {"number": True},
                     valid | {"open_issues": -1}, valid | {"open_issues": "1"},
                     valid | {"state": "unknown"}):
             with self.subTest(row=row):
@@ -804,17 +807,17 @@ agents:
                     patch.object(github, "request", return_value=[raw | {"merged_at": merged_at}]):
                 self.assertEqual(github.prs_for_branch(raw["head"]["ref"], state="all")[0].merged, expected)
 
-    def test_active_milestone_reads_every_page_and_sorts_by_creation_then_number(self):
-        later = {"number": 1, "created_at": iso(300), "state": "open", "open_issues": 1}
-        first_page = [dict(later, number=n) for n in range(1, 101)]
-        older = dict(later, number=200, created_at=iso(100))
-        tie = dict(older, number=150)
-        empty = dict(later, number=300, created_at=iso(1), open_issues=0)
-        closed = dict(empty, number=400, state="closed", open_issues=1)
-        pages = [first_page, [older, tie, empty, closed]]
+    def test_active_milestone_reads_every_page_and_sorts_by_title(self):
+        later = {"number": 1, "title": "v0.9.0", "created_at": iso(300), "state": "open", "open_issues": 1}
+        first_page = [dict(later, number=n, title=f"v0.9.{n:03}") for n in range(1, 101)]
+        first = dict(later, number=200, title="v0.10.0", created_at=iso(200))
+        older = dict(later, number=150, title="v0.8.0", created_at=iso(100))
+        empty = dict(later, number=300, title="A empty", created_at=iso(1), open_issues=0)
+        closed = dict(empty, number=400, title="A closed", state="closed", open_issues=1)
+        pages = [first_page, [first, older, empty, closed]]
         results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]
         with patch("ub_agents.github.subprocess.run", side_effect=results) as run:
-            self.assertEqual(GitHub("org/project").active_milestone(), 150)
+            self.assertEqual(GitHub("org/project").active_milestone(), 200)
         self.assertEqual(run.call_count, 2)
         for page, call in enumerate(run.call_args_list, 1):
             endpoint = call.args[0][-1]
@@ -823,16 +826,17 @@ agents:
             self.assertIn(f"page={page}", endpoint)
 
     def test_no_incomplete_milestones_returns_no_gate(self):
-        for rows in ([], [{"number": 1, "created_at": iso(1), "state": "open", "open_issues": 0}],
-                     [{"number": 1, "created_at": iso(1), "state": "closed", "open_issues": 2}]):
+        for rows in ([], [{"number": 1, "title": "v1", "created_at": iso(1), "state": "open", "open_issues": 0}],
+                     [{"number": 1, "title": "v1", "created_at": iso(1), "state": "closed", "open_issues": 2}]):
             with self.subTest(rows=rows):
                 github = GitHub("org/project")
                 with patch.object(github, "request", return_value=rows):
                     self.assertIsNone(github.active_milestone())
 
     def test_unreadable_milestones_never_remove_the_gate(self):
-        valid = {"number": 1, "created_at": iso(1), "state": "open", "open_issues": 1}
-        for row in (None, {}, valid | {"created_at": "bad"}, valid | {"number": True},
+        valid = {"number": 1, "title": "v1", "created_at": iso(1), "state": "open", "open_issues": 1}
+        for row in (None, {}, {k: v for k, v in valid.items() if k != "title"}, valid | {"title": None},
+                    valid | {"created_at": "bad"}, valid | {"number": True},
                     valid | {"open_issues": -1}, valid | {"open_issues": "1"},
                     valid | {"state": "unknown"}):
             with self.subTest(row=row):

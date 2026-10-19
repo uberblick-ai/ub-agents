@@ -472,7 +472,7 @@ class RefreshTests(unittest.TestCase):
                 self.enable_reload()
                 self.github.change(1, labels=frozenset({"ready", "paused"}))
                 self.github.change(3, labels=frozenset({"ready", "paused"}))
-                self.github.milestones = [{"number": 1, "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
+                self.github.milestones = [{"number": 1, "title": "v01", "state": "open", "created_at": "2026-01-01T00:00:00Z"}]
                 self.github.items[4] = issue(4, labels=(), milestone=1)
                 path = self.upstream / "ub-agents.yaml"
                 path.write_text(edit(path.read_text()))
@@ -490,7 +490,7 @@ class RefreshTests(unittest.TestCase):
                 self.setUp()
                 self.enable_reload()
                 self.github.change(1, milestone=20)
-                self.github.milestones = [{"number": n, "state": "open", "created_at": f"2026-01-{n:02}T00:00:00Z"}
+                self.github.milestones = [{"number": n, "title": f"v{n:02}", "state": "open", "created_at": f"2026-01-{n:02}T00:00:00Z"}
                                           for n in (10, 20)]
                 self.github.items[4] = issue(4, labels=(), milestone=10)
                 path = self.upstream / "ub-agents.yaml"

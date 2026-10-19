@@ -23,6 +23,8 @@ priority:
 
 ## Milestones
 
+Milestones go in alphabetical order by title, for example v0.4.6 before v0.5.0.
+
 - `ignore` (the default): milestones don't change the order.
 - `order`: priority always wins. At equal priority, earlier milestones go first and issues without a milestone go last.
 - `gate`: milestones finish in order. New issues from the earliest open milestone go first; an issue outside it goes ahead only with a higher priority. When nothing in that milestone can start here, for example because it's blocked or waiting for a person, later work runs.

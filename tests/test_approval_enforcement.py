@@ -282,8 +282,8 @@ class EnforcementTests(unittest.TestCase):
                 self.github.timelines[1] = []
                 self.github.change(1, milestone=milestone)
                 self.loop.config = config(self.root, self.worker, queue=Queue(milestones='gate'))
-                self.github.milestones = [dict(number=10, state='open', created_at=at(1)),
-                                          dict(number=20, state='open', created_at=at(2))]
+                self.github.milestones = [dict(number=10, title='v10', state='open', created_at=at(1)),
+                                          dict(number=20, title='v20', state='open', created_at=at(2))]
                 self.github.items[2] = issue(2, labels=(), milestone=10)
                 original = self.loop.park_approval
                 def park(plan):

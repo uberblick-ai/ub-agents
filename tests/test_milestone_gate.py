@@ -29,8 +29,8 @@ class MilestoneGateTests(unittest.TestCase):
         self.worker = agent(self.root)
         self.priority = Priority(("high", "medium", "low"), "medium")
         self.github = FakeGitHub()
-        self.github.milestones = [dict(number=20, state="open", created_at=iso(200)),
-                                  dict(number=10, state="open", created_at=iso(100))]
+        self.github.milestones = [dict(number=20, title="v20", state="open", created_at=iso(200)),
+                                  dict(number=10, title="v10", state="open", created_at=iso(100))]
         self.loop = self.make_loop()
 
     def make_loop(self, worker=None, **queue):
@@ -59,7 +59,7 @@ class MilestoneGateTests(unittest.TestCase):
 
     def test_cold_claim_reads_approval_only_through_the_selected_plan(self):
         self.github = PollGitHub()
-        self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+        self.github.milestones = [dict(number=n, title=f"v{n:02}", state="open", created_at=iso(n)) for n in (10, 20)]
         self.loop = self.make_loop()
         self.add(issue(1, milestone=10), issue(2, milestone=10),
                  *(issue(n, milestone=20) for n in range(3, 84)),
@@ -85,7 +85,7 @@ class MilestoneGateTests(unittest.TestCase):
 
     def test_cold_claim_and_parking_reread_only_the_reached_items(self):
         self.github = PollGitHub(*(issue(n, milestone=10 if n <= 2 else 20) for n in range(1, 84)))
-        self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+        self.github.milestones = [dict(number=n, title=f"v{n:02}", state="open", created_at=iso(n)) for n in (10, 20)]
         self.github.timelines[1] = []
         self.loop = self.make_loop()
 
@@ -119,7 +119,7 @@ class MilestoneGateTests(unittest.TestCase):
             with self.subTest(failed=failed):
                 self.github = PollGitHub(issue(1, milestone=10), issue(2, milestone=20),
                                          issue(3, ("ready", "needs-human"), milestone=10))
-                self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+                self.github.milestones = [dict(number=n, title=f"v{n:02}", state="open", created_at=iso(n)) for n in (10, 20)]
                 error = GitHubError("GET", "comments", "Unreadable comments")
                 failures = [error if n in (failed, 3) else None for n in (1, 3, 2)]
                 self.github.read_results["comments"] = list(failures)
@@ -177,7 +177,7 @@ class MilestoneGateTests(unittest.TestCase):
         for name, items, rejected in fixtures:
             with self.subTest(name=name):
                 self.github = FakeGitHub(*items)
-                self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+                self.github.milestones = [dict(number=n, title=f"v{n:02}", state="open", created_at=iso(n)) for n in (10, 20)]
                 self.github.timelines.update({n: [] for n in rejected})
                 eager = self.make_loop()
                 expected = next((p for p in eager.plans() if p.state == "ready"), None)
@@ -197,7 +197,7 @@ class MilestoneGateTests(unittest.TestCase):
                 self.github = PollGitHub(issue(1, ("ready", "high"), milestone=10),
                                          issue(2, ("ready", "low"), milestone=10), competitor,
                                          issue(4, milestone=20))
-                self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+                self.github.milestones = [dict(number=n, title=f"v{n:02}", state="open", created_at=iso(n)) for n in (10, 20)]
                 self.github.timelines[1] = []
                 self.loop = self.make_loop()
                 with patch.object(self.loop, "park_approval"):
@@ -206,7 +206,7 @@ class MilestoneGateTests(unittest.TestCase):
 
     def test_gate_claim_rechecks_approval_with_fresh_reads_before_its_first_write(self):
         self.github = PollGitHub(issue(1, milestone=10), issue(2, milestone=20))
-        self.github.milestones = [dict(number=n, state="open", created_at=iso(n)) for n in (10, 20)]
+        self.github.milestones = [dict(number=n, title=f"v{n:02}", state="open", created_at=iso(n)) for n in (10, 20)]
         self.loop = self.make_loop()
         plan = next(self.loop.iter_plans(claiming=True))
         self.github.roles["maintainer"] = "read"
@@ -269,15 +269,17 @@ class MilestoneGateTests(unittest.TestCase):
         self.assertEqual([(p.item.number, p.agent.name) for p in self.loop.plans()],
                          [(n, name) for n in (3, 4, 2, 1) for name in ("preparer", "worker")])
 
-    def test_milestones_use_creation_time_then_number_and_skip_empty_ones(self):
-        self.github.milestones[0]["created_at"] = iso(100)
-        self.github.milestones.append(dict(number=5, state="open", created_at=iso(1)))
+    def test_milestones_use_title_order_over_creation_and_number_and_skip_empty_ones(self):
+        self.github.milestones[0]["title"] = "v0.4.6"
+        self.github.milestones[1]["title"] = "v0.5.0"
+        self.github.milestones.append(dict(number=5, title="v0.1.0", state="open", created_at=iso(1)))
         self.add(issue(1, ("ready", "high"), iso(1), 20),
                  issue(2, ("ready", "low"), iso(200), 10))
-        self.assertEqual(self.ready(), [2, 1])
+        self.assertEqual(self.ready(), [1, 2])
+        self.assertEqual(self.choice().item.number, 1)
 
     def test_closed_milestone_uses_unmilestoned_exception(self):
-        self.github.milestones.append(dict(number=30, state="closed", created_at=iso(1)))
+        self.github.milestones.append(dict(number=30, title="v30", state="closed", created_at=iso(1)))
         self.add(issue(1, ("ready", "high"), iso(1), 30),
                  issue(2, ("ready", "medium"), iso(2), 30),
                  issue(3, ("ready", "medium"), iso(300), 10))
