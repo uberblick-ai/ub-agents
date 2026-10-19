@@ -13,9 +13,7 @@ require Claude Code support for `--thinking-display summarized`. Plain interacti
 switch is declined or fails. New unattended setups choose a question owner
 automatically, and fresh `init` selects policy tailoring by default; deselect
 tailoring to skip it. `retry` now restores workflow labels; swap labels manually
-for another round without resetting counts. Before switching Pages to release-based
-hosting, maintainers must create `website` at the latest release and set both
-`production_branch` fields to `website`; see [the release procedure](docs/releases.md).
+for another round without resetting counts.
 
 ### Added
 
