@@ -221,7 +221,8 @@ HEAD = '''<!doctype html>
 <title>{title}</title>
 <meta name="description" content="{description}">
 <link rel="canonical" href="{canonical}">
-<link rel="icon" href="{favicon}" sizes="48x48">
+<link rel="icon" href="{favicon}" sizes="32x32">
+<link rel="icon" href="{svg_icon}" type="image/svg+xml">
 <link rel="icon" href="{icon}" type="image/png" sizes="512x512">
 <link rel="apple-touch-icon" href="{touch_icon}">
 <link rel="preload" href="{fonts}/ibm-plex-mono-400.woff2" as="font" type="font/woff2" crossorigin>
@@ -241,7 +242,8 @@ def head(here, **fields):
     fonts = rel('assets/fonts', here)
     css = re.sub(r'url\(/assets/fonts', f'url({fonts}', (ROOT / 'site.css').read_text())
     icons = {k: rel(f, here) for k, f in
-             (('favicon', 'favicon.ico'), ('icon', 'icon.png'), ('touch_icon', 'apple-touch-icon.png'))}
+             (('favicon', 'favicon.ico'), ('svg_icon', 'favicon.svg'), ('icon', 'icon.png'),
+              ('touch_icon', 'apple-touch-icon.png'))}
     return HEAD.format(fonts=fonts, css=css, **icons, **fields)
 
 MENU_JS = '''<script>
