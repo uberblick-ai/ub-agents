@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ab" viewBox="0 0 655 512" width="655" height="512" role="img" aria-label="Flow: needs-review, reviewer, needs-visual-review, human, visual-review, ready-to-merge, The integrator merges. Legend: GitHub label, like ready, human involved">
+<style>.ab{--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--agent:var(--ab-agent,#0b6b67);--agent-bg:var(--ab-agent-bg,#dff1ee);--rework:var(--ab-rework,#a65f0c);--rework-bg:var(--ab-rework-bg,#fbefdc);--stop:var(--ab-stop,#b2382f);--stop-bg:var(--ab-stop-bg,#f9e2df);--done:var(--ab-done,#2a7845);--done-bg:var(--ab-done-bg,#e0f1e5);}@media (prefers-color-scheme:dark){.ab{--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--agent:var(--ab-agent,#5cc5bb);--agent-bg:var(--ab-agent-bg,#12302d);--rework:var(--ab-rework,#e3a250);--rework-bg:var(--ab-rework-bg,#33250f);--stop:var(--ab-stop,#ef7f73);--stop-bg:var(--ab-stop-bg,#3a1916);--done:var(--ab-done,#72cf91);--done-bg:var(--ab-done-bg,#142e1d);}}
+.ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
+.ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
+.ab .muted{fill:var(--muted)}.ab .b{font-weight:600}
+.ab .cap{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.08em;fill:var(--muted)}
+.ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
+.ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}</style>
+<defs>
+<marker id="visual-review-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
+<marker id="visual-review-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
+</defs>
+<path d="M174,50 L174,80" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M174,126 L174,156" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M174,190 L174,252" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M174,298 L174,360" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M174,394 L174,424" class="e e-ink" marker-end="url(#visual-review-ink)"/>
+<path d="M331,275 L417,275" class="e e-stop" marker-end="url(#visual-review-stop)"/>
+<path d="M528,330 L528,377 L242,377" class="e e-stop" marker-end="url(#visual-review-stop)"/>
+<g><rect x="113" y="16" width="122" height="34" rx="17" class="pill"/>
+<circle cx="127" cy="33" r="5" class="t-agent"/>
+<text x="139" y="37" class="m s12">needs-review</text></g>
+<g>
+<rect x="16" y="80" width="315" height="46" rx="8" class="k-agent"/>
+<text x="174" y="99" text-anchor="middle" class="m s13 b t-agent">reviewer</text>
+<text x="174" y="116" text-anchor="middle" class="s11 muted">reviews the exact head commit</text>
+</g>
+<g><rect x="87" y="156" width="173" height="34" rx="17" class="pill"/>
+<circle cx="101" cy="173" r="5" class="t-agent"/>
+<text x="113" y="177" class="m s12">needs-visual-review</text></g>
+<g>
+<rect x="16" y="252" width="315" height="46" rx="8" class="k-agent"/>
+<text x="174" y="271" text-anchor="middle" class="m s13 b t-agent">visual-review</text>
+<text x="174" y="288" text-anchor="middle" class="s11 muted">looks for UI changes, lists the changed screens</text>
+</g>
+<g><rect x="105" y="360" width="137" height="34" rx="17" class="pill"/>
+<circle cx="119" cy="377" r="5" class="t-done"/>
+<text x="131" y="381" class="m s12">ready-to-merge</text></g>
+<rect x="83" y="424" width="181" height="34" rx="17" class="k-done"/>
+<text x="174" y="445" text-anchor="middle" class="s12 b t-done">The integrator merges</text>
+<g><rect x="417" y="220" width="222" height="110" rx="10" class="k-stop panel"/>
+<rect x="471" y="232" width="115" height="30" rx="15" class="pill"/>
+<circle cx="485" cy="247" r="5" class="t-stop"/>
+<text x="497" y="251" class="m s12">needs-human</text>
+<text x="528" y="281" text-anchor="middle" class="s12 b">A person looks at the screens</text>
+<text x="528" y="299" text-anchor="middle" class="s11 muted">approves the PR, or sends it</text>
+<text x="528" y="317" text-anchor="middle" class="s11 muted">back with needs-changes</text></g>
+<text x="184" y="145" class="m s11">approved</text>
+<text x="184" y="333" class="m s11">no-ui-change</text>
+<text x="341" y="268" class="m s11 t-stop">ui-changed</text>
+<text x="538" y="358" class="m s11 t-stop">looks right</text>
+<line x1="8" y1="474" x2="647" y2="474" class="rule"/>
+<g><rect x="16" y="488" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="494" r="3" class="t-done"/><text x="46" y="498" class="s11 muted">GitHub label, like ready</text></g>
+<g><rect x="212" y="488" width="24" height="12" rx="3" class="k-stop panel"/><text x="242" y="498" class="s11 muted">human involved</text></g>
+</svg>
