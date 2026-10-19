@@ -271,6 +271,10 @@ MENU_JS = '''<script>
   sync(); mq.addEventListener && mq.addEventListener('change', sync); })();
 </script>'''
 
+def public_url(path):
+    """Cloudflare Pages redirects x.html to x and dir/index.html to dir/, so canonical links use those."""
+    return f'{SITE}/' + re.sub(r'(^|/)index\.html$', r'\1', path).removesuffix('.html')
+
 def doc_page(pages, i):
     p = pages[i]
     here = p['path']
@@ -279,7 +283,7 @@ def doc_page(pages, i):
     first = re.search(r'<p>(.*?)</p>', p['body'], re.S)
     description = re.sub(r'<[^>]+>', '', first.group(1)) if first else TAGLINE
     return (head(here, title=html.escape(title), description=html.escape(html.unescape(description)),
-                 canonical=f'{SITE}/{here}') + header(here) + f'''
+                 canonical=public_url(here)) + header(here) + f'''
 <div class="docs">
   <details class="side"><summary>{html.escape(p["section"])} · {html.escape(p["nav"])}</summary>
     <nav aria-label="Documentation">{sidebar(pages, p)}</nav>
@@ -328,7 +332,7 @@ def main():
         landing = top + landing + '\n</body>\n</html>\n'
     (OUT / 'index.html').write_text(fix_links(landing, 'index.html'))
     (OUT / '404.html').write_text(not_found())
-    urls = [f'{SITE}/'] + [f'{SITE}/{p["path"]}' for p in pages]
+    urls = [public_url('index.html')] + [public_url(p['path']) for p in pages]
     (OUT / 'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
         + ''.join(f'  <url><loc>{u}</loc></url>\n' for u in urls) + '</urlset>\n')

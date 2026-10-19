@@ -85,6 +85,10 @@ class SiteTests(unittest.TestCase):
         self.assertNotIn('class="crumb"', rendered)
         self.assertIn('url(../assets/fonts/ibm-plex-sans.woff2)', rendered)
         self.assertIn('class="on" href="how-the-loop-works.html"', rendered)
+        self.assertIn('<link rel="canonical" href="https://agents.uberblick.ai/docs/how-the-loop-works">', rendered)
+        self.assertEqual([build.public_url(p) for p in ('index.html', 'docs/commands/index.html', 'docs/upgrading.html')],
+                         ['https://agents.uberblick.ai/', 'https://agents.uberblick.ai/docs/commands/',
+                          'https://agents.uberblick.ai/docs/upgrading'])
         self.assertEqual(page['body'].count('<figure class="flow">'), 4)
         self.assertNotIn('{{flow', page['body'])
 
