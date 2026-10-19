@@ -30,6 +30,10 @@ p code, li code, td code { background: var(--code); padding: 1px 5px; border-rad
 /* Header and footer, shared */
 .top { max-width: 1080px; margin: 0 auto; display: flex; align-items: baseline; gap: 10px 14px; flex-wrap: wrap; padding-block: 26px 0 }
 .mark { font-weight: 600; color: var(--fg); text-decoration: none }
+.brand { display: inline-flex; align-items: baseline; gap: 6px }
+.parent { color: var(--muted); text-decoration: none }
+.parent:hover { color: var(--fg) }
+.sep { color: var(--muted) }
 .ver { color: var(--muted); text-decoration: none; font-size: 14px }
 .ver:hover { color: var(--fg) }
 .top nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px }
