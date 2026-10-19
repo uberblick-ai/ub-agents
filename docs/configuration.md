@@ -501,7 +501,7 @@ inheritance, but PRs still inherit their closing issues' own configured priority
 `milestones` accepts three values: `gate`, `order` or `ignore`, and defaults to `ignore`.
 
 In `order` mode, new issues of equal effective priority rank by open milestones
-with open issues or PRs, oldest first by creation time and then milestone number.
+with open issues or PRs, in alphabetical order by title.
 Within one priority, issues without a milestone, or with a milestone outside that
 list (such as a closed milestone), rank after all listed milestones. Item creation
 time and item number break ties. Higher priority in a later or no milestone wins

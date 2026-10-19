@@ -221,7 +221,7 @@ class CoordinationRunner(RecordingRunner):
         super().__init__(root)
         self.store = FakeGitHub(*(issue(n, labels=('ready', 'p1'), milestone=1) for n in range(1, 31)),
                                 *(pr(n, labels=(), milestone=1) for n in range(31, 46)))
-        self.store.milestones = [{'number': 1, 'state': 'open', 'open_issues': 45,
+        self.store.milestones = [{'number': 1, 'title': 'v01', 'state': 'open', 'open_issues': 45,
                                  'created_at': issue().created_at}]
         self.honor_etags = honor_etags
         self.quota_requests = 0

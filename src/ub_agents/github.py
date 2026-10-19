@@ -619,16 +619,17 @@ class GitHub:
         active = []
         for raw in data:
             try:
-                created = seconds(raw["created_at"])
+                seconds(raw["created_at"])
                 if (not positive_int(raw["number"]) or raw["state"] not in {"open", "closed"}
+                        or not isinstance(raw["title"], str)
                         or type(raw["open_issues"]) is not int or raw["open_issues"] < 0):
                     raise ValueError("invalid milestone fields")
                 # GitHub's milestone count includes open issues and pull requests.
                 if raw["state"] == "open" and raw["open_issues"]:
-                    active.append((created, raw["number"]))
+                    active.append((raw["title"], raw["number"]))
             except (KeyError, TypeError, ValueError, AgentError) as exc:
                 raise GitHubError("GET", endpoint, "Unreadable GitHub milestone") from exc
-        return tuple(number for _, number in sorted(active))
+        return tuple(number for _, number in sorted(active, key=lambda milestone: milestone[0]))
 
     def dependency_graph(self):
         """List open issues and their links together for cold queue ranking."""

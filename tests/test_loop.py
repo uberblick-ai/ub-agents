@@ -430,8 +430,8 @@ class QueueTests(unittest.TestCase):
         self.loop = Loop(config(self.root, self.preparer, self.implementer, queue=Queue("order")), self.github,
                          "operator", output=lambda *_: None)
         self.github.milestones = [
-            {"number": 20, "state": "open", "created_at": iso(200)},
-            {"number": 10, "state": "open", "created_at": iso(100)},
+            {"number": 20, "title": "v20", "state": "open", "created_at": iso(200)},
+            {"number": 10, "title": "v10", "state": "open", "created_at": iso(100)},
         ]
 
     def add(self, *items):
@@ -684,7 +684,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(self.ready("implementer"), [])
 
     def test_closed_milestone_ranks_with_unmilestoned_after_every_open_milestone(self):
-        self.github.milestones.append({"number": 30, "state": "closed", "created_at": iso(1)})
+        self.github.milestones.append({"number": 30, "title": "v30", "state": "closed", "created_at": iso(1)})
         self.add(issue(1, ("ready",), iso(1)), issue(2, ("ready",), iso(2), 30),
                  issue(3, ("ready",), iso(100), 20), issue(4, ("ready",), iso(200), 10))
         self.assertEqual(self.ready("implementer"), [4, 3, 1, 2])
@@ -708,17 +708,18 @@ class QueueTests(unittest.TestCase):
                 self.assertEqual(self.ready("preparer"), [1])
                 self.assertEqual(self.ready("implementer"), [1])
 
-    def test_empty_milestone_is_skipped_and_equal_milestones_use_number(self):
-        self.github.milestones[0]["created_at"] = iso(100)
+    def test_empty_milestone_is_skipped_after_title_ordering(self):
+        self.github.milestones[0]["title"] = "v0.4.6"
+        self.github.milestones[1]["title"] = "v0.5.0"
         self.add(issue(1, ("prepare", "ready"), iso(1), 20),
                  issue(2, ("prepare", "ready"), iso(200), 10))
-        self.assertEqual(self.ready("preparer"), [2, 1])
-        self.github.change(2, state="closed")
-        self.assertEqual(self.ready("preparer"), [1])
+        self.assertEqual(self.ready("preparer"), [1, 2])
+        self.github.change(1, state="closed")
+        self.assertEqual(self.ready("preparer"), [2])
 
     def test_no_ranked_milestones_uses_global_fifo_for_each_agent(self):
         for milestones in ([], [dict(m, state="closed") for m in self.github.milestones],
-                           [{"number": 99, "state": "open", "created_at": iso(1)}]):
+                           [{"number": 99, "title": "v99", "state": "open", "created_at": iso(1)}]):
             with self.subTest(milestones=milestones):
                 self.github.milestones = milestones
                 self.add(issue(1, ("prepare", "ready"), iso(300)),
@@ -832,8 +833,8 @@ class MilestoneGateTests(unittest.TestCase):
         self.loop = Loop(config(self.root, self.preparer, self.implementer, queue=Queue("gate")), self.github,
                          "operator", output=lambda *_: None)
         self.github.milestones = [
-            {"number": 20, "state": "open", "created_at": iso(200)},
-            {"number": 10, "state": "open", "created_at": iso(100)},
+            {"number": 20, "title": "v20", "state": "open", "created_at": iso(200)},
+            {"number": 10, "title": "v10", "state": "open", "created_at": iso(100)},
         ]
 
     def add(self, *items):
@@ -934,17 +935,18 @@ class MilestoneGateTests(unittest.TestCase):
                 self.assertEqual(self.ready("preparer"), [1])
                 self.assertEqual(self.ready("implementer"), [1])
 
-    def test_empty_milestone_is_skipped_and_equal_milestones_use_number(self):
-        self.github.milestones[0]["created_at"] = iso(100)
+    def test_empty_milestone_is_skipped_after_title_ordering(self):
+        self.github.milestones[0]["title"] = "v0.4.6"
+        self.github.milestones[1]["title"] = "v0.5.0"
         self.add(issue(1, ("prepare", "ready"), iso(1), 20),
                  issue(2, ("prepare", "ready"), iso(200), 10))
-        self.assertEqual(self.ready("preparer"), [2, 1])
-        self.github.change(2, state="closed")
-        self.assertEqual(self.ready("preparer"), [1])
+        self.assertEqual(self.ready("preparer"), [1, 2])
+        self.github.change(1, state="closed")
+        self.assertEqual(self.ready("preparer"), [2])
 
     def test_no_active_milestone_uses_global_fifo_for_each_agent(self):
         for milestones in ([], [dict(m, state="closed") for m in self.github.milestones],
-                           [{"number": 99, "state": "open", "created_at": iso(1)}]):
+                           [{"number": 99, "title": "v99", "state": "open", "created_at": iso(1)}]):
             with self.subTest(milestones=milestones):
                 self.github.milestones = milestones
                 self.add(issue(1, ("prepare", "ready"), iso(300)),

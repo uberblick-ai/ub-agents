@@ -155,7 +155,7 @@ class FilteredLaunchTests(unittest.TestCase):
                                          issue(11, labels=("prepare",), milestone=4),
                                          issue(12, labels=("prepare", "urgent"), milestone=5))
                 self.github.milestones = [
-                    {"number": n, "state": "open", "created_at": f"2026-01-0{n}T00:00:00Z"}
+                    {"number": n, "title": f"v{n:02}", "state": "open", "created_at": f"2026-01-0{n}T00:00:00Z"}
                     for n in (3, 4, 5)]
                 self.config = config(self.root, self.other, self.selected,
                                      queue=Queue(priority=Priority(("urgent",)), milestones=policy))

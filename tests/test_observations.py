@@ -686,7 +686,7 @@ class ObservationTests(unittest.TestCase):
         self.observer = Observations(self.cfg, 'operator', None, self.memory)
         github = PollGitHub(issue(labels=('needs-preparation', 'urgent'), milestone=9), issue(3, milestone=9),
                             pr(labels=(), body='Independent change'))
-        github.milestones = [{'number': 9, 'state': 'open', 'created_at': '2026-01-01T00:00:00Z'}]
+        github.milestones = [{'number': 9, 'title': 'v09', 'state': 'open', 'created_at': '2026-01-01T00:00:00Z'}]
         loop = self.loop(github)
         self.observer.begin_pass()
         list(loop.iter_plans())

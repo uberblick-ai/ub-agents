@@ -117,8 +117,8 @@ The three milestone modes are `gate`, `order` and `ignore` (the default).
    claim-time read both enforce this gate. Approval parking also rechecks it.
    Milestones select among eligible issues; they do not gate individual eligibility.
 4. In milestone `order` mode, new issues of equal effective priority rank by open
-   milestones with open items, oldest creation time and then milestone number
-   first. Within one priority, unmilestoned issues and issues whose milestone is
+   milestones with open items, in alphabetical order by title.
+   Within one priority, unmilestoned issues and issues whose milestone is
    outside that list rank last.
 5. In milestone `gate` mode, select the earliest listed milestone with work
    eligible for this launcher, then order its issues by effective priority.
