@@ -89,15 +89,11 @@ the issue or PR number.
 A maintainer invokes the [release skill](.agents/skills/release/SKILL.md) after
 release prep merges. `mise run release X.Y.Z` checks current `origin/main`, a clean
 checkout, the prepared version and dated CHANGELOG section, an unused tag and a
-green GitHub Actions `Test` run on the commit. It pushes an annotated tag, updates
-the `website` branch to that tag's commit without force, copies the section without
-its heading into the GitHub release notes, and opens a PR updating the Homebrew tap formula.
+green GitHub Actions `Test` run on the commit. It pushes an annotated tag, copies the section without its heading
+into the GitHub release notes, and opens a PR updating the Homebrew tap formula.
 It tests the tag and exact formula resource versions in a fresh Python 3.14
 virtualenv and posts the result to that PR. A maintainer reviews and merges the tap
 PR, then upgrades Homebrew and verifies the installed version.
-
-Cloudflare Pages uses `website` for production. Changes under `site/content/`,
-including docs fixes between releases, go live at the next release.
 
 No loop role cuts releases. Implementers and reviewers test the tooling with fakes
 and never run it against the real repositories. The task never merges the tap PR

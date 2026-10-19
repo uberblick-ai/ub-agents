@@ -6,12 +6,11 @@ After that PR merges, a maintainer can invoke the repository's
 [release skill](../.agents/skills/release/SKILL.md) to check readiness, show the
 notes and confirm publication. No loop role publishes a release.
 
-The task needs Git, `gh` authenticated with permission to push tags, update the
-`website` branch and open tap PRs, and Python 3.14 with venv support (`python3.14`
-on PATH or Homebrew's `python@3.14`). Source dependencies may also need build
-tools. It uses the standard library and pip in temporary virtualenvs, without
-adding package dependencies. Git's normal commit and tag signing configuration
-applies.
+The task needs Git, `gh` authenticated with permission to push tags and open tap
+PRs, and Python 3.14 with venv support (`python3.14` on PATH or Homebrew's
+`python@3.14`). Source dependencies may also need build tools. It uses the standard
+library and pip in temporary virtualenvs, without adding package dependencies.
+Git's normal commit and tag signing configuration applies.
 
 From a clean checkout at current `origin/main`:
 
@@ -35,8 +34,7 @@ on PATH first, then `brew --prefix python@3.14`. A missing interpreter, Homebrew
 or formula, or an interpreter reporting another Python version, refuses before
 publication.
 
-The task pushes an annotated `vX.Y.Z` tag, updates `website` to that tag's commit
-as a separate step, then creates the GitHub release
+The task pushes an annotated `vX.Y.Z` tag, creates the GitHub release
 `ub-agents X.Y.Z` with the CHANGELOG section verbatim except its heading, and
 opens a PR on `uberblick-ai/homebrew-tap`. The formula URL and checksum describe
 the tag tarball served by GitHub. Pip resolves that tarball's full dependency
@@ -44,27 +42,6 @@ closure with Python 3.14, selecting source archives. Resource blocks for matchin
 versions stay intact; changed versions are updated and dependencies are added or
 removed as needed. Resolution uses pip's
 [installation report](https://pip.pypa.io/en/stable/reference/installation-report/).
-
-The website step runs `git push origin vX.Y.Z^{commit}:refs/heads/website` without
-force. If `website` is not an ancestor of the tag commit, Git rejects the push and
-the task stops before creating the GitHub release. Cloudflare Pages builds
-production from `website`, keeping the site's docs and header version at the
-latest release. Changes under `site/content/`, including docs fixes between
-releases, wait for the next release. Merging to `main` alone does not deploy the
-production site; Pages may still build branch previews.
-
-For the initial switch, a maintainer creates `website` at the latest release
-before changing Pages. With `v0.3.2` as that release:
-
-```sh
-git push origin v0.3.2^{commit}:refs/heads/website
-```
-
-In a separate `uberblick-infra` PR, set both `production_branch` fields for the
-ub-agents Pages project in `cloudflare/main.tf` to `"website"`, leaving
-`path_includes` unchanged. A maintainer applies that change from their machine.
-Implementers and reviewers test release tooling with fakes only; they never push
-`website` to the real repository.
 
 After opening the tap PR, a separate fresh virtualenv installs the tag tarball
 and only the formula's resource archives, checking their checksums, installed
@@ -96,14 +73,9 @@ state first: the server may have accepted it before the connection failed.
 
 Do not rerun the task once a local or remote tag exists. Never move or delete a
 pushed tag. Complete the remaining steps manually using the existing tag and
-release notes: update `website`, create the missing GitHub release, complete or
-open the formula PR, or rerun and post the formula tests. If a tag push failed
-before reaching origin, inspect the local annotated tag and its target before
-deciding to push that same tag. If the website step is still to do, inspect
-origin's `website` branch and the existing tag's commit, then run
-`git push origin vX.Y.Z^{commit}:refs/heads/website` with the literal release
-version. Keep the push non-forced; if it is rejected because the histories
-diverge, stop for a maintainer to resolve the branch history before continuing
-with the GitHub release and tap PR. A tap branch pushed before PR creation failed
-can be used to open the missing PR. If the formula needs correction, update the
-existing tap PR; merge only after its tests pass.
+release notes: create the missing GitHub release, complete or open the formula
+PR, or rerun and post the formula tests. If a tag push failed before reaching
+origin, inspect the local annotated tag and its target before deciding to push
+that same tag. A tap branch pushed before PR creation failed can be used to open
+the missing PR. If the formula needs correction, update the existing tap PR;
+merge only after its tests pass.
