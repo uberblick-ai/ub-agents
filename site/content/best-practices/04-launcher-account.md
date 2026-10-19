@@ -10,6 +10,10 @@ Write access is enough to push branches, open pull requests and set labels. With
 ub-agents doctor
 ```
 
+## Limit what agents can reach
+
+Agents run with the launcher account and inherit the launcher's environment. Keep secrets you don't want them to use out of that environment, and protect the default branch with a ruleset: required checks, no force pushes.
+
 ## Several loops
 
 Several loops can share one agent account. GitHub's API limits apply per account, but up to ten loops on one account work fine. See [How many launchers one account supports](/docs/best-practices/account-capacity.html) and [Launcher accounts](/docs/configuration/launchers.html).
