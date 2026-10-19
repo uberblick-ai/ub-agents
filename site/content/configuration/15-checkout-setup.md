@@ -9,31 +9,16 @@ checkout-setup:
   timeout-seconds: 600
 ```
 
-This optional project hook runs in the Python launcher, before the agent starts.
-Without `checkout-setup`, no setup command runs. ub-agents does not require mise:
-choose the command for your project, such as `[npm, ci]` for an npm project.
+Choose an argument list for your project, such as `[npm, ci]`. Name a shell explicitly when needed. The mise example trusts each checkout's `mise.toml` before installing; every private worktree needs its own trust.
 
-The mise example trusts only this checkout's `mise.toml` before installing.
-Every new worktree has a new path, so trusting the control checkout alone is not
-enough. Agent runtime command permissions do not apply to this hook. The explicit
-`sh -c` runs the two steps in order; if trust fails, install does not run.
+`when-changed` lists repository-relative files to watch in the control checkout. When launch pulls a change to one, it runs setup before claiming work. Each new private worktree runs setup regardless of watched files. The timeout defaults to 600 seconds, up to 3600.
 
-The command is a nonempty argv list, executed directly in the checkout being set up; name a shell explicitly when needed. `when-changed` is a nonempty list of literal repository-relative file paths, including files added or deleted by a pull. Absolute paths, directories and `..` components are rejected. The timeout defaults to 600 seconds and must be positive and at most 3600.
+Keep tracked files unchanged and install dependencies into ignored paths. The terminal view and plain output name the triggering file and setup log. Private-worktree output goes to `checkout-setup/process.log` in the run's log directory.
 
-In the control checkout, before every new run, after refresh and configuration reload, the launcher compares watched files with the last commit where setup succeeded. Until setup first succeeds, it compares with the HEAD before the fast-forward. Any difference runs the command once before claiming a role. A commit can add the setting and lockfile change together. Unrelated changes and refreshes with nothing to pull skip setup, unless a previous setup failed. Pulls made by hand are outside this mechanism.
+If control-checkout setup fails, read the log, fix the install and launch again. A private-worktree failure counts toward the item's retry limit; fix the cause before resetting exhausted attempts:
 
-The first baseline is saved before the fast-forward. If launch stops or configuration reload fails before setup runs, the next launch still detects the watched-file change.
+```sh
+ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"
+```
 
-The terminal view and plain output name the triggering file. Command output goes only to the named log; records and logs stay outside the checkout in the user's state directory. Keep tracked files unchanged and install dependencies into ignored paths.
-
-A nonzero exit, start failure, timeout or interruption in control-checkout setup stops launch without claiming a role, spending an attempt or marking the item blocked or retrying. Read the named log, fix the install in the control checkout, and launch again. Failed setup retries even with nothing to pull, until it succeeds.
-
-For an agent with `worktree: true`, the launcher also runs the command once in each private worktree immediately after creating it, before the agent starts. `when-changed` applies only to the control checkout; a new worktree always needs its own dependencies. Shared-checkout agents run no additional setup command. Private setup uses the same environment and timeout as control-checkout setup.
-
-The terminal view and plain output say setup is running in the worktree. Its output goes to `checkout-setup/process.log` in the run's log directory, separately from the agent's `process.log`.
-
-For a PR reviewer, setup installs the PR head's lockfile, so its install scripts run before the agent does; the agent would run them anyway to test the PR.
-
-A private-worktree setup failure counts toward the item's retry limit. Fix the hook or environment before using `ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"` to reset exhausted attempts.
-
-A failure ends the run before the agent starts, cleans up the private worktree, and reports the cause and log as a workspace-preparation failure. Interruption terminates setup like an interrupted agent. Timeout and interruption terminate and confirm the whole process group; crash recovery requires confirmed termination before releasing the item or removing the worktree. The item's stop labels, open state, trigger labels and candidate head are checked again after setup finishes.
+See the [checkout-setup reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#checkout-setup) for file comparison, path validation and process recovery, and [operations](https://github.com/uberblick-ai/ub-agents/blob/main/docs/operations.md#when-things-go-wrong) for troubleshooting.
