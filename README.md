@@ -17,13 +17,18 @@ the agent reports as new labels. Then it picks the next item.
   Its pull request gets `needs-review`, and the reviewer takes over. You decide what
   each label means and what happens after each outcome.
 - **GitHub is the only state.** Claims, attempts and outcomes are comments on the
-  issue or PR. A restarted launcher rebuilds everything from there. There is no
-  database and nothing to host.
+  issue or PR. A restarted launcher rebuilds everything from there, and older ones
+  are hidden as outdated. There is no database and nothing to host.
 - **Use the agents you already have.** Each role runs Claude Code or Codex with the
   model you choose, or any command. Its instructions are files in your repository,
   reviewed like code.
-- **Run it anywhere.** Launchers on several machines, yours and your teammates',
-  share one queue. A claim keeps two launchers off the same item.
+- **Start from a working loop.** `ub-agents init` sets up an opinionated starter
+  set of roles, labels and merge policy. Adjust it over time; agents' retros say
+  what would have helped them.
+- **Run it anywhere.** On your laptop, or on any always-on server for a loop that
+  never sleeps. One machine can run several loops in parallel, and launchers on
+  several machines, yours and your teammates', share one queue. A claim keeps two
+  launchers off the same item.
 
 ub-agents is MIT-licensed and early stage. It develops itself with its own loop.
 

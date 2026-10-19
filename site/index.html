@@ -13,11 +13,13 @@
 
   <section>
     <h2>What does ub-agents do?</h2>
-    <p>It runs coding agents on your GitHub issues and pull requests. You start a launcher on your own computer. It watches the repository, claims an item whose label matches one of your agents, runs that agent, and records the result.</p>
+    <p>It runs coding agents on your GitHub issues and pull requests. You start a launcher. It watches the repository, claims an item whose label matches one of your agents, runs that agent, and records the result.</p>
     <p>Labels are the queue. Put <code>ready</code> on an issue and the implementer picks it up. When it opens a pull request, that PR gets <code>needs-review</code> and the reviewer takes over. You decide what each label means and what happens after each outcome.</p>
     <p>The starter workflow begins at <code>needs-preparation</code>: the preparer sends small, clear work to implementation, other work to an issue-reviewer, and work needing several PRs to prepared sub-issues. See <a href="/docs/how-the-loop-works.html">how the loop works</a>.</p>
-    <p>GitHub is the only state. Claims, attempts and outcomes are comments on the issue or PR, so a restarted launcher rebuilds everything from there. There is no database and nothing to host.</p>
-    <p>Use the agents you already have. Each role names a CLI such as <code>claude</code> or <code>codex</code>, a model, and instructions that live in your repository. Launchers on several machines share one queue.</p>
+    <p>GitHub is the only state. Claims, attempts and outcomes are comments on the issue or PR, so a restarted launcher rebuilds everything from there. Older ones are hidden as outdated, so a thread shows the latest state and stays readable. There is no database and nothing to host.</p>
+    <p>Agents only take input from your team. Comments from people without write access never reach them, and on a public repository an outside issue or pull request waits until a maintainer starts it. See <a href="/docs/configuration/approvals.html">approvals</a>.</p>
+    <p>Use the agents you already have. Each role names a CLI such as <code>claude</code> or <code>codex</code>, a model, and instructions that live in your repository.</p>
+    <p>Run the launcher where it suits you. On your laptop it works while the laptop is awake. For a loop that never sleeps, use any always-on machine, such as a small cloud server. One machine can run several loops in parallel, and launchers on several machines share one queue. See <a href="/docs/guides/add-a-launcher.html">add a launcher</a>.</p>
   </section>
 </div>
 
@@ -36,7 +38,7 @@
 <pre><code><span class="p">$ </span>cd your-project
 <span class="p">$ </span>ub-agents init     <span class="c"># opens the setup wizard; review before Apply</span>
 <span class="p">$ </span>ub-agents launch   <span class="c"># runs the loop; q stops after the current run</span></code></pre>
-    <p>Start the setup wizard with <code>ub-agents init</code> in your project's checkout. It shows findings and choices before applying changes; <code>--use-defaults</code> provides unattended setup. See the <a href="/docs/commands/init.html">init command guide</a> and <a href="/docs/installation.html">installation guide</a>. Review the starter policy and merge the files before launching from a clean default-branch checkout.</p>
+    <p>Run <code>ub-agents init</code> in your project's checkout to set up a working loop from an opinionated starter set: five roles with their instructions, the labels and a merge policy. Launch with it as it is and adjust it over time. Agents tell you what would have helped them in <a href="/docs/best-practices/retrospectives.html">retros</a>, so you know what to change. The wizard shows every change before applying it; <code>--use-defaults</code> sets up without questions. See the <a href="/docs/commands/init.html">init command guide</a> and <a href="/docs/installation.html">installation guide</a>. Review the starter policy and merge the files before launching from a clean default-branch checkout.</p>
   </section>
 
   <section>

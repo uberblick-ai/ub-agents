@@ -8,7 +8,7 @@ Each loop checks GitHub issues and pull requests for labels. It sorts them by pr
 
 1. **Claim.** So agents never get in each other's way, each run first claims the issue or pull request with a special GitHub comment.
 2. **Run.** Agents always work in worktrees and branches they create for the work. Nothing touches `main`.
-3. **Report.** When the work is done, another special comment releases the claim and posts the next steps. The labels move on to the next role.
+3. **Report.** When the work is done, another special comment releases the claim and posts the next steps. The labels move on to the next role. Older claim and report comments are hidden as outdated, so the thread shows the latest state.
 4. **Move.** Issues become pull requests, and pull requests are integrated (merged) as the gates you define allow. Some merge automatically, others wait for a maintainer's approval.
 
 The diagrams below show the labels from the starter configuration that `ub-agents init` writes. Every label, role and outcome is a line in `ub-agents.yaml`. Rename them, drop a role or add one; the launcher follows the file. See [Agents](/docs/configuration/agents.html) and [Outcomes](/docs/configuration/outcomes.html).
