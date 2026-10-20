@@ -105,6 +105,22 @@ class OutsideInputTests(unittest.TestCase):
         self.assertFalse(history[0]['started'])
         self.assertEqual(attempts(history, self.worker.name, timestamp() + 120), [])
 
+    def test_conflict_routing_failure_after_labelling_spends_attempt_on_expiry(self):
+        self.worker = replace(self.worker, kind='pr', on_conflict='done')
+        self.cfg = config(self.root, self.worker)
+        self.loop = Loop(self.cfg, self.github, 'operator', output=lambda *_: None)
+        self.github.items[1] = replace(pr(1, labels=('ready',)), mergeable=False)
+        self.github.store[1] = [feedback(100, second=10)]
+        with patch.object(self.loop.coordinator, 'report',
+                          side_effect=GitHubError('POST', 'outcome', 'Unavailable')), \
+                patch('ub_agents.loop.supervise') as process, self.assertRaises(GitHubError):
+            self.loop.tick()
+        process.assert_not_called()
+        self.assertIn('outside-input', self.github.item(1).labels)
+        lease, = history = self.loop.coordinator.history(1)
+        self.assertEqual((lease['state'], lease['started']), ('running', True))
+        self.assertEqual(attempts(history, self.worker.name, timestamp() + 120), [lease])
+
     def test_removal_holds_until_outside_text_is_input_again(self):
         self.github.store[1] = [feedback(100, second=10)]
         self.execute(True)

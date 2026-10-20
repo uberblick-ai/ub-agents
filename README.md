@@ -2,469 +2,64 @@
 
 **An autonomous coding loop for GitHub.** Any agent, no server.
 
+ub-agents runs coding agents on your GitHub issues and pull requests. A launcher on
+your machine runs the agent whose label matches each item, and the agent's outcome
+moves the labels on to the next role. Claims and outcomes are comments, so GitHub
+is the only state. Each role runs Claude Code, Codex or any command, with
+instructions that live in your repository.
+
+**Website and docs: [agents.uberblick.ai](https://agents.uberblick.ai)**
+
+ub-agents is MIT licensed and early stage. It develops itself with its own loop.
+
+## Try it
+
+On macOS or Linux, with `git`, a logged-in `gh` and `claude` or `codex`:
+
 ```sh
 brew install uberblick-ai/tap/ub-agents
-```
-
-## What is ub-agents?
-
-ub-agents runs coding agents on your GitHub issues and pull requests. You start a
-launcher in your project's checkout. It watches the repository, claims an issue or
-PR whose label matches one of your agents, runs that agent, and applies the outcome
-the agent reports as new labels. Then it picks the next item.
-
-- **Labels are the queue.** Put `ready` on an issue and the implementer picks it up.
-  Its pull request gets `needs-review`, and the reviewer takes over. You decide what
-  each label means and what happens after each outcome.
-- **GitHub is the only state.** Claims, attempts and outcomes are comments on the
-  issue or PR. A restarted launcher rebuilds everything from there, and older ones
-  are hidden as outdated. There is no database and nothing to host.
-- **Use the agents you already have.** Each role runs Claude Code or Codex with the
-  model you choose, or any command. Its instructions are files in your repository,
-  reviewed like code.
-- **Start from a working loop.** `ub-agents init` sets up an opinionated starter
-  set of roles, labels and merge policy. Adjust it over time; agents' retros say
-  what would have helped them.
-- **Add loops to go faster.** Every launcher, on a laptop, a teammate's machine or
-  an always-on server, works from the same queue, and a claim keeps two launchers
-  off the same item. One machine can run several loops. Ten loops serve a team of
-  20 to 30 engineers well.
-
-ub-agents is for engineers and teams of up to a few dozen people with a hacker,
-hands-on mentality. It gives you full control, without a convoluted setup or cloud infrastructure to run.
-It is MIT-licensed and early stage, and it develops itself
-with its own loop.
-
-`ub-agents launch` opens a live view of its own work. An example session:
-
-```text
-╭─ Work · pass complete ─────────────────────╮ ╭─ Agent ───────────────────────────────────────────────────────╮
-│                                            │ │                                                               │
-│  Running · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   1 Agent  2 Issue  3 Runs │ Formatted  Raw (u)               │
-│  ⠇ #248 Refresh the queue while an… 04:13  │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
-│    implementer · this launcher · attempt…  │ │  #248 Refresh the queue while an agent runs                   │
-│                                            │ │  implementer · claude opus high · attempt 1                   │
-│  Needs attention · 1 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
-│  ? #255 Keep run scratch outside the… 19h  │ │   11:07:31 I'll read how the launcher polls before            │
-│    implementer · needs-human · Decide wh…  │ │            changing anything.                                 │
-│                                            │ │   11:07:51 ▸ Read src/ub_agents/polling.py                    │
-│  Eligible · 2 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │ │   11:08:30 ▸ Read src/ub_agents/loop.py                       │
-│  ● ⌥252 Drop inherited agent variab… next  │ │   11:09:10 The queue only refreshes between runs. I will      │
-│    reviewer                                │ │            poll read-only while the agent works and claim     │
-│                                            │ │            nothing until it is idle.                          │
-│  ● #191 Shorter ub-agents doctor o… ready  │ │   11:09:30 ▸ Edit src/ub_agents/loop.py +5 -2                 │
-│    implementer · 1/5 failures              │ │   11:10:09 ▸ Edit tests/test_loop.py +3 -1                    │
-│  Recent activity · showing 4 ┄┄┄┄┄┄┄┄┄┄┄┄  │ │   11:10:49 ▸ Bash python -m tests                             │
-│  ✓ ⌥269 Send fixable check failur… merged  │ │   11:11:29 ▸ Bash git push -u origin ub-agents/248-implem…    │
-│    integrator · 11:04 · Squash-merged af…  │ │                                                               │
-│                                            │ │                                                               │
-│  ✓ ⌥269 Send fixable check fail… approved  │ │                                                               │
-│    reviewer · 10:45 · Approved the curre…  │ │                                                               │
-│                                            │ │                                                               │
-│  ✓ ⌥267 Release 0.1.15             merged  │ │                                                               │
-│    integrator · 10:28 · Squash-merged af…  │ │                                                               │
-│                                            │ │                                                               │
-│  ✓ ⌥264 Open the selected item fr… merged  │ │                                                               │
-│    integrator · 10:11 · Squash-merged af…  │ │                                                               │
-│                                            │ │  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
-│                                            │ │  ⠧ implementer running · no outcome reported                  │
-╰────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────────────╯
-ub-agents · running assignment                                                            1-3 tabs ? keys q quit
-```
-
-The item tab bar shows `│ Formatted  Raw (u)` on every tab. Press `u` to toggle
-the selected log's mode; the active label stays accented (Formatted underlined,
-Raw reversed). The muted shortcut shortens to `u` when space is tight; the
-60-column item view with all four tabs also uses one space between the mode labels.
-Clicking the indicator has no effect.
-
-The footer keeps navigation hints brief: `1-3 tabs ? keys q quit` in follow mode,
-or `? keys q quit` in the narrow Work list. Arrow keys still select rows and
-`Enter` opens them; `?` lists all keys. Attached macOS views offer
-`r poll now c Stay awake ? keys` when there is room. With keep awake enabled,
-the footer reads `ub-agents v0.2.1 · ☕ · next poll 26s`, or
-`v0.2.1 · ☕ · poll 26s` in the narrow layout. The `☕` indicator uses two terminal
-cells and stays visible as the `c Stay awake` hint drops first.
-
-## Get started
-
-You need macOS or Linux, `git`, `gh` logged in to an account with write access to
-the repository, and the agent CLI you want to run: `codex` or `claude`.
-
-```sh
 cd your-project
-ub-agents init
-# Or preselect a runtime:
-ub-agents init --runtime claude:claude-opus-5-5:high
+ub-agents init      # opens a setup PR with starter roles
+ub-agents launch    # after you review and merge it
 ```
 
-In a terminal, `init` checks your machine, preselects the detected, logged-in CLI
-(Codex when both are logged in), and asks which agent runs the loop, whether
-agents may work without asking, and which extras you want (priorities, retrospectives,
-Uberblick and tailoring the loop policy). It writes nothing until you confirm
-**Write setup?**. Agents always work in worktrees and branches; they never commit
-to main. See the
-[init command guide](https://agents.uberblick.ai/docs/commands/init.html).
-Fresh init selects **Tailor loop policy** by default. After opening the setup PR,
-it files a **Tailor `.agents/ub_agents.md` to this repository** issue labeled
-`ready` and names its URL in **Next**. This first loop issue asks agents to read
-the repository and propose its required CI check, additional maintainer merge
-rules and one to three review focus points, with file evidence for each rule.
-Without a setup PR, or if filing fails, init prints a runnable `gh issue create`
-command with the same title, body and label; failures also show the reason.
-Deselect the extra to skip both filing and the command.
+- [Installation](https://agents.uberblick.ai/docs/installation.html): requirements and first launch
+- [init](https://agents.uberblick.ai/docs/commands/init.html): what the setup PR contains and what to review
+- [How the loop works](https://agents.uberblick.ai/docs/how-the-loop-works.html): labels, roles and handoffs
+- [Permissions](https://agents.uberblick.ai/docs/configuration/permissions.html): what agents may do on your machine
+- [Give launchers their own account](https://agents.uberblick.ai/docs/best-practices/launcher-account.html)
+- [Run the loop on a public repository](https://agents.uberblick.ai/docs/guides/public-repos.html)
+- [Add more launchers](https://agents.uberblick.ai/docs/guides/add-a-launcher.html) and [Unstick an item](https://agents.uberblick.ai/docs/guides/stuck-items.html)
+- [Upgrading](https://agents.uberblick.ai/docs/upgrading.html)
 
-For an existing setup, `ub-agents init --create-boards` adds missing retrospective
-boards and Claude posting permissions; `--create-priorities` adds priority labels.
-Use either or both flags; neither offers the tailoring issue. They check the
-checkout and only add entries to `ub-agents.yaml`, opening one setup PR on the
-default branch or keeping the edit local on another branch. Default answers work
-with `--use-defaults` or no terminal.
+## Contributing
 
-Selecting Uberblick also previews and registers its project MCP server for the
-chosen CLI after confirmation: `.mcp.json` for Claude Code or `.codex/config.toml`
-for Codex. The plain `ub mcp serve` entry follows `.uberblick.json`, including a
-binding you add later. Matching entries are reused; conflicts stay unchanged.
-New or changed MCP config joins the setup PR on the default branch, or stays local
-with the other setup files. Unsupported `ub` versions and registration failures
-leave a manual command without blocking setup. Restart running agent sessions
-after registration. Requires `ub` 0.4.3 or newer with project-scope support.
+This repository runs its own loop, configured in [ub-agents.yaml](ub-agents.yaml)
+and [.agents/](.agents/).
 
-The starter files are:
+- **Open an issue** for a bug or a change. A maintainer labels it to start the
+  loop, which prepares it, implements it, reviews the PR and merges it. Small,
+  single-change issues work best.
+- **Pull requests are welcome.** Agents review fork PRs as a diff and rely on CI;
+  they can't push to your fork. See [approvals](docs/approvals.md) for how outside
+  input is handled.
 
-```text
-your-project/
-├── ub-agents.yaml          # agents, their triggers and outcomes
-└── .agents/
-    ├── ub_agents.md        # project policy every agent reads
-    ├── issue-preparer.md
-    ├── issue-reviewer.md
-    ├── implementer.md
-    ├── reviewer.md
-    └── integrator.md
-```
-
-For unattended setup, including in a terminal:
-
-```sh
-ub-agents init --use-defaults --repository org/project
-```
-
-CI and non-TTY runs also use defaults without prompts. Without `--runtime`, they
-use Codex. They keep permissions and updates commented out, skip the other extras,
-print label commands and the tailoring issue command, and open no PR or issue.
-They set who answers the agents' questions to the first team with maintain or
-admin access, or the current `gh` user if no
-team is readable, and print the choice and its source. If neither is readable,
-setup completes with a reminder to replace `@org/maintainers` in
-`.agents/ub_agents.md` before launch.
-
-Before the first launch:
-
-1. Review `.agents/ub_agents.md`: your checks, who may merge, and who answers
-   questions. Keep build and test commands in the `AGENTS.md` or `CLAUDE.md` your
-   agents already read.
-2. Give the agents permissions. If you didn't let init grant them,
-   uncomment the top-level `runtime-args` mapping in `ub-agents.yaml`. It supplies
-   defaults per CLI; an agent's own `runtime-args` replaces them. Claude agents
-   also need your check commands in `--allowedTools`.
-3. On the default branch, interactive init opens a setup PR: review the files there
-   and merge it. If you decline the switch to that branch or Git cannot switch,
-   init stops without writing anything; switch and run it again. In unattended
-   setup, commit the local files through your project's PR workflow. After they
-   merge, use a clean default-branch launcher checkout and launch:
-
-```sh
-ub-agents doctor --offline  # local validation without GitHub or agent CLIs
-ub-agents doctor     # machine, GitHub access, labels and agent CLIs
-ub-agents launch     # runs the loop and opens the terminal view
-```
-
-Setup success does not establish launch readiness. Launch fetches and fast-forwards
-the control checkout before runs; use a separate checkout if you also code here.
-The checkout's `origin` must match `repository`. HTTPS and SSH remotes work,
-including SSH host aliases whose `ssh -G HOST` output names `github.com` as the
-hostname; this check also works offline.
-Doctor, including `--offline`, checks the configured `shared-instructions` file
-for the starter placeholders `@org/maintainers`, `<project build command>`,
-`<project test command>` and `<project lint or validation command>`, warning once
-per remaining placeholder. It also warns if the Merging section still matches the
-starter, ignoring line wrapping and any owner handle init substituted. These
-warnings do not fail doctor; tailor the policy using repository evidence.
-
-Now add `needs-preparation` to an issue. In a public repository, a label added
-by someone with `maintain` or `admin` access starts work on an issue, and outside
-edits wait for their approval ([approvals](docs/approvals.md)).
-With approvals on, the launcher replaces HTML comments and Unicode format
-characters in cleared outside text with `[hidden content removed]` before agents
-receive it. This cleanup does not guarantee that agents see only what a maintainer saw.
-Runs that receive outside text also carry `outside-input`; the launcher copies it
-to handoff PRs and started sub-issues. The label records provenance and does not
-gate work or merging. See [outside-input labels](docs/approvals.md#outside-input-label).
-
-## The starter workflow
-
-```text
-needs-preparation ──▶ issue-preparer
-  prepared ─────────▶ ready (small, bounded, clear work)
-  review ───────────▶ needs-review (issue) ──▶ issue-reviewer
-    approved ───────▶ ready
-    changes-requested ──▶ needs-preparation
-  split ────────────▶ prepared sub-issues; open parent blocked by each
-  needs-human ──────▶ needs-human
-ready ──────────────▶ implementer ─────▶ PR with needs-review
-needs-review (PR) ──▶ reviewer ────────▶ ready-to-merge, or needs-changes
-needs-changes ──────▶ implementer ─────▶ needs-review
-ready-to-merge ─────▶ integrator ──────▶ merged, needs-changes or needs-human
-needs-human ────────▶ waits for a person
-```
-
-The starter PR reviewer allows three `changes-requested` rounds. On the fourth
-review, it approves with P2 suggestions listed when no P1 finding remains;
-otherwise it requests changes with open P1 findings and the launcher parks the PR
-with `needs-human`. Remove that label and reapply `needs-review` for one more
-review with the count kept, or use `ub-agents retry N --agent reviewer --reason TEXT`
-to reset the count and restore labels automatically. See [outcome limits](docs/configuration.md#outcomes-and-transitions).
-Older launchers reject `max-rounds`; upgrade every launcher before using it.
-
-The issue-reviewer checks scope, feasibility and acceptance criteria without editing
-the issue. Its `changes-requested` summary reaches the preparer as feedback; after
-applying the findings, the preparer reports `prepared`, without another review round.
-Either issue role can report `needs-human` for decisions that need a person.
-Use a different runtime for the issue-reviewer than for the preparer; this is a
-recommendation because `different-runtime-from` currently requires a PR.
-
-For work that needs more than one reviewable PR, the preparer creates native GitHub
-sub-issues with prepared bodies and no workflow labels, links each as a blocker of
-the open parent and reports `split`. A maintainer labels each sub-issue to start it.
-The issue-reviewer and PR reviewer share `needs-review`, selected by item kind.
-
-Before handoff, the implementer fetches the PR's base and fixes any merge conflicts.
-If GitHub reports an approved PR as conflicting, the launcher sends it back to the
-implementer with `needs-changes` instead of starting the integrator.
-If the reviewed PR is behind its base but merges cleanly, the integrator merges
-the base into it, keeps the review and runs final checks at the new head.
-
-These labels are conventions, not built-ins. Rename them, drop the review, or run
-a single agent. Each role is a few lines of `ub-agents.yaml`:
-
-```yaml
-implementer:
-  runtime: "claude:claude-opus-5-5:high"  # cli:model:effort
-  trigger: [ready, needs-changes]         # labels that start it
-  outcomes:
-    handed-off: {add: [needs-review]}     # what each reported outcome does
-  instructions: .agents/implementer.md
-  worktree: true                          # private checkout for each run
-```
-
-An issue agent can use `split: {sub-issues: {add: [needs-preparation]}}` to have the
-launcher start the qualifying native sub-issues its run creates. With approvals on,
-they inherit the parent's start through its accepted outcome. See the
-[outcome reference](docs/configuration.md#outcomes-and-transitions) for eligibility
-and the requirement to upgrade every launcher before adopting this key.
-
-The launcher removes the trigger label and applies the outcome's labels only after
-it has checked the agent's report on GitHub. The
-[configuration reference](docs/configuration.md) lists every key.
-
-For machine-specific settings, put an untracked `ub-agents.local.yaml` beside the
-required base file. With `--config PATH`, the local file is read from the resolved
-base file's directory, never an unrelated working directory. Local mappings merge
-recursively; supplied scalars and lists replace the entire base value. For example,
-if the base implementer uses `codex:gpt-6.1-sol:high`, keep that alternative by
-repeating it in the local replacement list:
-
-```yaml
-# ub-agents.local.yaml
-agents:
-  implementer:
-    runtime: ["codex:gpt-6.1-sol:high", "codex:machine-model:high"]
-```
-
-The implementer's other settings and other agents inherit from the base. Missing,
-empty or comment-only local files leave it unchanged. `doctor`, `init`
-validation and launch use the effective settings; launch rereads both files before
-each run, so adding, editing or removing the local file takes effect at the next
-reload. It stays in the control checkout and is not copied into private worktrees.
-`init` adds its ignore entry; existing projects should add `ub-agents.local.yaml`
-to `.gitignore` before creating it. See [local overrides](docs/configuration.md#machine-local-overrides)
-for validation and replacement rules.
-
-An optional per-agent [health check](docs/configuration.md#project-health-checks)
-pauses new claims while a project dependency is unavailable, without spending
-attempts. Claiming resumes automatically when the check passes.
-
-Projects can configure [checkout setup](docs/configuration.md#checkout-setup) to
-reinstall dependencies when the launcher pulls changes to a lockfile or tool
-configuration. Control-checkout setup runs before the role is claimed; a failure
-stops launch and retries on the next launch without spending an attempt. Each new
-private worktree also runs setup once before its agent starts, except for fork PRs.
-Fork PR worktrees use the base branch's files and guidance; agents review the
-head only as a diff and use repository CI on its exact SHA as check evidence.
-They never check out or execute the fork head. See [outside PRs](docs/approvals.md#pull-requests).
-
-## Day to day
-
-| Command | What it does |
-|---|---|
-| `ub-agents launch` | Watch the queue and run work; `q` stops after the current run, Ctrl-C stops now |
-| `ub-agents launch --agent issue-preparer` | Serve only that configured agent under the normal queue gates; stop manually before launching the normal queue |
-| `ub-agents launch 214` | Run only issue or PR 214, skipping queue priority and milestone policy while applying all other gates, then exit |
-| `ub-agents status [214]` | Show the queue, stopped items' Action needed links and waiting times, or why one item is waiting |
-| `ub-agents retry 214 --reason "…"` | Let an item that failed or blocked run again |
-| `ub-agents help COMMAND` | Show a command's options and examples |
-
-At run end, the launcher removes the private worktree and deletes its local branch
-when its tip is reachable from a freshly fetched origin branch. Unpublished tips
-and Git failures keep the branch and log its name, reason and tip SHA. A kept
-worktree also keeps its branch.
-
-After local configuration and repository validation, launch opens its terminal
-view with `checking setup` before checking GitHub and the control checkout.
-Continuous launch waits through network and GitHub outages with capped poll backoff
-and no retry limit; `--no-ui`
-prints one retry line per wait. Setup must pass before update checks, cleanup
-or queue work starts. Quitting during setup exits without claiming work.
-
-Every launch sweeps all roles' leftover worktrees, unregistered folders under
-`.ub-agents/worktrees/`, and local `ub-agents/` or older `ub-agent/` run branches
-once in the background while the view opens and polling starts. It keeps artifacts of live leases on this host, branches
-heading open PRs or checked out in remaining worktrees, and artifacts whose
-processes may still be running. Missing, older, unreadable or other-host leases,
-ended runs without a PR, dirty trees and locked trees do not prevent removal.
-Symlinks are removed as links. Cleanup hooks run before removal; failed hooks and
-GitHub coordination or PR read failures keep affected artifacts. Decisions and
-failures go only to `.ub-agents/sessions/<session>.cleanup.log`, including with
-`--no-ui`; without a session the log has a unique name in that directory.
-Unpushed tips are flushed to the log before deletion. Without a writable log,
-nothing is removed. Sweep failures do not stop launch. See
-[stale artifact cleanup](docs/configuration.md#stale-artifact-cleanup).
-
-The same startup sweep prunes run diagnostics whose newest file is older than
-7 days, preserving live or uncertain runs and runs with kept worktrees or branches.
-It also prunes ended or stale session snapshots and orphan session files older
-than 7 days, preserving live sessions and the current launcher's files. One line
-in the cleanup log reports the counts and space freed when anything is pruned; retention is fixed.
-
-In the [terminal view](docs/terminal-view.md), mouse selections copy on release;
-`y` copies the current selection again. Recent activity scrolls independently of
-live work to reach all 20 retained outcomes. Its fixed header reads
-`Recent activity · showing N`, counting every listed outcome while the rows scroll
-directly below it.
-
-In-run commands and Python helpers use a copy of the launcher's code taken at
-startup, so checkout refreshes and package upgrades leave active runs on the same
-code. Restart the launcher to use an update.
-
-When an agent needs a decision, the item stops with an **Action needed** comment
-that lists the options and how to resume. PR run-outcome notices say merging or
-closing finishes the item and fold the resume steps under "To send it back to
-AGENT instead"; issue notices keep those steps visible. Missing blocked notices
-are retried on later passes; Unblock shows the blocked reason and the same resume
-structure while a notice is unavailable. GitHub failures while finalizing a stored
-report leave it for [expiry recovery](docs/coordination.md#recovery) without
-rerunning the agent.
-Launcher output is also appended to
-`.ub-agents/launch.log`. Before opening it, a launch rotates a log larger than
-5 MB to `launch.log.1`, replacing the previous archive, and records the rotation
-in the fresh log. Concurrent launchers can continue appending through their
-existing handles.
-
-**More machines.** Install ub-agents, clone the repository and run
-`ub-agents launch`. Every account with write access can run a launcher; list them
-in `launchers:` to allow only some ([launcher accounts](docs/configuration.md#launcher-accounts)).
-A dedicated launcher account with `write` access is safest: `doctor` warns when an
-account with `maintain` or `admin` could let agents start their own work.
-
-**Upgrading.** Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases),
-stop the launcher, run `brew update && brew upgrade ub-agents`, and start it again.
-When a release says launchers must be upgraded together, stop all of them first.
-
-## Retrospectives (optional)
-
-Agents can report losses and topics for later human review. Enable GitHub
-Discussions, open one discussion per agent as its board, and give the agent its number:
-
-```yaml
-implementer:
-  retrospectives: 203   # discussion number in this repository
-```
-
-Agents post through the launcher's `retrospective` command. A loss paragraph needs
-a real loss or something the run needed but missed, and a change that would have
-prevented it. A post may instead consist of, or end with, at most two optional
-topic lines, even when the run lost nothing:
-
-```text
-Would have helped: topic A, topic B
-Suggest creating: topic C, topic D
-```
-
-The first names existing guidance, records or pointers the run lacked or had to
-reconstruct; the second names lasting choices no record covers for later human
-review. Omit empty lines, use short comma-separated names, and reuse a name from
-an existing record or earlier post when it fits. Include no per-topic rationale,
-scores, identifiers or other structure; link the item for evidence. Posting is
-optional, at most once per item, without repeating an earlier run's post.
-
-A person groups topic lines over several weeks and reads the linked items for
-rationale before deciding which records to create. Repetition is evidence, not a
-creation threshold: one consequential compatibility or security choice can merit
-a record. Records are never created automatically; this route uses no scoring,
-analytics service or scheduler.
-
-A project's own rules decide when a run creates a record. They can defer optional
-new records to topic lines, so a missing proposed record alone does not block
-completion. Binding decisions, behavior guarantees and human-approval gates stay
-in force; this framework guidance does not override project rules.
-
-The launcher pins the board, and a post never changes the run's outcome. Use a
-scratch body file and keep public posts free of credentials, environment values,
-local paths, hostnames and log excerpts; a failed post blocks nothing. Claude
-agents need `"Bash({report_command} retrospective *)"` in `--allowedTools`, and
-`doctor` checks that the board exists
-([retrospectives](docs/configuration.md#retrospectives)).
-
-## Documentation
-
-- [Configuration reference](docs/configuration.md): every key, runtime permissions and all commands
-- [Running launchers](docs/operations.md): logs, stopping, upgrading and failure handling
-- [Approvals](docs/approvals.md): who can start work and what agents may read
-- [Coordination contract](docs/coordination.md): claims, attempts, outcomes and recovery
-- [Terminal view](docs/terminal-view.md): the `launch` view and its keys
-
-## Development
-
-Development uses [mise](https://mise.jdx.dev), activated in your shell:
+To work on the code, use [mise](https://mise.jdx.dev), activated in your shell:
 
 ```sh
 git clone https://github.com/uberblick-ai/ub-agents && cd ub-agents
-mise trust                  # once; entering the checkout now installs it into .venv
-ub-agents --version         # runs this checkout's code, not an installed release
-.venv/bin/python -m tests   # the test suite
-mise run ci                 # optional: GitHub's checks on HEAD, locally, before pushing
+mise trust                  # once; entering the checkout installs it into .venv
+.venv/bin/python -m tests   # the suite; uses fakes, never calls a model
 ```
 
-Tests use fakes for GitHub and never call a model. This repository runs its own
-loop: see [ub-agents.yaml](ub-agents.yaml) and [AGENTS.md](AGENTS.md). The roadmap
-is in the [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
+[AGENTS.md](AGENTS.md) has the checks, conventions and release procedure that
+people and agents both follow. The roadmap is in the
+[milestones](https://github.com/uberblick-ai/ub-agents/milestones).
 
-The test runner uses every available core by default; `-j N` sets the worker count
-and `--durations N` lists the slowest tests. Each test has a five-minute limit;
-`--timeout SECONDS` overrides it. The same limit bounds worker startup, discovery
-and shutdown when no test is running. A timeout fails the run, prints worker
-thread stacks, stops workers and their child processes, and retains finished
-test results. Workers also stop their process trees if the runner is killed.
-The CI matrix jobs also have a 20-minute backstop.
-
-After a release-prep PR merges, maintainers use `mise run release X.Y.Z` to update
-the production website to the release tag, publish the GitHub release and open its
-tested Homebrew tap PR. Changes under `site/content/`, including docs fixes, go
-live at the next release. The
-[release skill](.agents/skills/release/SKILL.md) handles readiness and confirmation;
-a maintainer merges the tap PR. See [publishing releases](docs/releases.md).
+Reference material for contributors: [configuration](docs/configuration.md),
+[operations](docs/operations.md), [coordination contract](docs/coordination.md),
+[terminal view](docs/terminal-view.md) and [releases](docs/releases.md).
 
 ## License
 
-MIT
+[MIT](LICENSE)

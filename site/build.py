@@ -16,6 +16,7 @@ REPO = 'https://github.com/uberblick-ai/ub-agents'
 SITE = 'https://agents.uberblick.ai'
 TAGLINE = 'An autonomous coding loop for GitHub. Any agent, no server.'
 SECTIONS = [  # (title, content entry, kind)
+    ('Motivation', 'motivation.md', 'page'),
     ('Installation', 'installation.md', 'page'),
     ('How the loop works', 'how-the-loop-works.md', 'page'),
     ('Configuration', 'configuration', 'dir'),

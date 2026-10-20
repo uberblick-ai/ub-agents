@@ -1571,7 +1571,8 @@ class Loop:
         self.output(f"#{plan.item.number} {plan.agent.name}: GitHub reports a conflict; "
                     f"recording {plan.agent.on_conflict}")
         self.coordinator.assert_owned(lease)
-        self.coordinator.update(lease, state="running", started=True, host=socket.gethostname())
+        self.coordinator.update(lease, state="running", started=True,
+                                attempt_effect="pending", host=socket.gethostname())
         self.github.begin_finalization()
         self._finalizing = True
         summary = (f"GitHub reports #{current.number} as conflicting with its base at {current.head[:7]}. "
