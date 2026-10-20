@@ -89,6 +89,35 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.github.item(1).labels, {'unrelated', 'needs-review'})
         self.assertEqual(self.github.item(2).labels, {'unrelated'})
 
+    def test_outside_input_copies_to_handoff_only_with_approvals_on(self):
+        for approvals in ('on', 'off'):
+            with self.subTest(approvals=approvals):
+                self.setUp()
+                self.github.change(1, labels=self.github.item(1).labels | {'outside-input'})
+                self.loop.config = replace(self.loop.config, approvals=approvals)
+                self.execute(handoff=2)
+                self.assertIn('outside-input', self.github.item(1).labels)
+                self.assertEqual('outside-input' in self.github.item(2).labels, approvals == 'on')
+
+    def test_failed_outside_handoff_copy_is_replayed_by_recovery(self):
+        self.github.change(1, labels=self.github.item(1).labels | {'outside-input'})
+        add = self.github.add_labels
+        def fail_copy(number, labels):
+            if number == 2 and 'outside-input' in labels:
+                raise AgentError('Label write failed')
+            return add(number, labels)
+        with patch.object(self.github, 'add_labels', side_effect=fail_copy), \
+                self.assertRaisesRegex(AgentError, 'Label write failed'):
+            self.execute(handoff=2)
+        outcome = self.loop.coordinator.history(1)[1]
+        self.assertTrue(outcome['transition']['started'])
+        self.assertFalse(outcome.get('transition_complete'))
+        self.now += 61
+        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+            self.assertTrue(self.new_loop().tick())
+        self.assertIn('outside-input', self.github.item(2).labels)
+        self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
+
     def independent_reviewer(self):
         source = Runtime('claude', 'shared-model', 'high')
         self.agent = replace(self.agent, command=(), runtimes=(source,))

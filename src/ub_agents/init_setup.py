@@ -60,6 +60,7 @@ class Choices:
     priority_labels: tuple[str, ...] = ()
     retrospectives: dict[str, int] = field(default_factory=dict)
     board_requests: dict = field(default_factory=dict)
+    visibility: str | None = None
 
 
 @dataclass
@@ -72,6 +73,14 @@ class Plan:
     local_before: bytes | None
     config: object
     choices: Choices
+
+    @property
+    def approvals(self):
+        if self.config.approvals is not None:
+            return self.config.approvals
+        if self.choices.visibility is not None:
+            return "on" if self.choices.visibility == "public" else "off"
+        return None
 
     def protect(self):
         existing = [str(p) for p in self.targets if p.exists() or p.is_symlink()]
@@ -164,6 +173,11 @@ def make_plan(path, repository, choices):
     plan = Plan(path, repository, targets, before, after, local_before, None, choices)
     plan.protect()
     plan.config = preview_config(content, path, {p.resolve() for p in targets})
+    if choices.visibility == "public" and plan.approvals == "on":
+        policy_path = root / ".agents" / "ub_agents.md"
+        plan.targets[policy_path] = policy.replace("- changes setup, CI or release tooling;\n",
+                                                 "- changes setup, CI or release tooling;\n"
+                                                 "- is labelled `outside-input` (built from outside text);\n")
     return plan
 
 

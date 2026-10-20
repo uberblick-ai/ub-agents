@@ -79,6 +79,7 @@ class ApprovalCheck:
     snapshot: dict = field(default_factory=dict)
     gate: str | None = None
     gate_key: str | None = None
+    outside_input: bool = False
 
 
 def resolve_policy(configured, visibility):
@@ -261,7 +262,8 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
         key = body_sha(json.dumps([kind, gate, evidence], sort_keys=True)) if gate else None
         return ApprovalCheck(allowed, reason, cleared_groups["comments"],
                              cleared_groups.get("reviews", frozenset()),
-                             cleared_groups.get("review_comments", frozenset()), snapshot, gate, key)
+                             cleared_groups.get("review_comments", frozenset()), snapshot, gate, key,
+                             outside_input)
 
     trusted_author = roles(content.get("author")) in TRUSTED
     # Only starts clear title/body for reads. Approving PR
@@ -285,6 +287,9 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
             snapshot[name] = {"withheld": True, "reason": reason}
         elif not trusted_author or changes:
             snapshot[name] = clean_outside_text(snapshot[name])
+    outside_input = (any(cleared_groups.values()) or any(
+        (not trusted_author or outside_edits[name]) and isinstance(snapshot[name], str)
+        for name in ("title", "body")))
     if read_only:
         return verdict(True, "Filtered input; pickup authorization is not required")
 

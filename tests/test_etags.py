@@ -353,7 +353,7 @@ class RequestBudgetTests(unittest.TestCase):
                           .read_text().splitlines()]
                 counts.append(next(event['github_requests']['gh_calls'] for event in events
                                    if event['event'] == 'released'))
-        self.assertEqual(counts, [71, 52])
+        self.assertEqual(counts, [75, 56])
 
     def test_recovery_release_records_its_own_run_request_counts(self):
         stub_refresh(self)
@@ -490,8 +490,8 @@ class RequestBudgetTests(unittest.TestCase):
                 self.assertTrue(outcome['accepted'])
                 self.assertTrue(outcome['transition_complete'])
                 self.assertEqual(outcome['candidate_sha'], 'a' * 40)
-                self.assertEqual(runner.store.item(1).labels, frozenset({'p1'}))
-                self.assertEqual(runner.store.item(31).labels, frozenset({'needs-review'}))
+                self.assertEqual(runner.store.item(1).labels, frozenset({'p1', 'outside-input'}))
+                self.assertEqual(runner.store.item(31).labels, frozenset({'needs-review', 'outside-input'}))
                 copied = records(runner.store.comments(31), 'operator')
                 self.assertEqual(len(copied), 1)
                 self.assertTrue(copied[0]['accepted'])

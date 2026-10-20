@@ -130,7 +130,8 @@ class LoopTests(unittest.TestCase):
         quote = doc.split('<!-- run-prompt:start -->\n```text\n')[1].split('```\n<!-- run-prompt:end -->')[0]
         values = {'agent': plan.agent.name, 'report_command': context['report_command'],
                   'outcomes': json.dumps(lease['outcomes'], sort_keys=True),
-                  'labels': json.dumps(sorted(set(self.loop.config.stop_labels) | set(self.agent.triggers))),
+                  'labels': json.dumps(sorted(set(self.loop.config.stop_labels) | set(self.agent.triggers)
+                                              | {'outside-input'})),
                   'earlier_branches': json.dumps(context['earlier_branches']),
                   'context': json.dumps(context, indent=2), 'shared_instructions': 'Shared merge policy',
                   'instructions': 'Role procedure'}

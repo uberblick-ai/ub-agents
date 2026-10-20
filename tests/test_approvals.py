@@ -16,7 +16,8 @@ class ApprovalTests(unittest.TestCase):
         self.github.roles.update(maintainer="maintain", admin="admin", teammate="write",
                                  outsider="read", triager="triage")
         self.github.timelines[1] = []
-        self.github.content_histories[1] = {"edits": [{"editedAt": at(0), "editor": {"login": "outsider"},
+        self.github.content_histories[1] = {"author": {"login": "outsider"},
+                                           "edits": [{"editedAt": at(0), "editor": {"login": "outsider"},
                                                     "diff": "Acceptance criteria", "deletedAt": None}]}
         self.comments = self.github.store.setdefault(1, [])
 

@@ -42,6 +42,11 @@ Then it shows every change for you to confirm.
 
 Init offers to create the missing workflow labels, plus any extras you picked. The files go to a setup PR on your default branch, which you can review and approve. On another branch, init offers to switch and stops without writing anything if you decline. [How the loop works](/docs/how-the-loop-works.html) shows how the roles pass work along.
 
+With [approvals on](/docs/configuration/approvals.html#outside-input-label), the
+optional labels include `outside-input` for work built from outside text. On
+public repositories with approvals on, the new shared policy leaves PRs with that label to
+maintainers for merging. Existing policy files are kept unchanged.
+
 Fresh init selects **Tailor loop policy** by default and lists it in **Changes**. After opening the setup PR, it files **Tailor `.agents/ub_agents.md` to this repository** labeled `ready`; **Next** includes the issue's URL. The first loop issue asks the implementer to read the repository and propose its required CI check, additional maintainer merge rules and one to three review focus points. Every rule needs file evidence in the PR body; the issue says to avoid repeating the starter, agent guidance or general review advice. A maintainer merges the resulting policy PR.
 
 Without a setup PR, or if the issue cannot be filed (for example, you declined creating the missing `ready` label), init prints a runnable `gh issue create` command with the same title, body and label. A failed filing also shows its reason. Deselecting **Tailor loop policy** skips both filing and the command. In a plain numbered prompt, Enter keeps the selected extra and `0` selects none.

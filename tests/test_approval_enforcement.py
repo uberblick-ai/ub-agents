@@ -153,7 +153,8 @@ class EnforcementTests(unittest.TestCase):
                 self.github.change(1, labels=frozenset({'ready'}))
                 self.assertFalse(self.loop.tick())
                 self.assertEqual(len(self.notices()), 2)
-                self.assertEqual(len([w for w in self.github.writes if w[0] == 'add-labels']), 2)
+                self.assertEqual(len([w for w in self.github.writes
+                                      if w[0] == 'add-labels' and 'needs-human' in w[2]]), 2)
 
     def test_uncleared_outside_issue_comment_does_not_park(self):
         self.github.timelines[1] = []

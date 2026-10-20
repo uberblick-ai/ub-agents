@@ -40,6 +40,7 @@ agents:
         (self.root / "instructions.md").write_text("Synthetic instructions")
         self.runner = RecordingRunner(self.root)
         self.github = DoctorGitHub()
+        self.github.label_names.append('outside-input')
         self.missing = set()
         self.which = lambda name: (shutil.which(name) if "/" in name else
                                    None if name in self.missing else f"/tools/{name}")
@@ -254,10 +255,10 @@ launchers: [operator]
         self.github.label_names.append("workflow:next")
         result = self.diagnose()
         self.assertTrue(all(c["status"] == "ok" for c in result["checks"]))
-        self.assertEqual(len(self.checks(result, "github-label")), 3)
+        self.assertEqual(len(self.checks(result, "github-label")), 4)
         expected = ("ok machine: 7 checks passed\n"
                     "ok configuration: 11 checks passed\n"
-                    "ok GitHub: 5 checks passed, 3 labels present\n"
+                    "ok GitHub: 5 checks passed, 4 labels present\n"
                     "ok runtimes: 20 checks passed\n"
                     "0 required failures, 0 warnings\n")
         self.assertEqual(self.capture(result), expected)
@@ -508,10 +509,10 @@ launchers: [operator]
         result = self.diagnose()
         self.assertTrue(result['ok'])
         labels = self.checks(result, 'github-label')
-        self.assertEqual([check['status'] for check in labels], ['ok', 'warn'])
+        self.assertEqual([check['status'] for check in labels], ['ok', 'warn', 'warn'])
         self.assertEqual(labels[1]['required'], False)
         self.assertIn('needs-human', labels[1]['remedy'])
-        self.github.label_names.append('NEEDS-HUMAN')
+        self.github.label_names.extend(['NEEDS-HUMAN', 'OUTSIDE-INPUT'])
         self.assertTrue(all(check['status'] == 'ok' for check in self.checks(self.diagnose(), 'github-label')))
         self.assertEqual(self.github.writes, [])
 
@@ -519,7 +520,7 @@ launchers: [operator]
         self.path.write_text(self.path.read_text().replace('    outcomes: {done: {}}\n', '''    outcomes:
       needs-human: {add: [needs-human]}
 '''))
-        self.github.label_names = ['ready']
+        self.github.label_names = ['ready', 'outside-input']
         result = self.diagnose()
         self.assertFalse(result['ok'])
         missing = [check for check in self.checks(result, 'github-label') if check['status'] != 'ok']
@@ -543,7 +544,8 @@ launchers: [operator]
         self.github.label_names = []
         result = self.diagnose()
         labels = self.checks(result, 'github-label')
-        self.assertEqual([check['id'] for check in labels], ['github-label:ready', 'github-label:needs-human'])
+        self.assertEqual([check['id'] for check in labels],
+                         ['github-label:ready', 'github-label:needs-human', 'github-label:outside-input'])
         self.assertIsNone(labels[0]['agent'])
         self.assertEqual(labels[0]['uses'], [
             {'agent': 'worker', 'meaning': 'starts worker on an issue or PR', 'required': True},
@@ -561,7 +563,7 @@ launchers: [operator]
                 self.assertIn(use['meaning'], lines[0])
             self.assertEqual(output.count('gh label create ready '), 1)
             self.assertEqual(output.count('gh label create needs-human '), 1)
-            self.assertEqual(output.splitlines()[-1], '1 required failure, 1 warning')
+            self.assertEqual(output.splitlines()[-1], '1 required failure, 2 warnings')
         code, output = self.cli(json_output=True)
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(output), result)
@@ -575,16 +577,16 @@ launchers: [operator]
 
                 def answer(question):
                     report = sys.stdout.getvalue()
-                    self.assertIn('1 required failure, 1 warning', report)
+                    self.assertIn('1 required failure, 2 warnings', report)
                     self.assertIn('starts worker on an issue', report)
                     self.assertIn('parks an issue or PR until a person decides', report)
                     self.assertEqual(self.github.writes, [])
                     return ' YeS '
 
                 code, output = self.cli(terminal=True, answer=answer, verbose=verbose)
-                self.prompt.assert_called_once_with('Create these 2 labels on org/project? [y/N] ')
+                self.prompt.assert_called_once_with('Create these 3 labels on org/project? [y/N] ')
                 self.assertEqual(code, 0)
-                self.assertEqual([write[1] for write in self.github.writes], ['ready', 'needs-human'])
+                self.assertEqual([write[1] for write in self.github.writes], ['ready', 'needs-human', 'outside-input'])
                 self.assertEqual(self.github.reads.count('repos/org/project/labels'), 2)
                 self.assertEqual(self.github.reads.count('user'), 1)
                 self.assertEqual(output.count('fail github-label:ready '), 1)
@@ -595,8 +597,8 @@ launchers: [operator]
         self.github.label_names = ['READY', 'unrelated']
         code, output = self.cli(terminal=True, answer='y')
         self.assertEqual(code, 0)
-        self.assertEqual([write[1] for write in self.github.writes], ['needs-human'])
-        self.assertEqual(self.github.label_names, ['READY', 'unrelated', 'needs-human'])
+        self.assertEqual([write[1] for write in self.github.writes], ['needs-human', 'outside-input'])
+        self.assertEqual(self.github.label_names, ['READY', 'unrelated', 'needs-human', 'outside-input'])
         self.assertEqual(self.github.reads.count('repos/org/project/labels'), 2)
         self.assertEqual(output.splitlines()[-1], '0 required failures, 0 warnings')
 
@@ -610,7 +612,7 @@ launchers: [operator]
         self.github.label_names = []
         expected = {'ready': '0e8a16', 'needs-preparation': 'c5def5', 'NEEDS-REVIEW': 'fbca04',
                     'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db', 'custom-destination': '1d76db',
-                    'needs-human': 'b60205'}
+                    'needs-human': 'b60205', 'outside-input': '1d76db'}
         checks = self.checks(self.diagnose(), 'github-label')
         self.assertEqual({check['id'].removeprefix('github-label:') for check in checks}, set(expected))
         for check in checks:
@@ -626,8 +628,8 @@ launchers: [operator]
             code, output = self.cli(terminal=True, answer='yes')
         self.assertEqual(code, 1)
         self.assertEqual(labels.call_count, 2)
-        self.assertEqual(len(self.github.writes), 2)
-        self.assertEqual(output.splitlines()[-1], '1 required failure, 0 warnings')
+        self.assertEqual(len(self.github.writes), 3)
+        self.assertEqual(output.splitlines()[-1], '1 required failure, 1 warning')
 
     def test_unreadable_second_label_read_fails_without_exposing_private_errors(self):
         self.github.label_names = []
@@ -654,7 +656,7 @@ launchers: [operator]
         self.assertEqual(output.count('fail github-label:ready '), 1)
         self.assertEqual(output.count('warn github-label:needs-human '), 1)
         self.assertIn('warn github-rate-limit - 0 of 5000 requests remaining', output)
-        self.assertEqual(output.splitlines()[-1], '1 required failure, 2 warnings')
+        self.assertEqual(output.splitlines()[-1], '1 required failure, 3 warnings')
 
     def test_decline_default_unrecognized_answer_and_eof_keep_commands_without_writes(self):
         for answer in ('no', '', 'maybe', EOFError()):
@@ -662,12 +664,12 @@ launchers: [operator]
                 self.github.label_names = []
                 self.github.reads.clear()
                 code, output = self.cli(terminal=True, answer=answer)
-                self.prompt.assert_called_once_with('Create these 2 labels on org/project? [y/N] ')
+                self.prompt.assert_called_once_with('Create these 3 labels on org/project? [y/N] ')
                 self.assertEqual(code, 1)
                 self.assertEqual(self.github.writes, [])
                 self.assertEqual(self.github.reads.count('repos/org/project/labels'), 1)
-                self.assertEqual(output.count('gh label create '), 2)
-                self.assertEqual(output.splitlines()[-1], '1 required failure, 1 warning')
+                self.assertEqual(output.count('gh label create '), 3)
+                self.assertEqual(output.splitlines()[-1], '1 required failure, 2 warnings')
 
     def test_pipes_ci_and_json_never_prompt_or_create_labels(self):
         for terminal, stdout_terminal, ci, json_output in (
@@ -682,7 +684,7 @@ launchers: [operator]
                 self.prompt.assert_not_called()
                 self.assertEqual(self.github.writes, [])
                 self.assertEqual(self.github.reads.count('repos/org/project/labels'), 1)
-                self.assertEqual(output.count('gh label create '), 2)
+                self.assertEqual(output.count('gh label create '), 3)
 
     def test_present_or_unreadable_labels_do_not_prompt(self):
         for error in (None, AgentError('unavailable')):
@@ -905,7 +907,26 @@ launchers: [operator]
     def test_final_counts_pluralize_failures_and_warnings_independently(self):
         self.github.label_names = []
         self.missing.add('git')
-        self.assertEqual(self.capture(self.diagnose()).splitlines()[-1], '2 required failures, 1 warning')
+        self.assertEqual(self.capture(self.diagnose()).splitlines()[-1], '2 required failures, 2 warnings')
+
+    def test_outside_input_is_optional_and_only_listed_with_effective_approvals_on(self):
+        for visibility, override, listed in (('public', None, True), ('private', None, False),
+                                             ('internal', None, False), ('private', 'on', True),
+                                             ('public', 'off', False)):
+            with self.subTest(visibility=visibility, override=override):
+                self.setUp()
+                self.github.metadata['visibility'] = visibility
+                if override:
+                    self.path.write_text(self.path.read_text() + f'approvals: {override}\n')
+                self.github.label_names.remove('outside-input')
+                result = self.diagnose()
+                checks = [check for check in self.checks(result, 'github-label')
+                          if check['id'] == 'github-label:outside-input']
+                self.assertEqual(bool(checks), listed)
+                self.assertTrue(result['ok'])
+                if listed:
+                    self.assertEqual((checks[0]['status'], checks[0]['required']), ('warn', False))
+                    self.assertIn('gh label create outside-input', checks[0]['remedy'])
 
     def test_instruction_read_failure(self):
         original = Path.read_text
@@ -982,6 +1003,15 @@ launchers: [operator]
                     self.assertEqual((check['status'], check['required']), ('warn', False))
                     self.assertIn('starter Merging section', check['message'])
                     self.assertEqual(len(self.checks(result, 'policy-placeholder')), int(owner == '@org/maintainers'))
+
+    def test_public_starter_merging_rule_still_warns_after_reflow(self):
+        policy = self.root / 'policy.md'
+        self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
+        starter = files('ub_agents').joinpath('templates/ub_agents.md').read_text()
+        policy.write_text(starter.replace('- changes setup, CI or release tooling;',
+            '- changes setup, CI or release tooling;\n'
+            '- is labelled `outside-input`\n  (built from outside text);'))
+        self.assertEqual(self.one(self.diagnose(offline=True), 'policy-merging')['status'], 'warn')
 
     def test_customized_or_absent_merging_section_has_no_starter_warning(self):
         policy = self.root / 'policy.md'

@@ -130,7 +130,7 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.script.asked, ['Which agent runs the loop?', 'Let agents work without asking?',
                                              'Keep codex and gh up to date?', "Who answers the agents' questions?",
-                                             'Extras', 'Create 3 missing labels?',
+                                             'Extras', 'Create 4 missing labels?',
                                              'Write setup?'])
         self.assertIn('Yes · codex and gh update once a day between runs', text)
         self.assertIn('runtime-updates:\n  codex: auto\n  gh: auto', self.path.read_text())
@@ -160,7 +160,7 @@ class FlowTests(unittest.TestCase):
         config = load_config(self.path)
         self.assertTrue(all(agent.runtime_args for agent in config.agents))
         self.assertEqual({w[1] for w in self.github.writes if w[0] == 'create-label'},
-                         {'needs-preparation', 'needs-changes', 'ready-to-merge'})
+                     {'needs-preparation', 'needs-changes', 'ready-to-merge', 'outside-input'})
 
     def test_default_tailoring_issue_follows_the_setup_pr_and_appears_in_preview_and_next(self):
         code, text = self.run_flow()
@@ -239,7 +239,26 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(label[2], 'ub-agents: starts issue-reviewer on an issue; starts reviewer on a PR')
         self.assertEqual({write[1]: write[3] for write in self.github.writes if write[0] == 'create-label'},
                          {'needs-preparation': 'c5def5', 'ready': '0e8a16', 'needs-review': 'fbca04',
-                          'needs-human': 'b60205', 'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db'})
+                      'needs-human': 'b60205', 'needs-changes': 'd93f0b', 'ready-to-merge': '1d76db',
+                      'outside-input': '1d76db'})
+
+    def test_public_policy_and_optional_label_follow_visibility_and_approvals(self):
+        for visibility, override, labelled, merge_rule in (
+                ('public', None, True, True), ('private', None, False, False),
+                ('internal', None, False, False), ('private', 'on', True, False),
+                ('public', 'off', False, False)):
+            with self.subTest(visibility=visibility, override=override):
+                self.setUp()
+                self.github.metadata['visibility'] = visibility
+                if override:
+                    (self.root / 'ub-agents.local.yaml').write_text(f'approvals: {override}\n')
+                code, _ = self.run_flow()
+                self.assertEqual(code, 0)
+                created = {w[1] for w in self.github.writes if w[0] == 'create-label'}
+                self.assertEqual('outside-input' in created, labelled)
+                policy = (self.root / '.agents/ub_agents.md').read_text()
+                self.assertEqual('- is labelled `outside-input` (built from outside text);' in policy,
+                                 merge_rule)
 
     def test_declined_permissions_stay_commented(self):
         code, text = self.run_flow(Script(Let_agents=False))
@@ -251,7 +270,7 @@ class FlowTests(unittest.TestCase):
         code, text = self.run_flow(Script(Extras=['priority'], Priority='p1, p2'))
         self.assertEqual(code, 0)
         self.assertIn('Priority labels, highest first', self.script.asked)
-        self.assertIn('Create 5 missing labels?', self.script.asked)
+        self.assertIn('Create 6 missing labels?', self.script.asked)
         self.assertEqual({w[1]: w[3] for w in self.github.writes if w[1] in {'p1', 'p2'}},
                          {'p1': 'e0524a', 'p2': 'c98a86'})
         self.assertIn('p1', self.path.read_text())
