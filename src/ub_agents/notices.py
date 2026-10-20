@@ -6,7 +6,7 @@ import socket
 
 from .errors import LostOwnership
 from .records import (MARKER, declared_transition, exhausted_rounds, lease_by_id, records,
-                      reported_actions, resolve_transition, same_handoff)
+                      reported_actions, resolve_transition, same_handoff, same_run)
 from .trust import LauncherTrust
 
 ACTION_MARKER = "<!-- ub-agents:action-needed "
@@ -179,6 +179,12 @@ class Notices:
             latest = {r["kind"]: r for r in history}
             outdated = {r["id"] for r in history
                         if r["id"] < min(current) and r["run"] != latest[r["kind"]]["run"]}
+            accepted = {r["lease_id"]: r for r in history
+                        if r["kind"] == "outcome" and r["accepted"] and not r.get("rejected")}
+            outdated.update(r["id"] for r in history
+                            if r["kind"] == "lease" and r["run"] == run
+                            and r["assignment"] == number and r["state"] == "released"
+                            and r["id"] in accepted and same_run(accepted[r["id"]], r))
             self.minimize([comment for comment in comments if comment["id"] in outdated])
         self.advisory(f"superseded records on #{number}", minimize_records)
 

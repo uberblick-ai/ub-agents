@@ -101,7 +101,7 @@ class NoticeTests(unittest.TestCase):
         self.assertLess(len(body(long).splitlines()[1]), 350)
         self.assertIn("A" * 2000, body(long))
 
-    def test_release_minimizes_only_superseded_runs_of_the_same_agent(self):
+    def test_release_minimizes_superseded_runs_even_with_unaccepted_reports(self):
         first = self.start()
         self.co.report(first, "retry", "Transient failure")
         self.co.release(first, "retry", "Transient failure")
@@ -109,7 +109,7 @@ class NoticeTests(unittest.TestCase):
         self.co.report(other, "retry", "Other run")
         self.co.release(other, "retry", "Other run")
         latest = self.start()
-        # Until release, even the earlier records stay expanded.
+        # Unaccepted reports leave their claims expanded until superseded.
         self.assertFalse(self.github.minimized_ids)
         self.co.report(latest, "retry", "Another transient failure")
         self.co.release(latest, "retry", "Another transient failure")
@@ -119,6 +119,96 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(len(history), 6)
         self.assertEqual(len(attempts(history, "worker", self.now)), 2)
         self.assertTrue(all(w[2] == "OUTDATED" for w in self.github.writes if w[0] == "minimize"))
+
+    def test_accepted_outcome_folds_its_claim_only_after_release(self):
+        lease = self.start()
+        outcome = self.co.report(lease, "success", "Done", outcome="done")
+        self.co.accept(lease, outcome)
+        self.co.notices.superseded(1, lease["agent"], lease["run"])
+        self.assertFalse(self.github.minimized_ids)
+        self.co.release(lease, "success", "Done")
+        history = deepcopy(self.co.history(1))
+        labels = self.github.item(1).labels
+        self.assertEqual(self.github.minimized_ids, {lease["id"]})
+        self.assertEqual(attempts(history, "worker", self.now), [])
+        self.assertTrue(outcome["accepted"])
+        # Repeating presentation after release must preserve all durable state.
+        self.co.notices.released(lease, outcome, outcome["summary"])
+        self.assertEqual(self.co.history(1), history)
+        self.assertEqual(self.github.item(1).labels, labels)
+        self.assertEqual([w for w in self.github.writes if w[0] == "minimize"],
+                         [("minimize", lease["id"], "OUTDATED")])
+
+    def test_unreported_release_keeps_its_claim_expanded(self):
+        lease = self.start()
+        self.co.release(lease, "retry", "No report", unreported=True)
+        self.assertIsNone(self.co.outcome(lease))
+        self.assertFalse(self.github.minimized_ids)
+
+    def test_restarted_notice_cleanup_folds_a_released_accepted_claim(self):
+        lease = self.start()
+        outcome = self.co.report(lease, "success", "Done", outcome="done")
+        self.co.accept(lease, outcome)
+        # Release persisted, but the launcher stopped before advisory cleanup.
+        self.co.update(lease, state="released", result="success", summary="Done",
+                       expires=iso(self.now), attempt_effect="reset")
+        restarted = Coordinator(self.github, "operator", lambda: self.now, output=self.output.append)
+        lease, outcome = restarted.history(1)
+        restarted.notices.released(lease, outcome, outcome["summary"])
+        self.assertEqual(self.github.minimized_ids, {lease["id"]})
+
+    def test_unaccepted_or_rejected_outcome_keeps_its_claim_expanded(self):
+        for accepted, rejected in ((False, None), (False, "Invalid report"), (True, "Invalid report")):
+            with self.subTest(accepted=accepted, rejected=rejected):
+                self.setUp()
+                lease = self.start()
+                outcome = self.co.report(lease, "success", "Done", outcome="done")
+                if accepted:
+                    self.co.accept(lease, outcome)
+                if rejected:
+                    self.co.update_outcome(lease, outcome, rejected=rejected)
+                self.co.release(lease, "retry", "Launcher final verdict")
+                self.assertFalse(self.github.minimized_ids)
+
+    def test_approval_withdrawal_keeps_its_claim_expanded_despite_accepted_outcome(self):
+        lease = self.start()
+        outcome = self.co.report(lease, "success", "Done", outcome="done")
+        self.co.accept(lease, outcome)
+        self.co.update(lease, state="withdrawn", attempt_effect="unchanged",
+                       summary="Outside feedback needs approval")
+        self.co.notices.superseded(1, lease["agent"], lease["run"])
+        self.assertFalse(self.github.minimized_ids)
+
+    def test_accepted_outcome_must_belong_to_the_claim_on_the_same_item(self):
+        for mismatch in ({"assignment": 2, "handoff": 1}, {"run": "another-run"}, {"lease_id": 999}):
+            with self.subTest(mismatch=mismatch):
+                self.setUp()
+                lease = self.start()
+                outcome = self.co.report(lease, "success", "Done", outcome="done")
+                self.github.update_comment(outcome["id"], body(payload(outcome) | {"accepted": True} | mismatch))
+                self.co.release(lease, "retry", "No matching outcome")
+                self.assertFalse(self.github.minimized_ids)
+
+    def test_accepted_claim_minimization_failure_is_advisory(self):
+        for operation in ("unminimized_comments", "minimize_comment"):
+            with self.subTest(operation=operation):
+                self.setUp()
+                lease = self.start()
+                outcome = self.co.report(lease, "success", "Done", outcome="done")
+                self.co.accept(lease, outcome)
+                before = deepcopy(self.co.history(1))
+                labels = self.github.item(1).labels
+                error = GitHubError("POST", "graphql", "Unavailable")
+                with patch.object(self.github, operation, side_effect=error):
+                    self.co.release(lease, "success", "Done")
+                history = self.co.history(1)
+                self.assertEqual(history, [lease, before[1]])
+                self.assertEqual(lease["state"], "released")
+                self.assertEqual(lease["result"], "success")
+                self.assertEqual(attempts(history, "worker", self.now), [])
+                self.assertEqual(self.github.item(1).labels, labels)
+                self.assertFalse(self.github.minimized_ids)
+                self.assertTrue(any("Advisory" in line and "failed" in line for line in self.output))
 
     def test_release_without_a_new_outcome_leaves_the_latest_outcome_expanded(self):
         first = self.start()
@@ -140,9 +230,9 @@ class NoticeTests(unittest.TestCase):
             self.co.release(lease, "success", "Done")
         comments = self.github.comments(1)
         self.assertTrue(all("isMinimized" not in comment for comment in comments))
-        expected = [comment["id"] for comment in comments[:-2]]
+        expected = [comment["id"] for comment in comments[:-1]]
         minimized = [write[1] for write in self.github.writes if write[0] == "minimize"]
-        self.assertEqual(minimized, expected)
+        self.assertCountEqual(minimized, expected)
         self.assertEqual(self.github.minimized_ids, set(expected))
         self.assertEqual(len(self.co.history(1)), 8)
 
@@ -210,12 +300,12 @@ class NoticeTests(unittest.TestCase):
         counts = {name: attempts(history, name, self.now) for name in ("reviewer", "integrator")}
         self.assertFalse(self.github.minimized_ids)
         self.co.release(source, "success", outcome["summary"])
-        self.assertEqual(self.github.minimized_ids, set(older))
+        self.assertEqual(self.github.minimized_ids, set(older) | {source["id"]})
         self.assertNotIn(current["id"], self.github.minimized_ids)
         self.assertEqual(self.co.history(2), history)
         self.assertEqual({name: attempts(self.co.history(2), name, self.now) for name in counts}, counts)
 
-    def test_handoff_preserves_its_run_and_records_written_after_its_outcome(self):
+    def test_handoff_folds_its_claim_and_preserves_records_written_after_its_outcome(self):
         first = self.start(2, agent(self.root, name="reviewer"))
         first_outcome = self.co.report(first, "retry", "Earlier candidate")
         self.co.release(first, "retry", "Earlier candidate")
@@ -225,8 +315,7 @@ class NoticeTests(unittest.TestCase):
         self.co.accept(source, outcome)
         late = self.github.create_comment(2, body(payload(first) | {"run": "late-record"}))
         self.co.release(source, "success", outcome["summary"])
-        self.assertEqual(self.github.minimized_ids, {first["id"], first_outcome["id"]})
-        self.assertNotIn(source["id"], self.github.minimized_ids)
+        self.assertEqual(self.github.minimized_ids, {first["id"], first_outcome["id"], source["id"]})
         self.assertNotIn(outcome["id"], self.github.minimized_ids)
         self.assertNotIn(late["id"], self.github.minimized_ids)
 
@@ -249,7 +338,7 @@ class NoticeTests(unittest.TestCase):
         outcome = self.co.report(source, "success", "New candidate", handoff=2, outcome="done")
         self.co.accept(source, outcome)
         self.co.release(source, "success", outcome["summary"])
-        self.assertEqual(self.github.minimized_ids, {old["id"]})
+        self.assertEqual(self.github.minimized_ids, {old["id"], source["id"]})
         for comment_id in (parked["id"], parked_outcome["id"], latest_notice["id"],
                            no_sha["id"], approval["id"], untrusted["id"], current["id"]):
             self.assertNotIn(comment_id, self.github.minimized_ids)
@@ -267,7 +356,7 @@ class NoticeTests(unittest.TestCase):
                 if accepted:
                     self.co.accept(source, outcome)
                 self.co.release(source, result, outcome["summary"])
-                self.assertFalse(self.github.minimized_ids)
+                self.assertEqual(self.github.minimized_ids, {source["id"]} if accepted else set())
 
     def test_candidate_minimization_failure_is_advisory(self):
         first = self.start(2, agent(self.root, name="reviewer"))
@@ -296,7 +385,7 @@ class NoticeTests(unittest.TestCase):
         self.co.update_outcome(source, outcome, transition_complete=True)
         self.co.accept(source, outcome)
         self.co.release(source, "success", outcome["summary"])
-        self.assertEqual(self.github.minimized_ids, {old["id"], old_outcome["id"]})
+        self.assertEqual(self.github.minimized_ids, {old["id"], old_outcome["id"], source["id"]})
         latest = self.notices(2)[-1]
         self.assertIn(source["url"], latest["body"])
         self.assertIn(outcome["url"], latest["body"])
@@ -321,6 +410,13 @@ class NoticeTests(unittest.TestCase):
         copied = next(r for r in loop.coordinator.history(2) if r["run"] == outcome["run"])
         self.assertTrue(copied["accepted"])
         self.assertNotIn(copied["id"], self.github.minimized_ids)
+        source_history = loop.coordinator.history(1)
+        recovery = next(r for r in source_history if r.get("mode") == "recovery")
+        recovery_outcome = loop.coordinator.outcome(recovery)
+        self.assertEqual(recovery["state"], "released")
+        self.assertFalse(recovery_outcome["accepted"])
+        self.assertNotIn(recovery["id"], self.github.minimized_ids)
+        self.assertIn(source["id"], self.github.minimized_ids)
 
     def test_election_minimization_failure_does_not_change_the_winner(self):
         plan = self.co.plan(self.github.item(1), self.worker, ())

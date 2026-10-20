@@ -265,8 +265,11 @@ Stop every launcher for a project and upgrade them together before restarting.
 
 After releasing a run, the launcher minimizes its own lease and outcome comments
 from superseded runs of the same agent on that item (and copied outcomes on a
-handoff PR), using GitHub's `OUTDATED` classifier. The latest lease and latest
-outcome for each agent stay expanded under this rule.
+handoff PR), using GitHub's `OUTDATED` classifier. It also minimizes the released
+run's lease when that run's own outcome on the same item is accepted and not
+rejected, leaving its outcome expanded. Active leases, leases without an outcome,
+and leases with an unaccepted or rejected outcome stay expanded under this rule,
+as do post-claim approval withdrawals. This also applies to recovered releases.
 
 When a released run's accepted outcome hands off a candidate SHA, the launcher also
 minimizes every agent's earlier lease and outcome comments on the handoff item
