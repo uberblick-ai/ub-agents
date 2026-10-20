@@ -246,6 +246,14 @@ class CoordinationRunner(RecordingRunner):
         path = parts.path.removeprefix('repos/org/project/')
         if path == 'graphql':
             query, variables = data['query'], data['variables']
+            if 'isMinimized' in query:
+                comments = {c['node_id']: c for batch in self.store.store.values() for c in batch}
+                if 'minimizeComment' in query:
+                    self.store.minimize_comment(comments[variables['id']])
+                    return {'data': {'minimizeComment': {'minimizedComment': {'isMinimized': True}}}}
+                return {'data': {'nodes': [{'id': node, 'isMinimized':
+                                           comments[node]['id'] in self.store.minimized_ids}
+                                          for node in variables['ids']]}}
             if 'timelineItems' in query:
                 import re
                 repository = {}
@@ -349,11 +357,12 @@ class RequestBudgetTests(unittest.TestCase):
                 lease, outcome = records(runner.store.comments(1), 'operator')
                 self.assertEqual((lease['state'], lease['result']), ('released', 'success'))
                 self.assertTrue(outcome['accepted'])
+                self.assertEqual(runner.store.minimized_ids, {lease['id']})
                 events = [json.loads(line) for line in (run_directory(root, lease['run']) / 'events.jsonl')
                           .read_text().splitlines()]
                 counts.append(next(event['github_requests']['gh_calls'] for event in events
                                    if event['event'] == 'released'))
-        self.assertEqual(counts, [75, 56])
+        self.assertEqual(counts, [77, 58])
 
     def test_recovery_release_records_its_own_run_request_counts(self):
         stub_refresh(self)
@@ -490,6 +499,7 @@ class RequestBudgetTests(unittest.TestCase):
                 self.assertTrue(outcome['accepted'])
                 self.assertTrue(outcome['transition_complete'])
                 self.assertEqual(outcome['candidate_sha'], 'a' * 40)
+                self.assertEqual(runner.store.minimized_ids, {lease['id']})
                 self.assertEqual(runner.store.item(1).labels, frozenset({'p1', 'outside-input'}))
                 self.assertEqual(runner.store.item(31).labels, frozenset({'needs-review', 'outside-input'}))
                 copied = records(runner.store.comments(31), 'operator')
