@@ -161,6 +161,9 @@ class Notices:
             action = "Maintainer: authorize the updated input and clear its human hold."
             resume = (f"A maintainer must re-apply a trigger label ({trigger_text}); "
                       f"then remove the stop label(s) {labels}.")
+        if check.gate in {"start", "input"}:
+            resume += ("\n\nStarting also clears outside comments, reviews and edits made before the start; "
+                       "read them first.")
         self.advisory(f"approval stop label on #{number}", lambda: self.github.add_labels(number, stops))
         self.advisory(f"Action needed post on #{number}", lambda: self.post_once(
             number, action_body(marker, [action], check.reason, resume=f"Then resume:\n\n{resume}"), marker))

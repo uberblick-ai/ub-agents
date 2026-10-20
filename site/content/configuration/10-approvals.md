@@ -21,7 +21,7 @@ approvals: off
 
 ## On
 
-A maintainer starts an issue by adding a trigger label. Re-applying a trigger label clears earlier edits and comments from outside the team for the agents.
+A maintainer starts an issue by adding a trigger label. Starting or re-applying a trigger label clears earlier outside comments, reviews and edits for the agents; read them first.
 
 Sub-issues can inherit their parent's start through an accepted [`sub-issues` outcome](/docs/configuration/outcomes.html). Later outside title or body edits suspend work; later outside comments wait for a maintainer to re-apply a trigger. See [inherited starts](https://github.com/uberblick-ai/ub-agents/blob/main/docs/approvals.md#start-suspension-and-comments) and [approval reads](https://github.com/uberblick-ai/ub-agents/blob/main/docs/approvals.md#approval-reads) for the detailed rules.
 

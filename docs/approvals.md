@@ -67,8 +67,8 @@ starter) and posts one **Action needed** notice with the reason and resume steps
 
 | Gate | Maintainer action to resume |
 |---|---|
-| No maintainer start | Remove `needs-human` and re-apply a trigger label. |
-| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label; then remove `needs-human`. |
+| No maintainer start | Remove `needs-human` and re-apply a trigger label. This also clears earlier outside comments, reviews and edits; read them first. |
+| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label; then remove `needs-human`. This also clears earlier outside comments, reviews and edits; read them first. |
 | Outside PR head not approved | Submit a maintainer approving review of the current head; then remove `needs-human`. |
 
 Use the project's configured stop and trigger labels when they differ from the
