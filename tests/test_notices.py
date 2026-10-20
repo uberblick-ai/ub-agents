@@ -9,6 +9,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from ub_agents.approvals import ApprovalCheck
 from ub_agents.cli import main
 from ub_agents.coordination import Coordinator
 from ub_agents.discovery import Discovery
@@ -59,6 +60,23 @@ class NoticeTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()):
             self.assertEqual(main(["retry", "--number", str(number), "--agent", "worker",
                                    "--reason", "Decision made"]), 0)
+
+    def test_approval_notice_explains_input_clearance_only_for_trigger_starts(self):
+        warning = ("Starting also clears outside comments, reviews and edits made before the start; "
+                   "read them first.")
+        for gate in ("start", "input", "head"):
+            with self.subTest(gate=gate):
+                check = ApprovalCheck(False, "Approval required", gate=gate, gate_key=gate)
+                self.co.notices.approval(2, check, ("needs-human",), ("ready", "needs-changes"))
+                notice = self.notices(2)[-1]["body"]
+                visible, details = notice.split("<details>", 1)
+                if gate == "head":
+                    self.assertNotIn(warning, notice)
+                    self.assertIn("submit an approving review of the current head", visible)
+                else:
+                    self.assertIn("re-apply a trigger label", visible)
+                    self.assertIn(warning, visible.split("Then resume:\n\n", 1)[1])
+                self.assertIn(check.reason, details)
 
     def test_all_record_kinds_have_one_human_line_and_collapsed_json(self):
         lease = self.start(2)
