@@ -76,18 +76,18 @@ ub-agents report --outcome handed-off --summary "Ready for review" --handoff 219
 
 ## Stop reports
 
-A report that parks the item needs one `--action` per decision: who acts, the choices and a recommendation, in one sentence.
+A report that parks the item needs at least one ask. Use `--action` once for each thing a person must do. For a choice, repeat `--option` once per alternative, recommendation first. Each ask is one sentence that names who acts.
 For a `max-rounds` stop, the launcher supplies a review request if no ask is given,
 plus both resume paths. Keep every open P1 finding in the report's summary.
 
 ```sh
 ub-agents report --outcome needs-human --summary "Storage policy unclear" \
-  --action "Owner: choose local or cloud storage; recommend local."
+  --option "Owner: keep storage local." --option "Owner: move storage to the cloud."
 ```
 
 ## Retry and blocked
 
-`--status retry` and `--status blocked` change no labels. Retry runs again after a backoff. Blocked parks the item and also needs `--action`.
+`--status retry` and `--status blocked` change no labels. Retry runs again after a backoff. Blocked parks the item and also needs `--action` or `--option`.
 
 ```sh
 ub-agents report --status retry --summary "GitHub returned 502"

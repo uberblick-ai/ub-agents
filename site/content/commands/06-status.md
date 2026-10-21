@@ -15,7 +15,8 @@ ub-agents status --json   # the same results, machine readable
 ## States
 
 - `ready`: launch can start it now.
-- `owned`: a launcher is working on it.
+- `owned`: a launcher has claimed it. For a run on this machine, status shows `running` while its agent runs.
+- `recover`: an expired run left a report, which the next launcher checks without running the agent again.
 - `waiting`: something holds it for now, such as a blocker, a milestone or a failing [health check](/docs/configuration/agents.html#health-check). The line below says what.
 - `backoff`: the last run failed, and it waits a while before the next attempt.
 - `parked`, `blocked` or `failed`: it needs a person. The Action needed link says what to decide.
@@ -25,6 +26,10 @@ ub-agents status --json   # the same results, machine readable
   Stop label needs-human is present
   Action needed: https://github.com/OWNER/REPO/issues/1574#issuecomment-6166713718 · waiting 16h
 ```
+
+## JSON output
+
+`--json` prints `{"assignments": [...]}` with one object per row: `number`, `kind`, `agent`, `state`, `reason`, `attempts`, `priority`, `priority_inherited_from`, `priority_from_issue`, `milestone`, `milestone_inherited_from`, `open_blockers`, `runtime`, `candidate_sha`, `result`, `lease`, `process`, `process_reason`, `outcome`, `notice_url`, `waiting_since`, `stop_labels` and `attention_reason`. Unknown values are `null`. `state` stays `owned` while the agent runs; `process` says `running`. The top level adds `milestone_skips` when `gate` passed over a milestone, and `explanation` when `status NUMBER` has no row for the item.
 
 [Queue](/docs/configuration/queue.html) explains the order and milestones, and [unstick an item](/docs/guides/stuck-items.html) what to do next.
 

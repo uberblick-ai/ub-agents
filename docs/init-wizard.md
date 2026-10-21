@@ -1,20 +1,8 @@
 # Init flow reference
 
-`ub-agents init` prints a Clack-style transcript. Answered steps stay in
-scrollback as `◇` with a dim answer; the active question (`◆`, cyan) is a small
-inline Textual app that clears itself when answered. These captures come from a
-96-column terminal. The [init guide](../site/content/commands/02-init.md) describes
-the choices.
-
-The starter has five role files: issue-preparer, issue-reviewer, implementer,
-reviewer and integrator. Retrospectives sets up a board for each. The preparer uses
-`prepared` for small, bounded and clear work, `review` for other implementable work,
-`split` for work needing multiple PRs and `needs-human` for a person's decision.
-Issue review reports `approved`, `changes-requested` or `needs-human`; returned
-findings reach the preparer as feedback, which it applies before reporting
-`prepared` without another review. A split leaves the parent open and blocked by
-prepared native sub-issues, each without workflow labels until a maintainer starts
-it. Issue and PR reviewers share `needs-review`, so labels remain deduplicated.
+These captures show `ub-agents init` in a 96-column terminal. The
+[init page](https://agents.uberblick.ai/docs/commands/init.html) explains each
+choice and what init writes.
 
 ## Active question
 
@@ -46,10 +34,6 @@ it. Issue and PR reviewers share `needs-review`, so labels remain deduplicated.
 └
 ```
 
-Hints show only on the highlighted option. Disabled extras show their reason.
-In the inline prompt below, the Retrospectives label is also struck through when
-Discussions are off; its reason stays unstruck. The numbered prompt uses plain text.
-
 ```text
 ◆  Extras  (space selects, enter confirms)
 │  ◻ Priorities
@@ -59,29 +43,8 @@ Discussions are off; its reason stays unstruck. The numbered prompt uses plain t
 └
 ```
 
-Fresh init selects **Tailor loop policy** by default. Deselect it with Space, or
-enter `0` in a plain numbered prompt to select no extras. Enter keeps the default.
-The extra appears in **Changes** and files **Tailor `.agents/ub_agents.md` to this
-repository** labeled `ready` only after the setup PR opens. **Next** names its URL.
-The issue asks the implementer to open agent guidance, README, CI configuration,
-setup and release tooling, and code before proposing the required CI check,
-additional maintainer-merge bullets and one to three codebase review focus points.
-It forbids repeating the starter, `AGENTS.md`/`CLAUDE.md` rules or general review
-advice, and requires evidence for each rule in the PR body, citing only opened
-files. A maintainer merges that policy PR because it changes `.agents/`.
-
-When no setup PR opens or filing fails, init files no issue and prints a runnable
-`gh issue create` command with the same title, body and `ready` label. A failure
-also shows the reason, including a missing `ready` label when label creation was
-declined. Deselecting the extra suppresses the issue and command. Existing-setup
-flags (`--create-boards`, `--create-priorities`) never offer this extra.
-
-`ub-agents doctor`, including `--offline`, warns once for each starter placeholder
-remaining in the configured `shared-instructions` file: `@org/maintainers`,
-`<project build command>`, `<project test command>` and
-`<project lint or validation command>`. It also warns when `## Merging` still
-matches the starter, ignoring line wrapping and init's substituted owner handle.
-These warnings never make doctor fail.
+Fresh init preselects **Tailor loop policy**; the init page describes the issue it
+files.
 
 With Uberblick selected and no `.uberblick.json` in the checkout or above it:
 
@@ -95,8 +58,8 @@ With Uberblick selected and no `.uberblick.json` in the checkout or above it:
 ```
 
 The Uberblick extra also plans project-scope MCP registration for the chosen
-runtime, including when the workspace choice is **Use a hub workspace** or
-**Later**. The Changes note shows the client, scope, path and planned action:
+runtime. **Changes** shows one line for that runtime and its planned action, such
+as:
 
 ```text
 │  Uberblick MCP · Claude Code · project scope · .mcp.json · add entry
@@ -105,19 +68,16 @@ runtime, including when the workspace choice is **Use a hub workspace** or
 │  Manual command: ub mcp install codex
 ```
 
-Only the line for the selected runtime and actual outcome appears. Init requires
-`ub` 0.4.3 or newer and checks the project destination and plain `ub mcp serve`
-snippet with `ub mcp install <client> --print`, which runs nothing. Nothing is
-registered until **Write setup?** is confirmed. Cancelling leaves MCP config
-unchanged. Project scope is the command's default; init never passes `--user`.
-Matching entries are reused without rewriting and unrelated settings stay intact.
-Unreadable, symlinked or conflicting config stays unchanged. If `ub` would target
-a different project (for example an ancestor binding), or the setup PR would need
-an ignored config, init keeps the manual command instead of registering.
+Init writes nothing until you confirm **Write setup?**. It reuses a matching
+entry and leaves conflicting or unreadable config unchanged, printing the manual
+`ub mcp install` command instead. The result reports **registered**, **reused**,
+**kept existing** or **not registered**; core setup and its PR continue either
+way. See [How it works with Uberblick](https://agents.uberblick.ai/docs/guides/with-uberblick.html).
 
 ## Full run
 
-A checkout on another branch, Claude logged in, an admin account, a maintaining team, `ub` installed and all extras selected.
+A checkout on another branch, Claude logged in, an admin account, a maintaining
+team, `ub` installed and all extras selected:
 
 ```text
 ┌   ub-agents init  v0.3.1
@@ -215,22 +175,9 @@ A checkout on another branch, Claude logged in, an admin account, a maintaining 
 A failed check turns the step title into `▲  Checks · fix these before launch; setup can continue`
 and lists the fix under the failing line.
 
-### Uberblick result and Next steps
-
-The result reports the actual MCP outcome: **registered**, **reused**, **kept
-existing** or **not registered**, with the reason when applicable. Failure and
-unsupported installations retain `ub mcp install claude` or `ub mcp install codex`
-as the manual retry command and still allow core setup and its PR. Running agent
-sessions need a restart to load the server. A new or changed project config joins
-the setup-only commit; when setup files stay local, the MCP config stays local too.
-The entry contains no credentials, workspace ID or hub URL: `ub mcp serve` follows
-the project's `.uberblick.json`, including a binding added later. Next steps still
-explain how to join a hub or select a workspace for **Later** or a failed creation.
-
 ## Declined or failed branch switch
 
-Interactive plain init needs the default branch to open the setup PR. Declining
-the switch stops before the next question, exits 1 and writes nothing:
+Declining the switch stops before the next question, exits 1 and writes nothing:
 
 ```text
 ▲  Switch this checkout to main?
@@ -238,11 +185,8 @@ the switch stops before the next question, exits 1 and writes nothing:
 │  Switch to main and run ub-agents init again
 ```
 
-A failed switch stops the same way, showing Git's reason in place of the `No ·`
-line. No files, labels, boards, workspace or MCP config are written. Unattended
-init still writes local files on any branch. The `--create-boards` and
-`--create-priorities` flags use the current branch without a switch question.
-An unknown current branch or default branch also leaves the existing flow unchanged.
+A failed switch stops the same way and shows Git's reason in place of the `No ·`
+line.
 
 ## Local changes
 
@@ -271,18 +215,9 @@ A checkout with local changes (untracked files included) stops after the checks:
 
 ## Unattended
 
-`--use-defaults`, CI and non-TTY runs:
-
-These runs select only **Tailor loop policy** and print its `gh issue create`
-command; they file no issue, open no PR, create no labels and register no MCP
-server. Setup files remain local-only.
-They set who answers the agents' questions to the first team with maintain or
-admin access, falling back to the current `gh` user, and print the choice and its
-source. If neither is readable, setup still completes, keeps the placeholder and
-prints `Replace @org/maintainers in .agents/ub_agents.md before launch`.
-Unless approvals are explicitly off, unattended init also tries to read repository
-visibility for the optional `outside-input` label and the public merge-policy
-rule. Unreadable visibility leaves those defaults unresolved; setup still completes.
+Unattended runs (`--use-defaults`, `CI` set or no TTY) never prompt. They
+preselect only **Tailor loop policy**, print the label and tailoring-issue
+commands, and open no PR:
 
 ```text
 ┌   ub-agents init  v0.3.1
@@ -350,5 +285,5 @@ gh issue create --repo org/project --title 'Tailor `.agents/ub_agents.md` to thi
 └  Then run ub-agents launch
 ```
 
-The command above is abbreviated for this capture; init prints the full issue
-body, quoted so the command can be copied verbatim.
+The capture shortens the issue body. Init prints it in full, quoted so you can
+copy the command as is.

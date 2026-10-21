@@ -44,4 +44,4 @@ Exit zero to let the worktree be removed. Any other exit keeps the worktree and 
 
 ## Diagnostic retention
 
-Startup cleanup removes old run and session diagnostics after 7 days unless they are still needed. The cleanup log reports counts and space freed. See [retention and safeguards](https://github.com/uberblick-ai/ub-agents/blob/main/docs/operations.md#when-things-go-wrong); retention is fixed, with no setting to change.
+Startup cleanup removes old run and session diagnostics after 7 days unless they are still needed. The cleanup log reports counts and space freed. See [retention and safeguards](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#stale-artifact-cleanup); retention is fixed, with no setting to change.

@@ -1,66 +1,40 @@
 # Coordination contract
 
-This is a cooperative serial launcher, not a distributed lock service. GitHub is
-durable truth; `.ub-agents/` is disposable. The project is trusted executable
-configuration. Workflow labels, checks, acceptance, and merge authority stay there.
+ub-agents is a cooperative serial launcher, not a distributed lock service. GitHub
+is the durable truth; `.ub-agents/` is disposable. The project is trusted executable
+configuration. Workflow labels, checks, acceptance and merge authority stay in the
+project.
 
 ## Assignments and attempts
 
-- A run has a random unique ID and one assignment: repository, issue/PR number,
-  configured agent, matched trigger, and (on PRs) the observed head SHA.
-- Trigger lists mean **any** matching label.
-  A runtime list means alternatives in declared order: select the first eligible
-  installed executable and execute it once.
-- One live lease excludes every other agent on the same issue/PR, and on a PR that
-  shares an issue run's branch: while either side is live or its cleanup is
-  unconfirmed, the other waits. This first implementation is serial, including
-  recovery. Different machines cooperate.
-- `max-attempts` limits **consecutive failures** scoped to **item number +
-  configured agent**. An issue and its handoff PR have separate counts, as do
-  different agents on one item. PR head/label changes alone do not reset a count.
-  `ub-agents status` reports this count in its existing `attempts` field.
-- A successful outcome's transition removes the agent's triggers, so an item runs
-  again only when a human reapplies one. An accepted success resets that agent's
-  count on that item, including a resumed or revised PR and outcome-only recovery.
-- `ub-agents retry N --reason TEXT [--agent NAME]` resets that count to 0 and
-  clears its failure block and backoff, preserving history. Approval parking still
-  requires maintainer approval. It refuses a live lease
-  and never revokes someone else's run. After posting the reset record on an open
-  item, it removes every configured stop label present and adds the selected
-  agent's first trigger only if none of its triggers is present. Other labels
-  stay unchanged. Output links the reset, names the removed and added labels
-  (or says they were already in place), and says a running launcher picks the item
-  up on its next poll. Closed items get a reset without label changes. If a label
-  change fails, the reset stays recorded; retry exits nonzero and names the
-  remaining labels to remove or add by hand.
-  Use `ub-agents status` for progress and other pickup gates.
+- A run has a random unique ID and one assignment: repository, issue or PR number,
+  configured agent, matched trigger and, on a PR, the observed head SHA.
+- A trigger list matches **any** of its labels. A runtime list gives alternatives
+  in declared order: the launcher runs the first eligible installed executable once.
+- One live lease excludes every other agent on the same issue or PR. It also
+  excludes a PR that shares an issue run's branch, and the reverse: while either
+  side is live or its cleanup is unconfirmed, the other waits.
+- `max-attempts` limits **consecutive failures** per **item number and configured
+  agent**. An issue and its handoff PR count separately, as do different agents on
+  one item. A PR head or label change alone does not reset a count.
+- A successful outcome's transition removes the agent's triggers, so the item runs
+  again only when someone reapplies one. An accepted success resets that agent's
+  count on that item, including through outcome-only recovery.
+- `ub-agents retry N --reason TEXT [--agent NAME]` resets that agent's failure count
+  and rounds on the item to 0 and clears its failure block and backoff. It keeps
+  history, refuses a live lease and does not clear approval parking. See
+  [retry](https://agents.uberblick.ai/docs/commands/retry.html) for its label changes.
 
-An outcome's optional `max-rounds` limits accepted handoffs separately from failure
-attempts. A round is one accepted record of that named outcome by that configured
-agent on that item, since its latest retry reset. An accepted success resets
-failures but keeps rounds. Other agents' outcomes do not count, including the
-integrator's `changes-requested` and `on-conflict` routing; a new PR starts at zero.
-The count is derived from trusted GitHub history on every launcher. Recovery
-accepts the original outcome once, without adding another round.
-
-The starter sets `max-rounds: 3` on the PR reviewer's `changes-requested`: three
-reports return the PR to `needs-changes`. On the fourth review, an approval still
-adds `ready-to-merge`; another `changes-requested` removes the triggers but adds
-the first stop label (`needs-human`) instead of the outcome's `add` labels. An
-**Action needed** notice names the limit and carries the reviewer's summary,
-including open P1 findings. The starter reviewer marks P1 findings that prevent
-merging and P2 suggestions; on this final review it approves with P2 findings
-listed when no P1 remains. P1 corrections always return for review.
-
-Assignment context's `outcome_rounds` maps each limited outcome to `used` and
-`limit`; `used >= limit` identifies the final review. The lease pins that count
-and the resolved transition for recovery even if configuration later changes.
-Removing `needs-human` and reapplying `needs-review` allows one more review with
-the count kept; another `changes-requested` parks it again. To get a fresh set,
-run `ub-agents retry N --agent reviewer --reason TEXT`: it resets both rounds and
-failures for that item and agent, removes stop labels and restores the reviewer's
-trigger on the open item. Older launchers reject
-`max-rounds`; upgrade every launcher before enabling it.
+An outcome's optional `max-rounds` limits accepted handoffs separately from
+failures. A round is one accepted record of that outcome by that agent on that item
+since the latest retry reset. Other agents' outcomes do not count, and a new PR
+starts at zero. An accepted success resets failures but keeps rounds. Every launcher
+derives the count from trusted GitHub history, and recovery adds no round. After
+`max-rounds` rounds, the next report of that outcome adds the first stop label instead
+of its `add` labels; other outcomes apply as usual. See
+[lease declarations](#explicit-outcomes). Removing the stop label and reapplying the
+agent's trigger allows one more run with the count kept. `ub-agents retry N --agent
+NAME` starts a fresh set of rounds.
 
 | How a run ends | Count | Afterwards |
 |---|---|---|
@@ -72,578 +46,258 @@ trigger on the open item. Older launchers reject
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
 | Invalid or rejected success report, unconfirmed cleanup, or unclassified failure | +1 | Blocked; PR head changes or `retry` can resume, except unconfirmed cleanup needs operator action |
 
-A human pause takes precedence over the rejected-success rule when it is the
-reason a transition cannot start. Confirmed claim withdrawals cost nothing.
-An expired tentative claim without a report counts as a crash. Outcome-only
-recovery claims cost nothing; the source run counts according to its recorded
-outcome and the recovery verdict, once, even after repeated recovery crashes.
-Pending success validation does not charge a failure before a verdict is known.
+A human pause takes precedence over the rejected-success rule when it is the reason
+a transition cannot start. Confirmed claim withdrawals cost nothing. An expired
+tentative claim without a report counts as a crash. Outcome-only recovery claims
+cost nothing; the source run counts once, by its recorded outcome and the recovery
+verdict. Pending success validation charges nothing until a verdict is known.
 
-Retry backoff doubles with the consecutive failure count, capped at
-`max-backoff-seconds`. The first failure after a success or reset waits
-`retry-backoff-seconds`. For a crash without a report, the delay starts at lease
-expiry; otherwise it starts at release after confirmed cleanup. An interrupt
-preserves prior failures but adds no delay of its own.
+Retry backoff follows the [limits](configuration.md#limits). For a crash without a
+report, the delay starts at lease expiry; otherwise it starts at release after
+confirmed cleanup. An interrupt adds no delay. Every lease records an
+`attempt_effect` (`pending`, `failure`, `reset` or `unchanged`), so restart
+discovery can tell human pauses and interrupts from failures.
 
-Every lease records an `attempt_effect` (`pending`, `failure`, `reset` or `unchanged`)
-so restart discovery distinguishes human pauses and interrupts from failures.
-
-A blocked PR becomes eligible when its head differs from the blocked run's
-outcome `candidate_sha`, or its lease's `assignment_sha` when there is no outcome.
-Commits the run pushed before reporting blocked do not clear its own block;
-a push after the report by anyone does. This planning check writes no records and
-resets no attempts or backoff. Ownership, stop labels, unconfirmed cleanup,
-attempt limits, runtime availability and trust checks still apply, and a matching
-trigger is still required. Status-only changes do not clear the block. Blocked
-issues and unchanged PR heads still need `ub-agents retry`.
+A blocked PR becomes eligible again when its head differs from the blocked run's
+outcome `candidate_sha`, or from its lease's `assignment_sha` when there is no
+outcome. Commits the run pushed before reporting blocked do not clear its block; a
+later push by anyone does. This check writes nothing and resets no attempts or
+backoff, and every other gate still applies. Blocked issues and unchanged PR heads
+need `ub-agents retry`.
 
 ## Selection order
 
-The three milestone modes are `gate`, `order` and `ignore` (the default).
+1. Eligibility comes first: live claims, stop labels, retry backoff, attempt limits
+   and, with approvals on, [maintainer starts and outside-input approval](approvals.md).
+   Every issue run needs a start; an outside PR also needs an eligible head. Trusted
+   PRs need no start. Outside feedback suspends outside PRs; issues and trusted PRs
+   only leave uncleared feedback out of their input.
+2. Effective priority comes from the item's own label, from its open local
+   dependents, or for a PR from the open issues it closes. Priority ranks first,
+   except for new issues in milestone `gate` mode. Existing work (PR assignments,
+   owned runs and recovery) keeps priority order, ignores milestones and precedes the
+   next new issue at equal or higher priority. Dependency waits never hold it back.
+3. New issues must pass the [dependency gate](configuration.md#queue), checked
+   during planning, again at claim time and before approval parking. Milestones choose among
+   eligible issues; they never make an issue ineligible.
+4. Milestone modes rank open milestones that have open items, by title. With
+   `ignore`, milestones play no part. In `order` mode they break priority ties for
+   new issues; issues without a listed milestone rank last within their priority.
+   In `gate` mode the earliest milestone with an issue eligible for this launcher
+   goes first. Only an issue without a milestone, or whose milestone is outside that
+   list (such as a closed one), can go ahead of that milestone's next eligible
+   issue, and only at strictly higher priority. Issues in later milestones never
+   jump ahead. When no listed milestone has eligible work here, the remaining issues
+   run in priority order.
+5. Creation time, then item number, break remaining ties. Agents on the same item
+   keep configuration order.
 
-1. Eligibility first: live claims, stop labels, retry backoff, attempt limits and
-   [maintainer starts and outside-input approval](approvals.md) when approvals are on. Every issue run
-   needs a start; outside PRs also need an eligible head. Trusted PRs need no start.
-   Outside feedback suspends outside PRs, while issues and trusted PRs only exclude
-   uncleared feedback.
-2. Effective priority comes from the item's own label, inherited from open local
-   dependents, or for a PR from the open issues it closes. Except for new issues in
-   milestone `gate` mode, priority ranks first. Existing work (PR assignments,
-   owned runs and recovery) keeps priority order, ignores milestones, and precedes
-   the next selected new issue at equal or higher priority. Dependency waits never
-   hold back existing work.
-3. Automatically selected new issues pass the dependency gate, as the
-   [queue reference](configuration.md#queue) defines it. Planning and a fresh
-   claim-time read both enforce this gate. Approval parking also rechecks it.
-   Milestones select among eligible issues; they do not gate individual eligibility.
-4. In milestone `order` mode, new issues of equal effective priority rank by open
-   milestones with open items, in alphabetical order by title.
-   Within one priority, unmilestoned issues and issues whose milestone is
-   outside that list rank last.
-5. In milestone `gate` mode, select the earliest listed milestone with work
-   eligible for this launcher, then order its issues by effective priority.
-   An eligible unmilestoned issue (including a milestone outside the list) goes
-   first only at strictly higher priority than that milestone's next eligible
-   issue; milestone work wins ties. Higher priority in a later assigned milestone
-   does not jump ahead. If no listed milestone has eligible work here, unmilestoned
-   issues run in priority order even while milestones are open. Owned, blocked,
-   stop-labelled, untriggered, retry-limited, approval-parked and runtime-unavailable
-   issues do not prevent fallback. Each pass re-ranks; no milestone changes state
-   and no cursor advances.
-6. In `order` and `gate`, open local blockers inherit their dependents' earliest
-   milestone, directly or transitively, in dependency `wait` mode, even without
-   priority labels. Each issue still waits for its own open blockers, including
-   earlier-milestone prerequisites and release-preparation dependencies.
-7. Item creation time, then item number break remaining ties. With milestone
-   `ignore`, new issues use priority, age and number without milestone ranks.
-   Agents on the same item keep YAML order. The launcher never changes priority labels.
+The [queue reference](configuration.md#queue) covers priority labels, milestone
+lists and dependency inheritance. `launch N` and `status N` skip priority and
+milestone selection but apply every other gate, so later-milestone work can run.
+`launch --agent NAME` plans, claims, recovers and reconciles notices only for that
+agent, under the same rules.
 
-Explicit `launch N [--agent NAME]` and `status N` skip queue priority and milestone
-selection. All other gates and fresh rechecks still apply, including after checkout refresh.
-Later-milestone and unmilestoned issues can run. Agents still need matching trigger
-labels; `--agent` narrows evaluation, and otherwise the first eligible agent in
-configuration order acts. Unnumbered launch and status keep the selection above.
-
-`ub-agents launch --agent NAME` serves only that configured agent's queue;
-`launch --once --agent NAME` observes once and runs at most one selected
-assignment. Names come from the configuration. Filtering takes place before
-planning, claiming and starting assignments, recovering pending outcomes or
-reconciling notices. Other agents' leases, pending outcomes and notices stay
-untouched, including when their history shares an item with the selected agent.
-Priority, milestone policy, dependency waits, trigger and stop labels, ownership,
-claim elections, attempts, backoff, runtime availability and input approval
-still apply. Started runs retain lease renewal, foreground stopping and process
-cleanup. An unknown name fails before queue observation and lists configured
-names; a reload that removes the selected agent leaves it claiming no work with
-an explanation.
-
-The terminal view and `--no-ui` output name the selected agent. Idle messages
-distinguish no open item with its trigger labels, naming those labels, from
-waiting assignments counted by state, with reasons on each item's row. Items the
-selected agent parked for a human decision remain counted after their triggers
-are removed. Neither message means all issues have been prepared. Continuous
-launch keeps polling when that agent's work runs out.
-To prepare a milestone first, run `ub-agents launch --agent issue-preparer`
-(substitute the configured name), watch preparation finish or reach human
-decisions, stop the launcher, resolve the decisions, then start `ub-agents launch`.
-Filtering keeps the project's existing outcome transitions. It does not override
-milestones, bypass blockers or automatically launch another agent.
-
-`ub-agents status` lists rows in this order with each item's effective priority and
-its source, adds each issue's milestone and inherited source in `order` and
-`gate` modes, and names each waiting issue's blockers. When `gate` passes over
-earlier milestones, status explains why:
-`Milestone #N has no eligible issues for this launcher`. Status JSON includes these
-explanations in `milestone_skips` when nonempty; the terminal view, launcher output
-and `launch.log` omit them. Concurrent launchers rank the GitHub state each
-observes and try claims in that order; existing claims resolve
-contention, and there is no global order across machines. Dependency reads skip
-issues whose list summary reliably reports zero blockers; a failed read stops
-selection rather than becoming an empty list. An unreadable milestone list also
-stops selection, as does an unreadable item; failure never justifies fallback.
-Milestone `order` and `gate` require no
-claim-time or approval-parking milestone recheck. Fresh plans, blocker rechecks
-and claim elections remain in place; a lost claim moves on to the next choice.
+Concurrent launchers each rank the GitHub state they observe and try claims in that
+order. Claim elections resolve contention, and a lost claim moves on to the next
+choice; there is no global order across machines. A failed dependency, milestone or
+item read stops selection; it never counts as empty or justifies fallback.
 
 ## Assignment input
 
-The top-level `approvals` setting defaults to on for public repositories and off
-for private and internal repositories. Each discovery pass resolves the unset
-default from GitHub visibility; an unreadable visibility fails before claims or
-parking writes. With approvals off, a configured trigger label starts work
-regardless of who applied it, current titles and bodies are input, and feedback
-is limited to authors with `write`, `maintain` or `admin`. PR heads need no approval,
-and there are no approval reads
-or approval-parking writes. Other eligibility gates and stop labels still apply.
-See the [approval policy](approvals.md) for details.
-
-With approvals on, checks at pickup park disallowed items with their reason, without claims
-or attempts. When approval is the only obstacle for an open, triggered item,
-`launch` adds the project's configured stop label (`needs-human` in the starter)
-and posts one **Action needed** notice. `status` stays read-only. Unreadable
-approval history or input that changes during the read is retried on the next
-poll without label or notice writes. Uncleared outside comments do not suspend
-issues or trusted-authored PRs.
-
-| Approval gate | Maintainer action to resume (starter labels) |
-|---|---|
-| No maintainer start | Remove `needs-human` and re-apply a trigger label. |
-| Outside title/body edit or outside PR feedback after approval | Re-apply a trigger label; then remove `needs-human`. |
-| Outside PR head not approved | Submit a maintainer approving review of the current head; then remove `needs-human`. |
-
-Each gate state gets the stop label and notice at most once. Later polls of the
-same unresolved gate add nothing; a new gate after resuming parks the item again.
-These writes are advisory: a failure is logged, never writes coordination records
-or changes attempt counts, and cannot cause a claim. A later claim minimizes the
-notice using the same launcher notice marker as other Action needed notices.
-
-With approvals on, after winning a claim, the launcher rereads and validates input.
-A failed check withdraws that claim before execution, preserves attempts and returns
-the item to parked; approval makes it eligible without `ub-agents retry`. Preparation
-uses the same gate: a maintainer's `needs-preparation` starts it, and the preparer's
-rewrite is trusted.
-
-Context holds the post-claim title, body and trusted comments; approvals on can also
-include cleared outside comments.
-PR context adds the assigned head, reviews and review comments. Uncleared and
-later-edited outside feedback, coordination records and launcher notices are
-excluded. The prompt makes this snapshot the assignment input; other GitHub
-comments are not input. Outside changes during execution do not stop that run,
-replace its context or gate its durable completion and recovery.
+[Approvals](approvals.md) define which starts, edits, heads and comments become
+input, [with approvals off](approvals.md#with-approvals-off) and
+[on](approvals.md#with-approvals-on), including
+[pull requests](approvals.md#pull-requests). The launcher reads that input after
+winning the claim, and it stays the run's input: outside changes during execution do
+not stop the run, replace its context or gate its completion and recovery.
 
 Context also includes `feedback`: accepted outcome summaries from other agents on
-the assigned item and, for an issue, its handoff PRs. Each entry contains `agent`,
-`outcome`, `summary`, `candidate_sha` (or null) and `created` (UTC time). On each
-item, only outcomes recorded after the receiving agent's latest accepted outcome
-are included; its handoff copy counts as its own outcome. Without an own accepted
-outcome there, all other agents' accepted outcomes are included. Outcomes appear
-once, in comment record order, even when copied to a handoff PR. Coordination records
-from every trusted launcher account supply this input. Revisions must address
-`feedback` alongside comments and reviews.
-This field does not change approval requirements.
-
-With approvals on, an outside PR head requires a maintainer approving
-review on that head, or an accepted agent outcome from an eligible assignment head
-when the head repository is the base repository. Changed fork heads need explicit
-maintainer approval, even if an accepted successful run observed them.
-A trigger label alone cannot identify a pushed head. Fork PR review is supported;
-agent revision of a fork PR remains blocked regardless of the approvals setting.
-See the [complete PR rules](approvals.md#pull-requests).
+the assigned item and, for an issue, on its handoff PRs. Each entry has `agent`,
+`outcome`, `summary`, `candidate_sha` (or `null`) and `created` (UTC). On each item,
+only outcomes recorded after the receiving agent's own latest accepted outcome there
+are included; a handoff copy of its outcome counts as its own. Without one, all other
+agents' accepted outcomes are included. Each outcome appears once, in comment order,
+even when copied to a handoff PR. Records from every trusted launcher account supply
+it. Revisions must address `feedback` alongside comments and reviews. It does not
+change approval requirements.
 
 ## Trusted comments
 
-Lease, outcome and retry-reset comments start with one readable line naming the
-state, agent, runtime, short candidate SHA when available, and a short summary.
-The full JSON record follows inside a collapsed `<details>` block headed
-**Coordination record**, with the marker `<!-- ub-agents:v3 -->`. The parser reads
-only v3 JSON, including on comments minimized by GitHub. Every lease requires
-`attempt_effect`, `declared_triggers` and `stop_labels`; declarations and outcome
-transitions use the compact shape described below. Malformed v3 records block
-their item.
+Lease, outcome and retry-reset comments start with the marker `<!-- ub-agents:v3 -->`
+and one readable line naming the state, agent, runtime, short candidate SHA when
+known, and a short summary. The JSON record follows in a collapsed `<details>` block
+headed **Coordination record**. Launchers parse only v3 JSON, including in minimized
+comments, and never parse prose for routing. Every lease requires `attempt_effect`,
+`declared_triggers` and `stop_labels`. A malformed v3 record blocks its item.
 
-Stop every launcher for a project and upgrade them together before restarting.
+By default, records count when the comment author's current repository role is
+`write`, `maintain` or `admin`. [`launchers`](configuration.md#launcher-accounts)
+narrows trust to listed accounts, matched ignoring case, which still need `write` or
+higher. Any trusted account, including a person with write access, can post records
+that count; this adds little authority, because that person can already change
+labels and push. Unlisted authors are ignored without a role read. Roles are judged
+at read time, so demoting or unlisting an account revokes all its records, including
+open leases. A launcher whose own account is untrusted claims nothing and prints
+why. A failed author role read stops the pass; only a definite role below `write`
+excludes a record. The actor is always the comment author; payload fields cannot
+grant trust, and untrusted records are ignored before parsing. Malformed or
+contradictory trusted records park their item without stopping other work. Read
+failures invalidate the pass and follow the [poll retry
+rules](polling.md#quota-and-failure-handling); they never become an empty queue. An
+agent session with the operator's GitHub credentials can write trusted records
+itself, so author filtering is not a security boundary against a compromised agent.
 
-After releasing a run, the launcher minimizes its own lease and outcome comments
-from superseded runs of the same agent on that item (and copied outcomes on a
-handoff PR), using GitHub's `OUTDATED` classifier. It also minimizes the released
-run's lease when that run's own outcome on the same item is accepted and not
-rejected, leaving its outcome expanded. Active leases, leases without an outcome,
-and leases with an unaccepted or rejected outcome stay expanded under this rule,
-as do post-claim approval withdrawals. This also applies to recovered releases.
+After a release, the launcher minimizes outdated records as `OUTDATED`:
 
-When a released run's accepted outcome hands off a candidate SHA, the launcher also
-minimizes every agent's earlier lease and outcome comments on the handoff item
-whose displayed SHA differs. The displayed SHA is `candidate_sha`, falling back
-to `assignment_sha`. Records for that candidate, records without a SHA, the run
-that handed it off, post-claim approval withdrawals, and records linked by the
-latest Action needed notice are excluded from this candidate-based minimization.
-Comments written after the handoff outcome stay expanded. A lease withdrawn after
-losing either the cooperative claim election or the shared-branch election is
-minimized immediately; a post-claim approval withdrawal stays expanded to explain
-why the item is parked.
+- leases and outcomes of the same agent on that item from runs a newer run has
+  superseded;
+- the released run's lease, once its own outcome is accepted and not rejected;
+- after an accepted handoff of a candidate SHA, every agent's earlier lease and
+  outcome records on the handoff item whose `candidate_sha`, or else
+  `assignment_sha`, differs. Records without a SHA, the run that handed off,
+  post-claim approval withdrawals and records linked by the latest
+  **Action needed** notice stay expanded.
 
-Minimizing preserves every record and its authority, feedback and attempt counts;
-it never deletes history or resets attempts. Failures are logged as advisory.
-The launcher reads minimization state through GraphQL in batches before sending
-mutations, so later releases and claims skip comments already minimized. REST
-comment reads still supply the coordination records.
+A lease withdrawn after a lost election is minimized at once; a post-claim approval
+withdrawal stays expanded to explain the parking. Minimizing keeps every record with
+its authority and counts; failures are advisory.
 
-Launchers on different GitHub accounts share the same queue. By default, coordination
-records count when the comment author's current repository role is `write`, `maintain`
-or `admin`. Optional `launchers: [bot-a, alice]` narrows trust to those accounts,
-matched case-insensitively; listed accounts must still have `write` or higher.
-Any account in this trusted set, including humans with write access, can post
-records that count. This adds little authority because those humans can already
-change labels and push.
+## Action needed notices
 
-Role reads for record authors share the existing permission read once per account
-per discovery pass. Coordination reads check only authors of marked records;
-unlisted authors are ignored without a role read. Roles are judged at read time,
-even when the item has not changed. Stop an account's launcher before demoting it
-or removing it from `launchers`: revocation excludes all its records, including
-open leases. A launcher claims nothing while its own account is untrusted and
-prints the reason. A failed or unreadable author role read stops the pass rather
-than silently discarding a possible owner; only a definite role below `write`
-excludes that author's records. Untrusted records are ignored before parsing, and
-payload fields cannot grant trust: the actor is always the comment author.
-Agents using the operator's GitHub credentials can write trusted records
-themselves; author filtering is not a security boundary against a compromised
-agent session. Malformed or contradictory trusted records park their item
-visibly without stopping unrelated work. Transport and read failures invalidate
-the pass and follow the bounded GitHub retry policy; they never become an empty queue.
+The launcher posts one short **Action needed** comment when it releases a `blocked`
+run, when an accepted outcome's completed transition adds a stop label, and when a
+run exhausts `max-attempts` and parks. When a transition parks a handoff PR, the
+notice goes on that PR. [Approval gates](approvals.md#with-approvals-on) post their
+own notice, once per gate.
 
-Use the same `launchers` setting on every machine so all launchers agree on the
-trusted set.
+A notice leads with the agent's asks, or with the summary's first sentence (one
+line, at most 300 characters) and numbered options. Resume steps follow. The full
+summary, the candidate's review decision and CI rollup, links and diagnostics are
+collapsed. The [terminal view](terminal-view.md#unblock) describes the layout.
 
-## Human action and launch output
+Notices start with a `<!-- ub-agents:action-needed ` marker and are not coordination
+records: they never affect routing authority, verdicts or attempt counts. A later
+claim by any agent on the item, or a retry reset, minimizes earlier notices and
+suppresses one whose post failed. Posts, minimization and evidence reads are
+advisory: failures are logged and change no durable result. A missing blocked-run
+notice is retried on later passes, including after a restart. Deduplication
+considers all trusted authors. When launchers post at the same time, the lowest
+comment ID wins, and each loser deletes only its own new duplicate.
 
-A released `blocked` run, or an accepted outcome whose completed transition adds
-a configured stop label, posts one short **Action needed** comment. For an agent
-stop report, each independent action or decision appears as its own concise bold
-sentence (a bullet per ask when there are several). A closed `<details>` block
-preserves the full Markdown reason, supporting reasoning, recorded candidate SHA,
-links to the claim and outcome, and, on a PR, its review decision and the CI rollup
-for that exact SHA, followed by diagnostics.
-If the PR head has moved, the current head's review decision is not attributed to
-the old candidate. Unavailable evidence is identified in the comment.
-
-For a stop-label outcome, the comment names the stop label to remove and the
-agent's triggers to apply to resume work. For a blocked release, it gives an
-exact `ub-agents retry N --agent NAME --reason "Human resolved the blocker"`
-command, which restores the labels after recording the reset. Exits without an
-agent report, zero or nonzero, retry with backoff; they
-post a notice only when they exhaust `max-attempts` and park. That notice also
-names the launcher host and run log directory. When a transition parks a handoff
-PR, the notice is posted on that PR with the same asks. Resume instructions apply
-only when resuming the same role; if another role must act next, use the project's
-correction or handoff route. Notices without an agent action, including historical
-records, exhausted attempts and launcher-only blocked releases, show a concise
-request to review the blocker and decide the next step; approval gates show their
-required authorization. Their full details are collapsed too. The terminal view
-uses all asks as the attention reason, without Markdown bold or bullet markers.
-
-On a PR, run-outcome notices say "Merging or closing #N finishes this item;
-nothing else is needed." after the asks or options. The resume steps are in a
-separate collapsed "To send it back to AGENT instead" section. Issue notices,
-and notices whose item type cannot be read, keep the visible "Then resume AGENT:"
-steps. Approval-gate notices keep their visible authorization and resume steps.
-
-These notices carry a separate `ub-agents:action-needed` marker and are not
-coordination records: they never affect routing authority, verdicts or attempt
-counts. A later claim by any agent on the item, or an explicit retry
-reset, minimizes its earlier Action needed notices. Minimization, notice posts
-and evidence reads are advisory: a failure is logged and does not change the
-durable result. A missing blocked-run notice is retried on later passes, including
-after a launcher restart, until posted. A later claim or reset suppresses the old
-notice even if its earlier post failed. Approval-gate notices retain their
-once-per-gate handling.
-Notice deduplication considers all trusted authors. Simultaneous posters elect
-the lowest comment ID; each loser removes only its own newly posted advisory
-duplicate, preserving every coordination record. Duplicate removal is advisory too.
-
-Within one `ub-agents launch` session, an unchanged blocked, parked, waiting,
-owned or backoff item is printed once per item and agent. A change to its state
-or reason prints it again. Stop-label outcomes remain visible as parked even
-when their transition consumed every trigger.
-
-## Distinct clocks
-
-| YAML setting | Default | Meaning |
-|---|---:|---|
-| `agent-timeout-minutes` | 180 | Runtime process execution deadline; independent of the fixed 30-minute lease |
-| `retry-backoff-seconds` | 60 | Initial retry delay after failure release or unreported lease expiry |
-| `max-backoff-seconds` | 3600 | Cap on exponential retry delay |
-| `max-attempts` | 5 | Consecutive failures allowed per item/agent before pickup stops |
-
-Every setting can be overridden on an agent. Each GitHub page/request is bounded to 20 seconds; a multi-page discovery
-scan may take longer overall. Git operations are bounded to 120 seconds.
-Worktree preparation precedes the runtime execution deadline; ownership is checked
-again before execution. Default clocks leave ample margin for those reads. Very
-short test leases are unsuitable for real network execution.
+Within one `launch` session, an unchanged blocked, parked, waiting, owned or backoff
+item prints once per item and agent, and again when its state or reason changes.
 
 ## Claim election
 
-Read current labels/head and all coordination comments before creating a claim.
-Create a separate tentative lease comment for each contender, then reread. The
-lowest GitHub comment ID among unexpired live leases wins. A loser edits only its
-own tentative comment to withdraw and never starts a runtime. The winner marks its
-record running before execution. Each lease lasts 30 minutes and the supervising
-launcher renews it every 10 minutes while it owns the work, including setup,
-execution, completion, label transitions, rate-limit waits and the cleanup hook.
-Recovery claims renew the same way. These intervals cannot be configured; the
-agent timeout and cleanup timeout do not change the lease length. A dead launcher's
-claim expires within 30 minutes of its last renewal. The supervisor also stops a
-run whose last confirmed expiry has passed by wall clock, including after sleep.
+Before claiming, a launcher reads the current labels, head and all coordination
+comments. Each contender then posts its own tentative lease comment and rereads. The
+lowest GitHub comment ID among unexpired live leases wins. A loser edits only its own
+comment to withdraw and never starts a runtime. The winner marks its record running
+before execution.
 
-Renewal edits the existing comment, moving only `expires` forward after the usual
-ETag-cached ownership read. Lease state edits and renewal share a serialized writer,
-so renewal preserves release, withdrawal, cleanup uncertainty and state updates,
-and other edits retain a renewed expiry. Release and withdrawal expire immediately
-and are never renewed. A failed renewal leaves execution running and retries at
-the next interval; ownership is lost if another claim owns the item or the last
-confirmed expiry passes. A renewal write starts only with enough time remaining
-for its 20-second request timeout, so a late renewal cannot revive an expired claim.
-If retryable GitHub failures prevent renewal until expiry, continuous launch stops
-the owned process and returns to polling without further writes for that lease.
-Successful renewal clears the failure; unrelated ownership loss still stops launch.
-If the renewal worker stops unexpectedly, the launcher reports the failure in its
-terminal output and `.ub-agents/launch.log`; supervision keeps the last confirmed expiry.
+A lease lasts 30 minutes. The supervising launcher renews it every 10 minutes while
+it owns the work, from setup through cleanup and recovery, including rate-limit
+waits. Neither interval is configurable. A dead launcher's claim expires within 30
+minutes of its last renewal, and the supervisor stops a run whose last confirmed
+expiry has passed by wall clock, including after sleep. Renewal moves only
+`expires` forward, after a fresh ownership read. Release and withdrawal expire the
+lease at once. A failed renewal retries at the next interval, and a renewal write
+starts only with enough time left for its 20-second request timeout. If retryable
+GitHub failures prevent renewal until expiry, continuous launch stops the owned
+process and returns to polling without further writes for that lease.
 
-Launchers from the preceding release honour renewed comment expiries. New launchers
-also honour older claims' recorded, longer expiries; no coordinated upgrade is
-needed for this lease change.
+Each GitHub request is bounded to 20 seconds and each Git operation to 120 seconds.
+`agent-timeout-minutes` bounds only execution; worktree preparation comes first, and
+ownership is checked again before execution starts.
 
-Every lease names the actor, agent, run, configured CLI/model/effort,
-expiry, attempt, input candidate SHA, and branch when known. The claim is tied to
-the observed candidate. A changed head, closed item or vanished trigger found
-after setup but before execution counts as a launcher setup failure: +1 with
-bounded backoff. The next run uses the current head once the item is open and a
-trigger matches again. A stop label found before execution instead parks the item
-without changing its count; removing it still requires `ub-agents retry` to clear
-that parked state. A vanished trigger during success transition validation also
-parks the item without changing its count, as the outcome table above describes.
-Branches created for private issue worktrees are recorded on the lease. After
-removing the worktree, the launcher fetches origin branches and deletes the local
-branch if its tip is reachable from one of them. Deletion compares the recorded
-tip, so a branch that moved is preserved. Unpublished tips and Git failures keep
-the branch and log its name, reason and full tip SHA without changing the outcome,
-cleanup status or lease. A kept worktree also keeps its branch; PR worktrees are
-detached and have no local branch to delete.
+Every lease names the actor, agent, run, configured CLI, model and effort, expiry,
+attempt, input candidate SHA and, when known, branch. A changed head, closed item or
+vanished trigger found after setup but before execution counts as a launcher setup
+failure. A stop label found at that point parks the item without changing its count;
+clearing that state needs `ub-agents retry`. Run branches and worktrees are removed as
+[stale artifact cleanup](configuration.md#stale-artifact-cleanup) describes.
 
-This election is tested with concurrent contenders, but GitHub comment reads and
-writes are not compare-and-swap. It does **not** establish exactly-once execution,
-strict consistency, instantaneous loss detection, or write fencing. Other launchers
-and runtimes must obey the contract. Clocks must be reasonably synchronized.
+GitHub comment writes are not compare-and-swap. The election does **not** give
+exactly-once execution, strict consistency, instant loss detection or write fencing.
+Other launchers and runtimes must obey the contract, and clocks must be reasonably
+synchronized.
 
 Expired leases are never resurrected. Ownership is checked before every durable
-write. During finalization, that check uses an assignment history read made after
-the preceding finalization write. Completion shares each item's history and item
-reads until the next GitHub write attempt, including validation and outcome
-lookup. Failed or interrupted writes discard those observations too. Lease renewal uses its own
-fresh ownership read and extends only expiry; it does not end this read window.
-Recovery starts sharing reads after its claim and retains the validation and
-replay rules for an already-started transition.
-An ownership read that fails after applicable rate-limit waits stops the
-run, and the launcher does not report,
-accept, or release after losing ownership. Between observations, an agent with
-GitHub credentials can still write: comments cannot prevent this.
+write, during finalization against a history read made after the preceding write.
+Between writes, completion shares item reads; a failed or interrupted write discards
+them. A launcher that has lost ownership does not report, accept or release. An agent
+with GitHub credentials can still write between observations.
 
-REST GETs revalidate the last in-memory response with `If-None-Match` when GitHub
-provided an ETag for that exact URL, including its query and page. A `304 Not
-Modified` confirms freshness and returns the stored payload without consuming
-REST quota; it still satisfies the fresh ownership read required for a durable
-write. Idle polling
-uses quota-counted REST responses, so 304 confirmations do not extend its budget
-gap. Their rate-limit headers still update low-quota pacing. A 304 with
-no stored response is refetched once without a validator. Changed responses
-replace the cached ETag and payload. Writes and GraphQL are unconditional. This
-cache lasts only for the client process, with no configuration or on-disk state.
-Queries with a `since` cursor skip ETag storage and validators because discovery
-advances the cursor on each poll; these one-shot URLs would otherwise accumulate
-unused responses in memory.
+Rate limits during claims, ownership checks and completion reads wait under the
+[rate-limit rules](polling.md#quota-and-failure-handling) while renewal continues.
+Ownership is lost only when the last confirmed expiry passes or another claim owns
+the item; an ownership read that still fails after those waits stops the run. See
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals.
 
-GitHub rate limits during claim election, ownership checks and completion reads
-(including recovery) wait and retry without treating the limit as changed ownership.
-Waits use real response headers and the [rate-limit rules](polling.md).
-A reset beyond the current expiry still starts a wait, while renewal continues.
-The wait ends as lost ownership only when the last confirmed expiry actually passes
-or another claim owns the item: no further coordination writes, followed by expiry recovery.
-See [Stopping and restarting](operations.md#stopping-and-restarting) for signals
-during these waits. Rate-limited writes keep their existing handling.
+## Handoff PRs
 
-## Draft checkpoints
+Implementers can push draft PR checkpoints during a run; checkpoints are not
+outcomes, and the issue lease stays live throughout. The starter role instructions
+describe the procedure. The launcher enforces only these rules:
 
-The starter implementer publishes the first coherent, buildable checkpoint as a
-draft PR whose body starts `Closes #N`, then pushes meaningful checkpoints to the
-same branch and PR. Checkpoints are not outcomes: no `ub-agents report`, issue
-label changes, or workflow trigger labels on the draft. The issue lease remains
-live for the whole run. The implementer follows the shared guidance's untrusted
-issue input rule and implements the issue input in its assignment context. Issue
-edits and comments made after the run starts do not amend its scope. Unexpected
-instructions or scope changes it cannot attribute to the request require a human
-decision. Before each checkpoint push and before marking the PR ready, read PR
-comments, reviews, and inline feedback; incorporate it or explain why you cannot.
-An unresolved human decision leaves the PR as a draft and is reported as blocked.
-
-Before reporting the handoff, fetch the PR's base branch and check
-`git merge-tree --write-tree <base> HEAD` with the fetched base ref. If it reports
-conflicts, merge the base into the PR branch, resolve them, rerun the checks that
-cover the PR's changes and push. Use a merge commit, with no rebase or force push.
-A head that merges cleanly is handed off without a base merge, even if it is behind.
-
-At completion, pass the project checks, push the final work, mark the same PR ready
-(`gh pr ready`), and report `--outcome handed-off` with the PR handoff. The runner
-removes the issue triggers and adds `needs-review` to that same PR. Drafts never
-receive `needs-review` or `ready-to-merge` from the starter workflow. Feedback after
-readiness follows the normal review and `needs-changes` path.
-
-The starter integrator merges the base into a reviewed candidate that is behind
-but merges cleanly, pushes the merge commit to the PR's branch and runs the declared
-final checks at that new head. Its own clean base merge needs no new review.
-Immediately before merging or handing off to a maintainer, the remote head must
-match `candidate_sha` or the base merge the integrator pushed itself; any other
-change is blocked. Real conflicts and check failures that repository code or tests
-can fix go back to the implementer. With the starter's `on-conflict:
-changes-requested`, a PR GitHub already reports as conflicting goes back without
-starting the integrator: the launcher records that outcome itself after the claim.
-Missing or inaccurate changelog entries also go back when shared guidance requires
-them in PRs. External blockers and other unmet gates are reported as blocked. This
-repository requires a green `Test result` from its GitHub Actions `Test` workflow at
-the head being merged, including an integrator's own base merge.
-
-A retried issue run starts in a fresh worktree on a new branch. The assignment
-context lists the branches recorded by the issue's earlier runs as
-`earlier_branches`; the implementer instructions tell the agent to check each for
-an open draft PR, continue it on its branch, and never open a second
-implementation PR. At handoff the launcher rejects a success while another open PR
-sits on one of those branches, so a duplicate is blocked for inspection rather
-than accepted. While a run owns such a PR the issue waits, and while an issue run is
-live the PR waits, so one agent at a time touches the branch; the lowest live
-comment id wins a simultaneous claim. Continuation uses the PR branch on origin;
-it does not require an earlier run's local branch. Branches kept at run end remain
-subject to the next launch's stale artifact sweep.
+- An issue handoff names a PR that is ready for review, not a draft, and whose body
+  links the issue.
+- The handoff is rejected while another open PR sits on a branch recorded by this
+  issue's earlier runs, so a duplicate is blocked for inspection. Assignment context
+  lists those branches as `earlier_branches`, so a retried run, which starts on a new
+  branch, can continue an open draft from `origin`.
+- A `pr` agent can name one of its outcomes as `on-conflict`. When GitHub reports the
+  claimed PR as conflicting with its base at the observed head, the launcher records
+  that outcome itself after the claim and does not start the agent. An unknown merge
+  state starts the agent as usual.
 
 ## Explicit outcomes
 
-New outcome records include the original lease's `host` when recorded. Handoff
-copies preserve this launcher host, so the terminal Runs tab can show where a
-run happened even without its claim on the PR. The optional field is display
-metadata; older launchers ignore it, and older outcomes without it remain valid.
+Agents report through the absolute `report_command` in their assignment context,
+also supplied as `UB_AGENTS_REPORT`, which runs the launcher's own installation.
+`read`, `retrospective` and `report` take run identity and policy from
+`.ub-agents/runs/<run>/run.json`, named by `UB_AGENTS_RUN_CONFIG`. If that file is
+invalid or does not match `UB_AGENTS_REPOSITORY` and `UB_AGENTS_RUN`, the command
+fails before any GitHub request. Outside a run, only `read N` works, using local
+configuration.
 
-After a Claude process exits, the launcher reads `permission_denials` from its
-final stream-json `result` event and adds optional display fields to the outcome:
+`report` verifies the run's current ownership and creates one versioned outcome
+comment. `--outcome NAME` reports a declared outcome with status `success`;
+undeclared names are rejected. `--status retry|blocked` changes no labels. The runner
+blocks records that bypass this validation. When the lease's marker names a newer
+record format, `report` fails with a diagnostic pointing to `UB_AGENTS_REPORT`.
 
-- `denials`: up to 10 `{tool, command}` entries in run order. `command` is the
-  Bash input's `command`, otherwise the input's `file_path`, otherwise compact
-  JSON of the input, truncated to 200 characters.
-- `denials_omitted`: the number beyond those 10 entries, present only when positive.
+A stop report is `--status blocked`, or an outcome whose lease declaration adds a
+stop label. It needs at least one `--action` or `--option`. Repeat `--action` for
+independent asks that are all needed, and `--option` for alternative ways to clear
+one blocker, recommendation first. Each value is one non-empty line of at most 300
+characters, 8,000 in total, that makes sense on its own: who can act, the step and
+any essential consequence. Single-backtick inline code is kept; other Markdown is
+escaped. An option that ends with a colon, a space and a single-backtick command shows
+that command as its own code block, for example
+``--option 'Maintainer: run CI outside supervision: `mise run ci SHA`'``.
 
-The launcher updates an agent's report before acceptance, or adds these fields to
-its own outcome for an unreported run. Handoff copies preserve them. A result
-event without denials records `denials: []`; without a result event, including
-killed, timed-out or interrupted runs, no field is recorded. Codex runs record
-neither field. Denials never affect results, failure counts, acceptance or labels.
-Missing or malformed denial fields are ignored by display readers and never
-invalidate an outcome. Older launchers ignore the fields; this addition needs
-no coordinated restart. `ub-agents status` appends `· N denied` to the latest
-run's line when the listed and omitted count is positive, and `status --json`
-includes the fields in the outcome record.
+The outcome stores the first ask in the scalar `action`. Several asks, or an ask with
+options, also fill `actions`, whose first value matches `action`. `options` lists
+alternatives in recommendation order. An options-only report also stores its first
+option in `action`. Handoff copies keep these fields. Missing or invalid asks are
+rejected before any write. New leases carry `action_required: true`, so the launcher
+also rejects a stop report without an ask during completion or recovery.
+Launcher-only reports and recovery receipts need no ask, and records without
+`action_required` stay valid.
 
-Agents invoke `report` through the launcher's absolute `report_command` in the
-assignment context, also supplied as `UB_AGENTS_REPORT`. It pins the launcher's
-Python interpreter and a package copy taken at startup, including for `python -m ub_agents` launchers;
-PATH, the agent's working directory and `PYTHONPATH` cannot select another install.
-The prompt writes the command literally and uses it wherever project instructions
-say `ub-agents report`. Agents must not report through their worktree's development copy.
-Python helpers also use this copy. Kernel-held shared locks retain it while its
-launcher, runs or helpers use it; unused copies are removed on exit or at the next
-launcher start. Checkout refreshes and package upgrades leave claims running and
-the existing update banner continues to tell the operator when to restart.
+Outcomes can carry display-only fields: `host`, the launcher host from the original
+lease, and `denials`, up to 10 `{tool, command}` permission denials from a Claude
+run, with `denials_omitted` counting the rest. They never affect results, counts or
+labels, and readers ignore malformed values.
 
-The launcher pins in-run context and policy in
-`.ub-agents/runs/<run>/run.json`, supplied through `UB_AGENTS_RUN_CONFIG`.
-That policy includes the configured sub-issue labels and any launcher allowlist
-so inherited starts clear the same input in `read` and at pickup.
-`read`, `retrospective` and `report` share one validator: the file must be an
-absolute, readable JSON path with exactly the expected keys and valid values,
-and its repository and run must match `UB_AGENTS_REPOSITORY` and `UB_AGENTS_RUN`.
-Validation failure exits nonzero before any GitHub request, input display or
-record write. Outside a run (`UB_AGENTS_RUN` unset), `read N` still uses local
-configuration; `retrospective` and `report` require the pinned context.
-
-`report` takes repository, assignment, run and lease id from `run.json`, always
-applies its pinned trusted bots, and verifies the run's current
-ownership and creates one versioned outcome comment. Human summaries lead; JSON is
-fenced in `json` blocks inside collapsed details, and arbitrary prose is never parsed for routing. A declared
-outcome is reported with `--outcome NAME` and has status `success`;
-`--status retry|blocked` changes no labels. Undeclared names are rejected, and the
-runner blocks records that bypass reporting validation.
-
-A stop report is `--status blocked`, or a named outcome whose running lease
-declares that it adds a configured stop label. It requires at least one
-`--action "TEXT"` or `--option "TEXT"`. Repeat actions for independent asks that
-are all needed. Repeat options for alternative ways to clear one blocker, with
-the recommendation first, instead of "choose A or B" in one ask. Each is one
-non-empty line of at most 300 characters (8000 total across actions and options),
-understandable on its own: name who can act, the step and any essential consequence.
-Single-backtick inline code is preserved; other Markdown in asks and options is
-escaped. An option can end with a colon, a space and a single-backtick command
-to show that command in its own code block:
-
-```sh
-ub-agents report --status blocked --summary "Local CI is red. Full diagnostics follow." \
-  --option 'Maintainer: run CI outside supervision: `mise run ci SHA`' \
-  --option 'Maintainer: merge a fix isolating `UB_AGENTS_RUN_CONFIG` in tests.'
-```
-
-With options, the notice and Unblock tab show the summary's first sentence,
-normalized to one line and cut at 300 characters with `…`, followed by any
-independent asks. They then show "To unblock, do one of:" and numbered options,
-with "(recommended)" on the first. On a PR, a visible line says that merging or
-closing finishes the item; "To send it back to AGENT instead" folds the retry
-command and trigger instructions. Issues and unreadable item types keep visible
-"Then resume AGENT:" steps. Outcomes adding a stop label show the stop-label and
-trigger steps instead of retry, with the same PR fold. Full summary Markdown,
-candidate SHA, review, CI and links stay in the separate collapsed "Reasoning and
-evidence" section. Without options, the first action is the reason and asks keep
-their previous bold layout, followed by the same item-specific resume structure.
-The tab still displays v0.1.13's older fold and earlier prose notices as before.
-
-The first ask remains in the scalar `action`; multiple asks, or an ask alongside
-options, also use a non-empty `actions` list whose first value matches `action`.
-The `options` list stores alternatives in recommendation order. An options-only
-report stores its first option in scalar `action` for v0.1.13 launchers, which
-ignore `options` but require an action during completion and recovery. New readers
-treat that scalar as compatibility data, without displaying an extra independent
-ask. All fields are preserved on handoff copies; historical scalar actions remain
-valid. Missing or invalid asks and options are rejected before any write, while
-retry and outcomes adding no stop label do not require one.
-
-New leases include `action_required: true`, so the launcher also rejects an agent
-stop report that bypasses the command's check, during completion or recovery.
-Leases and outcome records written before this requirement remain valid; their
-notices use a concise review request with the full summary collapsed. Launcher-only reports and recovery receipts do
-not require an agent action. Repositories with their own role files or command
-runtimes that file stop reports must supply an action or option. Existing
-v0.1.13 stop-report records remain valid, and the new records remain readable by
-v0.1.13 launchers; adopting options needs the updated report command and guidance.
-
-When the supervised lease's marker names a newer record format, reporting fails
-with a diagnostic directing the agent to `UB_AGENTS_REPORT`, without interpreting
-the newer payload. This diagnostic is available only in releases that include it;
-0.1.10 and 0.1.11 keep their previous missing-lease message.
-
-**Upgrading:** A run in flight when the launcher's installation is updated to
-this run-context format can no longer `read`, `report` or post a `retrospective`.
-Let running agents finish, or stop the launcher, before updating.
-
-The running lease snapshots the agent's declared outcomes compactly. Each name
-maps to the labels to add, or to an object with `add`, `remove` and optional
-`sub-issues` when extra removals or sub-issue starts are configured. Removing every declared trigger is implied. The lease
-stores that full set once in `declared_triggers`, and stores `stop_labels` once.
-Its existing `triggers` field still lists only the trigger labels present at claim
-time. For example, these lease fields preserve both declared triggers even when
-only `ready` was present:
+The running lease snapshots the agent's declared outcomes compactly. Each name maps
+to the labels to add, or to an object with `add`, `remove` and optional `sub-issues`
+when extra removals or sub-issue starts are configured. Removing every declared
+trigger is implied. The lease stores that full trigger set once in
+`declared_triggers` and the stop labels in `stop_labels`. Its `triggers` field lists
+only the trigger labels present at claim time:
 
 ```json
 {
@@ -658,10 +312,10 @@ only `ready` was present:
 }
 ```
 
-The outcome names its declaration and copies only the added labels and any
-explicit extra removals into `transition`, together with `started`. Completion
-is recorded by the outcome's top-level `transition_complete` flag. For example,
-a completed `handed-off` outcome contains these fields:
+The outcome names its declaration and copies only the added labels and any explicit
+extra removals into `transition`, with `started`. The top-level
+`transition_complete` flag records completion. A completed `handed-off` outcome
+contains:
 
 ```json
 {
@@ -671,223 +325,144 @@ a completed `handed-off` outcome contains these fields:
 }
 ```
 
-The launcher resolves the implied trigger removals and stop labels from the
-original lease. The transition must match that lease's declaration, so
-configuration edits or a restarted launcher cannot replace the recorded changes.
+The launcher resolves the implied trigger removals and stop labels from the original
+lease. The transition must match that lease's declaration, so configuration edits or
+a restarted launcher cannot replace the recorded changes.
 
 For limited outcomes, the lease also stores `outcome_rounds`, for example
-`{"changes-requested": {"used": 3, "limit": 3}}`. Its `outcomes` declaration
-already contains the first stop label in place of the configured additions when
-`used >= limit`. The outcome's transition uses that declaration unchanged;
-recovery never recalculates the count or limit.
+`{"changes-requested": {"used": 3, "limit": 3}}`, which assignment context repeats.
+When `used >= limit`, the lease's `outcomes` declaration already holds the first stop
+label in place of the configured additions. The transition uses it unchanged, and
+recovery never recalculates it.
 
-For a `sub-issues` outcome, reporting resolves open native sub-issues in the same
-repository, authored by the lease account after its claim. Their numbers are stored
-in the outcome's top-level `sub_issues` list; excluded sub-issues are named in the
-summary. Recovery replays those targets without resolving them again. After
-assignment removals and destination additions, the launcher adds the declared
-sub-issue labels before completing and accepting the transition. With approvals on,
-pickup finds the accepted record on the native parent and inherits the start from
-the trusted launcher's label event after successful release. Pending parent
-transitions wait without approval parking.
+For a `sub-issues` outcome, `report` stores in the outcome's `sub_issues` list the
+open native sub-issues in the same repository that the lease account authored after
+its claim, and names excluded ones in the summary. Recovery replays the stored list.
+After the assignment removals and destination additions, the launcher adds the
+declared sub-issue labels, then completes the transition. With approvals on, a
+sub-issue inherits its start from that accepted record and the trusted launcher's
+label event; a pending parent transition makes it wait without approval parking.
 
-A report starts `accepted: false`. Once the process group has terminated, the
-launcher reads current GitHub history and items and validates ownership and the
-exact reported candidate SHA, and for an issue handoff that the PR is ready,
-links the issue, and that no other open PR sits on an earlier run branch. It then applies the transition as the
-[configuration reference](configuration.md#outcomes-and-transitions) describes:
-use the same item reads to check both items, block on a missing trigger or pause
-on a stop label with a durable rejection, persist `started: true`, copy the pending
-outcome to the handoff PR, remove assignment labels, add destination labels, persist
-`transition_complete: true`, accept the outcome, update its handoff copy, and release.
+A report starts with `accepted: false`. Once the process group has ended, the
+launcher reads current history and items, validates ownership and the exact reported
+candidate SHA, and applies the [handoff checks](#handoff-prs). It then applies the
+transition as the [configuration reference](configuration.md#outcomes-and-transitions)
+describes:
 
-An exit without an outcome, zero or nonzero, increments the consecutive failure
-count and retries with backoff until `max-attempts`, then parks. A report made
-before a nonzero exit is kept: after confirmed cleanup the launcher validates and
-applies it as it would after exit zero, including its count effect, label transition
-and handoff provenance. The exit code is logged in the run's `events.jsonl`; agent
-output is never interpreted. Invalid or rejected success reports still park
-immediately. Timeouts produce durable retry outcomes after confirmed cleanup.
-Interrupts release with a retry verdict but preserve the failure count and add no
-backoff. Explicit blocked outcomes require a PR head change or a reasoned operator
-reset; blocked issues and exhausted budgets require the reset. The lease's
-released `result` records the launcher's final verdict; a reported success with
-failed validation remains unaccepted. After
-confirmed cleanup, a supervision failure and its count effect are persisted before
-reporting or releasing, so a crash in that window cannot promote an early success
-or lose the interrupt classification. A completed agent report's verdict is
-persisted with release, so a failed GitHub request leaves it recoverable.
-The live lease still excludes pickup until
-release or expiry. If a timeout
-or interruption follows an early report, the launcher reconciles that report and
-releases with the supervision failure rather than posting a second outcome or
-accepting the early one. Unconfirmed cleanup is marked on the owned lease when
-GitHub is available, keeps ownership until expiry, and blocks automatic acceptance
-or reexecution pending an operator reset. If GitHub is unavailable or ownership is
-lost, no comment protocol can make that verdict durable.
+1. Check both items with the same reads. A missing trigger blocks and a stop label
+   pauses, each with a durable rejection.
+2. Persist `started: true`.
+3. Copy the pending outcome to the handoff PR.
+4. Remove the assignment labels, then add the destination labels.
+5. Persist `transition_complete: true`.
+6. Accept the outcome, update its handoff copy and release the lease.
+
+A report made before a nonzero exit is kept and, after confirmed cleanup, validated
+and applied as after exit zero. Agent output is never interpreted. The lease's
+released `result` records the final verdict; a success that fails validation stays
+unaccepted. A supervision failure and its count effect are persisted before reporting
+or releasing, so a crash cannot promote an early success or lose an interrupt. If a
+timeout or interruption follows an early report, the launcher releases with the
+supervision failure without a second outcome. Unconfirmed cleanup is marked on the
+owned lease when GitHub is available, keeps ownership until expiry, and blocks
+automatic acceptance or reexecution until an operator reset.
 
 ## Recovery
 
-An unexpired lease excludes pickup until release or expiry. Expiry permits a new
-fresh run on any host, never conversation resumption.
+An unexpired lease excludes pickup until release or expiry, so no agent restarts
+while its lease is live. Expiry permits a fresh run on any host, never a resumed
+conversation. Durable attempts and backoff survive restarts.
 
-After execution and cleanup finish, GitHub failures during outcome reads or
-PATCHes, validation reads, label changes, acceptance, or release leave the
-unfinished lease recoverable without a blocked or failure verdict. Only the
-agent's report or a failed validation, including a paused transition, can block
-completion. Continuous launch ends a failed pass with the existing
-`Skipped GitHub poll: …; retrying in Ns` message for retryable requests; these
-failures use the same unlimited, capped backoff as discovery failures.
-If GitHub fails during cleanup after a timeout, interruption or stop label, the
-launcher still attempts the cleanup hook and worktree removal using local outcome
-context when necessary, without recording a hook verdict or releasing the lease.
-Non-retryable errors stop the launcher with the lease still recoverable;
-`launch --once` fails on the first error. No agent restarts while its lease is live.
-After expiry, the stored outcome finishes through outcome-only recovery. If no
-outcome was stored, the existing expired-run retry handling may rerun the agent.
-Durable attempts and backoff survive restarts.
+After execution and cleanup, GitHub failures while reading, validating, changing
+labels, accepting or releasing leave the lease recoverable without a blocked or
+failure verdict. Only the agent's report or a failed validation can block
+completion. Continuous launch retries these failures under the
+[poll retry rules](polling.md#quota-and-failure-handling); other errors stop the
+launcher with the lease still recoverable. If GitHub fails during cleanup, the
+launcher still runs the cleanup hook and removes the worktree, without releasing the
+lease. After expiry, a stored outcome finishes through outcome-only recovery;
+without one, the run counts as a crash.
 
-At startup, launcher and `status` discovery read repository issue comments updated
-within 30 minutes plus seven days. Renewed live leases stay inside that window,
-independently of execution and cleanup timeouts. The launch startup artifact sweep
-scans the full repository comment history once in the background after startup checks,
-in every launch mode. The terminal view opens before setup checks, showing
-`checking setup` or `waiting` during retryable GitHub failures; no sweep or claim
-starts until those checks pass. Polling starts without waiting for the sweep. It logs
-decisions and failures only to `.ub-agents/sessions/<session>.cleanup.log`, using
-a unique name in the same directory without a session. A quick restart keeps crashed runs
-with live leases until a later launch start after expiry; there is no periodic
-sweep. Later discovery scans poll updated comments with
-`sort=updated` and `since`, a 60-second overlap and a cursor captured before the
-scan. Each page advances `since` to one second before its last update and
-deduplicates by comment id, because page offsets skip rows when comments move. A
-full page within one second cannot be paginated safely and stops visibly. The cache
-and cursor live in memory, and a failed page commits neither. After each successful
-discovery scan, cached comments updated before the scan's lookback window are
-dropped; full-history scans without a lookback prune nothing. Claiming discovery
-reuses unchanged per-item reads and evaluates only rows it reaches in rank order;
-`status` evaluates every row. A separate per-item store answers discovery's issue
-and PR conversation comment reads when the item's whole lifetime lies within
-the first successful scan's window, or a successful per-item read has reconciled
-it, and its stored row count matches the open issue list's valid comment count.
-Otherwise discovery reads the item's comments and replaces its stored rows
-exactly, removing deleted IDs and repairing its invalidation index. Missing or
-invalid counts, closed items and items absent from the open list always require
-the fallback. Stored rows do not age out with the repository history; they are
-removed once the item is no longer open or referenced by the repository scan.
-Only the bounded repository history decides which closed or untriggered items
-surface for recovery. PR reviews and inline review comments remain per-item reads.
-Item comments and approval inputs are always reread
-before a claim or approval-parking write, so stale cached records never supply
-authority. See [poll timing and request budgeting](polling.md).
+Discovery in `launch` and `status` reads repository issue comments updated within
+the last 30 minutes plus seven days, so renewed live leases stay in view.
+[Polling](polling.md#keep-discovery-cheap) describes the caches; cached input never
+authorizes a write. PR shared-branch checks parse `ub-agents/<agent>/<N>/<run>` and
+read issue N's full history; other branch names have no shared-branch owner.
 
-PR shared-branch ownership checks parse `ub-agents/<agent>/<N>/<run>` and read issue
-N's full history, independently of the repository window. Branches outside that
-pattern have no shared-branch owner.
+Within that history, the queue follows the latest non-withdrawn lease after the last
+reset for each item and agent. A released retry or blocked result shows as blocked
+on an open item without triggers; a missing trigger never authorizes reexecution. On
+closed items, a released result alone produces no plan. Unfinished leases, pending
+outcomes or transitions, unconfirmed cleanup and unreadable history keep their plans.
+As records age out of the window, closed or untriggered items drop out of view;
+reapplying a trigger or stop label brings an open item back with its full history.
+The remaining loss case is a crash after a started transition removed its triggers,
+with no recovery within seven days; reapply a trigger or stop label to recover it.
 
-Within the discovered history, the queue follows the latest non-withdrawn lease
-after the last reset for each item and agent. A released retry or blocked result
-stays visible as blocked on open, unlabelled items; a missing trigger never
-authorizes reexecution. On closed issues and closed or merged PRs, that released
-result alone produces no plan. Live or expired unfinished leases, pending durable
-outcomes or transitions, unconfirmed cleanup and unreadable or conflicting
-coordination history retain their existing plans and reasons. Planning changes no
-records, labels or triggers on completed items. As records age beyond the lookback,
-older records on closed or untriggered items fall outside discovery and no longer
-appear in `status` or the launcher queue.
-Re-applying a trigger or stop label surfaces an open item again; item evaluation
-reads its full history and can still recover it. The remaining loss case is a crash
-after a started transition removed its triggers but before outcome acceptance,
-without recovery within seven days. Re-apply a trigger or stop label
-to recover that outcome. A later accepted success supersedes older crashed
-runs and resets the consecutive failure count. Failed scans stop visibly.
+An expired, unfinished lease whose outcome was reported while the lease was valid
+gets outcome-only recovery: a renewed 30-minute recovery claim that names the
+recovered run and lease, finishes or validates the outcome, and releases. Recovery
+claims cost no attempts, and a crash during recovery is recovered again without
+execution. A started transition has passed validation, so recovery finishes it even
+if the PR head or issue link has changed; provenance keeps the validated SHA. An
+unstarted transition is validated in full, and a durably rejected outcome is never
+applied. Replay treats removing an absent label or adding a present one as a no-op.
 
-An expired, unfinished lease whose outcome was reported within its validity window
-gets outcome-only recovery: a renewed 30-minute recovery claim that names the recovered run
-and lease, finishes or validates the recorded outcome, accepts success or records
-the blockage, and releases. Repeated recovery claims cost no attempts, and a crash
-during recovery recovers again without execution. A started transition has already
-passed validation, so recovery finishes its recorded changes even if the PR head or
-issue link changed since; provenance keeps the originally validated SHA, so an
-independent role uses the missing-source fallback on a newer head.
-An unstarted transition is validated in full, and a durably rejected outcome is
-never applied later. Replay treats removing an absent label or adding a present one
-as a no-op; a label in both lists ends up added.
+Recovery contenders elect the lowest live comment ID. Any trusted launcher account on
+any host can settle the source attempt. Handoff copies name the recovering account.
+A stopped recovery can itself be recovered after its claim expires. Unconfirmed
+cleanup still blocks fresh execution and artifact removal.
 
-Recovery contenders elect the lowest live comment id as usual. Any trusted launcher
-account on any host can settle the source attempt after expiry. Source outcome
-comments keep their original authors; handoff copies name the recovering account.
-A stopped recovery can itself be recovered after its claim expires, without starting
-an agent or restoring the original lease's ownership. Unconfirmed cleanup still
-blocks fresh execution and artifact removal until termination is established.
-
-Transitions create no cross-item reservations: removals from the assignment precede
-additions to the destination, so a crash between them leaves both items idle until
-a trigger is present, and ordinary live leases still govern pickup. An operator
-reset (`ub-agents retry`) supersedes the source role's unfinished lease once it
-expires, without completing or undoing the transition; inspect both items and
-restore the desired triggers. Restoring a trigger alone resets neither attempts nor
-a blocked result. Expiry is not positive evidence that an old process on another
-host has died.
+Transitions make no cross-item reservations. Removals from the assignment come
+before additions to the destination, so a crash between them leaves both items idle
+until a trigger is present. `ub-agents retry` supersedes the source role's expired
+lease without completing or undoing the transition; inspect both items and restore
+the triggers you want. Expiry does not prove that an old process on another host has
+died.
 
 ## Runtime independence and candidate provenance
 
-`different-runtime-from: NAME` requires a PR. When an accepted report from `NAME`
-identifies the source runtime for the **current PR head**, it must be backed by a
-successful source release or successful outcome recovery; invalid source provenance
-still blocks. Source issue outcomes are copied to the PR before the handoff's
-trigger labels are added, then the same copy is updated on acceptance. A revision
-records provenance for its new head.
+`different-runtime-from: NAME` requires a PR. An accepted report from `NAME`
+identifies the source runtime for the **current PR head** only when a successful
+source release or outcome recovery backs it; invalid source provenance blocks. The
+source issue outcome is copied to the PR before the handoff's trigger labels are
+added and updated on acceptance. A revision records provenance for its new head.
 
-A started, unfinished handoff for the current head blocks the independent role
-until acceptance and successful source release or recovery. A failure while
-publishing the pending copy prevents trigger publication. A failure while accepting
-the copy leaves the pending record in place; lease expiry alone does not enable the
-fallback. Recovery repairs the same comment without executing the source again.
-Planning rereads the source outcome and lease, so a rejected report, a failed
-supervised verdict or an operator reset that abandons the handoff no longer makes
-its stale copy block the fallback.
+A started, unfinished handoff for the current head blocks the independent role until
+acceptance and source release or recovery. If publishing the pending copy fails, no
+triggers are added. If accepting it fails, the pending copy stays, and recovery
+repairs it without running the source again. Planning rereads the source outcome and
+lease, so a rejected report or a reset that abandons the handoff stops a stale copy
+from blocking.
 
-If no accepted report from `NAME` exists for the current head, the agent uses only
-its first configured runtime, without filtering, unless a started handoff is still
-pending. This covers missing, rejected, other unaccepted and earlier-head reports.
-If that runtime's CLI isn't installed, planning blocks
-with `No eligible runtime executable is installed`; later alternatives are not
-tried. The launcher does not detect authorship or infer the unknown source runtime.
+Without an accepted report from `NAME` for the current head, the agent uses only its
+first configured runtime. If that runtime's CLI is not installed, planning blocks
+with `No eligible runtime executable is installed`. The launcher does not detect
+authorship or guess the source runtime.
 
-When the source is identified, the eligible runtime must have a different CLI
-**and** model from the source; `codex` and `claude` imply OpenAI and Anthropic.
-Effort is ignored. Restarting the
-same author/runtime with a fresh run ID cannot satisfy this. Configured identity is
-the contract: use concrete model identifiers, since the launcher cannot attest to a
-provider's alias resolution.
+When the source is identified, the eligible runtime must differ from it in CLI
+**and** model; `codex` and `claude` imply OpenAI and Anthropic. Effort is ignored.
+Configured identity is the contract, so use concrete model identifiers rather than
+aliases.
 
-Different model executions may share GitHub authentication. GitHub login is not
-agent authorship. Native approvals have separate eligibility rules: GitHub forbids
-PR authors from approving their own PRs. Machine outcomes do not count as native
-approvals and cannot bypass required reviews or branch protection. Project policy
-may impose stricter identity rules in its instructions.
+A GitHub login is not agent authorship; different models may share one. Machine
+outcomes are not native approvals and cannot bypass required reviews or branch
+protection. Project instructions may set stricter identity rules.
 
-Independent assignments start a fresh CLI session with project instructions and
-original task/candidate context. They are directed to original requirements,
-acceptance criteria, code/diff and candidate-specific evidence, not implementation
-reasoning transcripts. If `different-runtime-from` is configured and the assigned
-head moves, the independent result fails validation. The starter integrator has
-no such setting and allows its own clean base merge as described above; other head
-changes are blocked. The launcher records the PR head at report time and validates
-that recorded head on completion. No earlier-head result automatically satisfies
-a newer candidate.
+Independent assignments start a fresh CLI session pointed at the original
+requirements, acceptance criteria, code, diff and candidate evidence, not
+implementation transcripts. With `different-runtime-from`, a moved assigned head
+fails validation, and no result for an earlier head satisfies a newer candidate.
 
 ## Run prompt
 
-Every runtime receives the launcher contract and assignment context below, followed
-by the optional `shared-instructions` text and the role's `instructions`. No loop
-rule follows the role instructions. The runtimes load the repository's own project
-guidance themselves; `init` never creates or edits `AGENTS.md` or `CLAUDE.md`.
-The earlier-branches line appears only when there are earlier branches; the
-retrospective guidance appears only for a role with a configured board. The shared
-policy section is omitted without `shared-instructions`. Braced values stand for
-per-run values; `${VAR}` illustrates shell expansion to avoid.
+Every runtime receives the launcher contract and assignment context below, then the
+optional `shared-instructions` text and the role's `instructions`; no loop rule
+follows them. Runtimes load the repository's own guidance themselves, and `init`
+never edits `AGENTS.md` or `CLAUDE.md`. The earlier-branches line appears only with
+earlier branches, the retrospective guidance only for a role with a board, and the
+shared policy section only with `shared-instructions`. Braced values are per-run
+values; `${VAR}` is literal text.
 
 <!-- run-prompt:start -->
 ```text
@@ -921,63 +496,42 @@ Project instructions:
 
 ## Execution boundaries
 
-Use argv directly; there is no shell interpolation. Runtimes receive a prompt on
-stdin; direct commands receive context through `UB_AGENTS_CONTEXT` and run identity
-through `UB_AGENTS_*` variables. Operator environment/auth stores are inherited
-normally; no credentials or grants are copied or added. `runtime-args` is the
-operator's explicit extension. All sessions start fresh. Before claiming each new
-agent run, the launcher fetches the repository's default branch from `origin` and
-fast-forwards the operator's control checkout (the root holding `ub-agents.yaml`).
-It then reloads `ub-agents.yaml`, replans the claim, and validates and rereads the
-configured role and shared-policy Markdown. Configuration and instruction text stay fixed for that run
-and are never cached across runs, including private
-PR executions. Candidate edits to those files are changes to inspect, not
-replacement policy for the assignment. Shared candidate guidance
-is still task input; an independent agent is directed to use the configured task
-instructions to judge it.
+The launcher runs commands from argv, with no shell interpolation. Runtimes receive
+the prompt on stdin; direct commands receive context through `UB_AGENTS_CONTEXT` and
+run identity through `UB_AGENTS_*` variables. The operator's environment and auth
+stores are inherited; no credentials or grants are copied or added. `runtime-args` is
+the operator's explicit extension. Every session starts fresh.
 
-Refresh happens only between runs, after all of this launcher's supervised agent
-processes and cleanup hooks have ended. Durable-outcome recovery starts no agent
-and does not refresh. A clean, already-current checkout needs no merge. Refresh
-requires the default branch to be checked out, no staged, modified or untracked
-non-ignored files, and no local commits absent from `origin`. It never resets,
-stashes or switches branches, and refuses to overwrite ignored local files.
-After the fast-forward, configuration and instruction paths and text are validated;
-invalid configuration or missing, outside-project or unreadable instructions stop
-the launcher. Unsafe checkout
-state, fetch or fast-forward failures also stop it with a nonzero exit and a
-message telling the operator what to fix before restarting. These failures do
-not claim an assignment, charge an attempt, or mark work blocked or retrying.
+Before each new agent run, the launcher fetches `origin` and fast-forwards the
+control checkout (the root that holds `ub-agents.yaml`) on the default branch. It then
+reloads `ub-agents.yaml`, replans the claim and rereads the role and shared
+instruction files; an item that no longer plans for that agent is not claimed. That
+text stays fixed for the run and is never cached across runs. Edits to those files in
+a candidate are changes to review, not policy for the run; shared guidance in a
+candidate is still task input to judge.
 
-The GitHub read of the default branch is part of pre-claim discovery. Continuous
-launch retries its transient failures with [unlimited poll backoff](polling.md);
-Git fetch and local checkout or instruction failures still stop immediately.
+Refresh runs only between runs, after this launcher's supervised processes and
+cleanup hooks have ended, and never for outcome-only recovery. It needs the default
+branch checked out, no staged, modified or untracked non-ignored files and no
+local-only commits. It never resets, stashes or switches branches, and refuses to
+overwrite ignored files. An unsafe checkout, a failed fetch or fast-forward, or
+invalid configuration or instructions stop the launcher with a message naming the
+fix, without a claim or a charged attempt. The GitHub read of the default branch is
+part of discovery, so continuous launch retries its transient failures.
 
-`ub-agents.yaml` is reloaded before each new execution claim. If the refreshed
-configuration no longer plans the item for that agent, it is not claimed. New
-issue worktrees still start from the remote
-default branch. Same-repository PR worktrees retain their exact candidate SHA.
-Fork PR worktrees use the PR's base branch tip from `origin`, skip setup and keep
-the verified head in a run-owned ref for diff review. Their prompts forbid checking
-out or executing the head and use repository CI on the exact head SHA as check
-evidence; see [outside PRs](approvals.md#pull-requests). Agents continuing
-draft checkpoints still fetch and check out their exact heads; refresh never
-rebases them. Coordination between two launchers sharing a checkout, or a concurrent
-startup artifact sweep, is outside this serial execution boundary.
+New issue worktrees start from the remote default branch. PR worktrees in the same
+repository check out the exact candidate SHA. Fork PR worktrees use the base branch
+tip and keep the verified head in a run-owned ref for diff review; see
+[pull requests](approvals.md#pull-requests). Two launchers sharing one checkout, or
+a concurrent startup sweep, are outside this boundary. See
+[Stopping and restarting](operations.md#stopping-and-restarting) for signals.
 
-See [Stopping and restarting](operations.md#stopping-and-restarting) for signal
-handling during execution, recovery and checkout refresh, and for restarting after
-code updates. The SIGTERM refresh rule prevents a fast-forward from being killed
-partway through updating the control checkout.
+Each process gets a new POSIX session and process group. Termination sends TERM,
+then KILL, and checks that no group members remain. If that check fails, the launcher
+reports uncertainty, keeps artifacts, stops the loop and leaves expiry as the
+recovery authority. Private worktree removal applies only to a directory this run
+created, with a guard against path redirection.
 
-Each process owns a new POSIX session/group. Termination sends TERM then KILL and
-checks that no live owned group members remain. Even failed process inspection
-signals the known child group but reports uncertainty. Inconclusive cleanup
-preserves artifacts, stops the loop, and leaves expiry as recovery authority. Private
-worktree removal applies only to a directory created by this run, with a guard
-against path redirection; shared project directories are never removed.
-
-Helpers that detach into a different session/group escape this supervision boundary.
-There is no cross-process cwd sweep. A launcher killed with SIGKILL, detached helpers,
-or malicious executions cannot be reliably fenced by this small framework; broader
-host/runtime evidence and any justified hardening are tracked in issue #2.
+Helpers that detach into another session or group escape this supervision. This
+framework cannot reliably fence a launcher killed with SIGKILL, detached helpers or
+malicious executions.

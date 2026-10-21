@@ -16,4 +16,4 @@ Agents run with the launcher account and inherit the launcher's environment. Kee
 
 ## Several loops
 
-Several loops can share one agent account. GitHub's API limits apply per account, but up to ten loops on one account work fine. See [How many launchers one account supports](/docs/best-practices/account-capacity.html) and [Launcher accounts](/docs/configuration/launchers.html).
+Several loops can share one agent account. GitHub's API limits apply per account. One account supports up to ten loops, or about seven when runs are short. See [How many launchers one account supports](/docs/best-practices/account-capacity.html) and [Launcher accounts](/docs/configuration/launchers.html).

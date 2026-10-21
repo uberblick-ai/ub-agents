@@ -23,7 +23,7 @@ Fresh [`init`](/docs/commands/init.html) selects a tailoring issue by default to
 
 ## Offline
 
-`--offline` skips GitHub and the agent CLIs and checks the rest: configuration, instruction files and the checkout. Use it after editing `ub-agents.yaml`, or in CI without GitHub credentials.
+`--offline` skips GitHub and the agent CLIs and checks the rest: configuration, instruction files and the repository: its root, its `origin` and that `.ub-agents/` is ignored. It doesn't check whether the launcher checkout is ready. Use it after editing `ub-agents.yaml`, or in CI without GitHub credentials.
 
 ```text
 {{help doctor}}
