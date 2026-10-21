@@ -14,12 +14,7 @@ outcomes:
 
 {{flow limit-rounds}}
 
-To allow one more round without resetting the count, remove `needs-human` and
-re-add `needs-review` by hand. To start over, run
-`ub-agents retry N --agent reviewer --reason TEXT`: it records the reset, removes
-configured stop labels and restores `needs-review` if no reviewer trigger is
-present on the open item. The count lives on GitHub, so restarts and other
-launchers don't reset it, and each new pull request starts at zero.
+To allow one more round, swap `needs-human` for `needs-review` by hand. To start the count over, run `ub-agents retry N --agent reviewer --reason TEXT`. The count lives on GitHub, so restarts and other launchers don't reset it; each new pull request starts at zero.
 
 ## Add labels
 
@@ -53,9 +48,7 @@ An agent that takes issues can start the native sub-issues its run creates:
 split: {sub-issues: {add: [needs-preparation]}}
 ```
 
-Agents file sub-issues without trigger labels, then report `split`. The launcher starts qualifying sub-issues with the declared labels and removes the parent's triggers. With [approvals on](/docs/configuration/approvals.html), they inherit the parent's start.
-
-Use issue-agent trigger labels. The [outcomes reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#outcomes-and-transitions) covers eligibility, validation and recovery.
+Agents file sub-issues without trigger labels, then report `split`. The launcher adds the declared labels, which must be issue-agent triggers, and removes the parent's triggers. With [approvals on](/docs/configuration/approvals.html), sub-issues inherit the parent's start. See the [outcomes reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#outcomes-and-transitions).
 
 ## Ask a person
 
@@ -76,9 +69,7 @@ ub-agents report --outcome handed-off --summary "Ready for review" --handoff 219
 
 ## Stop reports
 
-A report that parks the item needs at least one ask. Use `--action` once for each thing a person must do. For a choice, repeat `--option` once per alternative, recommendation first. Each ask is one sentence that names who acts.
-For a `max-rounds` stop, the launcher supplies a review request if no ask is given,
-plus both resume paths. Keep every open P1 finding in the report's summary.
+A report that parks the item needs at least one ask: `--action` for each thing a person must do, or `--option` per alternative for a choice, recommendation first. Each ask is one sentence that names who acts. A `max-rounds` stop gets a review request from the launcher if no ask is given.
 
 ```sh
 ub-agents report --outcome needs-human --summary "Storage policy unclear" \

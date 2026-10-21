@@ -10,15 +10,7 @@ implementer:
 
 ## Starter permissions
 
-`ub-agents init` includes one commented top-level `runtime-args` mapping entry for
-the selected CLI. In a terminal, [init](/docs/commands/init.html) asks whether
-agents may work without asking; Yes (the default) uncomments it for all five
-starter agents. Review it before you launch. Agents always work in worktrees and
-branches; they never commit to main.
-Selecting the Retrospectives extra also adds Claude's `retrospective` permission.
-`--use-defaults`, CI and non-TTY keep it commented out without prompts.
-Existing local overrides still take precedence. The list examples below belong
-inside individual agent definitions.
+`ub-agents init` writes a commented top-level `runtime-args` entry for the selected CLI. When [init](/docs/commands/init.html) asks whether agents may work without asking, Yes (the default) uncomments it for all starter agents; `--use-defaults` and runs without a terminal leave it commented. Review it before you launch. The retrospectives extra also adds Claude's `retrospective` rule.
 
 ## Codex
 
@@ -42,7 +34,7 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
 
 ## Report command
 
-`{report_command}` becomes an absolute command running the launcher's startup code copy with its interpreter. A rule like `Bash(ub-agents *)` would not match it, because Claude matches the command text including its path. Agents with a [retrospectives](/docs/best-practices/retrospectives.html) board also need the `retrospective` rule.
+`{report_command}` becomes the absolute path of the launcher's own ub-agents. Claude matches the command text including that path, so `Bash(ub-agents *)` would not match. Agents with a [retrospectives](/docs/best-practices/retrospectives.html) board also need the `retrospective` rule.
 
 ```yaml
 "Bash({report_command} report *)"
@@ -60,7 +52,7 @@ runtime-args: [--add-dir, "{scratch}"]
 
 ## Arguments for alternatives
 
-Declare a top-level `runtime-args` mapping to give Claude and Codex their own arguments once, independent of the agents:
+A top-level `runtime-args` mapping gives Claude and Codex their own arguments once, for every agent:
 
 ```yaml
 runtime-args:
@@ -77,13 +69,13 @@ agents:
     outcomes: {approved: {add: [ready-to-merge]}}
 ```
 
-Runtime agents inherit the top-level mapping when they omit their own `runtime-args`; command agents do not inherit it. Only the selected CLI's arguments are appended, including when a later run switches alternatives. A missing or empty CLI entry adds no arguments. Top-level keys must be `codex` or `claude`; values must be lists of strings. Every entry is validated, including CLIs no agent currently uses.
+Runtime agents without their own `runtime-args` inherit it; command agents don't. Each run gets the arguments of the CLI it actually uses. Keys are `codex` or `claude`, values lists of strings.
 
-An agent's own `runtime-args` replaces the entire top-level mapping. It can be a list applying to every alternative or a mapping whose keys also appear in the agent's runtime list. An omitted CLI key in an agent mapping receives no arguments from the top level. An explicit `[]` or `{}` disables the defaults. YAML aliases can selectively reuse argument lists.
+An agent's own `runtime-args` replaces the whole mapping: a list for every alternative, or a mapping by CLI. A CLI it leaves out gets no arguments, and `[]` or `{}` turns the defaults off.
 
 ## Check
 
-`ub-agents doctor` warns when a runtime agent's effective arguments, after inheritance or replacement, leave any listed CLI with missing or empty arguments. Configure the top-level mapping or agent overrides to cover those CLIs. It does not test whether the arguments grant enough.
+`ub-agents doctor` warns when any CLI an agent lists ends up with no arguments. It doesn't test whether the arguments grant enough.
 
 ```sh
 ub-agents doctor

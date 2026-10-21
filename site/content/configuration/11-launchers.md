@@ -4,18 +4,13 @@ Launchers on different machines share one queue through GitHub. By default, any 
 
 ## Recommended: an agent account
 
-Give the agents their own GitHub account, such as `acme-agent`, with **write** access to only the repositories it works in. Write lets it push branches, open pull requests and comment. It cannot start or approve its own work, bypass branch protection or change settings. Log in with it on every launcher machine and list it:
+Give the agents their own GitHub account, such as `acme-agent`, with **write** access to only the repositories it works in: enough to push branches, open pull requests and comment, but not to approve its own work or change settings. Log in with it on every launcher machine and list it:
 
 ```yaml
 launchers: [acme-agent]
 ```
 
-People keep their own accounts for starting work, approving input and the merges the integrator leaves to them. See [Give launchers their own account](/docs/best-practices/launcher-account.html).
-
-One account supports up to ten launchers under the discovery budget. Busy capacity
-also depends on requests per finished run; for many short runs, put launchers beyond
-about seven on a second account. See
-[How many launchers one account supports](/docs/best-practices/account-capacity.html).
+People keep their own accounts for starting work, approving input and the merges left to them. One account supports up to ten launchers; see [How many launchers one account supports](/docs/best-practices/account-capacity.html).
 
 ## Narrow the list
 

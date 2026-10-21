@@ -1,6 +1,6 @@
 # Add more launchers
 
-A launcher runs wherever you start it: your laptop, a teammate's, or any server you like. A laptop works while it is awake. For a loop that keeps going overnight, use an always-on machine, such as a small cloud server. All launchers for a project share one queue through GitHub, and a claim keeps two of them off the same item.
+A launcher runs wherever you start it: your laptop, a teammate's or a server. For a loop that keeps going overnight, use an always-on machine. All launchers for a project share one queue through GitHub, and a claim keeps two of them off the same item.
 
 ## On the new machine
 
@@ -30,9 +30,7 @@ launchers: [ub-bot, alice]
 
 ## Several launchers on one machine
 
-One machine can run several loops in parallel: one launcher per project, or several for one project, each in its own checkout. Each run gets its own worktree and scratch directory.
-
-Runs can still collide on resources outside the worktree, such as a Docker database, a fixed port or a shared cache. Give each run its own, for example by naming them after the worktree, and stop them in the [cleanup hook](/docs/configuration/cleanup.html).
+One machine can run several launchers, for one project or several, each in its own checkout. Runs can still collide outside their worktrees, on a Docker database, a fixed port or a shared cache. Give each run its own, for example named after the worktree, and stop them in the [cleanup hook](/docs/configuration/cleanup.html).
 
 ## Keep versions together
 

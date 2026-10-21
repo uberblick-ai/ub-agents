@@ -27,7 +27,7 @@ Milestones go in alphabetical order by title, for example v0.4.6 before v0.5.0.
 
 - `ignore` (the default): milestones don't change the order.
 - `order`: priority always wins. At equal priority, earlier milestones go first and issues without a milestone go last.
-- `gate`: milestones finish in order. New issues from the earliest open milestone go first. Only an issue without an open milestone can go ahead of them, and only with a higher priority; later milestones always wait. When nothing in that milestone can start here, for example because it's blocked or waiting for a person, later work runs.
+- `gate`: milestones finish in order. Issues from the earliest open milestone go first; only a higher-priority issue without a milestone can jump ahead. When nothing in that milestone can start, for example because it's blocked or waiting for a person, later work runs.
 
 ```yaml
 milestones: gate

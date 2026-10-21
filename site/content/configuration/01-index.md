@@ -1,6 +1,6 @@
 # Configuration
 
-`ub-agents.yaml` sits at the root of your repository. `ub-agents init` writes a starter file and `ub-agents doctor --offline` validates the effective configuration, including optional machine-local overrides. Unknown keys are errors.
+`ub-agents.yaml` sits at the root of your repository. `ub-agents init` writes a starter file, and `ub-agents doctor --offline` validates it. Unknown keys are errors.
 
 ```yaml
 repository: your-org/your-project
@@ -23,7 +23,7 @@ stop-labels: [needs-human]
 
 The GitHub repository the agents work on, as `owner/name`. It must match your checkout's `origin`.
 
-Accepted remotes are `https://github.com/OWNER/REPO`, `git@github.com:OWNER/REPO` and `ssh://git@github.com/OWNER/REPO`, with an optional `.git` suffix or trailing `/`. SSH host aliases also work when `ssh -G HOST` reports `github.com` as the hostname, ignoring case. For example, `git@github-work:OWNER/REPO.git` preserves your per-account SSH key selection. This local check works in `launch`, `doctor` and `doctor --offline`; it fails if the path differs, the alias resolves elsewhere or `ssh -G` cannot run successfully.
+HTTPS and SSH remotes both work, and so do SSH host aliases such as `git@github-work:OWNER/REPO.git`, as long as `ssh -G` resolves them to `github.com`.
 
 ```yaml
 repository: your-org/your-project
@@ -86,16 +86,11 @@ Every command reads `ub-agents.yaml` by default. Pass `--config` to use another 
 ub-agents --config staging.yaml launch
 ```
 
-The selected base file remains required. Relative paths and the optional
-`ub-agents.local.yaml` resolve from the base file's directory after resolving
-symlinks. With `--config PATH`, a local file in an unrelated working directory
-is never used.
+Relative paths and `ub-agents.local.yaml` resolve from that file's directory.
 
 ## Machine-local overrides
 
-To change settings on one machine only, put them in `ub-agents.local.yaml` next to `ub-agents.yaml`. `init` adds it to `.gitignore`; in an existing project, add that line yourself before creating the file.
-
-Give only the keys you change; everything else stays as shared. A runtime list replaces the shared one. Repeat the shared runtime to keep it alongside another supported runtime:
+To change settings on one machine only, put them in `ub-agents.local.yaml` next to `ub-agents.yaml`, which `init` adds to `.gitignore`. Give only the keys you change. A runtime list replaces the shared one, so repeat the shared runtime to keep it:
 
 ```yaml
 # ub-agents.local.yaml
@@ -104,4 +99,4 @@ agents:
     runtime: ["codex:gpt-6.1-sol:high", "claude:claude-opus-5-5:high"]
 ```
 
-An agent that only exists in the local file needs a full definition. `doctor` checks both files, and `launch` picks up changes before its next run.
+An agent that only exists in the local file needs a full definition. `launch` picks up changes before its next run.

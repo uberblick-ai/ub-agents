@@ -1,6 +1,6 @@
 # Stop labels
 
-A stop label pauses all work on an issue or pull request until a person removes it. You list them in `ub-agents.yaml`; the default is `needs-human`. Agents may set other labels, but never workflow labels (triggers, outcome labels and stop labels): the launcher applies those from the reported outcome.
+A stop label pauses all work on an issue or pull request until a person removes it. The default is `needs-human`. Agents never set workflow labels themselves; the launcher applies them from the reported outcome.
 
 ```yaml
 stop-labels: [needs-human]
@@ -48,24 +48,15 @@ migration, report needs-human with one --action per decision.
 
 ## Resuming
 
-Answer the asks on GitHub, remove the stop label and re-add the trigger label you
-want. This manual label swap allows one more round without resetting the count;
-another limited outcome parks the item again. A blocked run adds no label; run
-`ub-agents retry` once the blocker is fixed, or push a new commit to the pull request.
+Answer the asks on GitHub, remove the stop label and add the trigger label you want. A blocked run adds no label; once the blocker is fixed, run [`ub-agents retry`](/docs/commands/retry.html) or push a new commit to the pull request.
 
 ```sh
 ub-agents retry 214 --reason "Chose local storage"
 ```
 
-Retry records the reset before removing all configured stop labels on an open
-item. It adds the selected agent's first trigger only if none of that agent's
-triggers is present, then reports the changes and pickup on a running launcher's
-next poll. Closed items keep their labels. If a label change fails, retry exits
-nonzero and names the remaining manual changes; the reset record stays.
-
 With [approvals](/docs/configuration/approvals.html) on, ub-agents also adds the stop label when an item needs a maintainer, with a comment saying what to do.
 
-The [`ub-agents-unblock`](https://skills.uberblick.ai/skills/ub-agents-unblock) skill walks your own agent through every item waiting for a person, one at a time.
+The [`ub-agents-unblock`](https://skills.uberblick.ai/skills/ub-agents-unblock) skill walks your own agent through every item waiting for a person.
 
 ## Rules
 

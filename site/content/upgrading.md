@@ -1,8 +1,6 @@
 # Upgrading
 
-A running launcher keeps the version it started with. Instruction files and configuration update automatically while it runs, but a new version needs an explicit upgrade: stop the launcher, upgrade, start it again.
-
-Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases) first. If a release says launchers must be upgraded together, stop every launcher before upgrading any of them.
+A running launcher picks up configuration and instruction changes by itself, but keeps the ub-agents version it started with. To upgrade, stop it, upgrade and start it again. Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases) first: if a release says launchers must be upgraded together, stop every launcher before upgrading any.
 
 ```sh
 brew update && brew upgrade ub-agents
@@ -20,4 +18,4 @@ When a newer release exists, the terminal view shows a banner with the command t
 
 ## With a service
 
-If a [service](/docs/guides/add-a-launcher.html#run-it-as-a-service) restarts the launcher for you, upgrade first, then send `SIGTERM`. The launcher finishes its run and exits, and the service starts the new version.
+If a [service](/docs/guides/add-a-launcher.html#run-it-as-a-service) restarts the launcher, upgrade first, then send `SIGTERM`. The launcher finishes its run, and the service starts the new version.

@@ -1,6 +1,6 @@
 # Instructions
 
-Each agent's job is a Markdown file in your repository. `init` writes starter files for five roles; rewrite them in your own words. The launcher puts its own short run rules in front, such as how to report and which input to trust, and adds the issue or pull request details.
+Each agent's job is a Markdown file in your repository. `init` writes starter files for five roles; rewrite them in your own words.
 
 ```text
 your-project/
@@ -22,23 +22,11 @@ Point each agent at its file. Say what the role does, which checks to run, what 
 instructions: .agents/implementer.md
 ```
 
-The starter issue-preparer reports `prepared` for small, bounded and clear work and
-`review` for other implementable work. The issue-reviewer checks scope, feasibility
-and acceptance criteria without editing the issue. It reports `approved` to send it
-to `ready`, `changes-requested` to return it to `needs-preparation`, or `needs-human`
-for a person's decision. The preparer receives findings as feedback, applies them
-and reports `prepared` without another `review`.
-
-When an issue needs multiple reviewable PRs, the preparer creates native sub-issues
-with prepared bodies and no workflow labels, makes each a blocker of the open
-parent and reports `split`. A maintainer labels each sub-issue to start it.
-The issue-reviewer and PR reviewer share `needs-review`, distinguished by `kind`.
-Use a different runtime for issue review; the starter recommends this but
-`different-runtime-from` currently requires a PR.
+[How the loop works](/docs/how-the-loop-works.html#issues-from-idea-to-ready) describes what the starter roles report. For issue review, pick a different runtime yourself: `different-runtime-from` only works for pull request agents.
 
 ## Shared policy
 
-`shared-instructions` names a file every role reads before its own: checks, merge policy and who decides. `init` writes `.agents/ub_agents.md` for it. Build commands and conventions stay in the guidance your agent CLI already loads, such as `AGENTS.md` or `CLAUDE.md`.
+`shared-instructions` names a file every role reads before its own: checks, merge policy and who decides. Build commands and conventions stay where your agent CLI already loads them, such as `AGENTS.md` or `CLAUDE.md`.
 
 ```yaml
 shared-instructions: .agents/ub_agents.md
@@ -46,8 +34,8 @@ shared-instructions: .agents/ub_agents.md
 
 ## What the agent receives
 
-The launcher's own rules first, then the shared policy, then the role file, on stdin, with the assignment context. The context has the issue or pull request title, body and trusted comments, plus the command to report with. How to report, which input to trust and who owns workflow labels come from the launcher, so your files need no copies of them.
+The launcher's own run rules, then the shared policy, then the role file, with the assignment context: the item's title, body, trusted comments and the command to report with. The run rules already cover how to report, which input to trust and who owns workflow labels, so your files need no copies.
 
 ## Always current
 
-Before each new run, the launcher pulls your default branch and rereads `ub-agents.yaml` and the instruction files. Merge a change and the next run uses it. Keep the launcher's checkout clean.
+Before each run, the launcher pulls your default branch and rereads `ub-agents.yaml` and the instruction files, so the next run uses whatever you merged. Keep the launcher's checkout clean.

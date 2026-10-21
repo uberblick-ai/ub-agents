@@ -1,6 +1,6 @@
 # Cleanup hook
 
-After every run, the launcher removes the run's private worktree by itself. The cleanup hook is an optional program that runs just before that removal. Use it to stop things a run started, such as test services.
+After every run, the launcher removes the run's private worktree. The optional cleanup hook runs just before that, to stop things a run started, such as test services.
 
 ```yaml
 cleanup:
@@ -40,8 +40,4 @@ Exit zero to let the worktree be removed. Any other exit keeps the worktree and 
 
 ## Leftovers
 
-[`launch`](/docs/commands/launch.html) clears leftovers in the background and runs the hook before removing each worktree. Decisions go to `.ub-agents/sessions/*.cleanup.log`. See [worktree and branch cleanup rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#stale-artifact-cleanup) for what is removed, kept or retried.
-
-## Diagnostic retention
-
-Startup cleanup removes old run and session diagnostics after 7 days unless they are still needed. The cleanup log reports counts and space freed. See [retention and safeguards](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#stale-artifact-cleanup); retention is fixed, with no setting to change.
+At startup, [`launch`](/docs/commands/launch.html) clears leftover worktrees, running the hook before removing each, and removes run logs older than 7 days. Decisions go to `.ub-agents/sessions/*.cleanup.log`. See the [cleanup rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#stale-artifact-cleanup).

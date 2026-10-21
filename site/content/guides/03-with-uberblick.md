@@ -1,15 +1,15 @@
 # How it works with Uberblick
 
-[Uberblick](https://next.uberblick.ai) is a shared workspace of documents for people and agents: what the product should do, plans and the decisions behind them. ub-agents runs the loop on GitHub. Each works without the other. Together, every issue starts from the pages that describe the product, and every pull request keeps them true. This is how Uberblick itself is built.
+[Uberblick](https://next.uberblick.ai) is a shared workspace of documents for people and agents: what the product should do, plans and the decisions behind them. Each works without the other. Together, every issue starts from the pages that describe the product, and every pull request keeps them true. This is how Uberblick itself is built.
 
 ## What changes in the loop
 
-ub-agents doesn't know about Uberblick. Your agents use it because their instructions say so, through the Uberblick MCP server.
+Your agents use Uberblick through its MCP server because their instructions say so; ub-agents itself doesn't know about it.
 
-- **Prepare.** The issue-preparer reads the pages and decisions the issue touches and points to them in the issue, instead of restating them. The page stays the one place to be right.
-- **Implement.** The implementer reads those pages before it writes code. When the change makes a page wrong, or adds something no page describes yet, it drafts the new text in the pull request.
-- **Review.** The reviewer checks the pull request against the pages, not only against the issue text, and reviews the drafted page changes with the code.
-- **Merge.** After the merge, the integrator applies the drafted page changes. The workspace describes the product as shipped, never code that hasn't merged.
+- **Prepare.** The issue-preparer points the issue to the pages and decisions it touches, instead of restating them.
+- **Implement.** The implementer reads those pages first. When the change makes a page wrong or adds something new, it drafts the new text in the pull request.
+- **Review.** The reviewer checks the code against the pages and reviews the drafted page changes with it.
+- **Merge.** After the merge, the integrator applies the page changes, so the workspace describes what shipped.
 
 ## Set it up
 
@@ -40,7 +40,7 @@ Loop runs can't answer permission prompts, so allow the Uberblick tools for each
 
 ## Tell the roles what to do
 
-Put the rule in your [shared policy](/docs/configuration/instructions.html#shared-policy), so every role follows it. Keep it short, for example:
+Put a short rule in your [shared policy](/docs/configuration/instructions.html#shared-policy), so every role follows it:
 
 ```text
 ## Product pages
@@ -52,10 +52,8 @@ page wrong, put the new text under "Page updates" in its description. The
 integrator applies it after the merge.
 ```
 
-For what else belongs in the shared policy, see [What goes in the shared policy](/docs/best-practices/instructions-as-code.html#what-goes-in-the-shared-policy).
-
 ## More than one launcher
 
 A local workspace lives on one computer. When the loop runs on [more launchers](/docs/guides/add-a-launcher.html), share the workspace through a [hub](https://next.uberblick.ai/docs/hub), so every agent reads the same pages. Commit `.uberblick.json`, and on each launcher machine install `ub` and sign in with `ub auth login`.
 
-If agents start while the workspace can't be reached, they work without the pages. A [health check](/docs/configuration/agents.html#health-check), a command of yours that checks the workspace answers, makes the launcher wait instead, and it picks up work again once the check passes.
+If the workspace can't be reached, agents work without the pages. To make the launcher wait instead, add a [health check](/docs/configuration/agents.html#health-check) that checks the workspace answers.

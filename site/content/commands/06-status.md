@@ -10,7 +10,7 @@ ub-agents status --json   # the same results, machine readable
 
 ## One item
 
-`status 143` explains a single issue or pull request with the same checks as [`launch 143`](/docs/commands/launch.html#one-agent-or-one-item): it skips the queue order, but labels, blockers and approvals still apply. For a claimed item it shows who holds it, on which machine and until when, plus its log when it runs on this machine.
+`status 143` explains one item with the same checks as [`launch 143`](/docs/commands/launch.html#one-agent-or-one-item). For a claimed item it shows who holds it, on which machine and until when.
 
 ## States
 
@@ -29,7 +29,7 @@ ub-agents status --json   # the same results, machine readable
 
 ## JSON output
 
-`--json` prints `{"assignments": [...]}` with one object per row: `number`, `kind`, `agent`, `state`, `reason`, `attempts`, `priority`, `priority_inherited_from`, `priority_from_issue`, `milestone`, `milestone_inherited_from`, `open_blockers`, `runtime`, `candidate_sha`, `result`, `lease`, `process`, `process_reason`, `outcome`, `notice_url`, `waiting_since`, `stop_labels` and `attention_reason`. Unknown values are `null`. `state` stays `owned` while the agent runs; `process` says `running`. The top level adds `milestone_skips` when `gate` passed over a milestone, and `explanation` when `status NUMBER` has no row for the item.
+`--json` prints `{"assignments": [...]}` with one object per row: `number`, `kind`, `agent`, `state`, `reason`, `attempts`, `priority`, `priority_inherited_from`, `priority_from_issue`, `milestone`, `milestone_inherited_from`, `open_blockers`, `runtime`, `candidate_sha`, `result`, `lease`, `process`, `process_reason`, `outcome`, `notice_url`, `waiting_since`, `stop_labels` and `attention_reason`. Unknown values are `null`. The top level adds `milestone_skips` when `gate` passed over a milestone, and `explanation` when `status NUMBER` has no row for the item.
 
 [Queue](/docs/configuration/queue.html) explains the order and milestones, and [unstick an item](/docs/guides/stuck-items.html) what to do next.
 

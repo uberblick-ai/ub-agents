@@ -17,23 +17,11 @@ runtime: "codex:gpt-6.1-sol:high"
 
 ## Alternatives
 
-Give a list. The first one that is installed and allowed runs.
+Give a list. The first one that is installed and allowed runs. To change the list on one machine, use a [machine-local override](/docs/configuration/index.html#machine-local-overrides).
 
 ```yaml
 runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.1-sol:high"]
 ```
-
-To customize one machine, supply only the agent's runtime in
-`ub-agents.local.yaml` beside the selected base file:
-
-```yaml
-# ub-agents.local.yaml
-agents:
-  implementer:
-    runtime: ["codex:gpt-6.1-sol:high", "claude:claude-opus-5-5:high"]
-```
-
-The local list replaces the shared runtime. Repeat shared alternatives you want to keep, then add supported alternatives available on this machine. Other agent settings inherit. See the [override reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#machine-local-overrides).
 
 ## What runs
 
@@ -44,15 +32,9 @@ claude --print --output-format stream-json --verbose --model MODEL --effort EFFO
 codex exec --json --model MODEL --config model_reasoning_effort="EFFORT" --config model_reasoning_summary="detailed"
 ```
 
-Codex requests detailed reasoning summaries so they appear in the run log.
-
 ## Usage limits
 
-Nothing to configure. When a run reports a usage limit, the launcher stops starting runs on that CLI until the limit resets, plus one minute. Other CLIs keep working, and the item spends no attempt. Restarting the launcher clears the pause.
-
-The terminal footer shows every active pause, even with no eligible work: `claude paused for 1d 4h · codex paused for 35m`. When idle with pause-held work, Running names those pauses with `(usage limit)`. Eligible rows name the paused CLIs and the time until the first resumes, such as `claude, codex paused for 35m`; health-check and other waits still show `waiting`.
-
-Remaining time counts down on view refresh and clears at expiry, using at most two nonzero day/hour/minute units rounded up to at least `1m`. Attached and reopened views use the same published pause end times. Narrow footers keep the CLI names and remaining time with shorter wording.
+Nothing to configure. When a run reports a usage limit, the launcher stops starting runs on that CLI until the limit resets, plus one minute. Other CLIs keep working, and the item spends no attempt. Restarting the launcher clears the pause. The terminal footer shows each pause, such as `claude paused for 1d 4h · codex paused for 35m`.
 
 ```text
 claude usage limit reached; pausing claude runs until 2026-10-04T12:01:00Z
@@ -62,4 +44,4 @@ claude usage limit reached; pausing claude runs until 2026-10-04T12:01:00Z
 
 `runtime-args` must not change the model or effort or resume a session. Claude arguments must not set `-c` (continue a session) or `--output-format`; Codex arguments must not set `--ephemeral`. `ub-agents doctor --offline` rejects them.
 
-Declare [per-CLI arguments](/docs/configuration/permissions.html#arguments-for-alternatives) once with a top-level `runtime-args` mapping. Agents inherit it unless they provide their own list or mapping, which replaces all defaults. Each mapping entry follows its CLI's rules and the same placeholder rules as an agent-level list. Codex's `-c` for settings such as MCP servers is accepted in the `codex` entry even when an agent also lists Claude. A shared agent-level list must satisfy every listed CLI's rules.
+Codex's `-c` for settings such as MCP servers is fine in a `codex` entry of the [per-CLI mapping](/docs/configuration/permissions.html#arguments-for-alternatives). A single list shared by several CLIs must follow every listed CLI's rules.
