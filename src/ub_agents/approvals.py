@@ -92,9 +92,9 @@ def resolve_policy(configured, visibility):
     return ("on" if value == "public" else "off"), f"visibility ({value})"
 
 
-def pr_author_exclusions(logins, policy, visibility):
+def pr_author_exclusions(logins, policy, github):
     """Listed PR authors have no launcher authority while approvals are on."""
-    return logins if logins and resolve_policy(policy, visibility)[0] == "on" else ()
+    return logins if logins and resolve_policy(policy, lambda: github.visibility())[0] == "on" else ()
 
 
 def trusted_input(github, item, *, trusted_bots=(), strict_permissions=False, raise_read_errors=False):

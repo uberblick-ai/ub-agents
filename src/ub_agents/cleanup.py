@@ -51,7 +51,7 @@ class Cleaner:
         self.github = github
         self.coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots,
                                        trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors,
-                                                                              config.approvals, github.visibility))
+                                                                              config.approvals, github))
         self.output = output
         self.control = control
         self.blocked_runs = set()

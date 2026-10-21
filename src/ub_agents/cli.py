@@ -168,7 +168,7 @@ def report_run(args):
     github = GitHub(context["repository"])
     coordinator = Coordinator(github, github.actor(), trusted_bots=context["trusted-bots"],
                               trusted_pr_authors=pr_author_exclusions(context["trusted-pr-authors"],
-                                                                     context["approvals"], github.visibility))
+                                                                     context["approvals"], github))
     # Only inspect the supervised comment's marker and GitHub author. Future
     # payloads are not a contract this build can validate or use for authority.
     comments = github.comments(number)
@@ -354,7 +354,7 @@ def run(args):
     actor = None if args.command == "launch" else github.actor()
     coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots,
                               trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors,
-                                                                     config.approvals, github.visibility))
+                                                                     config.approvals, github))
     if args.command == "retry" and args.agent is None:
         item = github.item(args.number)
         agent = next((agent for agent in config.agents if agent.kind in {item.kind, "either"}), None)

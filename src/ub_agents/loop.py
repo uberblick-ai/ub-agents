@@ -82,7 +82,7 @@ class Loop:
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
                                        on_claim=self.claimed, launchers=config.launchers, trusted_bots=config.trusted_bots,
                                        trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors,
-                                                                              self.approvals, self.github.visibility),
+                                                                              self.approvals, self.github),
                                        on_record=lambda record: self._observe("record", record),
                                        on_author=lambda *args: self._observe("coordination_author", *args),
                                        on_action=lambda *args: self._observe("action_needed", *args),
@@ -663,7 +663,7 @@ class Loop:
     def _resolve_approvals(self):
         self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         self.coordinator.trust.trusted_pr_authors = set(pr_author_exclusions(
-            self.config.trusted_pr_authors, self.approvals, self.github.visibility))
+            self.config.trusted_pr_authors, self.approvals, self.github))
 
     def _planning_coordinator(self, github, observe=None):
         observe = observe or self._observe
@@ -1173,7 +1173,7 @@ class Loop:
             self.coordinator.lease_renew_seconds = config.lease_renew_seconds
             self.coordinator.trust.trusted_bots = {login.casefold() for login in config.trusted_bots}
             self.coordinator.trust.trusted_pr_authors = set(pr_author_exclusions(
-                config.trusted_pr_authors, self.approvals, self.github.visibility))
+                config.trusted_pr_authors, self.approvals, self.github))
             self.coordinator.trust.launchers = (None if config.launchers is None else
                                                {login.casefold() for login in config.launchers})
         self._refreshing_checkout = True
