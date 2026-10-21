@@ -217,6 +217,7 @@ class Config:
     checkout_setup: CheckoutSetup | None = None
     lease_seconds: float = LEASE_SECONDS
     lease_renew_seconds: float = LEASE_RENEW_SECONDS
+    trusted_pr_authors: tuple[str, ...] = ()
 
     @property
     def sub_issue_labels(self):
@@ -300,7 +301,8 @@ def preview_config(content, path, planned):
 
 def _parse_config(data, root, *, planned=()):
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
-                          "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots", "shared-instructions"},
+                          "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots",
+                          "trusted-pr-authors", "shared-instructions"},
                    "configuration")
     runtime_defaults = runtime_arguments(
         mapping(data.get("runtime-args", {}), set(CLIS), "runtime-args"), set(CLIS))
@@ -313,6 +315,7 @@ def _parse_config(data, root, *, planned=()):
     if "approvals" in data and (not isinstance(approvals, str) or approvals not in {"on", "off"}):
         raise AgentError("approvals must be on or off")
     trusted_bots = bot_logins(data.get("trusted-bots", []))
+    trusted_pr_authors = bot_logins(data.get("trusted-pr-authors", []), "trusted-pr-authors")
     launchers = None
     if "launchers" in data:
         launchers = argv(data["launchers"], "launchers")
@@ -501,16 +504,17 @@ def _parse_config(data, root, *, planned=()):
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
                   runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup,
-                  lease_seconds=lease_seconds, lease_renew_seconds=renew_seconds)
+                  lease_seconds=lease_seconds, lease_renew_seconds=renew_seconds,
+                  trusted_pr_authors=trusted_pr_authors)
 
 
-def bot_logins(value):
+def bot_logins(value, where="trusted-bots"):
     if (not isinstance(value, list) or any(not isinstance(login, str) or
             not re.fullmatch(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:\[bot\])?", login, re.IGNORECASE)
             for login in value)):
-        raise AgentError("trusted-bots must be a list of GitHub account logins")
+        raise AgentError(f"{where} must be a list of GitHub account logins")
     if len({login.casefold() for login in value}) != len(value):
-        raise AgentError("trusted-bots logins must be unique (case-insensitive)")
+        raise AgentError(f"{where} logins must be unique (case-insensitive)")
     return tuple(value)
 
 

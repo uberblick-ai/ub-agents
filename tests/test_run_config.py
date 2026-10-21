@@ -69,6 +69,8 @@ class RunConfigTests(unittest.TestCase):
             "agent": (None, True, 1, [], {}, "", "Worker", "../worker"),
             "approvals": (True, 1, [], {}, "invalid"),
             "trusted-bots": (None, True, "copilot", {}, [1], [" "], ["@copilot"], ["copilot", "Copilot"]),
+            "trusted-pr-authors": (None, True, "dependabot", {}, [1], [" "], ["@dependabot"],
+                                   ["dependabot", "DEPENDABOT"]),
             "launchers": (None, True, "operator", {}, [], [1], [" "], ["operator "], ["operator", "OPERATOR"]),
             "sub-issue-labels": (None, True, "ready", {}, [1], [" "], ["unknown"]),
             "triggers": (None, [], {}, {"issue": []}, {"issue": [], "pr": [], "extra": []},

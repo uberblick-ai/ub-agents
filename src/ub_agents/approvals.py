@@ -57,7 +57,7 @@ class Roles:
         login = (actor or {}).get("login")
         if not isinstance(login, str) or not login:
             return None
-        # GitHub bot identities have no input authority beyond listed feedback.
+        # GitHub bot identities never gain repository-role authority.
         # Their empty-role or "not a user" permission answers are not read failures.
         if is_bot(actor):
             return "none"
@@ -90,6 +90,11 @@ def resolve_policy(configured, visibility):
     if not isinstance(value, str) or value not in {"public", "private", "internal"}:
         raise AgentError("Repository visibility is unreadable")
     return ("on" if value == "public" else "off"), f"visibility ({value})"
+
+
+def pr_author_exclusions(logins, policy, visibility):
+    """Listed PR authors have no launcher authority while approvals are on."""
+    return logins if logins and resolve_policy(policy, visibility)[0] == "on" else ()
 
 
 def trusted_input(github, item, *, trusted_bots=(), strict_permissions=False, raise_read_errors=False):
@@ -126,7 +131,7 @@ def trusted_input(github, item, *, trusted_bots=(), strict_permissions=False, ra
 
 
 def filter_input(github, item, policy, trigger_labels, *, actor=None, launchers=None,
-                 sub_issue_labels=(), trusted_bots=(), read_only=False, raise_read_errors=False):
+                 sub_issue_labels=(), trusted_bots=(), trusted_pr_authors=(), read_only=False, raise_read_errors=False):
     """One filtering entry point for assignment contexts and read-only item reads.
 
     Reads skip pickup gates, but never skip input clearance or edit history.
@@ -139,6 +144,7 @@ def filter_input(github, item, policy, trigger_labels, *, actor=None, launchers=
     try:
         return _check_input(github, item.number, set(trigger_labels), item.kind, actor, launchers,
                             sub_issue_labels=sub_issue_labels, trusted_bots=trusted_bots,
+                            trusted_pr_authors=trusted_pr_authors,
                             read_only=read_only, expected=item)
     except (AgentError, KeyError, TypeError, ValueError, AttributeError) as exc:
         if isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and (exc.rate_limited or raise_read_errors)):
@@ -162,11 +168,11 @@ def check_issue(github, number, trigger_labels, *, trusted_bots=()):
         return ApprovalCheck(False, "Issue approval history is unreadable; retry or ask a maintainer")
 
 
-def check_pr(github, number, trigger_labels, actor=None, *, launchers=None, trusted_bots=()):
-    """PR heads require explicit approval or accepted, eligible agent ancestry."""
+def check_pr(github, number, trigger_labels, actor=None, *, launchers=None, trusted_bots=(), trusted_pr_authors=()):
+    """Outside PR heads require approval or accepted, eligible agent ancestry."""
     try:
         return _check_input(github, number, set(trigger_labels), "pr", actor or github.actor(), launchers,
-                            trusted_bots=trusted_bots)
+                            trusted_bots=trusted_bots, trusted_pr_authors=trusted_pr_authors)
     except (AgentError, KeyError, TypeError, ValueError, AttributeError) as exc:
         if isinstance(exc, LostOwnership) or (isinstance(exc, GitHubError) and exc.rate_limited):
             raise
@@ -198,7 +204,7 @@ def validate_content(content):
 
 
 def _check_input(github, number, trigger_labels, kind="issue", actor=None, launchers=None, *,
-                 sub_issue_labels=(), trusted_bots=(), read_only=False, expected=None):
+                 sub_issue_labels=(), trusted_bots=(), trusted_pr_authors=(), read_only=False, expected=None):
     content = github.issue_content(number) if kind == "issue" else github.pr_content(number)
     if not isinstance(content["title"], str) or not isinstance(content["body"], str):
         raise ValueError("invalid content")
@@ -265,15 +271,24 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
                              cleared_groups.get("review_comments", frozenset()), snapshot, gate, key,
                              outside_input)
 
-    trusted_author = roles(content.get("author")) in TRUSTED
+    author = content.get("author")
+    trusted_bot_author = (kind == "pr" and listed_bot(author, trusted_pr_authors)
+                         and not is_fork(content["head_repository"], github.repository))
+    trusted_author = roles(author) in TRUSTED or trusted_bot_author
+
+    def trusted_edit(editor):
+        return (roles(editor) in TRUSTED or
+                (trusted_bot_author and listed_bot(editor, (author["login"],))))
+
     # Only starts clear title/body for reads. Approving PR
     # reviews retain their existing pickup authority, without clearing input.
     clearance = max(starts, default=None)
     outside_edits = {
         "title": [(seconds(e["created_at"]), e) for e in renames
-                  if roles(e.get("actor")) not in TRUSTED],
+                  if not trusted_edit(e.get("actor"))],
         "body": [(seconds(e["editedAt"]), e) for e in edits
-                 if seconds(e["editedAt"]) > created and roles(e.get("editor")) not in TRUSTED]}
+                 if seconds(e["editedAt"]) > created and not trusted_edit(e.get("editor"))]}
+    blocked_fields = {}
     for name, changes in outside_edits.items():
         reason = None
         if clearance is not None:
@@ -284,20 +299,25 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
         elif changes:
             reason = f"Outside {name} edit; a maintainer must re-apply a trigger label"
         if reason:
+            blocked_fields[name] = reason
             snapshot[name] = {"withheld": True, "reason": reason}
-        elif not trusted_author or changes:
+        elif not trusted_author or trusted_bot_author or changes:
             snapshot[name] = clean_outside_text(snapshot[name])
-    outside_input = (any(cleared_groups.values()) or any(
+    outside_input = (trusted_bot_author or any(cleared_groups.values()) or any(
         (not trusted_author or outside_edits[name]) and isinstance(snapshot[name], str)
         for name in ("title", "body")))
+    if trusted_bot_author:
+        # Upstream release notes in bot bodies are never assignment input,
+        # even after a maintainer start clears another account's body edit.
+        snapshot["body"] = {"withheld": True, "reason": "Body by a trusted bot author is not input"}
     if read_only:
         return verdict(True, "Filtered input; pickup authorization is not required")
 
     approving_reviews = []
     if kind == "pr" and trusted_author:
         for name in ("title", "body"):
-            if isinstance(snapshot[name], dict):
-                return verdict(False, snapshot[name]["reason"], "input", outside_edits[name])
+            if name in blocked_fields:
+                return verdict(False, blocked_fields[name], "input", outside_edits[name])
         return verdict(True, "Trusted PR author; outside feedback requires clearance")
     if not starts:
         if pending:
@@ -312,6 +332,7 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
                 approving_reviews.append((seconds(review["created_at"]), review["commit_id"]))
         if not eligible_head(content["head"], number, approving_reviews, starts,
                              comments, roles, actor, launchers=launchers,
+                             trusted_pr_authors=trusted_pr_authors,
                              allow_revisions=not is_fork(content["head_repository"], github.repository)):
             return verdict(False, "PR head is not approved; a maintainer must submit an approving review of the current head",
                            "head", content["head"])
@@ -386,7 +407,7 @@ def inherited_starts(github, number, events, roles, launchers):
 
 
 def eligible_head(head, number, approving_reviews, starts, comments, roles, actor, *,
-                  allow_revisions, launchers=None):
+                  allow_revisions, launchers=None, trusted_pr_authors=()):
     """Follow accepted revisions in the base repository from eligible source claims."""
     eligible = {}
     for at, sha in approving_reviews:
@@ -397,7 +418,8 @@ def eligible_head(head, number, approving_reviews, starts, comments, roles, acto
     # fork authors can move their branch during a run, and agents cannot revise it.
     if not allow_revisions:
         return False
-    trusted = LauncherTrust(roles.github, launchers, role=lambda login: roles({"login": login}))
+    trusted = LauncherTrust(roles.github, launchers, role=lambda login: roles({"login": login}),
+                           trusted_pr_authors=trusted_pr_authors)
     history = records(comments, trusted=lambda author: not roles.listed_bot(author) and trusted(author))
     changed = True
     while changed:

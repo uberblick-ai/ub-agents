@@ -12,6 +12,7 @@ import sys
 import uuid
 
 from . import __version__
+from .approvals import pr_author_exclusions
 from .attention import attention_details, display_notice, waiting_time
 from .config import DEFAULT_CONFIG, LOCAL_CONFIG, load_config, resolve_config_path
 from .coordination import Coordinator
@@ -165,7 +166,9 @@ def report_run(args):
         raise AgentError("summary must contain 1–8000 characters")
     number, lease_id = context["assignment"], context["lease_id"]
     github = GitHub(context["repository"])
-    coordinator = Coordinator(github, github.actor(), trusted_bots=context["trusted-bots"])
+    coordinator = Coordinator(github, github.actor(), trusted_bots=context["trusted-bots"],
+                              trusted_pr_authors=pr_author_exclusions(context["trusted-pr-authors"],
+                                                                     context["approvals"], github.visibility))
     # Only inspect the supervised comment's marker and GitHub author. Future
     # payloads are not a contract this build can validate or use for authority.
     comments = github.comments(number)
@@ -349,7 +352,9 @@ def run(args):
             parser().commands()["launch"].error(f"Unknown configured agent: {args.agent}; configured agents: {names}")
     github = GitHub(config.repository)
     actor = None if args.command == "launch" else github.actor()
-    coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots)
+    coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots,
+                              trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors,
+                                                                     config.approvals, github.visibility))
     if args.command == "retry" and args.agent is None:
         item = github.item(args.number)
         agent = next((agent for agent in config.agents if agent.kind in {item.kind, "either"}), None)

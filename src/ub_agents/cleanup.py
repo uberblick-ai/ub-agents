@@ -8,6 +8,7 @@ import re
 import shutil
 import socket
 
+from .approvals import pr_author_exclusions
 from .coordination import Coordinator
 from .errors import AgentError, CleanupError, RecordError
 from .execution import fetched_head, git, group_members
@@ -48,7 +49,9 @@ class Cleaner:
         self.config = config
         self.root = config.root
         self.github = github
-        self.coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots)
+        self.coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots,
+                                       trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors,
+                                                                              config.approvals, github.visibility))
         self.output = output
         self.control = control
         self.blocked_runs = set()

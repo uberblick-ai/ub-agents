@@ -106,8 +106,9 @@ def main():
                                      {k: context[k] for k in ("repository", "run", "assignment", "agent")})
                     self.assertEqual(str(pinned["lease_id"]), env["UB_AGENTS_LEASE_ID"])
                     self.assertEqual(str(pinned["assignment"]), env["UB_AGENTS_ASSIGNMENT"])
-                    self.assertEqual({k: pinned[k] for k in ("approvals", "trusted-bots", "triggers", "retrospectives")},
-                                     {"approvals": "on", "trusted-bots": [], "retrospectives": None,
+                    self.assertEqual({k: pinned[k] for k in ("approvals", "trusted-bots", "trusted-pr-authors",
+                                                           "triggers", "retrospectives")},
+                                     {"approvals": "on", "trusted-bots": [], "trusted-pr-authors": [], "retrospectives": None,
                                       "triggers": {"issue": ["needs-changes", "ready"], "pr": []}})
                     for removed in ("UB_AGENTS_READ_CONFIG", "UB_AGENTS_RETROSPECTIVE_CONFIG"):
                         self.assertNotIn(removed, env)

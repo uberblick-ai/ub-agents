@@ -72,6 +72,7 @@ All optional:
 | `limits` | [Limits](/docs/configuration/limits.html) |
 | `queue` | [Queue](/docs/configuration/queue.html) |
 | `approvals`, `trusted-bots` | [Approvals](/docs/configuration/approvals.html) |
+| `trusted-pr-authors` | [Trusted PR authors](/docs/configuration/approvals.html#trusted-pr-authors) |
 | `launchers` | [Launcher accounts](/docs/configuration/launchers.html) |
 | `cleanup` | [Cleanup hook](/docs/configuration/cleanup.html) |
 | `checkout-setup` | [Checkout setup](/docs/configuration/checkout-setup.html) |
