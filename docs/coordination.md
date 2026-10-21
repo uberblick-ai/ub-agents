@@ -370,12 +370,15 @@ when their transition consumed every trigger.
 
 | YAML setting | Default | Meaning |
 |---|---:|---|
-| `agent-timeout-minutes` | 180 | Runtime process execution deadline; independent of the fixed 30-minute lease |
+| `agent-timeout-minutes` | 180 | Runtime process execution deadline; independent of the configurable claim lease (30 minutes by default) |
 | `retry-backoff-seconds` | 60 | Initial retry delay after failure release or unreported lease expiry |
 | `max-backoff-seconds` | 3600 | Cap on exponential retry delay |
 | `max-attempts` | 5 | Consecutive failures allowed per item/agent before pickup stops |
 
-Every setting can be overridden on an agent. Each GitHub page/request is bounded to 20 seconds; a multi-page discovery
+The settings in this table can be overridden on an agent. Claim duration and renewal
+interval are configured only under top-level [`limits`](configuration.md#limits),
+using `lease-minutes` (default 30) and `lease-renew-minutes` (default 10).
+Each GitHub page/request is bounded to 20 seconds; a multi-page discovery
 scan may take longer overall. Git operations are bounded to 120 seconds.
 Worktree preparation precedes the runtime execution deadline; ownership is checked
 again before execution. Default clocks leave ample margin for those reads. Very

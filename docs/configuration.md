@@ -355,8 +355,9 @@ log directory and deadline; surviving helpers are terminated and checked using
 the same supervision as agent processes. An already requested launcher stop does
 not skip the cleanup hook.
 
-The fixed 30-minute lease renews every 10 minutes throughout the hook; the hook
-timeout does not extend it. If the last confirmed expiry passes by wall clock during the
+The claim lease renews throughout the hook using `limits.lease-minutes` and
+`limits.lease-renew-minutes` (defaults: 30 and 10 minutes); the hook timeout does
+not extend it. If the last confirmed expiry passes by wall clock during the
 hook, the supervised hook is stopped and the worktree preserved for recovery; that is
 not a normal hook failure. Cleanup after ownership has already been lost runs without
 lease writes.
@@ -623,7 +624,7 @@ Each agent has exactly one of `runtime` or `command`.
 | `different-runtime-from` | Another agent's name; requires a PR. When an accepted report identifies that agent's runtime for the current head, this agent must run on a different CLI and model; a different effort doesn't count. Wait for a pending handoff to finish. Without such a report or pending handoff, use only the first configured runtime, blocking if its CLI isn't installed. |
 | `worktree` | `true` runs in a private checkout: the PR's exact commit for same-repository PRs, the base branch tip for fork PRs, or a fresh branch for an issue. |
 | `runtime-args` | Replaces all top-level runtime argument defaults: a list shared by all alternatives, or a mapping from listed CLI (`codex`, `claude`) to a list. Omit to inherit; `[]` or `{}` disables the defaults. |
-| Limit keys | Override `limits` for this agent. |
+| Limit keys | Override timeout and retry `limits` for this agent; `lease-minutes` and `lease-renew-minutes` are top level only. |
 
 ### Worktree
 
@@ -968,10 +969,18 @@ request may already have written the transition start marker.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agent-timeout-minutes` | 180 | Deadline for agent execution only. Claims last 30 minutes and renew every 10 minutes throughout setup, execution, completion and cleanup, including recovery and rate-limit waits. Lease duration and renewal interval are fixed. Older claims retain their recorded expiry. |
+| `lease-minutes` | 30 | Claim duration in minutes, set only under top-level `limits`. Each renewal extends expiry by this duration without shortening the recorded expiry. |
+| `lease-renew-minutes` | 10 | Renewal interval in minutes, set only under top-level `limits`. This interval plus the 20-second request timeout and one-second margin must be strictly shorter than `lease-minutes`. |
+| `agent-timeout-minutes` | 180 | Deadline for agent execution only, independent of the configurable claim lease. Claims renew throughout setup, execution, completion and cleanup, including recovery and rate-limit waits. |
 | `max-attempts` | 5 | Consecutive failures per item and agent before pickup stops. |
 | `retry-backoff-seconds` | 60 | First failure retry delay; doubles with consecutive failures and restarts after success or reset. |
 | `max-backoff-seconds` | 3600 | Longest retry delay. |
+
+Both lease keys accept positive, finite numbers. Claims record their own expiry,
+so launchers with different settings can share a repository. Discovery's comment
+lookback uses the larger of the default 30-minute lease and the configured lease,
+plus the recovery window. Shortening the lease speeds takeover after a launcher
+dies; a live but silent run keeps renewing until its execution timeout.
 
 ## Built-in runtimes
 

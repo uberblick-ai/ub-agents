@@ -7,7 +7,7 @@ import threading
 import uuid
 
 from .approvals import ApprovalCheck
-from .config import Agent, Queue, Runtime, LEASE_SECONDS
+from .config import Agent, Queue, Runtime, LEASE_SECONDS, LEASE_RENEW_SECONDS, LEASE_RENEW_MARGIN_SECONDS
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
 from .finalization import FinalizationReads
@@ -48,13 +48,16 @@ class Plan:
 class Coordinator:
     def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
                  runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None,
-                 on_author=None, on_action=None, trusted_bots=(), on_decline=None):
+                 on_author=None, on_action=None, trusted_bots=(), on_decline=None,
+                 lease_seconds=LEASE_SECONDS, lease_renew_seconds=LEASE_RENEW_SECONDS):
         self.github = github
         self.actor = actor
         self.trust = LauncherTrust(github, launchers, role, on_author, trusted_bots=trusted_bots)
         self.output = output
         self.clock = clock
         self.queue = queue
+        self.lease_seconds = lease_seconds
+        self.lease_renew_seconds = lease_renew_seconds
         self.on_claim = on_claim
         self.cleanup_control = None
         self.on_decline = on_decline
@@ -542,7 +545,7 @@ class Coordinator:
             self.deadline(lease)
             # A PATCH is bounded to 20s. Reserve an extra second for scheduling
             # and timestamp precision, then check again after the ownership read.
-            if self.clock() + REQUEST_TIMEOUT_SECONDS + 1 >= seconds(lease["expires"]):
+            if self.clock() + REQUEST_TIMEOUT_SECONDS + LEASE_RENEW_MARGIN_SECONDS >= seconds(lease["expires"]):
                 return False
             revision = self._lease_revision
             assignment = lease["assignment"]
@@ -557,9 +560,9 @@ class Coordinator:
                     return False
                 current = self._owned(lease, history)
                 now = self.clock()
-                if now + REQUEST_TIMEOUT_SECONDS + 1 >= seconds(lease["expires"]):
+                if now + REQUEST_TIMEOUT_SECONDS + LEASE_RENEW_MARGIN_SECONDS >= seconds(lease["expires"]):
                     return False
-                updated = payload(current) | {"expires": iso(max(seconds(current["expires"]), now + LEASE_SECONDS))}
+                updated = payload(current) | {"expires": iso(max(seconds(current["expires"]), now + self.lease_seconds))}
                 result = records([github.update_comment(lease["id"], body(updated))])[0]
                 # Only expiry belongs to renewal. Workspace preparation may have
                 # a branch staged locally while a Git command is in progress.

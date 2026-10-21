@@ -252,11 +252,49 @@ cleanup:
   timeout-seconds: 120
 ''')
         agent = result.agents[0]
-        # Execution and cleanup timeouts do not change the fixed lease.
+        # Execution and cleanup timeouts do not change the default lease.
         self.assertEqual((agent.lease_seconds, agent.timeout_seconds), (1800, 14400))
         self.assertEqual(agent.max_attempts, 7)
         # Relative executables resolve against the configuration's directory.
         self.assertEqual(agent.command, (str(self.root.resolve() / "scripts/task.py"), "--fast"))
+
+    def test_lease_defaults_and_top_level_overrides(self):
+        base = ('repository: org/project\nagents:\n  task:\n    command: [echo]\n'
+                '    trigger: ready\n    outcomes: {done: {}}\n')
+        for limits, expected in (
+                ('', (1800, 600)),
+                ('limits: {lease-minutes: 5, lease-renew-minutes: 2}\n', (300, 120)),
+                ('limits: {lease-minutes: 5.5, lease-renew-minutes: 2.25}\n', (330, 135)),
+                ('limits: {lease-minutes: 60}\n', (3600, 600)),
+                ('limits: {lease-renew-minutes: 2}\n', (1800, 120))):
+            with self.subTest(limits=limits):
+                configured = self.load(base + limits)
+                self.assertEqual((configured.lease_seconds, configured.lease_renew_seconds), expected)
+                self.assertEqual(configured.agents[0].lease_seconds, expected[0])
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 0)
+
+    def test_invalid_lease_limits_fail_loading_and_offline_doctor(self):
+        base = ('repository: org/project\nagents:\n  task:\n    command: [echo]\n'
+                '    trigger: ready\n    outcomes: {done: {}}\n')
+        cases = []
+        for key in ('lease-minutes', 'lease-renew-minutes'):
+            for value in ('0', '-1', 'true', 'null', '"5"', 'text', '[]', '{}', '.nan', '.inf'):
+                cases.append((base + f'limits: {{{key}: {value}}}\n', key))
+            cases.append((base + f'    {key}: 5\n', key))
+        for limits in ('lease-minutes: 5', 'lease-renew-minutes: 30',
+                       'lease-minutes: 1, lease-renew-minutes: 0.65',
+                       'lease-minutes: 1, lease-renew-minutes: 0.66'):
+            cases.append((base + f'limits: {{{limits}}}\n', 'lease-renew-minutes.*lease-minutes'))
+        for content, reason in cases:
+            with self.subTest(content=content):
+                with self.assertRaisesRegex(AgentError, reason):
+                    self.load(content)
+                with redirect_stdout(io.StringIO()) as errors, redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 1)
+                self.assertRegex(errors.getvalue(), reason)
+        # The renewal must finish strictly before expiry, including its one-second margin.
+        self.load(base + 'limits: {lease-minutes: 1, lease-renew-minutes: 0.64}\n')
 
     def test_runtime_updates_validation_and_check(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
