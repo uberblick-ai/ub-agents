@@ -19,6 +19,7 @@ SECTIONS = [  # (title, content entry, kind)
     ('Motivation', 'motivation.md', 'page'),
     ('Installation', 'installation.md', 'page'),
     ('How the loop works', 'how-the-loop-works.md', 'page'),
+    ('FAQ', 'faq.md', 'page'),
     ('Configuration', 'configuration', 'dir'),
     ('Commands', 'commands', 'dir'),
     ('Guides', 'guides', 'dir'),
