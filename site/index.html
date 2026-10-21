@@ -13,19 +13,19 @@
 
   <section>
     <h2>What is ub-agents?</h2>
-    <p>Your agents prepare issues, implement them, review the pull requests and send work back when it needs fixing. When a decision needs a person, they raise a hand and wait. You define the roles and rules; ub-agents handles the handoffs.</p>
+    <p>Your agents prepare issues, implement them, review the pull requests and merge what passes. When a decision needs a person, they raise a hand and wait. You define the roles and rules; ub-agents handles the handoffs.</p>
     <p>It is for engineers and teams of up to a few dozen people with a hacker, hands-on mentality: full control, without a convoluted setup or cloud infrastructure to run.</p>
-    <p>Under the hood, ub-agents is a glorified script that polls labels and calls an agent. You could write the first version in an afternoon. The rest is handling duplicate claims, interrupted runs, endless review loops, comments from strangers and GitHub failures. That is the part this project is for. Feel free to browse <a href="https://github.com/uberblick-ai/ub-agents/issues?q=is%3Aissue%20is%3Aclosed">our closed issues</a> to see what it took.</p>
+    <p>Under the hood, it is a glorified script that polls labels and calls an agent. You could write one in an afternoon. This project is for everything after that afternoon: duplicate claims, interrupted runs, endless review loops, comments from strangers and GitHub failures. Browse <a href="https://github.com/uberblick-ai/ub-agents/issues?q=is%3Aissue%20is%3Aclosed">our closed issues</a> to see what it took.</p>
   </section>
 
   <section>
     <h2>The handoffs</h2>
-    <p>Labels are the queue. You start a launcher, and it runs the agent whose label matches each issue or pull request. When the agent finishes, its outcome moves the labels on to the next role. <code>ub-agents init</code> sets up this starter workflow:</p>
+    <p>Labels are the queue. A launcher runs the agent whose label matches each issue or pull request, and the agent's outcome moves the labels on to the next role. <code>ub-agents init</code> sets up this starter workflow:</p>
 <pre><code><span class="k">needs-preparation</span>  issue-preparer  <span class="c">→</span> ready, or needs-human to ask
 <span class="k">ready</span>              implementer     <span class="c">→</span> a pull request with needs-review
 <span class="k">needs-review</span>       reviewer        <span class="c">→</span> ready-to-merge, or needs-changes <span class="c">→</span> implementer
 <span class="k">ready-to-merge</span>     integrator      <span class="c">→</span> merged, or needs-human for a maintainer</code></pre>
-    <p>Each role is a few lines of YAML. It names a CLI such as <code>claude</code> or <code>codex</code>, a model, and instructions that live in your repository:</p>
+    <p>Each role is a few lines of YAML, with instructions that live in your repository:</p>
 <pre><code><span class="k">implementer</span>:
   <span class="k">runtime</span>: "codex:gpt-6.1-sol:high"
   <span class="k">trigger</span>: [ready, needs-changes]
@@ -33,19 +33,19 @@
     <span class="k">handed-off</span>: {add: [needs-review]}
   <span class="k">instructions</span>: .agents/implementer.md
   <span class="k">worktree</span>: true</code></pre>
-    <p>Rename a label, drop a role or add one; the launcher follows the file. After a run, agents report missing context, unclear rules and avoidable rework. Use their <a href="/docs/best-practices/retrospectives.html">retros</a> to fix the instructions once instead of repeating the same correction in every chat. That is <a href="/docs/how-the-loop-works.html">loop engineering</a>. Every key has a short page in the <a href="/docs/configuration/index.html">configuration docs</a>.</p>
+    <p>Rename a label, drop a role or add one; the launcher follows the file. Agents' <a href="/docs/best-practices/retrospectives.html">retros</a> show where the instructions fall short, so you fix them once instead of in every chat. That is <a href="/docs/how-the-loop-works.html">loop engineering</a>.</p>
   </section>
 
   <section>
     <h2>A real run</h2>
-    <p>On 19 October, a user reported that <code>ub-agents launch</code> rejected their <code>origin</code> because it used an SSH host alias, which people with two GitHub accounts use to pick a key (<a href="https://github.com/uberblick-ai/ub-agents/issues/597">#597</a>). Once the issue was labelled <code>needs-preparation</code>, the loop took it from there (times in UTC):</p>
+    <p>On 19 October, a user reported that <code>ub-agents launch</code> rejected an <code>origin</code> that used an SSH host alias (<a href="https://github.com/uberblick-ai/ub-agents/issues/597">#597</a>). Once the issue was labelled <code>needs-preparation</code>, the loop took it from there (UTC):</p>
 <pre><code><span class="c">14:19</span>  issue-preparer  claude  found the issue small and clear, marked it ready
 <span class="c">14:21</span>  implementer     codex   changed 7 files, ran 2,109 tests, opened #598
 <span class="c">14:33</span>  reviewer        claude  reviewed against the acceptance criteria, approved
 <span class="c">14:38</span>  integrator      claude  confirmed CI and the merge policy
 <span class="c">14:41</span>  #598 merged, #597 closed 🎉
 </code></pre>
-    <p>Twenty-two minutes from the first agent to the merge, with no person in between. Each step is a comment on <a href="https://github.com/uberblick-ai/ub-agents/issues/597">the issue</a> and <a href="https://github.com/uberblick-ai/ub-agents/pull/598">the pull request</a>: who ran, on which model, and what it reported. A restarted launcher rebuilds its state from those comments. That is why there is no database and nothing to host.</p>
+    <p>Twenty-two minutes from the first agent to the merge, with no person in between. Each step is a comment on <a href="https://github.com/uberblick-ai/ub-agents/issues/597">the issue</a> and <a href="https://github.com/uberblick-ai/ub-agents/pull/598">the pull request</a>, and a restarted launcher rebuilds its state from them. That is why there is nothing to host.</p>
   </section>
 </div>
 
@@ -61,17 +61,16 @@
 <div class="wrap">
   <section>
     <h2>Before you run it</h2>
-    <p>You provide the machine, the accounts and the rules:</p>
+    <p>You need:</p>
     <ul>
-      <li>A Mac or Linux machine with your agent CLIs signed in. A laptop runs the loop while it is awake; an always-on server keeps it going overnight.</li>
-      <li>A GitHub account for the launcher with write access to the repository. We recommend <a href="/docs/best-practices/launcher-account.html">a dedicated account</a>, not an admin.</li>
+      <li>A Mac or Linux machine with your agent CLIs signed in: a laptop, or an always-on server for overnight runs.</li>
+      <li>A GitHub account for the launcher with write access. We recommend <a href="/docs/best-practices/launcher-account.html">a dedicated account</a>, not an admin.</li>
       <li>The checks that gate a merge, such as your CI.</li>
     </ul>
-    <p>Agents run on your machine with the access you configure. Review their <a href="/docs/configuration/permissions.html">permissions</a> before launching. Work happens on branches, and your merge policy determines which changes need a maintainer. Outside issues and pull requests wait for authorization under the <a href="/docs/configuration/approvals.html">approval rules</a>. When an agent needs a decision, it marks the item <code>needs-human</code> and asks.</p>
 <pre><code><span class="c"># run in your local checkout</span>
 <span class="p">$ </span>ub-agents init
 <span class="p">$ </span>ub-agents launch</code></pre>
-    <p><code>init</code> shows every change before applying it. Review the starter instructions and merge policy, merge them, and launch from a clean default-branch checkout. More capacity is one more <code>ub-agents launch</code>, on a teammate's laptop or a server; every launcher shares the same queue. See <a href="/docs/installation.html">installation</a> and <a href="/docs/guides/add-a-launcher.html">add more launchers</a>.</p>
+    <p><code>init</code> opens a setup pull request with the starter roles, instructions and merge policy. Review the <a href="/docs/configuration/permissions.html">permissions</a>, merge it and launch. Your merge policy decides what the loop merges and what waits for a maintainer; the <a href="/docs/faq.html">FAQ</a> covers trust, cost and the rest. To add capacity, start <a href="/docs/guides/add-a-launcher.html">another launcher</a> on any machine. They all share one queue.</p>
   </section>
 </div>
 {{footer}}

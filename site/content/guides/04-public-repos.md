@@ -1,6 +1,6 @@
 # Run the loop on a public repository
 
-Anyone can open issues, comment and send pull requests on a public repository. Agents read that text and act on it with your launcher account's access. A malicious issue can try to steer them: an instruction hidden in the markup, a reasonable-sounding request to add someone's package, or "run this script to reproduce". This guide keeps that risk small.
+On a public repository, anyone can open issues, comment and send pull requests, and agents act on that text with your launcher account's access. A malicious issue can try to steer them: an instruction hidden in the markup, a request to add someone's package, or "run this script to reproduce".
 
 ## What protects you
 
@@ -14,18 +14,11 @@ Anyone can open issues, comment and send pull requests on a public repository. A
 
 ## What a start means
 
-Starting outside work tells the loop to carry it through to a pull request. Agents follow its text with the launcher account's access: they push branches, run your checks and can use anything in the launcher's environment.
-
-Read an outside issue as if you were about to do the work yourself:
+Starting outside work tells agents to follow its text through to a pull request, with everything the launcher can reach. Read it as if you were about to do the work yourself:
 
 - Does it ask for a new dependency, a network call, or a change to CI, permissions or agent instructions?
 - Does it ask anyone to run a command or a script?
 
 ## Limit what a start can reach
 
-Agents can do only what the launcher account and machine allow. Set those up as in [Give launchers their own account](/docs/best-practices/launcher-account.html).
-
-With approvals on, new public-repository policies from `init` leave PRs labelled `outside-input` to
-maintainers for merging. Existing projects can create the optional label with
-`ub-agents doctor` and add the same rule to `.agents/ub_agents.md`. The launcher
-does not gate work or merges on it; your merge policy decides what it means.
+Agents can do only what the launcher account and machine allow; set them up as in [Give launchers their own account](/docs/best-practices/launcher-account.html). On public repositories, init's merge policy leaves PRs labelled `outside-input` to maintainers. In an existing project, create the label with `ub-agents doctor` and add [the same rule](/docs/configuration/approvals.html#outside-input-label) to `.agents/ub_agents.md`.

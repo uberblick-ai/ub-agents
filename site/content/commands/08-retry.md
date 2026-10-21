@@ -7,11 +7,11 @@ ub-agents retry 143 --reason "Blocker resolved"
 ub-agents retry 150 --agent reviewer --reason "Findings resolved"
 ```
 
-Without `--agent`, retry picks the first agent that handles that kind of item. Counts live on GitHub, so restarting or switching launchers doesn't reset them. Retry refuses while a launcher is working on the item. On a closed item it records the reset and leaves the labels alone. If a label change fails, it names the labels to change by hand.
+Without `--agent`, retry picks the first agent that handles that kind of item. It refuses while a launcher is working on the item, and leaves a closed item's labels alone.
 
 ## Review rounds
 
-Retry also resets the agent's [round limit](/docs/configuration/outcomes.html#limit-rounds). To give the starter reviewer three new rounds, run `retry` with `--agent reviewer`. To allow just one more review without resetting the count, replace `needs-human` with `needs-review` yourself.
+Retry also resets the agent's [round limit](/docs/configuration/outcomes.html#limit-rounds): `--agent reviewer` gives the starter reviewer three new rounds. For just one more review, swap `needs-human` for `needs-review` yourself.
 
 ```text
 {{help retry}}

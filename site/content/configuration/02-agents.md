@@ -49,12 +49,7 @@ instructions: .agents/reviewer.md
 
 ## Worktree
 
-Run in a private checkout: the exact commit for a same-repository pull request,
-the base branch tip from `origin` for a fork pull request, or a fresh branch for
-an issue. Without it, the agent runs in the launcher's own checkout.
-Fork heads are reviewed only as diffs using a run-owned ref; setup is skipped and
-repository CI on the exact head SHA supplies check evidence. See
-[outside pull requests](/docs/configuration/approvals.html#outside-pull-requests).
+Run in a private checkout: the exact commit for a pull request, or a fresh branch for an issue. Without it, the agent runs in the launcher's own checkout. Fork pull requests are reviewed as a diff; see [outside pull requests](/docs/configuration/approvals.html#outside-pull-requests).
 
 ```yaml
 worktree: true
@@ -62,21 +57,17 @@ worktree: true
 
 ## Health check
 
-Wait for a project dependency before claiming new work for this agent. Give a nonempty argv list; ub-agents runs it without a shell in the control checkout. Relative executables resolve like an agent `command`. The project decides what the command checks.
+Wait for a project dependency before claiming new work for this agent. Give an argv list; ub-agents runs it without a shell in the control checkout.
 
 ```yaml
 health-check: [./scripts/check-corpus]
 ```
 
-The check runs only for otherwise-ready work, before the claim or any new assignment write. Its timeout is fixed at 60 seconds. A pass is reused for up to five minutes within the launcher; failures are checked again on the next poll with ready work for that agent.
-
-A nonzero exit, start failure or timeout makes ready items `waiting`, with the command and the last nonempty stderr line, falling back to stdout or the start or timeout error. One notice appears when the check starts failing or its error line changes, and one when it passes again; launch output also goes to `.ub-agents/launch.log`. Waiting items remain in Eligible, outside Needs attention, with no claims, attempts, label changes or item comments for new work. Other agents keep claiming, and `launch --once` exits normally.
-
-`ub-agents status` runs the check itself, so it works without a launcher on the same machine. Claiming resumes automatically when the check passes, without `retry`. Checks do not interrupt active runs, stop recovery of recorded outcomes or reset previously parked items. `doctor --offline` validates the argv list without running it, and `doctor` does not run it. Project checks are separate from [daily runtime maintenance](/docs/configuration/runtime-updates.html).
+The check runs before claiming ready work, with a 60-second timeout, and a pass is reused for five minutes. While it fails, ready items show as `waiting` with the command's last error line, and nothing is claimed, charged or commented for that agent. Other agents keep working. Claiming resumes by itself once the check passes, and active runs are never interrupted. `ub-agents status` runs the check too.
 
 ## On conflict
 
-Send a pull request GitHub reports as conflicting straight to the agent that repairs it. Name one of this `pr` agent's outcomes that adds no stop label. After the claim, the launcher records that outcome with a summary naming the conflict instead of starting the agent, so the integrator does not spend a run only to send the conflict back. An unknown merge state starts the agent as usual.
+Send a pull request with a merge conflict straight to the agent that repairs it, instead of spending a run only to send it back. Name one of this `pr` agent's outcomes that adds no stop label; the launcher records it without starting the agent.
 
 ```yaml
 integrator:
