@@ -48,7 +48,7 @@ What may merge, and who decides, is your policy in `.agents/ub_agents.md`. See [
 
 {{flow approvals}}
 
-The approval flow is especially useful for open source repositories, where anyone can open an issue or a pull request. So that the loop only handles authorized work, a member of your GitHub organization with the maintain or admin role must approve it. They approve by adding the trigger label, and for a pull request also with an approving review of the current head commit.
+The approval flow is especially useful for open source repositories, where anyone can open an issue or a pull request. So that the loop only handles authorized work, someone with the maintain or admin role on the repository must approve it. They approve by adding the trigger label, and for a pull request also with an approving review of the current head commit.
 
 Without approvals, all labeled work is authorized, no matter who created it. That is usually enough for private repositories. Approvals are on by default for public repositories and off for private ones. See [Approvals](/docs/configuration/approvals.html).
 

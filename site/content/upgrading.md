@@ -2,7 +2,7 @@
 
 A running launcher keeps the version it started with. Instruction files and configuration update automatically while it runs, but a new version needs an explicit upgrade: stop the launcher, upgrade, start it again.
 
-Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases) first. If a release has an **Upgrading** note, stop every launcher before upgrading any of them.
+Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases) first. If a release says launchers must be upgraded together, stop every launcher before upgrading any of them.
 
 ```sh
 brew update && brew upgrade ub-agents

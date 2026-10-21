@@ -23,7 +23,7 @@ The agent reports that outcome with at least one ask. The launcher adds the labe
 
 ```sh
 ub-agents report --outcome needs-human --summary "Storage policy unclear" \
-  --action "Owner: choose local or cloud storage; recommend local."
+  --option "Owner: keep storage local." --option "Owner: move storage to the cloud."
 ```
 
 ## Say when a person decides

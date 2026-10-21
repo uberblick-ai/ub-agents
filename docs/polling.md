@@ -1,48 +1,44 @@
 # Polling contract
 
-Agent reference for changing discovery without weakening authority checks or
-exhausting a shared GitHub account. Configuration exposes only
+Reference for changing discovery without weakening authority checks or exhausting a
+shared GitHub account. The only setting is
 [`poll-seconds`](configuration.md#top-level), default 30 seconds.
 
 ## Flow and authority
 
-- Claiming discovery walks queue rank and stops at a successful claim. After running
-  or recovering work, it starts again immediately, subject to active rate-limit
-  waits, failed-poll retry backoff, runtime pauses and stopping. Reporting, transitions and cleanup do not wait
-  for a poll interval. The next interval starts at that new claiming pass, not the
-  latest observation.
-- Continuous launch observes the whole queue during assignments. Observation never
-  claims, recovers or approval-parks work, and never chooses the next claim. Only a
-  completed observation replaces displayed rows; failure retains old rows without
-  interrupting execution or completion. The first observation interval counts from
-  the claiming pass’s start.
-- `launch --once` and `launch N` have no observation worker or post-pass wait.
-  `status` evaluates its requested scope read-only. Claiming alone announces or
-  approval-parks the candidates it reaches.
+- Claiming discovery walks the queue in rank order and stops at the first successful
+  claim. After running or recovering work, it starts again at once, subject to
+  rate-limit waits, failed-poll backoff, runtime pauses and stopping. The next
+  interval counts from that new pass.
+- During an assignment, continuous launch observes the whole queue. Observation
+  never claims, recovers or approval-parks. Only a completed observation replaces the
+  displayed rows; a failed one keeps the old rows without interrupting the run.
+- `launch --once` and `launch N` have no observation and no wait after the pass.
+  `status` is read-only.
 - Cached discovery input never authorizes writes. Claim and approval-parking checks
-  reread authority; account permissions are fresh each pass and again at claim time.
+  reread authority, and account permissions are read fresh each pass and at claim
+  time.
 
 ## Keep discovery cheap
 
 Reuse unchanged item history, approval inputs, PR details and dependency links.
-Invalidate on issue-list changes (including `updated_at`), comment IDs/timestamps,
-new claim comments or fresh approval denial. Restart discards these memory caches.
-Observation starts from independent copies of discovery inputs, ETags, repository
-comment cursor, per-item store and reconciliation state; later changes stay local.
+Invalidate them on issue-list changes, including `updated_at`, on comment IDs or
+timestamps, new claim comments or a fresh approval denial. These caches live in
+memory, and a restart discards them. Observation works on its own copies, so its
+changes stay local.
 
-Serve conversation comments from the per-item store only when the item is covered
-by the first successful scan's window or reconciled by a per-item read, and its row
-count matches the open list's valid comment count. Otherwise reread and replace
-its rows. Missing/invalid counts and items absent from the open list require this
-fallback; PR reviews and inline comments remain per-item reads. Retain stored rows
-while the item is open or referenced by the repository scan, beyond recovery
-lookback. Deleted comments cause count mismatch and repair.
+Discovery scans repository comments with a moving `since` cursor. It serves an
+item's conversation comments from memory only when they are known complete and their
+count matches the open issue list; otherwise it rereads them. PR reviews and inline
+review comments are always per-item reads.
 
-Share account permission reads within a pass. Use conditional REST reads: confirmed
-HTTP 304 responses consume no quota. The moving `since` comment scan is not ETag
-cached. With priorities configured, cold discovery and status use paginated dependency
-graph reads instead of one REST request per issue. Pagination, changed/older items
-and long histories still add reads; do not assume a fixed per-pass cost.
+Share account permission reads within a pass. REST GETs revalidate with the stored
+ETag. A 304 response uses no quota and counts as a fresh read, including the
+ownership read before a durable write. Writes, GraphQL and the moving `since` scan
+are never conditional. With priorities configured, cold discovery and `status` read
+dependency links through paginated GraphQL instead of one REST request per issue.
+Pagination, changed or older items and long histories still add reads, so do not
+assume a fixed cost per pass.
 
 ## Shared-account budget
 
@@ -58,17 +54,15 @@ Each launcher has one discovery balance shared by claiming and observation:
 | Debit | Quota-counted REST responses, including pagination, failed passes, retries and approval parking |
 | Exclude | HTTP 304, GraphQL, transport failures without a response, and successful claim checks through release |
 
-The refill reserves half a common 5,000-request/hour account quota for discovery
-across ten launchers. It is an average target, not a rolling-hour ceiling: bursts,
-exempt passes and sustained passes above 250 requests at the one-hour cap can exceed
-it. Sum all launchers across repositories and separately budget agent calls,
-execution writes/renewals and GraphQL points. See [account capacity](../site/content/best-practices/08-account-capacity.md)
-for measured sizing rather than assuming ten busy launchers are always affordable.
+The refill reserves half of a common 5,000-request hourly quota for discovery across
+ten launchers. It is an average, not a rolling-hour ceiling. Size a shared account
+with [account capacity](https://agents.uberblick.ai/docs/best-practices/account-capacity.html).
 
 ## Quota and failure handling
 
-Use headers from real requests via `gh api --include`; never probe `GET /rate_limit`.
-Track remaining/limit/reset independently for `core` and `graphql`.
+Use headers from real requests via `gh api --include`; never probe
+`GET /rate_limit`. Track remaining, limit and reset separately for `core` and
+`graphql`.
 
 | Condition | Required behavior |
 | --- | --- |
@@ -77,38 +71,29 @@ Track remaining/limit/reset independently for `core` and `graphql`.
 | Retryable continuous-launch failure | A failed gh call without an HTTP status (regardless of its text), request timeouts, truncated/empty JSON reported by gh, and HTTP 5xx: back off from **5 seconds** to **60 seconds**, doubling, without a retry limit. A completed poll resets the delay. |
 | Other errors | gh authentication required (exit 4), a gh binary that cannot run, non-rate-limited HTTP 4xx, configuration errors and other malformed responses stop immediately. `launch --once` and `status` fail on their first error. |
 
-Rate-limit waits spend no poll failures or item attempts and make no waiting-path
-writes. They count toward the discovery gap. Observation failures never stop the
-launcher. Failed discovery reads make no GitHub writes; skipped polls report the
-error and next delay, never an empty queue. These unlimited retries are independent
-of bounded agent execution retries.
+Only reads wait and retry. A rate-limited write is not replayed automatically.
+Rate-limit waits charge no poll failures or item attempts and make no writes. They
+count toward the discovery gap. Observation failures never stop the launcher. A
+failed discovery pass makes no GitHub writes and reports the error and the next
+delay, never an empty queue.
 
-A retryable claim POST failure uses the same unlimited poll backoff. Before replanning,
-reconcile whether the claim was created; withdraw it if present without charging
-an attempt or item backoff. A restart leaves normal lease expiry to recover it.
-Other retryable failures after a claim write, during election, execution or
-finalization, end that pass and continue polling. A failed ownership check caused
-by a retryable GitHub failure also follows this policy, including local lease
-expiry after failed renewals. Stop the owned process and renewal, make no further
-writes for that lease, and leave it to expiry and
-durable-outcome recovery. No second run starts while its lease is live.
-Completed-run finalization preserves the durable outcome; expiry recovery
-finishes completion without rerunning the agent. Rate-limited owned reads retry
-while renewal continues; expiry triggers lost ownership, not further writes.
-Other rate-limited writes are not automatically replayed. See
-[recovery](coordination.md#recovery) and [signal handling](operations.md#stopping-and-restarting).
+A retryable failure of the claim POST uses the same poll backoff. Before replanning,
+the launcher checks whether the claim was created and withdraws it, charging no
+attempt or item backoff. Failures after a claim follow
+[recovery](coordination.md#recovery); see also
+[signal handling](operations.md#stopping-and-restarting).
 
 ## Accounting and diagnostics
 
-Pass records distinguish claiming, empty and observation; report wall time, attempted
-`gh` calls, quota REST responses, HTTP 304, GraphQL invocations (not points), and
-distinct candidates reached. Count pages, failures and unconditional refetches.
-Successful claim checks through release belong to the run; unsuccessful claims
-remain discovery. Observation measures its own client.
+Pass records distinguish claiming, empty and observation passes. They report wall
+time, attempted `gh` calls, quota-counted REST responses, HTTP 304 responses,
+GraphQL invocations (not points) and distinct candidates reached, counting pages,
+failures and refetches. Successful claim checks through release belong to the run;
+unsuccessful claims remain discovery. Consecutive records with the same kind, counts
+and candidates print once.
 
-The run's `released` event records `github_requests` with `gh_calls`, `quota_requests`,
-`not_modified_responses` and `graphql_calls`: launcher claim checks, renewals and
-finalization, excluding observation, agent calls and post-release display refresh.
-Consecutive pass records with the same kind, counts and candidate count print once,
-even if duration differs. Operator messages and logs belong in
-[Running launchers](operations.md#launch-output).
+The run's `released` event records `github_requests` with `gh_calls`,
+`quota_requests`, `not_modified_responses` and `graphql_calls`. These cover the
+launcher's claim checks, renewals and finalization, not observation, agent calls or
+display refresh after release. See [Running launchers](operations.md#launch-output)
+for operator messages and logs.

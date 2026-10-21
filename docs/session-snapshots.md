@@ -1,103 +1,84 @@
 # Session snapshot contract
 
 Local observation format for the [terminal view](terminal-view.md) and other
-readers. These files never authorize claims, coordination or recovery.
+readers. Snapshots never authorize claims, coordination or recovery.
 
-Every `launch` session, including `--once` and `launch N [--agent NAME]`, also
-publishes a local JSON snapshot at `.ub-agents/sessions/<session-id>.json` in the
-control checkout. Publication is always on and has no configuration key.
-The session exists and the terminal view opens before setup checks, publishing
-`checking setup` or `waiting` during setup retries. The startup sweep and queue
-begin only after setup passes.
-Writing the snapshot makes no GitHub requests; continuous launch also runs
-read-only observation passes during assignments to refresh the planned queue.
-`status` and embedded loops without an observer keep their existing
-behavior. Snapshots contain issue titles and run summaries already read by the
-launcher, so treat them as private project data. The `.ub-agents/` and `sessions/`
-directories have mode `0700`; snapshot and temporary files have mode `0600`.
+Every `launch` session, including `--once` and `launch N`, publishes a JSON
+snapshot at `.ub-agents/sessions/<session-id>.json` in the control checkout.
+Publication is always on, has no setting and makes no GitHub requests. Snapshots
+hold issue titles and run summaries, so treat them as private project data. The
+`.ub-agents/` and `sessions/` directories have mode `0700`; snapshot and temporary
+files have mode `0600`.
 
 ## Publication and liveness
 
-Each launcher has a separate random session ID. Files are replaced atomically and
-hold the latest coalesced observations, with **format `version: 1`**, rather than
-an event journal. A consumer can enumerate `sessions/*.json` without GitHub access.
-The worker updates `published_at` every five seconds during idle waits and running
-assignments. A session is stale if its launcher PID is gone on the recorded host,
-or publication has stopped for more than 30 seconds. An idle session instead has
-a fresh heartbeat and `activity.state: waiting`, with the wait's `until` time.
-A clean exit publishes `ended: true` and `stopping`. If writing fails or hangs,
-the last snapshot may remain stale; execution and shutdown do not wait for the
-writer. The isolated helper exits within one second of launcher exit if a write
-hangs. Successful publications prune old ended or stale files, retaining at most
-20 other inactive sessions, including abandoned temporary files. Live sessions
-are retained. Consumers should check liveness as well as timestamps because PID
-reuse is possible.
+Each launcher has its own random session ID. The file is replaced atomically and
+holds the latest coalesced state with **`version: 1`**, not an event journal.
+Readers can list `sessions/*.json` without GitHub access.
 
-Every launch's background startup sweep also prunes ended or stale snapshots whose file
-modification time is more than a fixed 7 days old, together with their
-`<session-id>.cleanup.log` files. Leftover `.tmp` and `.cleanup.log` files older
-than 7 days are pruned when no live snapshot protects them. Live sessions and
-the current launcher's snapshot, temporary file and cleanup log are never
-pruned. Unreadable snapshots preserve their companion files, and pruning never
-follows symlinks. The 20-inactive-session cap remains in effect, so busy launchers
-can remove inactive snapshots sooner. There is no retention configuration key.
-Pruning reports one summary line with run-directory and session-file counts and
-total space freed only in `.ub-agents/sessions/<session-id>.cleanup.log`;
-companion logs and temporary files count individually. No pruning summary is
-printed when nothing was removed; removal failures are logged and launch continues.
+The launcher updates `published_at` every five seconds, during idle waits and
+running assignments alike. A session is stale when its launcher PID is gone on the
+recorded host or publication has stopped for more than 30 seconds. Check both,
+because PIDs can be reused. An idle session has a fresh heartbeat and
+`activity.state: waiting` with an `until` time. A clean exit publishes `ended: true`
+and `stopping`.
 
-Every sweep creates a cleanup log and flushes each line, including recovery SHAs
-before branch deletion. If publication provides no session ID, cleanup uses a
-unique `*.cleanup.log` in the same directory, retained as an orphan. Cleanup is
-silent in the terminal, including with `--no-ui`, and cannot remove anything
-without a writable log. The view and polling start without waiting for it.
+An isolated worker writes the file from a bounded mailbox, so a slow or failed
+writer never delays the launcher; it reports at most one diagnostic per session, and
+the last snapshot may stay stale. Each successful write keeps at most 20 other
+inactive sessions and never removes live ones. The startup sweep prunes older files;
+see [stale artifact cleanup](configuration.md#stale-artifact-cleanup).
 
 ## Snapshot fields
 
-The version 1 envelope contains:
-
 | Field | Contents |
 |---|---|
-| `session`, `pid`, `host`, `actor`, `repository`, `config_path` | Launcher identity and configuration; `started_at` and `published_at` use UTC ISO 8601 times. |
-| `activity` | `polling`, `waiting` (with `until` and a reason), `running assignment`, or `stopping`. |
-| `queue_agent`, `queue_idle` | Optional filtered-queue context: the selected configured agent and its last complete idle explanation, naming trigger labels or counting waiting states. Unfiltered launches omit these fields. |
-| `poll_now` | Optional poll control: `cooldown_until` and `rate_limit_until` are UTC ISO 8601 times or `null`; `waiting: true` confirms a poll waiter is installed, allowing immediate feedback on `r` during an assignment unless cooldown or rate limits apply. Missing or false `waiting` gives no such confirmation. `refreshing: true` means an `r`-forced read-only queue refresh is running during an assignment. Missing or false `refreshing` means no forced refresh; scheduled refreshes do not set it. |
-| `runtime_pauses` | Optional mapping from CLI (`claude`, `codex`) to its usage-pause end time in UTC ISO 8601. Changes publish immediately, independently of queue planning. Consumers ignore expired or unreadable deadlines and count down locally; missing or empty means no observed pauses. |
-| `assignment` | Current item, kind, title, agent, effective priority word, run, runtime, attempt, lease state and expiry, process state and reason, and this run's `process_log` and `context_path`. Recovery includes `recovered_run` and has no agent log or context. |
-| `latest_pass` | Start time, `partial` or `complete`, and the plans reached, plus rows carried during a partial pass. Discovery removes closed or merged items and Eligible rows without that agent's trigger; open Needs attention rows remain until replanned or completion. A supervised run's completed outcome refreshes its item's rows for every evaluated agent before the next claim (only the selected agent in a filtered queue), without completing the pass or discovering the repository. Rows include item, kind, title, agent, effective `priority` word (or `null`), chosen runtime when available, consecutive `failures`, `max_attempts`, state, reason and observation time, without description text. `eligible_count` counts merged Eligible items before byte trimming, excluding the running agent; older snapshots may omit it. Another launcher's owner includes only actor, host and run, with no log paths. |
-| `outcomes` | This session's recent reports and recovered outcomes: item, kind, title, agent, run, runtime, handoff when reported, supervisor result, report result, summary, time, acceptance, transition completion, and currently observed human blockers. Older snapshots may omit optional header context. |
-| `limits`, `omitted`, `shortened` | Format limits and counts of dropped rows and shortened fields/characters. Individual rows also carry text shortening counts. Work's `omitted N` counts dropped plan rows; Eligible's heading uses `eligible_count` even when hidden plans were dropped. |
+| `version`, `base_version` | Format version `1`, and the launcher's ub-agents version, which the view shows and checks when it attaches. |
+| `session`, `pid`, `host`, `actor`, `repository`, `config_path` | Launcher identity and configuration. `actor_reason` and `config_path_reason` explain a `null`. |
+| `started_at`, `published_at`, `ended` | UTC ISO 8601 times, and `true` after a clean exit. |
+| `activity` | `state` is `polling`, `waiting` (with `until` and `reason`), `running assignment` or `stopping`. |
+| `queue_agent`, `queue_idle` | Only with `launch --agent`: the selected agent and its latest idle explanation. |
+| `poll_now` | `cooldown_until` and `rate_limit_until` (UTC time or `null`); `waiting: true` when a poll waiter is ready for `r`; `refreshing: true` while an `r`-forced refresh runs during an assignment. |
+| `runtime_pauses` | CLI name (`claude`, `codex`) to its usage-pause end time. Missing or empty means no pause. |
+| `assignment` | Current item, kind, title, agent, priority word, run, runtime, attempt, lease state and expiry, process state and reason, `process_log` and `context_path`. Recovery adds `recovered_run` and has no log or context. |
+| `latest_pass` | `started_at`, `state` (`partial` or `complete`), `rows` and `eligible_count`, the Eligible count before trimming. Each row is one plan: item, kind, title, agent, `priority` word or `null`, runtime, `failures`, `max_attempts`, state, reason, `paused_clis`, attention details, observation time and, for another launcher, an `owner` with actor, host and run. A partial pass keeps earlier rows until they are replanned. |
+| `outcomes` | This session's recent reports and recovered outcomes: item, kind, title, agent, run, runtime, handoff, supervisor and report results, summary, time, acceptance, transition completion and `human_blocker`. |
+| `histories` | Item number to its run history for the Runs tab: title, kind, closing issue, filing author and time, the 20 newest `runs` and `omitted_runs`. A carried row can point to its own copy with `history_key`. |
+| `action_needed` | Item number to the latest trusted **Action needed** comment after the item's last claim or reset: `id`, `text` (up to 2,048 characters), `author`, `created_at` and `omitted_characters`, or `{"omitted": true}` when trimmed for size. |
+| `coordination_authors` | Lowercase login to `{trusted, reason}` for notice authors the launcher has checked. The view does not load notices from untrusted authors and shows the reason. |
+| `update` | The update banner, `{text, released_at}`, or `null`. |
+| `health_notice` | The latest project health-check message, or `null`. |
+| `limits`, `omitted`, `shortened` | Format limits, counts of dropped plans and outcomes, and counts of shortened fields and characters. Rows and histories carry their own `shortened` counts. |
 
 ## State interpretation
 
-Plans held because all eligible runtimes are usage-paused carry `paused_clis`, a
-list of the affected CLIs; other plans carry an empty list, and older snapshots
-may omit it. Views combine it with `runtime_pauses` to show the cause only while
-every named CLI remains paused, using the earliest end for that row. These fields
-describe in-memory launcher state; reading a snapshot never restores a pause.
+`paused_clis` lists the CLIs whose usage pause holds a plan. Readers show that cause
+only while every named CLI is still paused in `runtime_pauses`, and ignore expired or
+unreadable times.
 
-Process states use `claiming`, `starting`, `running`, `exited`, `recovery` and
-`unknown`. Only a process recorded by supervision is shown as running; a lease's
-`running` state alone is insufficient. Report acceptance is `unaccepted`,
-`rejected`, `accepted` (transition not yet complete), or `finalized` (accepted and
-transition complete). `completed` can be true while `human_blocker` lists stop
-labels such as `needs-human`. Finalized outcomes' blockers carry their last
-observation time and are updated when a later pass reaches that target;
-unfinalized reports have no applicable blocker yet. Missing values are `null` with
-reasons where known. The Issue tab loads missing descriptions from GitHub when
-opened; a view from the previous build can still read these snapshots and offers
-`g` to load the description.
+Process states are `claiming`, `starting`, `running`, `exited`, `recovery` and
+`unknown`. Only a process recorded by supervision shows as running; a lease's
+`running` state alone is not enough. Report acceptance is `unaccepted`, `rejected`,
+`accepted` (transition not yet complete) or `finalized` (accepted and transition
+complete). An outcome can be `completed` while `human_blocker` lists stop labels
+such as `needs-human`; a finalized outcome's blockers carry their last observation
+time. Missing values are `null`, with reasons where known.
 
-## Limits and isolation
+## Limits and trimming
 
-Snapshots hold at most 100 latest-pass rows and 20 recent outcomes. Each text
-value is limited to 2,048 characters and the entire UTF-8 JSON file to 64 KiB;
-the size bound trims surplus history runs, older outcomes and plans outside Work's
-visible sections before Running, Needs attention and the first ten Eligible items
-in the view's claim order. Each retained item's newest run is kept. Long visible
-display text is shortened further if necessary; only an envelope whose remaining
-metadata cannot fit loses visible plans. Publication uses
-a bounded mailbox and an isolated worker. A slow or failed writer cannot delay
-claims, outcome acceptance, recovery, configuration reload, signal handling or
-launcher exit; failures produce at most one publication diagnostic per session.
-Snapshots are never read for claims, coordination or recovery.
+A snapshot holds at most 100 plan rows, 20 recent outcomes, 20 runs per item and
+128 notices and notice authors. Each text value is cut at 2,048 characters and the
+whole UTF-8 file at 64 KiB. When the file is too large, the launcher trims in this
+order until it fits:
+
+1. Notices for items outside Needs attention.
+2. The oldest surplus history runs, keeping each item's newest run.
+3. Older outcomes.
+4. Plans outside Running, Needs attention and the first ten Eligible items in claim
+   order, with histories nothing else refers to.
+5. Notices for Needs attention items.
+6. Visible titles, reasons and summaries, shortened in steps.
+7. Visible plans, starting with the last. The current assignment always stays.
+
+Trimming changes only the published file. The launcher keeps its full state for the
+next snapshot.
