@@ -55,6 +55,9 @@ agents:
       - "Bash(head *)"
       - "Bash(tail *)"
       - "Bash(jq *)"
+      # The project MCP servers that AGENTS.md points to, including their write tools.
+      - "mcp__uberblick-agents__*"
+      - "mcp__uberblick-product__*"
 
   implementer:
     retrospectives: 203
