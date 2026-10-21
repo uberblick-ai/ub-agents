@@ -84,7 +84,8 @@ class Loop:
                                        on_record=lambda record: self._observe("record", record),
                                        on_author=lambda *args: self._observe("coordination_author", *args),
                                        on_action=lambda *args: self._observe("action_needed", *args),
-                                       on_decline=self.declined)
+                                       on_decline=self.declined, lease_seconds=config.lease_seconds,
+                                       lease_renew_seconds=config.lease_renew_seconds)
         self._renewal = None
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
@@ -454,7 +455,7 @@ class Loop:
         checked = {}
         self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
         github = self.discovery if cached else Discovery(self.github)
-        lookback = LEASE_SECONDS + COMMENT_RECOVERY_SECONDS
+        lookback = max(LEASE_SECONDS, self.config.lease_seconds) + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
         triggers = {label for agent in agents for label in agent.triggers}
         self._has_trigger = any(item.state == "open" and item.labels.intersection(triggers)
@@ -1158,6 +1159,8 @@ class Loop:
             self.config = config
             self._observe("configure", config, self.coordinator.actor, path)
             self.coordinator.queue = config.queue
+            self.coordinator.lease_seconds = config.lease_seconds
+            self.coordinator.lease_renew_seconds = config.lease_renew_seconds
             self.coordinator.trust.trusted_bots = {login.casefold() for login in config.trusted_bots}
             self.coordinator.trust.launchers = (None if config.launchers is None else
                                                {login.casefold() for login in config.launchers})

@@ -95,7 +95,8 @@ alternative runtime if one is configured. While `gh` is unavailable, no run star
 Repair or reinstall the CLI; a later check between runs finds it working and resumes.
 See [daily runtime maintenance](configuration.md#daily-runtime-maintenance).
 
-**A launcher died during a run.** Its claim expires within 30 minutes. Then any
+**A launcher died during a run.** Its claim expires when its lease runs out, 30
+minutes after the last renewal by default. Then any
 launcher recovers the work, and a recorded outcome finishes without rerunning the
 agent. See [recovery](coordination.md#recovery).
 

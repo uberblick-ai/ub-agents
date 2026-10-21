@@ -8,7 +8,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from ub_agents.config import CleanupHook, LEASE_RENEW_SECONDS, LEASE_SECONDS
+from ub_agents.config import CleanupHook, LEASE_RENEW_SECONDS, LEASE_SECONDS, load_config
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.execution import Workspace, group_members, supervise
@@ -22,8 +22,8 @@ from tests.support import PollGitHub, agent, config, issue, stub_refresh
 class ManualRenewal(LeaseRenewal):
     """Drive the real scheduler with a controlled clock instead of a worker."""
     def claimed(self, lease):
-        self.lease = lease
-        self.next_renewal = self.coordinator.clock() + LEASE_RENEW_SECONDS
+        with patch("ub_agents.renewal.threading.Thread"):
+            super().claimed(lease)
 
 
 class RenewalTests(unittest.TestCase):
@@ -73,6 +73,45 @@ class RenewalTests(unittest.TestCase):
                 self.assertEqual(kwargs["expires"](), self.now + 1800)
             return self.finish()
         self.execute(run)
+
+    def test_configured_claim_and_renewal_timing(self):
+        path = self.root / 'ub-agents.yaml'
+        path.write_text('repository: org/project\nlimits: {lease-minutes: 5, lease-renew-minutes: 2}\n'
+                        'agents:\n  worker:\n    command: [echo]\n    trigger: ready\n'
+                        '    outcomes: {done: {}}\n')
+        self.loop = Loop(load_config(path), self.github, "operator", output=lambda *_: None)
+        self.co = self.loop.coordinator
+        self.co.clock = lambda: self.now
+
+        def run(*args, **kwargs):
+            renewal = self.loop._renewal
+            lease = renewal.lease
+            self.assertEqual(seconds(lease['expires']), 1300)
+            self.assertEqual(renewal.next_renewal, 1120)
+            with patch.object(self.github, 'update_comment', wraps=self.github.update_comment) as write:
+                self.advance(119)
+                write.assert_not_called()
+                self.advance(1)
+                self.assertEqual(seconds(lease['expires']), 1420)
+                self.assertEqual(renewal.next_renewal, 1240)
+                self.advance(120)
+                self.assertEqual(seconds(lease['expires']), 1540)
+                self.assertEqual(renewal.next_renewal, 1360)
+                self.assertEqual(write.call_count, 2)
+            return self.finish()
+        self.execute(run)
+
+    def test_shorter_configured_renewal_never_shortens_recorded_expiry(self):
+        lease = self.claim()
+        # A peer with a shorter lease must still respect this claim's recorded expiry.
+        self.co.lease_seconds = 300
+        self.now += 120
+        self.assertTrue(self.co.renew(lease, self.github))
+        self.assertEqual(seconds(lease['expires']), 2800)
+        observer = Coordinator(self.github, 'operator', clock=lambda: self.now, lease_seconds=300)
+        self.now = 1301
+        self.assertEqual(observer.plan(issue(), self.role, ()).state, 'owned')
+        self.assertEqual(observer.assert_owned(lease)['expires'], iso(2800))
 
     def test_one_failed_renewal_then_success_leaves_execution_unaffected(self):
         def run(*args, **kwargs):

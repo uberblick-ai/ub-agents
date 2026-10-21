@@ -196,10 +196,11 @@ lowest GitHub comment ID among unexpired live leases wins. A loser edits only it
 comment to withdraw and never starts a runtime. The winner marks its record running
 before execution.
 
-A lease lasts 30 minutes. The supervising launcher renews it every 10 minutes while
-it owns the work, from setup through cleanup and recovery, including rate-limit
-waits. Neither interval is configurable. A dead launcher's claim expires within 30
-minutes of its last renewal, and the supervisor stops a run whose last confirmed
+A lease lasts 30 minutes by default. The supervising launcher renews it every 10
+minutes while it owns the work, from setup through cleanup and recovery, including
+rate-limit waits. Set both with `lease-minutes` and `lease-renew-minutes` under
+top-level [`limits`](configuration.md#limits). A dead launcher's claim stays live
+until its recorded expiry, and the supervisor stops a run whose last confirmed
 expiry has passed by wall clock, including after sleep. Renewal moves only
 `expires` forward, after a fresh ownership read. Release and withdrawal expire the
 lease at once. A failed renewal retries at the next interval, and a renewal write
@@ -384,7 +385,8 @@ lease. After expiry, a stored outcome finishes through outcome-only recovery;
 without one, the run counts as a crash.
 
 Discovery in `launch` and `status` reads repository issue comments updated within
-the last 30 minutes plus seven days, so renewed live leases stay in view.
+the larger of 30 minutes and the configured lease, plus seven days, so renewed live
+leases stay in view.
 [Polling](polling.md#keep-discovery-cheap) describes the caches; cached input never
 authorizes a write. PR shared-branch checks parse `ub-agents/<agent>/<N>/<run>` and
 read issue N's full history; other branch names have no shared-branch owner.
@@ -400,7 +402,7 @@ The remaining loss case is a crash after a started transition removed its trigge
 with no recovery within seven days; reapply a trigger or stop label to recover it.
 
 An expired, unfinished lease whose outcome was reported while the lease was valid
-gets outcome-only recovery: a renewed 30-minute recovery claim that names the
+gets outcome-only recovery: a renewed recovery claim that names the
 recovered run and lease, finishes or validates the outcome, and releases. Recovery
 claims cost no attempts, and a crash during recovery is recovered again without
 execution. A started transition has passed validation, so recovery finishes it even

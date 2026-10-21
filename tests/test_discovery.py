@@ -34,6 +34,16 @@ class DiscoveryTests(unittest.TestCase):
     def item_reads(self, github):
         return {args[0] for name, args in github.reads if name in Discovery.ITEM_READS}
 
+    def test_claim_lookback_covers_default_and_longer_configured_leases(self):
+        for lease_seconds, expected in ((300, 1800), (1800, 1800), (3600, 3600)):
+            for cached in (False, True):
+                with self.subTest(lease_seconds=lease_seconds, cached=cached):
+                    loop = self.loop([issue()])
+                    loop.config = replace(loop.config, lease_seconds=lease_seconds)
+                    list(loop.iter_plans(cached=cached))
+                    self.assertIn(('repository_comments', (expected + COMMENT_RECOVERY_SECONDS,)),
+                                  loop.github.reads)
+
     def test_cold_claim_cost_is_independent_of_issue_and_pr_queue_size(self):
         for kind in ("issue", "pr"):
             for priority in (Priority(), Priority(("urgent", "low"), "low")):

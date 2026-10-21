@@ -259,7 +259,7 @@ Each agent has exactly one of `runtime` or `command`.
 | `on-conflict` | Outcome name | `pr` agents only; an outcome that adds no stop label. Recorded instead of starting the agent when GitHub reports the PR as conflicting. |
 | `health-check` | Argv list | See [Project health checks](#project-health-checks). |
 | `retrospectives` | Positive integer | See [Retrospectives](#retrospectives). |
-| Limit keys | | Override [`limits`](#limits). |
+| Limit keys | | Override the timeout and retry [`limits`](#limits). The lease keys are top level only. |
 
 ### Project health checks
 
@@ -337,12 +337,16 @@ Explained on the website: [Limits](https://agents.uberblick.ai/docs/configuratio
 
 | Key | Default | Rules |
 |---|---|---|
-| `agent-timeout-minutes` | 180 | Positive number. Deadline for agent execution only. |
+| `lease-minutes` | 30 | Positive number, top level only. How long a claim lasts; each renewal extends it by this much. |
+| `lease-renew-minutes` | 10 | Positive number, top level only. Time between renewals. Adding the 20-second request timeout and a one-second margin must still be shorter than `lease-minutes`. |
+| `agent-timeout-minutes` | 180 | Positive number. Deadline for agent execution only; the lease keeps renewing. |
 | `max-attempts` | 5 | Positive integer. Consecutive failures per item and agent before pickup stops. |
 | `retry-backoff-seconds` | 60 | Zero or more. First retry delay; doubles with each failure. |
 | `max-backoff-seconds` | 3600 | At least `retry-backoff-seconds`. Longest retry delay. |
 
-Claims last 30 minutes and renew every 10 minutes; neither is configurable.
+Each claim records its own expiry, so launchers with different lease settings can
+share a repository. A shorter lease lets another launcher take over sooner after one
+dies; a live run keeps renewing until its execution timeout.
 
 ## Built-in runtimes
 

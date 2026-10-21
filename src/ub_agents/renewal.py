@@ -2,7 +2,6 @@
 
 import threading
 
-from .config import LEASE_RENEW_SECONDS
 from .errors import LostOwnership
 from .records import seconds
 
@@ -18,7 +17,7 @@ class LeaseRenewal:
 
     def claimed(self, lease):
         self.lease = lease
-        self.next_renewal = seconds(lease["created"]) + LEASE_RENEW_SECONDS
+        self.next_renewal = seconds(lease["created"]) + self.coordinator.lease_renew_seconds
         self.thread = threading.Thread(target=self._run, name="lease-renewal")
         self.thread.start()
 
@@ -28,7 +27,7 @@ class LeaseRenewal:
         now = self.coordinator.clock()
         if now >= self.next_renewal:
             # Failures wait for the next interval too; no write replay.
-            self.next_renewal = now + LEASE_RENEW_SECONDS
+            self.next_renewal = now + self.coordinator.lease_renew_seconds
             self.coordinator.renew(self.lease, self.github)
 
     def _run(self):
