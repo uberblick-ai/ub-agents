@@ -121,7 +121,9 @@ Claude agents also need `"Bash({report_command} retrospective *)"` in [`--allowe
 
 ## Limits
 
-Any key from [Limits](/docs/configuration/limits.html) can be set on one agent.
+Timeout and retry keys from [Limits](/docs/configuration/limits.html) can be set on
+one agent. The claim timing keys `lease-minutes` and `lease-renew-minutes` can only
+be set under the top-level `limits` mapping.
 
 ```yaml
 agent-timeout-minutes: 60
