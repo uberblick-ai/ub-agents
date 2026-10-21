@@ -8,10 +8,13 @@ import re
 import yaml
 
 from .errors import AgentError, InstructionError
-from .github import REPOSITORY
+from .github import REPOSITORY, REQUEST_TIMEOUT_SECONDS
 
 DEFAULT_CONFIG = "ub-agents.yaml"
 LOCAL_CONFIG = "ub-agents.local.yaml"
+LEASE_SECONDS = 30 * 60
+LEASE_RENEW_SECONDS = 10 * 60
+LEASE_RENEW_MARGIN_SECONDS = 1
 
 
 def resolve_config_path(path=None, *, root=None):
@@ -212,6 +215,8 @@ class Config:
     trusted_bots: tuple[str, ...] = ()
     shared_instructions: Path | None = None
     checkout_setup: CheckoutSetup | None = None
+    lease_seconds: float = LEASE_SECONDS
+    lease_renew_seconds: float = LEASE_RENEW_SECONDS
 
     @property
     def sub_issue_labels(self):
@@ -220,10 +225,9 @@ class Config:
 
 
 CLOCKS = {"agent-timeout-minutes", "max-attempts", "retry-backoff-seconds", "max-backoff-seconds"}
+LEASE_CLOCKS = {"lease-minutes", "lease-renew-minutes"}
 DEFAULTS = {"agent-timeout-minutes": 180, "max-attempts": 5,
             "retry-backoff-seconds": 60, "max-backoff-seconds": 3600}
-LEASE_SECONDS = 30 * 60
-LEASE_RENEW_SECONDS = 10 * 60
 
 
 def _read_config(path, *, optional=False):
@@ -375,7 +379,14 @@ def _parse_config(data, root, *, planned=()):
     repo = string(data.get("repository"), "repository")
     if not re.fullmatch(REPOSITORY, repo):
         raise AgentError("repository must be owner/name")
-    limits = DEFAULTS | mapping(data.get("limits", {}), CLOCKS, "limits")
+    limits = DEFAULTS | mapping(data.get("limits", {}), CLOCKS | LEASE_CLOCKS, "limits")
+    lease_seconds = number(limits.pop("lease-minutes", LEASE_SECONDS / 60), "limits lease-minutes") * 60
+    renew_seconds = number(limits.pop("lease-renew-minutes", LEASE_RENEW_SECONDS / 60),
+                           "limits lease-renew-minutes") * 60
+    if renew_seconds + REQUEST_TIMEOUT_SECONDS + LEASE_RENEW_MARGIN_SECONDS >= lease_seconds:
+        raise AgentError("limits lease-renew-minutes plus the renewal request bound "
+                         f"({REQUEST_TIMEOUT_SECONDS + LEASE_RENEW_MARGIN_SECONDS} seconds) "
+                         "must be shorter than lease-minutes")
     definitions = data.get("agents")
     if not isinstance(definitions, dict) or not definitions:
         raise AgentError("agents must be a nonempty mapping")
@@ -473,7 +484,7 @@ def _parse_config(data, root, *, planned=()):
                              "that adds no stop label")
         agents.append(Agent(name, triggers, instruction,
             tuple(runtimes), command, runtime_args, different, kind, worktree,
-            LEASE_SECONDS,
+            lease_seconds,
             clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
             clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives, health_check,
             on_conflict))
@@ -489,7 +500,8 @@ def _parse_config(data, root, *, planned=()):
             raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
-                  runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup)
+                  runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup,
+                  lease_seconds=lease_seconds, lease_renew_seconds=renew_seconds)
 
 
 def bot_logins(value):

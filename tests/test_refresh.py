@@ -16,7 +16,7 @@ from ub_agents.config import Runtime, load_config
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
-from ub_agents.records import attempts, timestamp
+from ub_agents.records import attempts, seconds, timestamp
 from ub_agents.refresh import refresh_checkout
 from ub_agents.updates import Updates
 from tests.support import FakeGitHub, PollGitHub, agent, config, isolate_runtime_state, issue, pr
@@ -423,6 +423,20 @@ class RefreshTests(unittest.TestCase):
             self.assertIn(model, command)
         for number in (1, 3, 4, 5):
             self.assert_success(number)
+
+    def test_reloaded_lease_settings_apply_to_claim_and_renewal(self):
+        self.enable_reload()
+        (self.root / 'ub-agents.local.yaml').write_text(
+            'limits: {lease-minutes: 5, lease-renew-minutes: 2}\n')
+
+        def inspect(cwd, prompt):
+            renewal = self.loop._renewal
+            lease = renewal.lease
+            self.assertEqual(seconds(lease['expires']) - seconds(lease['created']), 300)
+            self.assertEqual(self.loop.coordinator.lease_seconds, 300)
+            self.assertEqual(self.loop.coordinator.lease_renew_seconds, 120)
+            self.assertEqual(renewal.next_renewal - seconds(lease['created']), 120)
+        self.execute(inspect)
 
     def test_invalid_local_reload_stops_before_claim_with_the_same_error_as_offline_doctor(self):
         self.enable_reload()

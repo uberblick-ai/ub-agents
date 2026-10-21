@@ -370,12 +370,15 @@ when their transition consumed every trigger.
 
 | YAML setting | Default | Meaning |
 |---|---:|---|
-| `agent-timeout-minutes` | 180 | Runtime process execution deadline; independent of the fixed 30-minute lease |
+| `agent-timeout-minutes` | 180 | Runtime process execution deadline; independent of the configurable claim lease (30 minutes by default) |
 | `retry-backoff-seconds` | 60 | Initial retry delay after failure release or unreported lease expiry |
 | `max-backoff-seconds` | 3600 | Cap on exponential retry delay |
 | `max-attempts` | 5 | Consecutive failures allowed per item/agent before pickup stops |
 
-Every setting can be overridden on an agent. Each GitHub page/request is bounded to 20 seconds; a multi-page discovery
+The settings in this table can be overridden on an agent. Claim duration and renewal
+interval are configured only under top-level [`limits`](configuration.md#limits),
+using `lease-minutes` (default 30) and `lease-renew-minutes` (default 10).
+Each GitHub page/request is bounded to 20 seconds; a multi-page discovery
 scan may take longer overall. Git operations are bounded to 120 seconds.
 Worktree preparation precedes the runtime execution deadline; ownership is checked
 again before execution. Default clocks leave ample margin for those reads. Very
@@ -387,13 +390,15 @@ Read current labels/head and all coordination comments before creating a claim.
 Create a separate tentative lease comment for each contender, then reread. The
 lowest GitHub comment ID among unexpired live leases wins. A loser edits only its
 own tentative comment to withdraw and never starts a runtime. The winner marks its
-record running before execution. Each lease lasts 30 minutes and the supervising
-launcher renews it every 10 minutes while it owns the work, including setup,
-execution, completion, label transitions, rate-limit waits and the cleanup hook.
-Recovery claims renew the same way. These intervals cannot be configured; the
-agent timeout and cleanup timeout do not change the lease length. A dead launcher's
-claim expires within 30 minutes of its last renewal. The supervisor also stops a
-run whose last confirmed expiry has passed by wall clock, including after sleep.
+record running before execution. By default, each lease lasts 30 minutes and the
+supervising launcher renews it every 10 minutes. Configure these intervals with
+`lease-minutes` and `lease-renew-minutes` under top-level
+[`limits`](configuration.md#limits). Renewal continues while the launcher owns the
+work, including setup, execution, completion, label transitions, rate-limit waits
+and the cleanup hook. Recovery claims renew the same way. The agent timeout and
+cleanup timeout do not change the lease length. A dead launcher's claim remains
+live until its recorded expiry. The supervisor also stops a run whose last
+confirmed expiry has passed by wall clock, including after sleep.
 
 Renewal edits the existing comment, moving only `expires` forward after the usual
 ETag-cached ownership read. Lease state edits and renewal share a serialized writer,
@@ -748,8 +753,9 @@ outcome was stored, the existing expired-run retry handling may rerun the agent.
 Durable attempts and backoff survive restarts.
 
 At startup, launcher and `status` discovery read repository issue comments updated
-within 30 minutes plus seven days. Renewed live leases stay inside that window,
-independently of execution and cleanup timeouts. The launch startup artifact sweep
+within the larger of 30 minutes and the configured lease, plus seven days.
+Renewed live leases stay inside that window, independently of execution and
+cleanup timeouts. The launch startup artifact sweep
 scans the full repository comment history once in the background after startup checks,
 in every launch mode. The terminal view opens before setup checks, showing
 `checking setup` or `waiting` during retryable GitHub failures; no sweep or claim
@@ -803,7 +809,7 @@ to recover that outcome. A later accepted success supersedes older crashed
 runs and resets the consecutive failure count. Failed scans stop visibly.
 
 An expired, unfinished lease whose outcome was reported within its validity window
-gets outcome-only recovery: a renewed 30-minute recovery claim that names the recovered run
+gets outcome-only recovery: a renewed recovery claim that names the recovered run
 and lease, finishes or validates the recorded outcome, accepts success or records
 the blockage, and releases. Repeated recovery claims cost no attempts, and a crash
 during recovery recovers again without execution. A started transition has already

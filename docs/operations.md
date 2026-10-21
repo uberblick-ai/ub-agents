@@ -161,8 +161,9 @@ Instruction text and configuration stay fixed for each run; PR candidates are no
 rebased. See [Stopping and restarting](#stopping-and-restarting) for signal handling
 during checkout refresh and how to restart after code updates.
 
-Each claim has a fixed 30-minute lease, renewed every 10 minutes throughout setup,
-execution, completion and cleanup. If a launcher dies, its
+Each claim has a lease, renewed throughout setup, execution, completion and cleanup.
+The defaults are 30 minutes for the lease and 10 minutes between renewals;
+configure them under [`limits`](configuration.md#limits). If a launcher dies, its
 claims expire and another launcher recovers the work: a recorded outcome is
 validated and its label transition finished without rerunning the role.
 `max-attempts` limits consecutive failures per item and configured agent. Accepted
