@@ -54,6 +54,7 @@ Explained on the website: [Configuration](https://agents.uberblick.ai/docs/confi
 | `stop-labels` | Label or list, `[needs-human]` | Labels that park an item. `[]` configures none. |
 | `approvals` | `on` or `off` | When unset, resolved each pass from visibility: `on` for public, `off` for private and internal. See [approvals](approvals.md). |
 | `trusted-bots` | List, `[]` | Bot logins trusted for feedback only, unique ignoring case. See [trusted bots](approvals.md#trusted-bots). |
+| `trusted-pr-authors` | List, `[]` | Bot logins trusted as same-repository PR authors with approvals on; bodies stay withheld. Unique ignoring case. See [trusted PR authors](approvals.md#trusted-pr-authors). |
 | `launchers` | List, optional | See [Launcher accounts](#launcher-accounts). |
 | `queue` | Mapping | See [Queue](#queue). |
 | `cleanup` | Mapping, optional | See [Project cleanup hook](#project-cleanup-hook). |
@@ -485,8 +486,8 @@ A command reports by running the shell-quoted command in `UB_AGENTS_REPORT` foll
 | `UB_AGENTS_BRANCH` | The branch to work on, when known |
 
 `run.json` pins `repository`, `run`, `assignment`, `lease_id`, `agent`, `approvals`,
-`trusted-bots`, `triggers` and `retrospectives`, plus `launchers` and
-`sub-issue-labels` when configured. In-run `read`, `retrospective` and `report` exit
+`trusted-bots`, `trusted-pr-authors`, `triggers` and `retrospectives`, plus
+`launchers` and `sub-issue-labels` when configured. In-run `read`, `retrospective` and `report` exit
 nonzero before contacting GitHub unless it is valid and matches `UB_AGENTS_REPOSITORY`
 and `UB_AGENTS_RUN`.
 

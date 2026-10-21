@@ -7,6 +7,7 @@ from .errors import AgentError
 def read_policy(config):
     return {"repository": config.repository, "approvals": config.approvals,
             "trusted-bots": list(config.trusted_bots),
+            "trusted-pr-authors": list(config.trusted_pr_authors),
             "triggers": {kind: sorted({label for agent in config.agents
                                       if agent.kind in {kind, "either"} for label in agent.triggers})
                          for kind in ("issue", "pr")}} | (
@@ -22,6 +23,7 @@ def read_item(github, number, policy):
             raise ValueError("not an issue or PR")
         filtered = approvals.filter_input(github, item, effective, policy["triggers"][item.kind],
                                           trusted_bots=policy["trusted-bots"], launchers=policy.get("launchers"),
+                                          trusted_pr_authors=policy["trusted-pr-authors"],
                                           sub_issue_labels=policy.get("sub-issue-labels", ()),
                                           read_only=True)
         if not filtered.allowed:

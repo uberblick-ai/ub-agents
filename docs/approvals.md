@@ -89,7 +89,8 @@ collapsed sections and diffs can still carry unseen text.
 With approvals on, the launcher adds `outside-input` to the assigned issue or PR
 before the agent starts when its input includes an outside author's title or body,
 an outside title or body edit, or cleared outside comments, reviews or review
-comments. Trusted-bot feedback, withheld text and `read N` output do not count. A
+comments. Same-repository PRs by [trusted PR authors](#trusted-pr-authors) also get
+the label. Trusted-bot feedback, withheld text and `read N` output do not count. A
 failed label write prevents execution, spends no attempt and is retried on the
 next poll.
 
@@ -112,9 +113,9 @@ ub-agents read 123 --config workflow.yaml
 JSON. It changes no labels, claims, notices or records, and resolves the effective
 `approvals` policy for each invocation. Inside a supervised run, invoke the
 launcher's literal `report_command` followed by `read N`. The run pins the
-repository, approvals policy, trigger labels, `sub-issues` labels, trusted bot list
-and any launcher allowlist; a changed worktree configuration or `--config` cannot
-replace them.
+repository, approvals policy, trigger labels, `sub-issues` labels, trusted bot and
+PR author lists and any launcher allowlist; a changed worktree configuration or
+`--config` cannot replace them.
 
 The output contains `number`, `kind`, `state`, `title`, `body` and `comments`. PRs
 also contain `head` (the current SHA), `reviews` and `review_comments`.
@@ -130,7 +131,8 @@ its author is trusted and it has no outside edit, or when a maintainer start cov
 it with no later outside edit; otherwise it is withheld. A trusted author's issue
 is therefore readable without a start, and reading needs no eligible PR head. An
 approving PR review alone does not clear outside text. Re-apply a maintainer
-trigger after an outside title or body edit to show it again.
+trigger after an outside title or body edit to show it again. Bodies by trusted bot
+PR authors remain withheld even after a maintainer start.
 
 Unreadable or incomplete approval history, unreadable author permissions and
 unreadable repository visibility cause a nonzero exit and no item JSON. Unknown
@@ -163,6 +165,43 @@ feedback in assignment context and `read`, with approvals on or off. This trust
 does not extend to their title or body edits, starts or approving reviews. They
 cannot clear outside feedback or act as launchers for coordination records.
 Unlisted bots' feedback is outside.
+
+## Trusted PR authors
+
+```yaml
+trusted-pr-authors: [dependabot]
+```
+
+This optional top-level list defaults to empty and uses the same login matching
+and validation as `trusted-bots`: case-insensitive, ignoring an optional `[bot]`
+suffix, and only for accounts GitHub reports as `Bot`. Listing a human adds no
+trust. Duplicate logins ignoring case and non-list values are configuration errors,
+including in `doctor --offline`.
+
+With approvals on, a listed bot's PR whose head repository is the base repository
+counts as trusted-authored. Any account can apply its configured trigger label;
+it needs no maintainer start or approving head review, including after a new push.
+Fork PRs and issues by listed bots retain their normal approval rules.
+
+The PR body is always withheld from assignment context and `read N`, with the
+reason "Body by a trusted bot author is not input". Bot bodies can contain upstream
+release notes written by package publishers; agents work from the diff instead.
+The title is shown after [hidden content cleanup](#hidden-content-cleanup), and the
+launcher adds `outside-input` before execution.
+
+Title and body edits by the PR's own bot author account do not suspend work.
+Edits by other outside accounts follow the normal trusted-author rules: a
+maintainer must re-apply a trigger label before work resumes. The body remains
+withheld after that clearance, even if a trusted account rewrites it.
+
+Comments, reviews and review comments follow the trusted-authored PR rules:
+outside feedback needs clearance to become input but never suspends work. The
+author bot's feedback is trusted only if it is also listed in `trusted-bots`.
+Listing a PR author gives it no authority to start other work, approve heads,
+clear outside input or act as a launcher. Its edits to other items remain outside.
+
+With approvals off, the key has no effect; the current title and body are input.
+Supervised runs pin this list for `read N` alongside `trusted-bots`.
 
 ## Repository roles
 
@@ -231,6 +270,8 @@ be detected; deleting a comment only removes input.
 ## Pull requests
 
 A PR authored by a trusted or maintainer account needs no maintainer start.
+Same-repository PRs by listed [trusted PR authors](#trusted-pr-authors) also need no
+start or head approval, and their bodies are withheld.
 Outside comments, reviews and review comments need clearance before becoming
 input, but do not suspend the PR, so commenting cannot stall it. An outside title
 or body edit still needs a maintainer start before that content can be assigned or

@@ -49,3 +49,19 @@ Bot accounts whose comments and reviews count as feedback. They get no other aut
 ```yaml
 trusted-bots: [copilot-pull-request-reviewer, Copilot]
 ```
+
+## Trusted PR authors
+
+With approvals on, listed bots' same-repository PRs need no maintainer start or approving head review, even after new pushes. Any account can apply the trigger label. The launcher adds `outside-input` before execution.
+
+```yaml
+trusted-pr-authors: [dependabot]
+```
+
+The list defaults to empty. Matching ignores case and an optional `[bot]` suffix, and GitHub must report the account as `Bot`; listing a human adds no trust. Non-list values and duplicate logins ignoring case fail configuration validation and `doctor --offline`.
+
+The PR body is always withheld from assignment context and `read N`, because it may contain release notes written by upstream publishers. Agents work from the diff. Titles get hidden content cleanup. The author's own title and body edits do not suspend work; other outside edits still need a maintainer's trigger label, and the body stays withheld afterward.
+
+Outside comments and reviews need clearance to become input but do not suspend the PR. The author bot's feedback needs `trusted-bots` to count without clearance. Listing a PR author gives it no authority to start other work, approve heads, clear input or act as a launcher.
+
+Fork PRs and issues keep their normal rules. With approvals off, the key has no effect and bodies remain input. Supervised runs pin the list for `read N`. See the [full approval rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/approvals.md#trusted-pr-authors).

@@ -31,7 +31,7 @@ def supervised_run():
         context = json.loads(Path(path).read_text(encoding="utf-8"))
         if (not isinstance(context, dict)
                 or set(context) - {"launchers", "sub-issue-labels"} != {"repository", "run", "assignment", "lease_id", "agent",
-                                    "approvals", "trusted-bots", "triggers", "retrospectives"}
+                                    "approvals", "trusted-bots", "trusted-pr-authors", "triggers", "retrospectives"}
                 or not isinstance(context["repository"], str)
                 or not re.fullmatch(REPOSITORY, context["repository"])
                 or context["repository"] != os.environ.get("UB_AGENTS_REPOSITORY")
@@ -48,6 +48,7 @@ def supervised_run():
                 or set(context["triggers"]) != {"issue", "pr"}):
             raise ValueError("invalid launcher context")
         bot_logins(context["trusted-bots"])
+        bot_logins(context["trusted-pr-authors"], "trusted-pr-authors")
         if "launchers" in context:
             launchers = argv(context["launchers"], "launchers")
             if (any(login != login.strip() for login in launchers)
