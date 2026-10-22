@@ -6,15 +6,6 @@ notes are copied from that section.
 
 ## 0.3.5 — 2026-10-22
 
-**Upgrading:** Upgrade and restart launchers one at a time; coordination records,
-agent branch names and existing configurations remain compatible. Upgrade every
-launcher before the configuration uses `trusted-pr-authors`, `lease-minutes` or
-`lease-renew-minutes`, because earlier launchers reject unknown keys. With approvals
-on, `ub-agents doctor` creates the `outside-input` label; to leave labelled PRs to
-maintainers, add "is labelled `outside-input` (built from outside text)" to the
-"Leave the merge to" list in `.agents/ub_agents.md`. Only upgraded launchers add the
-label, so mixed fleets may briefly differ.
-
 ### Added
 
 - With approvals on, the launcher labels issues and PRs built from outside text `outside-input`, and handoff PRs and started sub-issues inherit the label (#611).
@@ -23,7 +14,7 @@ label, so mixed fleets may briefly differ.
 
 ### Changed
 
-- With approvals on, public-repository policies written by `init` leave PRs labelled `outside-input` to maintainers for merging (#611).
+- With approvals on, public-repository policies written by `init` leave PRs labelled `outside-input` to maintainers for merging; existing policy files are unchanged (#611).
 - Approval notices for maintainer starts and updated outside input remind maintainers that starting clears earlier outside comments, reviews and edits (#614).
 - Released runs collapse their claim comment as outdated once their own outcome on the item is accepted, leaving the outcome expanded (#615).
 - Website documentation is published from main again instead of at each release, so it can describe changes that are not yet released (#610).
