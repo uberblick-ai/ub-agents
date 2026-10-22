@@ -18,7 +18,9 @@ class AgentMatches:
         agents = tuple(agents)
         applicable = tuple(a for a in agents if a.kind in {"either", item.kind})
         return cls(agents,
-                   tuple(a for a in applicable if item.state == "open" and item.labels.intersection(a.triggers)),
+                   tuple(a for a in applicable if item.state == "open" and
+                         (set(a.triggers) <= item.labels if a.trigger_all
+                          else item.labels.intersection(a.triggers))),
                    frozenset(label for a in applicable for label in a.triggers),
                    frozenset(label for a in agents for label in a.triggers))
 

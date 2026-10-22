@@ -17,6 +17,7 @@ from .records import (MARKER, attempt_effect, attempts, backoff, body, exhausted
                       lease_by_id, lease_summary, live_leases, outcome_rounds, payload, records, recovers,
                       report_asks, same_handoff, same_run, seconds, stop_report, timestamp)
 from .trust import LauncherTrust
+from .parallel_gates import compatible, join_ready, openings, role_claim, winners
 
 
 @dataclass(frozen=True)
@@ -162,7 +163,7 @@ class Coordinator:
         runtime = None
         paused_clis = ()
         owner = None
-        owners = live_leases(history, now)
+        owners = [r for r in live_leases(history, now) if not compatible(role_claim(item, agent), r)]
         if owners:
             owner = owners[0]
             state, reason = "owned", "An unexpired assignment owns this work item"
@@ -180,6 +181,8 @@ class Coordinator:
             outcomes = [r for r in history if r["kind"] == "outcome" and r["agent"] == agent.name]
             summary = lease_summary(history, latest[-1]) if latest else (outcomes[-1]["summary"] if outcomes else "")
             state, reason = "parked", start.stop_reason + (f": {summary}" if summary else "")
+        elif not join_ready(item, agent, history, self):
+            state, reason = "waiting", "Join needs released passes on the current head and opening"
         elif (finished and finished[-1].get("result") == "blocked"
               and not self.head_moved_since_block(item, history, finished[-1])):
             state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
@@ -374,7 +377,8 @@ class Coordinator:
         history = self.history(current.number)
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, self.clock())
-            if outcome is None or any(r["id"] != outcome["lease_id"]
+            source = lease_by_id(history, outcome["lease_id"]) if outcome else None
+            if outcome is None or any(r["id"] != outcome["lease_id"] and not compatible(source, r)
                                       for r in live_leases(history, self.clock())):
                 return self.decline(plan, "Recovery outcome no longer matches")
         else:
@@ -403,6 +407,9 @@ class Coordinator:
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False,
                   "attempt_effect": "pending", "declared_triggers": list(plan.agent.triggers),
                   "stop_labels": list(stop_labels), "action_required": True}
+        if plan.agent.parallel:
+            record |= role_claim(current, plan.agent)
+            record["gate_openings"] = openings(history, record["triggers"])
         if not recovery:
             rounds = {name: {"used": outcome_rounds(history, current.number, plan.agent.name, name),
                              "limit": changes["max-rounds"]}
@@ -425,6 +432,8 @@ class Coordinator:
         if recovery:
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": outcome["run"]}
+            if source.get("parallel"):
+                record |= {key: source.get(key) for key in ("parallel", "assignment_kind", "gate_openings")}
         if self.cleanup_control is not None:
             self.cleanup_control.protect(record)
         if before_write is not None:
@@ -439,10 +448,10 @@ class Coordinator:
         self.observed(created)
         if self.on_claim is not None:
             self.on_claim(created)
-        contenders = live_leases(self.history(current.number), self.clock())
+        contenders = winners(live_leases(self.history(current.number), self.clock()))
         # Earliest GitHub comment id wins. Each contender has its own record; no
         # read-modify-write race on a shared lease comment is passed off as CAS.
-        if not contenders or contenders[0]["id"] != created["id"]:
+        if not any(r["id"] == created["id"] for r in contenders):
             self.update(created, state="withdrawn", summary="Lost the cooperative claim election.")
             self.notices.election_lost(created)
             self.notices.resumed(current.number)
@@ -519,12 +528,12 @@ class Coordinator:
         # The local deadline must pass before an observation can extend it: a
         # late response must not resurrect an expired or withdrawn local claim.
         self.deadline(lease)
-        contenders = live_leases(history, self.clock())
-        if not contenders or contenders[0]["id"] != lease["id"] or not same_run(contenders[0], lease):
+        contenders = winners(live_leases(history, self.clock()))
+        current = next((r for r in contenders if r["id"] == lease["id"] and same_run(r, lease)), None)
+        if current is None:
             self._renewal_failures.pop(lease["id"], None)
             self._lost[lease["id"]] = "Assignment ownership was lost or expired"
             raise LostOwnership(self._lost[lease["id"]])
-        current = contenders[0]
         if seconds(current["expires"]) > seconds(lease["expires"]):
             lease["expires"] = current["expires"]
         return current

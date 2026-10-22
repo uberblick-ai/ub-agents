@@ -1652,6 +1652,18 @@ class Loop:
 
     def reported_verdict(self, lease, plan, outcome, source, what):
         """A recorded report's (result, summary, attempt effect); raises ValidationError if rejected."""
+        if source.get("parallel"):
+            history = self.coordinator.history(source["assignment"])
+            current = self.github.item(source["assignment"])
+            removed = set(source["triggers"]) - current.labels
+            invalidator = next((r for r in reversed(history) if r["kind"] == "outcome"
+                                and r["run"] != source["run"]
+                                and r.get("transition", {}).get("started")
+                                and removed.intersection(r["transition"].get("remove", ()))), None)
+            if removed and invalidator:
+                self.coordinator.update_outcome(lease, outcome, cancelled=True,
+                                                cancelled_by=invalidator["run"])
+                return "cancelled", "Sibling invalidated this gate; no transition applied", "unchanged"
         if outcome["status"] != "success":
             self.validate_failure_report(lease, outcome, source)
             return outcome["status"], outcome["summary"], "unchanged" if outcome["status"] == "blocked" else "failure"
@@ -1715,6 +1727,12 @@ class Loop:
             raise ValidationError("Outcome candidate SHA does not match the observed PR head")
         if plan.agent.different_from and current.head != plan.item.head:
             raise ValidationError("Independent result is stale: the assigned candidate moved")
+        if plan.agent.parallel and current.head != plan.item.head:
+            raise ValidationError("Parallel result is stale: the assigned candidate moved")
+        if plan.agent.trigger_all:
+            from .parallel_gates import join_ready
+            if not join_ready(current, plan.agent, self.coordinator.history(current.number), self.coordinator):
+                raise ValidationError("Join evidence is no longer current")
         if outcome.get("handoff") and plan.item.kind == "issue":
             if not links_issue(destination, self.config.repository, plan.item.number):
                 raise ValidationError("Implementation PR body does not link its original issue")

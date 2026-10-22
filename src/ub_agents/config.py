@@ -154,6 +154,9 @@ class Agent:
     retrospectives: int | None = None
     health_check: tuple[str, ...] = ()
     on_conflict: str | None = None
+    # Spike only: exercised programmatically; deliberately not YAML options yet.
+    parallel: bool = False
+    trigger_all: bool = False
 
     def runtime_args_for(self, runtime):
         if isinstance(self.runtime_args, dict):
