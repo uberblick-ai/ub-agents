@@ -435,7 +435,8 @@ until no tracked run uses the installation. Only runs started by ub-agents are
 tracked, so an update can replace files under a Claude or Codex session you started
 yourself. Every run in an Uberblick project reserves an installed `ub` through
 execution and cleanup, even with updates off, so its MCP server finishes before
-an update and new runs start on the new binary. Missing `ub` does not hold runs.
+an update and new runs start on the new binary. Missing `ub` does not hold runs
+unless an earlier update left it unusable.
 Cooldowns live under
 `$XDG_STATE_HOME/ub-agents/runtime-updates`, per installation, shared by all launchers
 on the machine. **Opting out in one project does not stop another project's launcher

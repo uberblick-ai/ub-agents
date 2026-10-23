@@ -981,6 +981,61 @@ class RuntimeUpdateTests(unittest.TestCase):
                     self.assertIsNotNone(start)
                     self.assertIsNotNone(active)
 
+    def test_ub_removed_by_updater_holds_runs_across_launchers_until_repaired(self):
+        target = self.brew("ub", kind="Cellar")
+        (self.root / ".uberblick.json").touch()
+        settings = self.settings("ub")
+        state = self.manager.paths(installation("ub", self.which))[2]
+        def remove():
+            (self.bin / "ub").unlink()
+            self.assertEqual(self.manager.read(state)["result"], "updating")
+            with self.manager_for().reserve_run(root=self.root) as reserved:
+                self.assertIsNone(reserved)
+        self.action = remove
+        self.manager.boundary(settings)
+        self.assertFalse(self.manager.read(state)["usable"])
+        second = self.manager_for()
+        second.boundary(settings)
+        self.assertIn("ub (missing): skipped", self.lines[-1])
+        self.assertEqual(len(self.updates()), 1)
+        with second.reserve_run(root=self.root) as reserved:
+            self.assertIsNone(reserved)
+        # A launcher whose PATH never used that installation is unaffected.
+        with patch.dict(os.environ, {"PATH": os.defpath}):
+            with second.reserve_run(root=self.root) as reserved:
+                self.assertIsNotNone(reserved)
+        self.link("ub", target)
+        second.boundary(config(self.root))
+        with second.reserve_run(root=self.root) as reserved:
+            self.assertIsNotNone(reserved)
+        self.assertEqual(len(self.updates()), 1)
+
+    def test_ub_manually_removed_after_healthy_check_does_not_hold_runs(self):
+        self.brew("ub", kind="Cellar")
+        (self.root / ".uberblick.json").touch()
+        self.manager.boundary(self.settings("ub"))
+        (self.bin / "ub").unlink()
+        with self.manager_for().reserve_run(root=self.root) as reserved:
+            self.assertIsNotNone(reserved)
+
+    def test_interrupted_ub_update_recovers_without_starting_cooldown(self):
+        self.brew("ub", kind="Cellar")
+        (self.root / ".uberblick.json").touch()
+        state = self.manager.paths(installation("ub", self.which))[2]
+        def interrupt():
+            raise KeyboardInterrupt
+        self.action = interrupt
+        with self.assertRaises(KeyboardInterrupt):
+            self.manager.boundary(self.settings("ub"))
+        self.assertEqual(self.manager.read(state)["result"], "updating")
+        self.assertFalse(self.manager.available("ub"))
+        second = self.manager_for()
+        second.boundary(config(self.root))
+        self.assertTrue(second.available("ub"))
+        self.action = lambda: None
+        second.boundary(self.settings("ub"))
+        self.assertEqual(len(self.updates()), 2)
+
     def test_ub_unusable_health_holds_workspace_runs_until_recovered_with_updates_off(self):
         stub_refresh(self)
         self.npm()

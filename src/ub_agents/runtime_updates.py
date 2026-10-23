@@ -201,6 +201,26 @@ class RuntimeMaintenance:
             except OSError as exc:
                 self.output(f"Runtime maintenance {cli} ({install.method}): failed — warning: local state unavailable: {exc}")
 
+    def missing_ub_ready(self):
+        """An absent optional CLI is safe unless its updater made it disappear."""
+        candidates = {str(Path(directory).absolute() / "ub") for directory in os.get_exec_path()}
+        for path in self.root.glob("*.json"):
+            state = self.read(path)
+            if state.get("cli") != "ub" or not isinstance(state.get("executable"), str):
+                continue
+            if state["executable"] not in candidates:
+                continue
+            # Updaters publish this locator before they can remove the binary.
+            # Retain its guard and failed health across launcher restarts, but
+            # allow a manually removed, previously healthy installation.
+            try:
+                with lock(path.with_suffix(".guard"), shared=True, create=False) as held:
+                    if held is None or not self.read(path).get("usable", True):
+                        return False
+            except OSError:
+                return False
+        return True
+
     @contextmanager
     def reserve_run(self, cli=None, *, github=None, root=None):
         """Protect shared tools and the runtime through execution and cleanup."""
@@ -215,13 +235,17 @@ class RuntimeMaintenance:
             reservations = (github,)
             # ub is optional, but an installed copy may back an MCP server for
             # any agent in this workspace, including command agents.
-            if (root is not None and workspace_binding(root) is not None
-                    and installation("ub", self.which) is not None):
-                uberblick = stack.enter_context(self.reserve("ub"))
-                if uberblick is None:
-                    yield None
-                    return
-                reservations += (uberblick,)
+            if root is not None and workspace_binding(root) is not None:
+                if installation("ub", self.which) is None:
+                    if not self.missing_ub_ready():
+                        yield None
+                        return
+                else:
+                    uberblick = stack.enter_context(self.reserve("ub"))
+                    if uberblick is None:
+                        yield None
+                        return
+                    reservations += (uberblick,)
             executable = None
             if cli is not None:
                 runtime = stack.enter_context(self.reserve(cli))
@@ -298,8 +322,8 @@ class RuntimeMaintenance:
                     self._maintenance_fds = ()
 
     def cooling_down(self, state):
-        # Older versions recorded automatic-policy skips in shared state.
-        return (state.get("result") != "skipped" and
+        # Skips and interrupted updates do not complete a daily check.
+        return (state.get("result") not in ("skipped", "updating") and
                 self.clock() - state.get("checked", float("-inf")) < COOLDOWN_SECONDS)
 
     def _check_locked(self, cli, install, policy, timeout, state_path, state, held):
@@ -324,6 +348,9 @@ class RuntimeMaintenance:
                 self._recover_locked(cli, install, state_path, state, held)
                 self.output(f"Runtime maintenance {cli} ({install.method}): skipped — {reason}")
                 return
+            if cli == "ub":
+                self.write(state_path, {"checked": self.clock(), "result": "updating", "usable": False,
+                                        "identity": install.identity, "cli": cli, "executable": install.executable})
             remaining = deadline - time.monotonic()
             before = self.version(cli, os.environ.copy())
             deadline = time.monotonic() + remaining  # Version probes have their own bound.
@@ -340,6 +367,8 @@ class RuntimeMaintenance:
             result = "updated"
         completed = {"checked": self.clock(), "usable": after is not None,
                      "version": after, "result": result, "identity": install.identity}
+        if cli == "ub":
+            completed.update(cli=cli, executable=install.executable)
         self.write(state_path, completed)
         next_install = installation(cli, self.which)
         if next_install is not None and next_install.identity != install.identity:
