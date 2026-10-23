@@ -189,12 +189,12 @@ agents:
 
     def test_local_yaml_preserves_policy_spellings_and_normal_booleans(self):
         self.local.write_text('''approvals: off
-runtime-updates: {codex: off, claude: off, gh: off}
+runtime-updates: {codex: off, claude: off, gh: off, ub: off}
 agents: {implementer: {worktree: true}}
 ''')
         effective = load_config(self.path)
         self.assertEqual(effective.approvals, 'off')
-        self.assertEqual(effective.runtime_updates.policies, {'codex': 'off', 'claude': 'off', 'gh': 'off'})
+        self.assertEqual(effective.runtime_updates.policies, {'codex': 'off', 'claude': 'off', 'gh': 'off', 'ub': 'off'})
         self.assertIs(effective.agents[0].worktree, True)
         with redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline', '--verbose']), 0)

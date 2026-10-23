@@ -116,7 +116,7 @@ def instruction_text(root, path, where):
 
 
 CLIS = ("codex", "claude")
-UPDATE_CLIS = (*CLIS, "gh")
+UPDATE_CLIS = (*CLIS, "gh", "ub")
 
 
 @dataclass(frozen=True)

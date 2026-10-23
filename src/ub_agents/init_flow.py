@@ -20,6 +20,7 @@ from .init_setup import (PERMISSIONS_GUIDE, ROLES, Choices, apply_plan, guidance
                          priority_labels, recovery_content)
 from .init_tailoring import TITLE as TAILOR_TITLE, command as tailoring_command
 from .labels import configured_labels
+from .uberblick import WORKSPACE_FILE, workspace_binding
 
 RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", "codex:gpt-6.1-sol:high")}
 PRIORITIES = "prio:urgent, prio:high, prio:medium, prio:low"
@@ -35,7 +36,6 @@ PR_BODY = ("Starter configuration, agent instructions and .gitignore entries wri
 SAFETY = "Agents always work in worktrees and branches; they never commit to main."
 UBERBLICK = "https://uberblick.ai"
 UB_INSTALL = "brew install uberblick-ai/tap/uberblick"
-WORKSPACE_FILE = ".uberblick.json"
 MARKS = {"ok": ("✓", GREEN), "warn": ("!", YELLOW), "fail": ("✗", RED)}
 
 
@@ -48,15 +48,6 @@ def run(root, *command):
     if result.returncode:
         raise AgentError(result.stderr.strip() or f"{command[0]} failed")
     return result.stdout.strip()
-
-
-def workspace_binding(root):
-    """The nearest .uberblick.json, where ub looks for it."""
-    for directory in (root, *root.parents):
-        path = directory / WORKSPACE_FILE
-        if path.exists() or path.is_symlink():
-            return path
-    return None
 
 
 def board_title(role):
@@ -112,12 +103,15 @@ class Flow:
         choices.updates = self.choose_updates(choices.runtime)
         choices.owner = self.choose_owner()
         extras = self.choose_extras()
+        choices.uberblick = "uberblick" in extras
         choices.tailor_policy = "tailoring" in extras
         if "priority" in extras:
             value = self.ask.text("Priority labels, highest first", PRIORITIES, check_priorities)
             self.t.answered("Priority labels, highest first", value)
             choices.priority_labels = tuple(label.strip() for label in value.split(","))
         if "uberblick" in extras:
+            if choices.updates:
+                self.t.step("Runtime updates", [Text("ub also updates once a day between runs (Homebrew only)", style=DIM)])
             self.choose_workspace()
             self.mcp = mcp_preview(self.path.parent, choices.runtime.split(":", 1)[0], for_pr=self.on_default)
         if "retrospectives" in extras:

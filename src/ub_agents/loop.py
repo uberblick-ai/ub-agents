@@ -43,6 +43,7 @@ from .request_stats import DiscoveryPass, PassOutput, request_counts, request_de
 from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput
+from .uberblick import workspace_binding
 from .trust import LauncherTrust
 from .run_planning import ObservationReads, RunPlanning
 from .run_config import run_config, run_directory
@@ -1230,9 +1231,12 @@ class Loop:
             self.declined(plan, str(exc), "waiting")
             return False
         with self.maintenance.reserve_run(runtime.cli if runtime is not None else None,
-                                          github=self._github_reservation) as reservation:
+                                          github=self._github_reservation, root=self.config.root) as reservation:
             if reservation is None:
-                self.declined(plan, f"{runtime.cli + ' runtime or gh' if runtime else 'gh'} became unavailable "
+                tools = runtime.cli + " runtime or gh" if runtime else "gh"
+                if workspace_binding(self.config.root) is not None:
+                    tools += " or ub"
+                self.declined(plan, f"{tools} became unavailable "
                               "before the claim; retry next poll", "waiting")
                 return False
             self._before_claim()
