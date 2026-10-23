@@ -58,7 +58,9 @@ With Uberblick selected and no `.uberblick.json` in the checkout or above it:
 ```
 
 The Uberblick extra also plans project-scope MCP registration for the chosen
-runtime. **Changes** shows one line for that runtime and its planned action, such
+runtime. When updates are enabled, it includes `ub: auto` in `runtime-updates`
+and reports that `ub` updates through Homebrew too. **Changes** shows one line
+for that runtime and its planned action, such
 as:
 
 ```text
@@ -114,6 +116,9 @@ team, `ub` installed and all extras selected:
 │
 ◇  Priority labels, highest first
 │  prio:urgent, prio:high, prio:medium, prio:low
+│
+◇  Runtime updates
+│  ub also updates once a day between runs (Homebrew only)
 │
 ◇  Set up an Uberblick workspace?
 │  Create a local workspace
