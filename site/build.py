@@ -186,7 +186,7 @@ def fix_links(body, here):
 
 def header(here):
     return f'''<header class="top">
-  <span class="brand"><a class="parent" href="https://next.uberblick.ai">uberblick</a><span class="sep">/</span><a class="mark" href="{rel('index.html', here)}">ub-agents</a></span>
+  <span class="brand"><a class="parent" href="https://uberblick.ai">uberblick</a><span class="sep">/</span><a class="mark" href="{rel('index.html', here)}">ub-agents</a></span>
   <a class="ver" href="{REPO}/releases">v{VERSION}</a>
   <nav>
     <a href="{rel('docs/installation.html', here)}">Docs</a>
@@ -195,11 +195,28 @@ def header(here):
   </nav>
 </header>'''
 
-FOOTER = f'''<footer class="foot">
-  <span>MIT license</span>
-  <a href="{REPO}">Source</a>
-  <a href="{REPO}/releases">Releases</a>
-  <a href="https://github.com/uberblick-ai/homebrew-tap">Homebrew tap</a>
+def footer(here):
+    return f'''<footer class="foot">
+  <div><h3>Projects</h3><ul>
+    <li><a href="https://uberblick.ai">Uberblick</a></li>
+    <li><a href="{rel('index.html', here)}">ub-agents</a></li>
+    <li><a href="https://skills.uberblick.ai">Skills</a></li>
+    <li><a href="https://ablauf.uberblick.ai">ablauf</a></li>
+    <li><a href="https://github.com/uberblick-ai/wireframe-md">wireframe</a></li>
+  </ul></div>
+  <div><h3>Learn</h3><ul>
+    <li><a href="{rel('docs/installation.html', here)}">Installation</a></li>
+    <li><a href="{rel('docs/how-the-loop-works.html', here)}">How the loop works</a></li>
+    <li><a href="{rel('docs/configuration/index.html', here)}">Configuration</a></li>
+    <li><a href="{rel('docs/commands/index.html', here)}">Commands</a></li>
+    <li><a href="{rel('docs/faq.html', here)}">FAQ</a></li>
+  </ul></div>
+  <div><h3>GitHub</h3><ul>
+    <li><a href="{REPO}">Source</a></li>
+    <li><a href="{REPO}/releases">Releases</a></li>
+    <li><a href="https://github.com/uberblick-ai/homebrew-tap">Homebrew tap</a></li>
+    <li><a href="{REPO}/blob/main/LICENSE">MIT license</a></li>
+  </ul></div>
 </footer>'''
 
 def sidebar(pages, current):
@@ -295,7 +312,7 @@ def doc_page(pages, i):
     {pager(pages, i)}
   </main>
 </div>
-''' + FOOTER + MENU_JS + (COPY_JS if 'copy-code' in p['body'] else '') + '\n</body>\n</html>\n')
+''' + footer(here) + MENU_JS + (COPY_JS if 'copy-code' in p['body'] else '') + '\n</body>\n</html>\n')
 
 def not_found():
     """404.html is served at any depth, so its links are root-absolute."""
@@ -307,7 +324,7 @@ def not_found():
     <p>This page does not exist. Start at the <a href="index.html">home page</a> or the <a href="docs/installation.html">installation guide</a>.</p>
   </section>
 </main>
-''' + FOOTER + '\n</body>\n</html>\n')
+''' + footer('index.html') + '\n</body>\n</html>\n')
     body = re.sub(r'<link rel="canonical"[^>]*>\n', '', body)
     body = body.replace('url(assets/', 'url(/assets/')
     return re.sub(r'href="(?!https?:|/|#)', 'href="/', body)
@@ -324,7 +341,7 @@ def main():
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(doc_page(pages, i))
     landing = (ROOT / 'index.html').read_text()
-    landing = landing.replace('{{header}}', header('index.html')).replace('{{footer}}', FOOTER)
+    landing = landing.replace('{{header}}', header('index.html')).replace('{{footer}}', footer('index.html'))
     landing = landing.replace('{{tui}}', tui.render())
     top = head('index.html', title='ub-agents', description=TAGLINE, canonical=f'{SITE}/')
     if '--artifact' in sys.argv:  # the artifact host adds its own document skeleton
