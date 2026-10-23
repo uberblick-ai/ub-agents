@@ -83,7 +83,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         return target
 
     def brew(self, cli="codex", token=None, kind="Caskroom", prefix=None):
-        token = token or ("claude-code" if cli == "claude" else cli)
+        token = token or {"claude": "claude-code", "ub": "uberblick"}.get(cli, cli)
         prefix = prefix or self.root / "brew"
         target = self.executable(prefix / kind / token / "1.0/bin" / cli)
         self.executable(prefix / "bin/brew")
@@ -114,7 +114,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         return "updated"
 
     def settings(self, cli="codex", policy="auto", timeout=300):
-        role = (agent(self.root) if cli == "gh" else
+        role = (agent(self.root) if cli in {"gh", "ub"} else
                 agent(self.root, command=(), runtimes=(Runtime(cli, "model", "high"),)))
         return replace(config(self.root, role), runtime_updates=RuntimeUpdates({cli: policy}, timeout))
 
@@ -337,17 +337,25 @@ class RuntimeUpdateTests(unittest.TestCase):
 
     def test_failures_and_timeout_complete_cooldown_and_preserve_usable_runtime(self):
         self.npm()
+        self.check_failed_update_cooldown("codex")
+
+    def test_ub_failures_and_timeout_complete_cooldown_and_preserve_usable_cli(self):
+        (self.root / ".uberblick.json").touch()
+        self.brew("ub", kind="Cellar")
+        self.check_failed_update_cooldown("ub")
+
+    def check_failed_update_cooldown(self, cli):
         for reason in ("command exited 1", "timed out after 1s"):
             with self.subTest(reason=reason):
                 self.now += COOLDOWN_SECONDS
                 def fail():
                     raise MaintenanceFailure(reason)
                 self.action = fail
-                self.manager.boundary(self.settings())
+                self.manager.boundary(self.settings(cli))
                 self.assertIn("failed — warning: " + reason, self.lines[-1])
-                self.assertTrue(self.manager.available("codex"))
+                self.assertTrue(self.manager.available(cli))
                 count = len(self.updates())
-                self.manager_for().boundary(self.settings())
+                self.manager_for().boundary(self.settings(cli))
                 self.assertEqual(len(self.updates()), count)
 
     def test_next_path_executable_is_verified_and_broken_runtime_not_claimed(self):
@@ -769,27 +777,40 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.assertIn("claude runtime or gh became unavailable before the claim", self.lines[-1])
 
     def test_gh_auto_formula_uses_owning_homebrew_on_macos_and_linux(self):
+        self.check_formula_updates("gh", "gh")
+
+    def test_ub_auto_formula_uses_owning_homebrew_on_macos_and_linux(self):
+        (self.root / ".uberblick.json").touch()
+        self.check_formula_updates("ub", "uberblick")
+
+    def check_formula_updates(self, cli, token):
         for name in ("opt/homebrew", "home/linuxbrew/.linuxbrew"):
             with self.subTest(prefix=name), patch.dict(os.environ, {"DISABLE_UPDATES": "1"}):
                 prefix = self.root / name
-                target = self.brew("gh", kind="Cellar", prefix=prefix)
-                install = installation("gh", self.which)
+                target = self.brew(cli, kind="Cellar", prefix=prefix)
+                install = installation(cli, self.which)
                 self.assertEqual(install.method, "homebrew-formula")
-                self.assertEqual(install.identity, str(prefix / "Cellar/gh"))
+                self.assertEqual(install.identity, str(prefix / "Cellar" / token))
                 self.action = lambda: Path(str(target) + ".version").write_text("2.0")
-                self.manager.boundary(self.settings("gh"))
-                self.assertEqual(self.updates()[-1], (str(prefix / "bin/brew"), "upgrade", "--formula", "gh"))
+                self.manager.boundary(self.settings(cli))
+                self.assertEqual(self.updates()[-1], (str(prefix / "bin/brew"), "upgrade", "--formula", token))
                 self.assertTrue(all(value == "1" for value in self.brew_envs[-1].values()))
-                self.assertIn("gh (homebrew-formula) 1.0 -> 2.0: updated", self.lines[-1])
+                self.assertIn(f"{cli} (homebrew-formula) 1.0 -> 2.0: updated", self.lines[-1])
                 self.assertNotIn("unused", self.lines[-1])
                 self.assertFalse(any("sudo" in command for command in self.calls))
 
     def test_gh_auto_skips_non_formula_installs_with_actionable_reasons(self):
-        cases = (("unknown", "configure runtime-updates.gh.command"),
-                 ("shim", "configure runtime-updates.gh.command"),
-                 ("cask", "configure runtime-updates.gh.command"),
-                 ("wrong-formula", "configure runtime-updates.gh.command"),
-                 ("system", "system package installation needs elevated privileges"),
+        self.check_non_formula_skips("gh")
+
+    def test_ub_auto_skips_non_formula_installs_with_actionable_reasons(self):
+        (self.root / ".uberblick.json").touch()
+        self.check_non_formula_skips("ub")
+
+    def check_non_formula_skips(self, cli):
+        configure = f"configure runtime-updates.{cli}.command"
+        cases = (("unknown", configure), ("shim", configure),
+                 ("cask", configure), ("wrong-formula", configure),
+                 ("system", configure if cli == "ub" else "system package installation needs elevated privileges"),
                  ("unwritable-prefix", "installation needs elevated privileges"),
                  ("unwritable-cellar", "installation needs elevated privileges"),
                  ("missing-owner", "owning Homebrew not found"),
@@ -800,17 +821,17 @@ class RuntimeUpdateTests(unittest.TestCase):
                 manager.root = self.root / ("state-" + case)
                 self.calls.clear()
                 if case == "unknown":
-                    self.link("gh", self.executable(self.root / "custom/gh"))
+                    self.link(cli, self.executable(self.root / "custom" / cli))
                 elif case == "shim":
-                    self.link("gh", self.executable(self.root / "mise/shims/gh"))
+                    self.link(cli, self.executable(self.root / "mise/shims" / cli))
                 elif case in {"cask", "wrong-formula"}:
-                    self.brew("gh", token="codex" if case == "wrong-formula" else "gh",
+                    self.brew(cli, token="codex" if case == "wrong-formula" else None,
                               kind="Caskroom" if case == "cask" else "Cellar")
                 elif case == "system":
-                    manager.which = lambda cli: "/usr/bin/gh" if cli == "gh" else None
-                    self.assertEqual(installation("gh", manager.which).method, "system")
+                    manager.which = lambda name: "/usr/bin/" + cli if name == cli else self.which(name)
+                    self.assertEqual(installation(cli, manager.which).method, "system")
                 else:
-                    self.brew("gh", kind="Cellar")
+                    self.brew(cli, kind="Cellar")
                     prefix = self.root / "brew"
                     if case.startswith("unwritable"):
                         path = prefix if case == "unwritable-prefix" else prefix / "Cellar"
@@ -820,15 +841,181 @@ class RuntimeUpdateTests(unittest.TestCase):
                         (prefix / "bin/brew").unlink()
                         if case == "wrong-owner":
                             self.executable(self.bin / "brew")
-                manager.boundary(self.settings("gh"))
+                manager.boundary(self.settings(cli))
                 self.assertIn("skipped — ", self.lines[-1])
                 self.assertIn(reason, self.lines[-1])
                 self.assertEqual(self.updates(), [])
-                state = manager.paths(installation("gh", manager.which))[2]
+                state = manager.paths(installation(cli, manager.which))[2]
                 self.assertFalse(state.exists())
                 before = list(self.calls), list(self.lines)
-                manager.boundary(self.settings("gh"))
+                manager.boundary(self.settings(cli))
                 self.assertEqual((self.calls, self.lines), before)
+
+    def test_ub_workspace_scope_and_shared_daily_command_cooldown(self):
+        self.executable(self.bin / "ub")
+        settings = self.settings("ub", ("ub", "update"))
+        self.manager.boundary(settings)
+        self.assertEqual(self.calls, [])
+        self.assertIn("ub (unused): skipped", self.lines[-1])
+        (self.root / ".uberblick.json").touch()
+        # Both direct and inherited workspace bindings count, without a ub runtime.
+        self.manager.boundary(replace(settings, root=self.root / "nested/project"))
+        self.assertEqual(self.updates(), [("ub", "update")])
+        second = self.manager_for()
+        second.boundary(settings)
+        self.now += COOLDOWN_SECONDS - 1
+        second.boundary(settings)
+        self.assertEqual(len(self.updates()), 1)
+        self.now += 1
+        second.boundary(settings)
+        self.assertEqual(len(self.updates()), 2)
+
+    def test_ub_omitted_off_and_missing_never_run_an_updater(self):
+        (self.root / ".uberblick.json").touch()
+        self.brew("ub", kind="Cellar")
+        for settings in (config(self.root), replace(config(self.root), runtime_updates=RuntimeUpdates({})),
+                         self.settings("ub", "off")):
+            self.manager.boundary(settings)
+            self.assertEqual(self.calls, [])
+            self.assertFalse(self.manager.root.exists())
+        (self.bin / "ub").unlink()
+        self.manager.boundary(self.settings("ub"))
+        self.assertIn("ub (missing): skipped", self.lines[-1])
+        self.assertIn("install the runtime manually; no updater run", self.lines[-1])
+        self.assertEqual(self.calls, [])
+
+    def test_ub_updates_defer_for_all_reserved_runs_only_in_workspace_projects(self):
+        self.npm()
+        self.brew("ub", kind="Cellar")
+        settings = self.settings("ub")
+        (self.root / ".uberblick.json").touch()
+        for cli in (None, "codex"):
+            with self.subTest(cli=cli), self.manager.reserve_run(cli, root=self.root / "nested") as reserved:
+                self.assertIsNotNone(reserved)
+                self.assertEqual(len(reserved.descriptors), 3 if cli else 2)
+                second = self.manager_for()
+                second.boundary(settings)
+                self.assertEqual(self.calls, [])
+                reserved.started()
+                second.boundary(settings)
+                self.assertEqual(self.calls, [])
+        # A run without a binding must not reserve ub, even with a policy.
+        (self.root / ".uberblick.json").unlink()
+        with self.manager.reserve_run(root=self.root) as reserved:
+            self.assertEqual(len(reserved.descriptors), 1)
+            (self.root / ".uberblick.json").touch()
+            self.manager_for().boundary(settings)
+            self.assertEqual(len(self.updates()), 1)
+
+    def test_ub_run_reservation_survives_execution_and_cleanup(self):
+        stub_refresh(self)
+        self.npm()
+        self.brew("ub", kind="Cellar")
+        (self.root / ".uberblick.json").touch()
+        for runtime in (False, True):
+            with self.subTest(runtime=runtime):
+                settings = self.settings("codex", "off") if runtime else config(self.root)
+                github = FakeGitHub(issue())
+                loop = Loop(settings, github, "operator", output=self.lines.append)
+                loop.maintenance = self.manager
+                loop.coordinator.runtime_available = self.manager.available
+                def check_deferred():
+                    count = len(self.updates())
+                    self.now += COOLDOWN_SECONDS
+                    self.manager_for().boundary(self.settings("ub"))
+                    self.assertEqual(len(self.updates()), count)
+                def execution(*args, **kwargs):
+                    self.assertEqual(len(kwargs["pass_fds"]), 3 if runtime else 2)
+                    for descriptor in kwargs["pass_fds"]:
+                        os.fstat(descriptor)
+                    kwargs["process_started"](123)
+                    check_deferred()
+                    return 1
+                from ub_agents.execution import Workspace
+                cleanup = Workspace.cleanup
+                def guarded_cleanup(workspace, *args, **kwargs):
+                    check_deferred()
+                    return cleanup(workspace, *args, **kwargs)
+                with patch("ub_agents.loop.supervise", side_effect=execution) as run, \
+                        patch.object(Workspace, "cleanup", guarded_cleanup):
+                    self.assertTrue(loop.tick())
+                run.assert_called_once()
+                count = len(self.updates())
+                self.manager_for().boundary(self.settings("ub"))
+                self.assertEqual(len(self.updates()), count + 1)
+
+    def test_missing_ub_allows_command_and_runtime_runs(self):
+        stub_refresh(self)
+        self.npm()
+        (self.root / ".uberblick.json").touch()
+        for settings in (config(self.root), self.settings("codex", "off")):
+            with self.subTest(runtime=settings.agents[0].runtimes):
+                github = FakeGitHub(issue())
+                loop = Loop(settings, github, "operator", output=self.lines.append)
+                loop.maintenance = self.manager
+                loop.coordinator.runtime_available = self.manager.available
+                with patch("ub_agents.loop.supervise", return_value=1) as run:
+                    self.assertTrue(loop.tick())
+                run.assert_called_once()
+
+    def test_ub_maintenance_guard_blocks_claims_and_releases_gh(self):
+        stub_refresh(self)
+        self.npm()
+        self.brew("ub", kind="Cellar")
+        (self.root / ".uberblick.json").touch()
+        self.manager.root.mkdir()
+        guard = self.manager.paths(installation("ub", self.which))[0]
+        for settings in (config(self.root), self.settings("codex", "off")):
+            with self.subTest(runtime=settings.agents[0].runtimes):
+                github = FakeGitHub(issue())
+                loop = Loop(settings, github, "operator", output=self.lines.append)
+                loop.maintenance = self.manager
+                loop.coordinator.runtime_available = self.manager.available
+                with lock(guard) as held, patch("ub_agents.loop.supervise") as run:
+                    self.assertIsNotNone(held)
+                    self.assertFalse(loop.tick())
+                run.assert_not_called()
+                self.assertEqual(github.writes, [])
+                gh_guard, gh_runs, _ = self.manager.paths(installation("gh", self.which))
+                with lock(gh_guard) as start, lock(gh_runs) as active:
+                    self.assertIsNotNone(start)
+                    self.assertIsNotNone(active)
+
+    def test_ub_unusable_health_holds_workspace_runs_until_recovered_with_updates_off(self):
+        stub_refresh(self)
+        self.npm()
+        target = self.brew("ub", kind="Cellar")
+        (self.root / ".uberblick.json").touch()
+        version = Path(str(target) + ".version")
+        self.action = version.unlink
+        self.manager.boundary(self.settings("ub"))
+        state = self.manager.paths(installation("ub", self.which))[2]
+        checked = self.manager.read(state)["checked"]
+        self.assertFalse(self.manager.available("ub"))
+        self.assertIn("failed — warning: runtime is unusable; no new runs", self.lines[-1])
+        for settings in (config(self.root), self.settings("codex", "off")):
+            with self.subTest(runtime=settings.agents[0].runtimes):
+                github = FakeGitHub(issue())
+                loop = Loop(settings, github, "operator", output=self.lines.append)
+                loop.maintenance = self.manager_for()
+                loop.coordinator.runtime_available = loop.maintenance.available
+                for poll in (loop.tick, lambda: loop.tick_item(1)):
+                    with patch("ub_agents.loop.supervise") as run:
+                        self.assertFalse(poll())
+                    run.assert_not_called()
+                    self.assertEqual(github.writes, [])
+                self.assertIn("gh or ub became unavailable", self.lines[-1])
+                version.write_text("2.0")
+                with patch("ub_agents.loop.supervise", return_value=1) as run:
+                    self.assertTrue(loop.tick())
+                run.assert_called_once()
+                self.assertEqual(loop.maintenance.read(state)["checked"], checked)
+                version.unlink()
+                self.manager.write(state, self.manager.read(state) | {"usable": False})
+        # Other projects still run while this installation is unhealthy.
+        (self.root / ".uberblick.json").unlink()
+        with self.manager.reserve_run(root=self.root) as reserved:
+            self.assertIsNotNone(reserved)
 
     def test_gh_omitted_off_and_missing_never_run_an_updater(self):
         self.brew("gh", kind="Cellar")
@@ -1250,6 +1437,7 @@ from ub_agents.config import Runtime, RuntimeUpdates
 from ub_agents.runtime_updates import RuntimeMaintenance
 manager = RuntimeMaintenance(output=lambda *_: None, root=Path({str(self.manager.root)!r}))
 settings = SimpleNamespace(runtime_updates=RuntimeUpdates({{"codex": ({str(updater)!r},)}}),
+                           root=Path({str(self.root)!r}),
                            agents=[SimpleNamespace(runtimes=[Runtime("codex", "model", "high")])])
 def crash_when_updater_starts():
     while not Path({str(entered)!r}).exists(): time.sleep(0.01)

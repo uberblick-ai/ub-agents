@@ -96,12 +96,24 @@ class HookTests(unittest.TestCase):
                 self.assertIn("injected branch cleanup failure", kept)
 
     def test_cleanup_hook_inherits_gh_run_lock(self):
+        self.check_hook_inherited_locks(1)
+
+    def test_cleanup_hook_inherits_ub_run_lock_in_uberblick_project(self):
+        (self.root / '.uberblick.json').touch()
+        executable = self.root / 'ub'
+        executable.write_text(f'#!{sys.executable}\nprint("ub test fixture")\n')
+        executable.chmod(0o755)
+        which = shutil.which
+        with patch('shutil.which', side_effect=lambda cli: str(executable) if cli == 'ub' else which(cli)):
+            self.check_hook_inherited_locks(2)
+
+    def check_hook_inherited_locks(self, count):
         loop = self.loop()
         marker = self.root / "inherited"
         def hook(command, *args, **kwargs):
             descriptors = kwargs["pass_fds"]
-            self.assertEqual(len(descriptors), 1)
-            script = (f"import os; from pathlib import Path; os.fstat({descriptors[0]}); "
+            self.assertEqual(len(descriptors), count)
+            script = (f"import os; from pathlib import Path; [os.fstat(fd) for fd in {descriptors!r}]; "
                       f"Path({str(marker)!r}).touch()")
             return supervise([sys.executable, "-c", script], *args, **kwargs)
         with patch("ub_agents.hooks.supervise", side_effect=hook):

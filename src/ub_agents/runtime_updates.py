@@ -14,6 +14,7 @@ import time
 from .execution import stop_group
 from .runtime_installations import claude_updates_disabled, installation, updater
 from .state import lock, user_state_directory
+from .uberblick import workspace_binding
 
 COOLDOWN_SECONDS = 24 * 60 * 60
 
@@ -173,6 +174,8 @@ class RuntimeMaintenance:
     def boundary(self, config):
         settings = config.runtime_updates
         used = {"gh"} | {runtime.cli for agent in config.agents for runtime in agent.runtimes}
+        if workspace_binding(config.root) is not None:
+            used.add("ub")
         policies = settings.policies if settings is not None else {}
         for cli in sorted(used | policies.keys(), key=lambda cli: (cli != "gh", cli)):
             if self.stopped():
@@ -199,8 +202,8 @@ class RuntimeMaintenance:
                 self.output(f"Runtime maintenance {cli} ({install.method}): failed — warning: local state unavailable: {exc}")
 
     @contextmanager
-    def reserve_run(self, cli=None, *, github=None):
-        """Every agent uses gh; protect it through execution and cleanup too."""
+    def reserve_run(self, cli=None, *, github=None, root=None):
+        """Protect shared tools and the runtime through execution and cleanup."""
         with ExitStack() as stack:
             # A discovery pass already owns gh and keeps it until this run's
             # cleanup completes. Reuse its descriptor for child inheritance.
@@ -210,6 +213,15 @@ class RuntimeMaintenance:
                 yield None
                 return
             reservations = (github,)
+            # ub is optional, but an installed copy may back an MCP server for
+            # any agent in this workspace, including command agents.
+            if (root is not None and workspace_binding(root) is not None
+                    and installation("ub", self.which) is not None):
+                uberblick = stack.enter_context(self.reserve("ub"))
+                if uberblick is None:
+                    yield None
+                    return
+                reservations += (uberblick,)
             executable = None
             if cli is not None:
                 runtime = stack.enter_context(self.reserve(cli))

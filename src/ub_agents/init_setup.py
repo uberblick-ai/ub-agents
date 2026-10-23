@@ -55,6 +55,7 @@ class Choices:
     runtime: str
     permissions: bool = False
     updates: bool = False
+    uberblick: bool = False
     owner: str = ""
     tailor_policy: bool = False
     priority_labels: tuple[str, ...] = ()
@@ -135,7 +136,8 @@ def make_plan(path, repository, choices):
         content = content.replace(f"# runtime-args:\n#   {cli}:", f"runtime-args:\n  {cli}:")
     if choices.updates:
         content = content.replace(f"# runtime-updates:\n#   {cli}: auto\n#   gh: auto",
-                                  f"runtime-updates:\n  {cli}: auto\n  gh: auto")
+                                  f"runtime-updates:\n  {cli}: auto\n  gh: auto" +
+                                  ("\n  ub: auto" if choices.uberblick else ""))
     if choices.priority_labels:
         priority = {"labels": list(choices.priority_labels)}
         content = content.replace("  dependencies: wait", "  dependencies: wait\n" +

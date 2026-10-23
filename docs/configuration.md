@@ -397,16 +397,20 @@ runtime-updates:
   codex:
     command: [mise, upgrade, codex]
   gh: auto
+  ub: auto
   timeout-seconds: 300
 ```
 
 | Key | Type and default | Rules |
 |---|---|---|
-| `claude`, `codex`, `gh` | `auto`, `off` (default) or `{command: [...]}` | A command runs as argv without a shell, in the launcher's environment, and resolves like `command`. It must not start with `sudo`, `su`, `doas` or `pkexec`, and should update only that CLI. |
+| `claude`, `codex`, `gh`, `ub` | `auto`, `off` (default) or `{command: [...]}` | A command runs as argv without a shell, in the launcher's environment, and resolves like `command`. It must not start with `sudo`, `su`, `doas` or `pkexec`, and should update only that CLI. |
 | `timeout-seconds` | Number, `300` | Positive, at most 3600. |
 
 Without `runtime-updates`, nothing runs. Claude Code and Codex are checked only when an
-agent's `runtime` uses them; `gh` whenever its policy is not `off`. `auto` supports:
+agent's `runtime` uses them; `gh` whenever its policy is not `off`. `ub` is checked
+when it would find `.uberblick.json` in the project root or an ancestor, regardless
+of the agent runtime. Without that file, a configured `ub` policy reports an unused
+skip. `auto` supports:
 
 | Runtime / installation | Updater |
 |---|---|
@@ -415,24 +419,35 @@ agent's `runtime` uses them; `gh` whenever its policy is not `off`. `auto` suppo
 | Codex npm global | `npm install -g @openai/codex@latest`, with the npm that owns that prefix |
 | Codex Homebrew cask or formula | `brew upgrade --cask codex` or `--formula codex` |
 | GitHub CLI Homebrew formula | `brew upgrade --formula gh` |
+| Uberblick Homebrew formula (`uberblick`) | `brew upgrade --formula uberblick` |
 
 Other installations, including shims, system packages, npm prereleases and
 installations the user cannot write, are skipped with a reason. No updater uses `sudo`
 or switches install methods. For Claude, `DISABLE_UPDATES` in the environment or in
 Claude's user or managed settings skips the update, even with a command.
+`ub: auto` supports only the `uberblick` formula through its owning Homebrew;
+other formulas, casks, system packages, shims and unknown installs need
+`runtime-updates.ub.command`, for example `{command: [ub, update]}`.
 
 Checks run between runs, never during one. Each completed check prints one line and
 starts a 24-hour cooldown; skips start none. npm, Homebrew and command updates wait
 until no tracked run uses the installation. Only runs started by ub-agents are
 tracked, so an update can replace files under a Claude or Codex session you started
-yourself. Cooldowns live under
+yourself. Every run in an Uberblick project reserves an installed `ub` through
+execution and cleanup, even with updates off, so its MCP server finishes before
+an update and new runs start on the new binary. Missing `ub` does not hold runs.
+Cooldowns live under
 `$XDG_STATE_HOME/ub-agents/runtime-updates`, per installation, shared by all launchers
 on the machine. **Opting out in one project does not stop another project's launcher
 from updating the same installation.**
 
 After each check, the launcher runs the CLI's `--version`. If that fails, the CLI is
 unavailable until a later check passes, even with updates off; while `gh` is
-unavailable, no run starts.
+unavailable, no run starts. An unusable `ub` holds new runs in Uberblick projects
+until a health check passes; other projects can still run.
+
+`ub-agents init` writes `ub: auto` only when updates are enabled and the Uberblick
+extra is selected.
 
 ### Runtime permissions
 

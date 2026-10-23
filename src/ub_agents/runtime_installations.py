@@ -37,9 +37,9 @@ def installation(cli, which=None, home=None):
         if parent.parent.name in {"Caskroom", "Cellar"}:
             kind = "homebrew-cask" if parent.parent.name == "Caskroom" else "homebrew-formula"
             allowed = {"claude": {"claude-code", "claude-code@latest"},
-                       "codex": {"codex"}, "gh": {"gh"}}.get(cli, set())
+                       "codex": {"codex"}, "gh": {"gh"}, "ub": {"uberblick"}}.get(cli, set())
             owns = (cli == "codex" or cli == "claude" and kind == "homebrew-cask"
-                    or cli == "gh" and kind == "homebrew-formula")
+                    or cli in {"gh", "ub"} and kind == "homebrew-formula")
             if parent.name in allowed and owns:
                 return Installation(executable, str(parent), kind, parent.parent.parent,
                                     parent, parent.name)
@@ -136,6 +136,6 @@ def updater(cli, install, policy, run, env, which=None):
         if not npm or Path(run([npm, "prefix", "-g"], npm_env).strip()).resolve() != install.prefix.resolve():
             return None, env, "npm owning this global prefix not found; configure runtime-updates command"
         return [npm, "install", "-g", "@openai/codex@latest"], npm_env, None
-    if install.method == "system":
+    if install.method == "system" and cli != "ub":
         return None, env, "system package installation needs elevated privileges; update it manually"
     return None, env, f"{install.method} installation; configure runtime-updates.{cli}.command argv"

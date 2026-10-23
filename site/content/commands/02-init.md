@@ -22,6 +22,8 @@ Run `ub-agents init` from the root of a clean checkout of your project. It check
 
 The wizard asks which agent CLI runs the loop, whether agents may work without asking (for Codex, [full access without a sandbox](/docs/configuration/permissions.html#codex)), whether to keep the CLIs and `gh` up to date, who answers the agents' questions, and which extras you want: priority labels, [retrospective boards](/docs/best-practices/retrospectives.html), Uberblick and tailoring the loop policy (selected by default). Then it shows every change for you to confirm.
 
+With updates enabled, selecting the Uberblick extra also writes `runtime-updates.ub: auto` for Homebrew updates of `ub`.
+
 ## What you get
 
 | File | What it's for |

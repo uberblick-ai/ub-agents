@@ -134,6 +134,8 @@ class FlowTests(unittest.TestCase):
                                              'Write setup?'])
         self.assertIn('Yes · codex and gh update once a day between runs', text)
         self.assertIn('runtime-updates:\n  codex: auto\n  gh: auto', self.path.read_text())
+        self.assertNotIn('ub: auto', self.path.read_text())
+        self.assertNotIn('ub also updates', text)
         self.assertIn('✓ Machine', text)
         self.assertIn('✓ Agents claude logged in · codex logged in', text)
         self.assertIn('Codex · gpt-6.1-sol · high', text)
@@ -422,6 +424,24 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn('Set up an Uberblick workspace?', self.script.asked)
         self.assertIn('Uberblick workspace Found .uberblick.json · wss://hub.example/ws', text)
         self.assertNotIn('Bind an Uberblick workspace', text)
+        self.assertEqual(load_config(self.path).runtime_updates.policies['ub'], 'auto')
+        self.assertIn('ub also updates once a day between runs (Homebrew only)', text)
+
+    def test_uberblick_extra_adds_updates_for_claude_without_a_workspace_yet(self):
+        self.installed.add('ub')
+        code, text = self.run_flow(Script(Which_agent='claude', Extras=['uberblick'], Set_up='later'))
+        self.assertEqual(code, 0)
+        self.assertEqual(load_config(self.path).runtime_updates.policies,
+                         {'claude': 'auto', 'codex': 'off', 'gh': 'auto', 'ub': 'auto'})
+        self.assertIn('ub also updates once a day between runs (Homebrew only)', text)
+
+    def test_uberblick_extra_leaves_declined_updates_off(self):
+        self.installed.add('ub')
+        code, text = self.run_flow(Script(Keep=False, Extras=['uberblick'], Set_up='later'))
+        self.assertEqual(code, 0)
+        self.assertIsNone(load_config(self.path).runtime_updates)
+        self.assertNotIn('ub: auto', self.path.read_text())
+        self.assertNotIn('ub also updates', text)
 
     def test_declined_labels_print_their_commands(self):
         code, text = self.run_flow(Script(Create=False))
