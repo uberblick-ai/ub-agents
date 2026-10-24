@@ -167,6 +167,8 @@ class Workspace:
         self.head_tip = None
         self.private = self.root / ".ub-agents" / "worktrees" / lease["run"]
         self.created = False
+        self.branch = item.branch if item.kind == "pr" else (
+            f"ub-agents/{agent.name}/{item.number}/{lease['run']}" if agent.worktree else None)
 
     def prepare(self):
         if not self.agent.worktree:
@@ -190,8 +192,7 @@ class Workspace:
                     git(self.root, "worktree", "add", "--detach", str(self.private), head)
         else:
             base = self.github.default_branch()
-            branch = f"ub-agents/{self.agent.name}/{self.item.number}/{self.lease['run']}"
-            self.lease["branch"] = branch
+            branch = self.branch
             with fetched_head(self.root, f"refs/heads/{base}") as head:
                 git(self.root, "worktree", "add", "-b", branch, str(self.private), head)
         self.created = True
@@ -231,7 +232,7 @@ class Workspace:
         self.head_tip = None
 
     def cleanup_branch(self):
-        branch = self.lease.get("branch")
+        branch = self.branch
         if self.item.kind == "pr" or not branch:
             return
         tip = "unknown"

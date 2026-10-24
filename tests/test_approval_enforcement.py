@@ -613,7 +613,7 @@ class EnforcementTests(unittest.TestCase):
                 lease, outcome = self.loop.coordinator.history(2)[-2:]
                 self.assertEqual((lease['state'], lease['result']), ('released', 'success'))
                 self.assertTrue(outcome['accepted'])
-                self.assertEqual((outcome['assignment_sha'], outcome['candidate_sha']), ('a' * 40, 'b' * 40))
+                self.assertEqual((lease['assignment_sha'], outcome['candidate_sha']), ('a' * 40, 'b' * 40))
                 self.github.change(2, labels=frozenset({'needs-changes'}))
                 self.assertEqual(self.loop.plans()[0].state, 'parked')
                 # Relabeling cannot approve the fork's newly observed head either.

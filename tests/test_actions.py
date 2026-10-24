@@ -60,7 +60,7 @@ class ActionReportTests(unittest.TestCase):
         lease = self.claim()
         code, error = self.cli(lease, ['--outcome', 'human', '--action', self.action])
         self.assertEqual((code, error), (0, ''))
-        self.assertEqual(self.co.outcome(lease)['action'], self.action)
+        self.assertEqual(self.co.outcome(lease)['actions'][0], self.action)
 
     def test_repeated_actions_are_stored_and_each_visible_without_reasoning(self):
         lease = self.claim()
@@ -68,7 +68,7 @@ class ActionReportTests(unittest.TestCase):
         code, error = self.cli(lease, ['--status', 'blocked', '--action', self.action, '--action', second])
         self.assertEqual((code, error), (0, ''))
         outcome = self.co.outcome(lease)
-        self.assertEqual(outcome['action'], self.action)
+        self.assertEqual(outcome['actions'][0], self.action)
         self.assertEqual(outcome['actions'], [self.action, second])
         self.co.release(lease, 'blocked', outcome['summary'])
         notice = next(c['body'] for c in self.github.comments(1) if c['body'].startswith(ACTION_MARKER))
@@ -85,7 +85,7 @@ class ActionReportTests(unittest.TestCase):
                 self.co.report(lease, 'blocked', 'Gate details', action=actions)
             self.assertEqual(self.github.writes, before)
 
-    def test_options_only_cli_keeps_a_legacy_scalar_without_inventing_an_ask(self):
+    def test_options_only_cli_stores_only_options(self):
         for verdict in (['--status', 'blocked'], ['--outcome', 'human']):
             with self.subTest(verdict=verdict):
                 self.setUp()
@@ -95,11 +95,9 @@ class ActionReportTests(unittest.TestCase):
                 self.assertEqual((code, error), (0, ''))
                 outcome = self.co.outcome(lease)
                 self.assertEqual(outcome['options'], options)
-                self.assertEqual(outcome['action'], options[0])
+                self.assertNotIn('action', outcome)
+                self.assertNotIn('actions', outcome)
                 self.assertEqual(reported_actions(outcome), [])
-                # v0.1.13 ignores options and still requires this scalar on stop reports.
-                legacy = {key: value for key, value in outcome.items() if key != 'options'}
-                validate_report_action(lease, legacy)
 
     def test_actions_and_options_are_distinct_and_share_the_limit(self):
         lease = self.claim()
@@ -107,7 +105,7 @@ class ActionReportTests(unittest.TestCase):
                                  option=['Maintainer: run CI.', 'Maintainer: merge a fix.'])
         self.assertEqual(reported_actions(outcome), [self.action])
         self.assertEqual(outcome['actions'], [self.action])
-        self.assertEqual(outcome['action'], self.action)
+        self.assertEqual(outcome['actions'][0], self.action)
         self.setUp()
         lease = self.claim()
         before = list(self.github.writes)
@@ -131,12 +129,12 @@ class ActionReportTests(unittest.TestCase):
         with self.assertRaisesRegex(AgentError, '--option'):
             self.co.report(lease, 'blocked', 'Gate details', option=[])
         outcome = self.co.report(lease, 'blocked', 'Gate details', option=['界' * 300])
-        for options in ([], 'wrong type', [None], [''], ['Other first option'], ['界' * 300] * 27):
+        for options in ([], 'wrong type', [None], [''], ['界' * 300] * 27):
             with self.subTest(options=options), self.assertRaises(RecordError):
                 records([self.github.comments(1)[-1] | {'body': body(payload(outcome) | {'options': options})}])
         with self.assertRaises(RecordError):
             records([self.github.comments(1)[-1] | {'body': body(payload(outcome) | {
-                'action': 'a' * 300, 'actions': ['a' * 300] * 14, 'options': ['o' * 300] * 13})}])
+                'actions': ['a' * 300] * 14, 'options': ['o' * 300] * 13})}])
 
     def test_options_only_reports_complete_and_recover(self):
         for recover in (False, True):
@@ -166,10 +164,10 @@ class ActionReportTests(unittest.TestCase):
                     self.assertIn('2. Maintainer: merge a fix.', notice)
                     self.assertNotIn('**Maintainer: run CI.**', notice)
 
-    def test_repeated_action_record_validation_requires_matching_legacy_scalar(self):
+    def test_repeated_action_record_validation(self):
         lease = self.claim()
         outcome = self.co.report(lease, 'blocked', 'Gate details', action=self.action)
-        for actions in ([], 'wrong type', [self.action, ''], ['Other first ask'], [self.action] * 300):
+        for actions in ([], 'wrong type', [self.action, ''], [self.action] * 300):
             with self.subTest(actions=actions):
                 comment = self.github.comments(1)[-1] | {'body': body(payload(outcome) | {'actions': actions})}
                 with self.assertRaises(RecordError):
@@ -185,7 +183,7 @@ class ActionReportTests(unittest.TestCase):
                 self.assertIn('--action', error)
                 self.assertEqual(self.github.writes, before)
         outcome = self.co.report(lease, 'blocked', 'Gate details', action='界' * 300)
-        self.assertEqual(outcome['action'], '界' * 300)
+        self.assertEqual(outcome['actions'][0], '界' * 300)
 
     def test_non_stop_reports_do_not_require_action(self):
         lease = self.claim()
@@ -201,7 +199,7 @@ class ActionReportTests(unittest.TestCase):
     def test_surrounding_spaces_do_not_break_the_notice_bold_sentence(self):
         lease = self.claim()
         outcome = self.co.report(lease, 'blocked', 'Gate details', action=f'  {self.action}  ')
-        self.assertEqual(outcome['action'], f'  {self.action}  ')
+        self.assertEqual(outcome['actions'][0], f'  {self.action}  ')
         self.co.release(lease, 'blocked', outcome['summary'])
         notice = next(c['body'] for c in self.github.comments(1) if c['body'].startswith(ACTION_MARKER))
         visible, details = notice.split('<details>', 1)
@@ -214,19 +212,17 @@ class ActionReportTests(unittest.TestCase):
         outcome = self.co.report(lease, 'blocked', 'Gate details', action=self.action)
         for action in (None, 1, '', 'a\nb', 'a' * 301):
             with self.subTest(action=action):
-                comment = self.github.comments(1)[-1] | {'body': body(payload(outcome) | {'action': action})}
+                comment = self.github.comments(1)[-1] | {'body': body(payload(outcome) | {'actions': [action]})}
                 # body omits None fields, so encode a present null explicitly.
                 if action is None:
-                    comment['body'] = comment['body'].replace('"accepted": false,', '"accepted": false, "action": null,')
+                    comment['body'] = comment['body'].replace('"accepted": false,', '"accepted": false, "actions": null,')
                 with self.assertRaises(RecordError):
                     records([comment])
 
-    def remove_action(self, lease, status, legacy=False):
-        if legacy:
-            self.co.update(lease, action_required=None)
+    def remove_action(self, lease, status):
         outcome = self.co.report(lease, status, 'Gate details',
                                  outcome='human' if status == 'success' else None, action=self.action)
-        self.co.update_outcome(lease, outcome, action=None)
+        self.co.update_outcome(lease, outcome, actions=None)
         self.assertNotIn('action', outcome)
         return outcome
 
@@ -245,22 +241,20 @@ class ActionReportTests(unittest.TestCase):
                 self.assertFalse(outcome['accepted'])
                 self.assertEqual(self.github.item(1).labels, {'ready'})
 
-    def test_recovery_rejects_missing_action_and_accepts_historical_stop_records(self):
+    def test_recovery_rejects_missing_action(self):
         for status in ('blocked', 'success'):
-            for legacy in (False, True):
-                with self.subTest(status=status, legacy=legacy):
-                    self.setUp()
-                    lease = self.claim()
-                    outcome = self.remove_action(lease, status, legacy=legacy)
-                    # Parsing remains compatible; validation uses the source lease.
-                    self.assertEqual(self.co.history(1)[1]['id'], outcome['id'])
-                    self.now += 61
-                    with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
-                        self.assertTrue(self.loop.tick())
-                    reported = self.co.history(1)[1]
-                    self.assertEqual('rejected' in reported, not legacy)
-                    self.assertEqual(reported['accepted'], legacy and status == 'success')
-                    self.assertEqual('needs-human' in self.github.item(1).labels, legacy and status == 'success')
+            with self.subTest(status=status):
+                self.setUp()
+                lease = self.claim()
+                outcome = self.remove_action(lease, status)
+                self.assertEqual(self.co.history(1)[1]['id'], outcome['id'])
+                self.now += 61
+                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                    self.assertTrue(self.loop.tick())
+                reported = self.co.history(1)[1]
+                self.assertIn('rejected', reported)
+                self.assertFalse(reported['accepted'])
+                self.assertNotIn('needs-human', self.github.item(1).labels)
 
     def test_launcher_only_blocked_release_collapses_full_details(self):
         with patch('ub_agents.loop.supervise', side_effect=RuntimeError('Missing evidence')):

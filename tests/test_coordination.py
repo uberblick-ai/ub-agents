@@ -12,7 +12,7 @@ from ub_agents.config import Runtime
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, GitHubError, LostOwnership
 from ub_agents.loop import Loop
-from ub_agents.records import MARKER, attempts, body, iso, records, timestamp
+from ub_agents.records import issue_branch, MARKER, attempts, body, iso, records, timestamp
 from tests.support import stub_refresh, FakeGitHub, agent, config, edit_lease, issue, pr
 
 
@@ -440,10 +440,9 @@ class CoordinationTests(unittest.TestCase):
 
     def test_issue_and_pr_on_a_shared_branch_exclude_each_other(self):
         # An earlier issue run left draft PR #2 on its ub-agents branch.
-        branch = "ub-agents/worker/1/earlier"
-        self.github.change(2, branch=branch)
         old = self.start()
-        self.co.update(old, branch=branch)
+        branch = issue_branch(old)
+        self.github.change(2, branch=branch)
         self.co.release(old, "retry", "Interrupted")
         self.github.change(2, draft=True)
         revision = self.start(self.github.item(2))
@@ -461,11 +460,20 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual((pr_plan.state, pr_plan.reason), ("owned", "A live run on #1 owns this item's branch"))
         self.assertIsNone(self.co.claim(pr_plan))
 
+    def test_shared_branch_owner_only_queries_started_execution_branches(self):
+        lease = self.start()
+        history = [lease,
+                   lease | {"run": "unstarted", "started": False},
+                   lease | {"run": "recovery", "mode": "recovery"},
+                   lease | {"run": "other", "agent": "other"}]
+        with patch.object(self.github, "prs_for_branch", wraps=self.github.prs_for_branch) as lookup:
+            self.assertIsNone(self.co.shared_branch_owner(self.github.item(1), self.agent, history))
+        lookup.assert_called_once_with(issue_branch(lease))
+
     def test_shared_branch_claim_race_elects_one_owner(self):
-        branch = "ub-agents/worker/1/earlier"
-        self.github.change(2, branch=branch)
         old = self.start()
-        self.co.update(old, branch=branch)
+        branch = issue_branch(old)
+        self.github.change(2, branch=branch)
         self.co.release(old, "retry", "Interrupted")
         self.github.change(2, draft=True)
         issue_plan, pr_plan = self.plan(), self.plan(self.github.item(2))
@@ -662,7 +670,7 @@ class TrustTests(unittest.TestCase):
                   "actor": "operator", "runtime": "direct", "assignment": 1,
                   "assignment_sha": None, "created": iso(now - 120),
                   "state": "running", "expires": iso(now - 60), "attempt": 1, "started": True,
-                  "attempt_effect": "pending", "declared_triggers": ["ready"], "stop_labels": []}
+                  "attempt_effect": "pending", "triggers": ["ready"]}
         cached = github.create_comment(1, body(source))
         github.store[1].clear()
         loop = self.loop(github)

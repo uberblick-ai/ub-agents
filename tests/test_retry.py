@@ -55,8 +55,8 @@ class RetryTests(unittest.TestCase):
                                  + ([("add-labels", 97, added)] if added else []))
                 reset = records(self.github.store[97], "operator")[0]
                 self.assertEqual((reset["kind"], reset["agent"], reset["assignment"],
-                                  reset["assignment_sha"], reset["summary"]),
-                                 ("reset", "worker", 97, item.head, "Cause resolved"))
+                                  reset["summary"]),
+                                 ("reset", "worker", 97, "Cause resolved"))
                 self.assertEqual(self.github.items[97], replace(item, labels=item.labels.difference(removed).union(added)))
 
     def test_closed_takes_precedence_over_labels(self):
@@ -173,8 +173,8 @@ class RetryTests(unittest.TestCase):
                     self.assertEqual((result, errors), (0, ""))
                     self.assertIn(f"Reset {chosen} attempts on #97:", output)
                     reset, = records(self.github.store[97], "operator")
-                    self.assertEqual((reset["agent"], reset["assignment_sha"]),
-                                     (chosen, self.github.items[97].head))
+                    self.assertEqual(reset["agent"], chosen)
+                    self.assertNotIn("assignment_sha", reset)
 
     def test_default_agent_refuses_without_writes_when_no_kind_applies(self):
         for factory, configured_kind in ((issue, "pr"), (pr, "issue")):

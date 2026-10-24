@@ -14,7 +14,7 @@ from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError
 from ub_agents.github import GitHub, response_parts
 from ub_agents.loop import Loop
-from ub_agents.records import iso, records
+from ub_agents.records import iso, outcome_declarations, records
 from ub_agents.run_config import run_directory
 from ub_agents.run_planning import RunPlanning
 from tests.support import FakeGitHub, RecordingRunner, agent, config, issue, pr, stub_refresh
@@ -346,7 +346,9 @@ class RequestBudgetTests(unittest.TestCase):
                     # Agent requests use a separate client and are excluded from
                     # the launcher's released event, just as in production.
                     source = Coordinator(GitHub('org/project', runner), 'operator')
-                    source.report(loop.github.lease, 'success', 'Finished', outcome='done')
+                    source.report(loop.github.lease, 'success', 'Finished', outcome='done',
+                                  declarations=outcome_declarations(loop.config.agents[0]),
+                                  stop_labels=loop.config.stop_labels)
                     return 0
 
                 # Reproduce the previous read strategy against the same durable
@@ -362,7 +364,7 @@ class RequestBudgetTests(unittest.TestCase):
                           .read_text().splitlines()]
                 counts.append(next(event['github_requests']['gh_calls'] for event in events
                                    if event['event'] == 'released'))
-        self.assertEqual(counts, [77, 58])
+        self.assertEqual(counts, [76, 57])
 
     def test_recovery_release_records_its_own_run_request_counts(self):
         stub_refresh(self)

@@ -59,7 +59,7 @@ def confirm_hook_groups_stopped(config, run):
                            next_step=f"confirm the hook has exited and repair its process records in {parent}") from exc
 
 
-def run_hook(config, lease, worktree, outcome=None, expires=None, pass_fds=()):
+def run_hook(config, lease, worktree, outcome=None, expires=None, pass_fds=(), *, branch=None):
     """Return a confirmed hook failure, or None. Unconfirmed stop raises."""
     if config.cleanup is None:
         return None
@@ -77,7 +77,7 @@ def run_hook(config, lease, worktree, outcome=None, expires=None, pass_fds=()):
         "status": lease.get("result") if lease.get("state") == "released" else
                   outcome.get("status") if outcome else None,
         "outcome": outcome.get("outcome") if outcome else None,
-        "worktree": str(worktree), "branch": lease.get("branch"),
+        "worktree": str(worktree), "branch": branch,
     }
     path = directory / "context.json"
     path.write_text(json.dumps(context, indent=2))
@@ -87,7 +87,7 @@ def run_hook(config, lease, worktree, outcome=None, expires=None, pass_fds=()):
                 "UB_AGENTS_REPOSITORY": config.repository,
                 "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_AGENT": lease.get("agent") or "",
                 "UB_AGENTS_ASSIGNMENT": str(lease["assignment"]) if lease.get("assignment") else "",
-                "UB_AGENTS_WORKTREE": str(worktree), "UB_AGENTS_BRANCH": lease.get("branch") or ""})
+                "UB_AGENTS_WORKTREE": str(worktree), "UB_AGENTS_BRANCH": branch or ""})
     confirmed = True
     try:
         code = supervise(list(config.cleanup.command), config.root, env, directory,

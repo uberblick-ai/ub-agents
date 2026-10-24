@@ -14,7 +14,7 @@ from rich.console import Console
 
 from ub_agents.coordination import Coordinator, Plan
 from ub_agents.observations import MAX_BYTES, MAX_OUTCOMES, MAX_TEXT, Observations
-from ub_agents.records import iso
+from ub_agents.records import display_provenance, iso
 from ub_agents.run_history import merge_record
 from ub_agents.view_data import Session, work_rows
 from ub_agents.view_runs import relative_time, run_host, run_status, runs_view
@@ -374,9 +374,12 @@ class RunsTests(unittest.TestCase):
         lease = co.claim(co.plan(github.item(1), role, ()))
         co.update(lease, state='running', started=True, host='source-host')
         reported = co.report(lease, 'success', 'Ready', handoff=2, outcome='done')
-        self.assertEqual(reported['host'], 'source-host')
+        self.assertNotIn('host', reported)
+        self.assertEqual(display_provenance(reported, co.history(1))['host'], 'source-host')
         co.accept(lease, reported)
-        self.assertEqual(co.history(2)[0]['host'], 'source-host')
+        copied = co.history(2)[0]
+        self.assertNotIn('host', copied)
+        self.assertEqual(display_provenance(copied, co.history(1))['host'], 'source-host')
         # Unknown hosts remain backward compatible with old outcomes.
         lease.pop('host')
         rows = []

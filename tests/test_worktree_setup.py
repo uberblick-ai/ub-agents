@@ -1,3 +1,5 @@
+from ub_agents.run_config import process_group
+from ub_agents.run_config import record_process_group
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -77,8 +79,8 @@ class WorktreeSetupTests(unittest.TestCase):
             self.assertEqual((directory / "stopped").read_text(), "confirmed\n")
             self.assertFalse((run_dir / "process.log").exists())
             lease = loop.coordinator.history(int(env["UB_AGENTS_ASSIGNMENT"]))[0]
-            self.assertEqual(lease["process_group"], int((directory / "pid").read_text()))
-            self.assertEqual(group_members(lease["process_group"]), [])
+            self.assertEqual(process_group(self.root, lease["run"]), int((directory / "pid").read_text()))
+            self.assertEqual(group_members(process_group(self.root, lease["run"])), [])
         with patch("ub_agents.worktree_setup.supervise", wraps=supervise) as setup:
             self.execute(loop, installed)
             self.github.items[3] = issue(3)
@@ -176,7 +178,7 @@ class WorktreeSetupTests(unittest.TestCase):
                 self.assertFalse((directory / "process.log").exists())
                 self.assertEqual((directory / "checkout-setup/stopped").read_text(), "confirmed\n")
                 if mode != "start":
-                    self.assertEqual(group_members(lease["process_group"]), [])
+                    self.assertEqual(group_members(process_group(self.root, lease["run"])), [])
 
     def test_interrupt_confirms_group_ends_and_records_setup_log(self):
         loop = self.loop("import time; time.sleep(30)")
@@ -196,7 +198,7 @@ class WorktreeSetupTests(unittest.TestCase):
                          ("released", "retry", "unchanged"))
         self.assertIn("interrupted", lease["summary"])
         self.assertIn(str(directory / "checkout-setup/process.log"), lease["summary"])
-        self.assertEqual(group_members(lease["process_group"]), [])
+        self.assertEqual(group_members(process_group(self.root, lease["run"])), [])
         self.assertFalse(worktree.exists())
 
     def test_item_checks_are_repeated_after_setup(self):
@@ -252,50 +254,24 @@ class WorktreeSetupTests(unittest.TestCase):
         self.assertEqual(group_members(int((directory / "checkout-setup/pid").read_text())), [])
         self.assertFalse(worktree.exists())
 
-    def test_github_failure_recording_setup_process_stops_child_and_continues_polling(self):
+    def test_local_process_record_failure_stops_setup_child(self):
         loop = self.loop("import time; time.sleep(30)")
-        now = timestamp()
-        loop.coordinator.clock = lambda: now
-        failure = GitHubError("PATCH", "lease", "connection reset", retryable=True)
-        update = self.github.update_comment
-        failed, delays = [], []
-
-        def record(comment_id, body):
-            if '"process_group":' in body and not failed:
-                failed.append(list(self.github.writes))
-                raise failure
-            return update(comment_id, body)
-
-        def wait(delay):
-            delays.append(delay)
-            self.assertEqual(self.github.writes, failed[0])
-            lease, directory, worktree = self.artifacts()
-            self.assertEqual(lease["state"], "running")
-            self.assertNotIn("result", lease)
-            self.assertEqual(loop.plans()[0].state, "owned")
-            self.assertEqual(group_members(int((directory / "checkout-setup/pid").read_text())), [])
-            self.assertEqual((directory / "checkout-setup/stopped").read_text(), "confirmed\n")
-            self.assertFalse(worktree.exists())
-            if len(delays) == 2:
-                loop.stop_event.set()
-
-        with patch.object(self.github, "update_comment", side_effect=record), \
-                patch.object(loop.stop_event, "wait", side_effect=wait), \
+        with patch("ub_agents.loop.record_process_group", side_effect=OSError("disk full")), \
                 patch("ub_agents.loop.supervise") as execution:
-            loop.launch()
+            self.assertTrue(loop.tick())
         execution.assert_not_called()
-        self.assertEqual(len(delays), 2)
-        self.assertEqual(delays[0], 5)
-        self.assertGreater(delays[1], 0)
-        self.assertLessEqual(delays[1], loop.config.poll_seconds)
-        self.assertEqual(self.github.writes, failed[0])
+        lease, directory, worktree = self.artifacts()
+        self.assertEqual(lease["result"], "retry")
+        self.assertEqual(group_members(int((directory / "checkout-setup/pid").read_text())), [])
+        self.assertEqual((directory / "checkout-setup/stopped").read_text(), "confirmed\n")
+        self.assertFalse(worktree.exists())
 
     def crashed(self, *, outcome=False):
         loop = self.loop()
         loop.coordinator.clock = lambda: timestamp() - 2
         lease = loop.coordinator.claim(loop.plans()[0])
-        loop.coordinator.update(lease, state="running", started=True, host=socket.gethostname(),
-                                process_group=123456)
+        record_process_group(self.root, lease["run"], 123456)
+        loop.coordinator.update(lease, state="running", started=True, host=socket.gethostname())
         if outcome:
             loop.coordinator.report(lease, "success", "done", outcome="done")
         edit_lease(self.github, lease, expires=iso(timestamp() - 1))
