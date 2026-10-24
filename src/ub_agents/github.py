@@ -16,6 +16,12 @@ REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
 APPROVAL_BATCH_SIZE = 50
 
 
+def milestone_title_key(title):
+    """Compare digit runs as numbers, then break ties by exact title."""
+    parts = tuple(int(part) if part.isdecimal() else part for part in re.split(r"(\d+)", title))
+    return parts, title
+
+
 def is_fork(head_repository, base_repository):
     """Deleted or missing head repositories count as forks, too."""
     return head_repository is None or head_repository.casefold() != base_repository.casefold()
@@ -629,7 +635,8 @@ class GitHub:
                     active.append((raw["title"], raw["number"]))
             except (KeyError, TypeError, ValueError, AgentError) as exc:
                 raise GitHubError("GET", endpoint, "Unreadable GitHub milestone") from exc
-        return tuple(number for _, number in sorted(active, key=lambda milestone: milestone[0]))
+        ordered = sorted(active, key=lambda milestone: milestone_title_key(milestone[0]))
+        return tuple(number for _, number in ordered)
 
     def dependency_graph(self):
         """List open issues and their links together for cold queue ranking."""

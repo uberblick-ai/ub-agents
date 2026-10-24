@@ -14,7 +14,7 @@ from ub_agents.github import Dependency, GitHub, closing_issues, parse_item
 from ub_agents.loop import Loop
 from ub_agents.notices import Notices
 from ub_agents.records import body, iso, seconds, timestamp
-from tests.support import DiscoveryCostRunner, RecordingRunner, agent, config, issue, pr
+from tests.support import DiscoveryCostRunner, FakeGitHub, RecordingRunner, agent, config, issue, pr
 
 
 class GitHubTests(unittest.TestCase):
@@ -495,23 +495,35 @@ class GitHubTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(AgentError):
                 parse_item(raw | changes, "issue")
 
-    def test_milestone_order_reads_every_page_and_sorts_by_exact_title(self):
+    def test_milestone_order_reads_every_page_and_sorts_by_natural_title(self):
         later = {"number": 1, "title": "v0.9.0", "created_at": iso(300), "state": "open", "open_issues": 1}
-        first_page = [dict(later, number=n, title=f"v0.9.{101 - n:03}") for n in range(1, 101)]
-        uppercase = dict(later, number=200, title="V9.0.0", created_at=iso(200))
-        double_digit = dict(later, number=150, title="v0.10.0", created_at=iso(100))
+        first_page = [dict(later, number=n, title=f"v2.0.{101 - n}") for n in range(1, 101)]
+        titles = ["v0.5.10", "v0.5.9", "v0.10.0", "v0.9.0", "v0.4.6", "Backlog",
+                  "v0.4.0 — Other runtimes", "v1", "v01", "V9.0.0", "v1.0.0-rc.1", "v1.0.0",
+                  "0.5.10", "0.5.9", "Archive"]
+        examples = [dict(later, number=n, title=title, created_at=iso(200 - n))
+                    for n, title in enumerate(titles, 150)]
         empty = dict(later, number=300, title="A empty", created_at=iso(1), open_issues=0)
         closed = dict(empty, number=400, title="A closed", state="closed", open_issues=1)
-        pages = [first_page, [uppercase, double_digit, empty, closed]]
+        pages = [first_page, [*examples, empty, closed]]
         results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]
+        expected_titles = ["0.5.9", "0.5.10", "Archive", "Backlog", "V9.0.0",
+                           "v0.4.0 — Other runtimes", "v0.4.6", "v0.5.9", "v0.5.10", "v0.9.0",
+                           "v0.10.0", "v01", "v1", "v1.0.0", "v1.0.0-rc.1"]
+        numbers = {row["title"]: row["number"] for row in examples}
+        expected = tuple(numbers[title] for title in expected_titles) + tuple(range(100, 0, -1))
         with patch("ub_agents.github.subprocess.run", side_effect=results) as run:
-            self.assertEqual(GitHub("org/project").milestone_order(), (200, 150, *range(100, 0, -1)))
+            self.assertEqual(GitHub("org/project").milestone_order(), expected)
         self.assertEqual(run.call_count, 2)
         for page, call in enumerate(run.call_args_list, 1):
             endpoint = call.args[0][-1]
             self.assertIn("/milestones?", endpoint)
             self.assertIn("state=open", endpoint)
             self.assertIn(f"page={page}", endpoint)
+        fake = FakeGitHub(*(issue(row["number"], milestone=row["number"])
+                            for row in first_page + examples + [closed]))
+        fake.milestones = first_page + examples + [empty, closed]
+        self.assertEqual(fake.milestone_order(), expected)
 
     def test_no_incomplete_milestones_returns_empty_order(self):
         for rows in ([], [{"number": 1, "title": "v1", "created_at": iso(1), "state": "open", "open_issues": 0}],
@@ -807,23 +819,28 @@ agents:
                     patch.object(github, "request", return_value=[raw | {"merged_at": merged_at}]):
                 self.assertEqual(github.prs_for_branch(raw["head"]["ref"], state="all")[0].merged, expected)
 
-    def test_active_milestone_reads_every_page_and_sorts_by_title(self):
+    def test_active_milestone_reads_every_page_and_sorts_by_natural_title(self):
         later = {"number": 1, "title": "v0.9.0", "created_at": iso(300), "state": "open", "open_issues": 1}
-        first_page = [dict(later, number=n, title=f"v0.9.{n:03}") for n in range(1, 101)]
-        first = dict(later, number=200, title="v0.10.0", created_at=iso(200))
-        older = dict(later, number=150, title="v0.8.0", created_at=iso(100))
+        first_page = [dict(later, number=n, title=f"v2.0.{n}") for n in range(1, 101)]
+        titles = ["0.5.9", "0.5.10", "Archive", "Backlog", "V9.0.0", "v0.4.0 — Other runtimes",
+                  "v0.4.6", "v0.5.9", "v0.5.10", "v0.9.0", "v0.10.0", "v01", "v1",
+                  "v1.0.0", "v1.0.0-rc.1"]
+        examples = [dict(later, number=n, title=title, created_at=iso(200 - n))
+                    for n, title in enumerate(titles, 150)]
         empty = dict(later, number=300, title="A empty", created_at=iso(1), open_issues=0)
         closed = dict(empty, number=400, title="A closed", state="closed", open_issues=1)
-        pages = [first_page, [first, older, empty, closed]]
-        results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]
-        with patch("ub_agents.github.subprocess.run", side_effect=results) as run:
-            self.assertEqual(GitHub("org/project").active_milestone(), 200)
-        self.assertEqual(run.call_count, 2)
-        for page, call in enumerate(run.call_args_list, 1):
-            endpoint = call.args[0][-1]
-            self.assertIn("/milestones?", endpoint)
-            self.assertIn("state=open", endpoint)
-            self.assertIn(f"page={page}", endpoint)
+        for index, first in enumerate(examples):
+            with self.subTest(title=first["title"]):
+                pages = [first_page, [*reversed(examples[index:]), empty, closed]]
+                results = [subprocess.CompletedProcess([], 0, json.dumps(page), "") for page in pages]
+                with patch("ub_agents.github.subprocess.run", side_effect=results) as run:
+                    self.assertEqual(GitHub("org/project").active_milestone(), first["number"])
+                self.assertEqual(run.call_count, 2)
+                for page, call in enumerate(run.call_args_list, 1):
+                    endpoint = call.args[0][-1]
+                    self.assertIn("/milestones?", endpoint)
+                    self.assertIn("state=open", endpoint)
+                    self.assertIn(f"page={page}", endpoint)
 
     def test_no_incomplete_milestones_returns_no_gate(self):
         for rows in ([], [{"number": 1, "title": "v1", "created_at": iso(1), "state": "open", "open_issues": 0}],
