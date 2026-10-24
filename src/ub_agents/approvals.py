@@ -10,8 +10,8 @@ from .bots import is_bot, listed_bot
 from .errors import AgentError, GitHubError, LostOwnership
 from .github import is_fork
 from .notices import ACTION_MARKER
-from .records import (declared_transition, lease_by_id,
-                      positive_int, records, recovers, resolve_transition, same_run, seconds)
+from .records import (lease_by_id,
+                      positive_int, records, recovers, same_run, seconds)
 from .trust import LauncherTrust
 
 MAINTAINERS = {"maintain", "admin"}
@@ -378,20 +378,14 @@ def inherited_starts(github, number, events, roles, launchers):
                 or number not in outcome.get("sub_issues", ())):
             continue
         lease = lease_by_id(history, outcome["lease_id"])
-        name = outcome.get("outcome")
-        if (not lease or not same_run(outcome, lease) or name not in lease.get("outcomes", {})
-                or lease.get("cleanup") == "unconfirmed"):
-            continue
-        declaration = declared_transition(lease, name)
         transition = outcome.get("transition", {})
-        if (not transition.get("started") or "sub-issues" not in declaration
-                or {k: v for k, v in resolve_transition(transition, declaration).items() if k != "started"}
-                != declaration):
+        if (not lease or not same_run(outcome, lease) or lease.get("cleanup") == "unconfirmed"
+                or not transition.get("started") or "sub-issues" not in transition):
             continue
         # Timeline events have second precision; the label can be applied in
         # the same second as the higher precision durable outcome timestamp.
         matching = [seconds(e["created_at"]) for e in events
-                    if e["label"]["name"] in declaration["sub-issues"]["add"]
+                    if e["label"]["name"] in transition["sub-issues"]["add"]
                     and seconds(e["created_at"]) >= int(seconds(outcome["created"]))]
         releases = [seconds(r["expires"]) for r in history
                     if (r["id"] == lease["id"] or recovers(r, lease))
@@ -431,7 +425,7 @@ def eligible_head(head, number, approving_reviews, starts, comments, roles, acto
                     or outcome.get("rejected") or not outcome.get("candidate_sha")):
                 continue
             lease = lease_by_id(history, outcome["lease_id"])
-            source = outcome.get("assignment_sha")
+            source = lease.get("assignment_sha") if lease else None
             if (not lease or not same_run(outcome, lease) or source not in eligible
                     or seconds(lease["created"]) < max(min(starts), eligible[source])
                     or lease.get("cleanup") == "unconfirmed"):

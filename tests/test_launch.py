@@ -1,3 +1,4 @@
+from ub_agents.run_config import record_process_group
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta
 from dataclasses import replace
@@ -944,7 +945,8 @@ class TargetedLaunchTests(unittest.TestCase):
     def test_local_owned_noop_omits_the_running_process_log_path(self):
         co = self.coordinator()
         lease = co.claim(co.plan(self.github.items[11], self.config.agents[0], ()))
-        co.update(lease, state="running", started=True, host="local-host", process_group=42,
+        record_process_group(self.root, lease["run"], 42)
+        co.update(lease, state="running", started=True, host="local-host",
                   log_dir="private-logs")
         with patch("ub_agents.loop.socket.gethostname", return_value="local-host"), \
                 patch("ub_agents.status.group_members", return_value=[42]):

@@ -1,3 +1,4 @@
+from ub_agents.records import issue_branch
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 import io
@@ -169,7 +170,7 @@ class StartupCleanupTests(unittest.TestCase):
                     path = workspace.prepare()
                 self.assertTrue(path.is_dir())
                 self.assertEqual(git(path, "rev-parse", "HEAD"), self.base)
-                self.assertEqual(git(self.root, "rev-parse", lease["branch"]), self.base)
+                self.assertEqual(git(self.root, "rev-parse", issue_branch(lease)), self.base)
                 self.assertIn("claimed by this launcher", self.log.read_text())
             finally:
                 scan.set()

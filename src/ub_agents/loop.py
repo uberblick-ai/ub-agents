@@ -34,8 +34,8 @@ from .poll_now import PollNow
 from .prompts import CONTINUATION_PROMPT, FORK_PR_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
 from .hooks import run_hook
 from .notices import ACTION_MARKER
-from .records import (attempts, backoff, declared_transition, iso, latest_leases, lease_by_id,
-                      lease_summary, resolve_transition, seconds, timestamp, validate_report_action)
+from .records import (attempts, backoff, display_provenance, issue_branch, iso, latest_leases, lease_by_id,
+                      lease_summary, outcome_declarations, resolve_transition, same_run, seconds, timestamp, validate_report_action)
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
 from .renewal import LeaseRenewal
@@ -46,7 +46,7 @@ from .usage_output import UsageOutput
 from .uberblick import workspace_binding
 from .trust import LauncherTrust
 from .run_planning import ObservationReads, RunPlanning
-from .run_config import run_config, run_directory
+from .run_config import record_process_group, run_config, run_directory
 from .worktree_setup import confirm_worktree_setup_stopped, run_worktree_setup
 
 POLL_RETRY_BASE_SECONDS = 5
@@ -190,7 +190,7 @@ class Loop:
                 "removes the stop label and restores a trigger")
 
     def _refuse_plan(self, plan):
-        state, reason = refusal_reason(plan, self.coordinator.clock(), socket.gethostname(), include_log=False)
+        state, reason = refusal_reason(plan, self.coordinator.clock(), socket.gethostname(), root=self.config.root, include_log=False)
         start = check_start(plan.item, plan.agent,
                             plan.matches or AgentMatches.for_item(plan.item, self.config.agents),
                             self.config.stop_labels, self.config.queue)
@@ -226,6 +226,8 @@ class Loop:
     def _publish_observation(self, method, *args):
         if self.observer is not None:
             try:
+                if method == "record" and args[0]["kind"] == "outcome":
+                    args = (display_provenance(args[0], self.coordinator.history(args[0]["assignment"])),)
                 getattr(self.observer, method)(*args)
             except _GracefulStop:
                 raise
@@ -686,7 +688,13 @@ class Loop:
                    for login, role in github.pass_roles.items()}
         comments = github.observed_comments(plan.item.number)
         plan = replace(plan, attention_notice=latest_notice(plan.history, comments, authors))
-        (observe or self._observe)("plan", plan, filing, comments, authors)
+        histories = {plan.item.number: plan.history}
+        for record in plan.history:
+            if record["kind"] == "outcome" and record["assignment"] not in histories:
+                histories[record["assignment"]] = self._planning_coordinator(github, observe).history(record["assignment"])
+        displayed = replace(plan, history=tuple(display_provenance(record, histories[record["assignment"]])
+                                               for record in plan.history))
+        (observe or self._observe)("plan", displayed, filing, comments, authors)
         return plan
 
     def _replan_finished_item(self, plan):
@@ -1356,7 +1364,7 @@ class Loop:
                         self.stop_event.set()
                     reported = outcome
                 hook_attempted = True
-                failure = run_hook(self.config, lease, workspace.private, reported,
+                failure = run_hook(self.config, lease, workspace.private, reported, branch=workspace.branch,
                                    expires=(lambda: self.coordinator.deadline(lease)) if record else None,
                                    pass_fds=reservation.descriptors if reservation is not None else ())
                 if failure:
@@ -1393,7 +1401,7 @@ class Loop:
 
         def record_process(pid):
             self.coordinator.assert_owned(lease)
-            self.coordinator.update(lease, process_group=pid)
+            record_process_group(self.config.root, lease["run"], pid)
             self.coordinator.assert_owned(lease)
 
         def process_started(pid):
@@ -1418,10 +1426,9 @@ class Loop:
             run_dir.mkdir(parents=True, exist_ok=True)
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, state="running", started=True,
-                                    attempt_effect="pending", host=socket.gethostname(), log_dir=str(run_dir))
+                                    attempt_effect="pending", host=socket.gethostname())
             scratch.prepare()
             cwd = workspace.prepare()
-            self.coordinator.update(lease, branch=lease.get("branch"))
             if workspace.created and not workspace.fork and self.config.checkout_setup is not None:
                 run_worktree_setup(self.config, cwd, run_dir, self.interrupt_event, self.output,
                                    lambda state: self._observe("activity", state),
@@ -1448,7 +1455,7 @@ class Loop:
                        "candidate_sha": plan.item.head, "run": lease["run"],
                        "scratch": str(scratch.path),
                        "report_command": report_command,
-                       "agent": plan.agent.name, "branch": lease.get("branch"),
+                       "agent": plan.agent.name, "branch": workspace.branch,
                        "earlier_branches": self.earlier_branches(plan.item, plan.agent, lease["run"])}
             if "outcome_rounds" in lease:
                 context["outcome_rounds"] = lease["outcome_rounds"]
@@ -1468,7 +1475,7 @@ class Loop:
                         "UB_AGENTS_REPORT": report_command,
                         "UB_AGENTS_SCRATCH": str(scratch.path),
                         "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",
-                        "UB_AGENTS_BRANCH": lease.get("branch") or ""})
+                        "UB_AGENTS_BRANCH": workspace.branch or ""})
             diagnostic("started", cwd=str(cwd))
             setup = False
             command = command_for(plan.agent, plan.runtime, scratch.path, report_command)
@@ -1615,11 +1622,11 @@ class Loop:
         return True
 
     def earlier_branches(self, item, agent, run):
-        """Branches recorded by this issue's other runs of the agent; an open PR there is the draft to continue."""
+        """Branches derived from this issue's other runs of the agent; an open PR there is the draft to continue."""
         if item.kind != "issue":
             return []
-        return sorted({r["branch"] for r in self.coordinator.history(item.number) if r["kind"] == "lease"
-                       and r["agent"] == agent.name and r.get("branch") and r["run"] != run})
+        return sorted({issue_branch(r) for r in self.coordinator.history(item.number) if r["kind"] == "lease"
+                       and r["agent"] == agent.name and r["run"] != run})
 
     def prompt_for(self, plan, lease, context, instructions, *, shared_instructions=""):
         earlier = context["earlier_branches"]
@@ -1649,7 +1656,7 @@ class Loop:
             shared = FORK_PR_PROMPT.format(workspace=workspace, head_ref=head_ref,
                                           head=plan.item.head) + "\n" + shared
         return RUN_PROMPT.format(agent=plan.agent.name, report_command=report_command,
-                                 outcomes=json.dumps(lease["outcomes"], sort_keys=True),
+                                 outcomes=json.dumps(outcome_declarations(plan.agent), sort_keys=True),
                                  labels=json.dumps(sorted(workflow_labels)), continuation=continuation,
                                  retrospective=retrospective, context=json.dumps(context, indent=2),
                                  shared_instructions=shared, instructions=instructions)
@@ -1723,7 +1730,8 @@ class Loop:
             if not links_issue(destination, self.config.repository, plan.item.number):
                 raise ValidationError("Implementation PR body does not link its original issue")
             # A cheap tripwire for the duplicate the instructions exist to prevent.
-            for branch in self.earlier_branches(plan.item, plan.agent, outcome["run"]):
+            source = lease_by_id(self.coordinator.history(outcome["assignment"]), outcome["lease_id"])
+            for branch in self.earlier_branches(plan.item, plan.agent, source["run"]):
                 others = [pr.number for pr in self.github.prs_for_branch(branch) if pr.number != destination.number]
                 if others:
                     raise ValidationError(f"Another open PR #{others[0]} from an earlier run of this issue is on "
@@ -1735,19 +1743,19 @@ class Loop:
             raise error(outcome["rejected"])
         history = self.coordinator.history(outcome["assignment"])
         source = lease_by_id(history, outcome["lease_id"])
-        declarations = source.get("outcomes", {}) if source else {}
         transition = outcome.get("transition")
-        name = outcome.get("outcome")
-        if name not in declarations or transition is None:
+        if not source or not same_run(outcome, source):
+            raise ValidationError("Reported outcome does not match its source lease")
+        if not outcome.get("outcome") or transition is None:
             raise ValidationError("Success report must name a declared outcome")
-        declaration = declared_transition(source, name)
-        transition = resolve_transition(transition, declaration)
-        if {k: v for k, v in transition.items() if k != "started"} != declaration:
-            raise ValidationError("Reported transition does not match the running agent's declaration")
-        if "sub-issues" in declaration and "sub_issues" not in outcome:
+        agent = next((agent for agent in self.config.agents if agent.name == outcome["agent"]), None)
+        if agent is None:
+            raise ValidationError("Reported agent is no longer configured")
+        transition = resolve_transition(transition, agent.triggers, self.config.stop_labels)
+        if "sub-issues" in transition and "sub_issues" not in outcome:
             raise ValidationError("Sub-issue targets were not resolved in the outcome record")
         try:
-            validate_report_action(source, outcome)
+            validate_report_action(source, outcome, self.config.stop_labels)
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
         return transition
@@ -1756,7 +1764,7 @@ class Loop:
         try:
             if outcome.get("rejected"):
                 raise ValueError(outcome["rejected"])
-            validate_report_action(source, outcome)
+            validate_report_action(source, outcome, self.config.stop_labels)
         except ValueError as exc:
             self.coordinator.update_outcome(lease, outcome, rejected=str(exc), attempt_effect="failure")
             raise ValidationError(str(exc)) from exc
@@ -1771,7 +1779,7 @@ class Loop:
         target = outcome.get("handoff") or outcome["assignment"]
         destination = self.github.item(target)
         if not transition["started"]:
-            stops = set(transition["stop_labels"]).union(self.config.stop_labels)
+            stops = set(self.config.stop_labels)
             if assignment.labels.union(destination.labels).intersection(stops):
                 raise TransitionPaused("Transition paused: a stop label is on the assignment or handoff PR; "
                                       "set workflow labels manually or use ub-agents retry after unpausing")
@@ -1820,7 +1828,8 @@ class Loop:
         if outcome is None:
             self.declined(plan, "Recovery outcome no longer matches")
             return False
-        confirm_worktree_setup_stopped(self.config, outcome["run"])
+        source = lease_by_id(history, outcome["lease_id"])
+        confirm_worktree_setup_stopped(self.config, source["run"])
         self._observe("assignment", plan)
         self._finalizing = True
         boundary = self._claim_boundary()
@@ -1840,7 +1849,7 @@ class Loop:
         if outcome is None:
             raise LostOwnership("Recovered outcome disappeared after claiming")
         # Validate against the originally assigned candidate, not today's head.
-        original = replace(plan, item=replace(plan.item, head=outcome["assignment_sha"]))
+        original = replace(plan, item=replace(plan.item, head=source["assignment_sha"]))
         try:
             result, summary, effect = self.reported_verdict(recovery, original, outcome, source,
                                                             "recovered completion")
@@ -1848,7 +1857,7 @@ class Loop:
             result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
             effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
         # The source's attempt counts this failure, as an execution lease's does.
-        self.settle(plan, recovery, source["attempt"], result, f"Recovered {outcome['run']}:\n\n{summary}",
+        self.settle(plan, recovery, source["attempt"], result, f"Recovered {source['run']}:\n\n{summary}",
                     effect, parking_outcome=outcome, completed=True)
         self.github.end_finalization()
         self._renewal.close()

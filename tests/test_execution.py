@@ -408,7 +408,7 @@ class WorkspaceCleanupTests(unittest.TestCase):
         self.workspace = Workspace(config(self.root), agent(self.root, worktree=True),
                                    issue(), self.lease, FakeGitHub(issue()), output=self.lines.append)
         self.path = self.workspace.prepare()
-        self.branch = self.lease["branch"]
+        self.branch = self.workspace.branch
         self.tip = git(self.path, "rev-parse", "HEAD")
 
     def commit(self, path, content):
@@ -421,7 +421,7 @@ class WorkspaceCleanupTests(unittest.TestCase):
     def assert_removed_worktree(self):
         self.assertFalse(self.path.exists())
         self.assertFalse(self.workspace.created)
-        self.assertEqual(self.lease, {"run": "private", "branch": self.branch})
+        self.assertEqual(self.lease, {"run": "private"})
 
     def assert_kept_branch(self, tip, reason):
         self.assertEqual(git(self.root, "rev-parse", f"refs/heads/{self.branch}"), tip)

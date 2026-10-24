@@ -198,7 +198,7 @@ class RoundTests(unittest.TestCase):
     def test_malformed_round_snapshots_are_rejected(self):
         coordinator = self.loop.coordinator
         lease = coordinator.claim(next(self.loop.item_plans(1)[1]), self.loop.config.stop_labels)
-        for rounds in ([], {}, {'missing': {'used': 0, 'limit': 3}},
+        for rounds in ([], {}, {'': {'used': 0, 'limit': 3}},
                        {'changes-requested': {'used': -1, 'limit': 3}},
                        {'changes-requested': {'used': True, 'limit': 3}},
                        {'changes-requested': {'used': 0, 'limit': 0}},

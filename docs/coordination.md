@@ -124,12 +124,13 @@ change approval requirements.
 
 ## Trusted comments
 
-Lease, outcome and retry-reset comments start with the marker `<!-- ub-agents:v3 -->`
+Lease, outcome and retry-reset comments start with the marker `<!-- ub-agents:v4 -->`
 and one readable line naming the state, agent, runtime, short candidate SHA when
 known, and a short summary. The JSON record follows in a collapsed `<details>` block
-headed **Coordination record**. Launchers parse only v3 JSON, including in minimized
-comments, and never parse prose for routing. Every lease requires `attempt_effect`,
-`declared_triggers` and `stop_labels`. A malformed v3 record blocks its item.
+headed **Coordination record**. Launchers parse only v4 JSON, including in minimized
+comments, and never parse prose for routing. Older markers are excluded from assignment
+and approval input but are not parsed. Every lease requires `attempt_effect`. A malformed
+v4 record blocks its item.
 
 By default, records count when the comment author's current repository role is
 `write`, `maintain` or `admin`. [`launchers`](configuration.md#launcher-accounts)
@@ -213,7 +214,7 @@ Each GitHub request is bounded to 20 seconds and each Git operation to 120 secon
 ownership is checked again before execution starts.
 
 Every lease names the actor, agent, run, configured CLI, model and effort, expiry,
-attempt, input candidate SHA and, when known, branch. A changed head, closed item or
+attempt and input candidate SHA for a PR. Branches are derived when needed. A changed head, closed item or
 vanished trigger found after setup but before execution counts as a launcher setup
 failure. A stop label found at that point parks the item without changing its count;
 clearing that state needs `ub-agents retry`. Run branches and worktrees are removed as
@@ -269,7 +270,7 @@ undeclared names are rejected. `--status retry|blocked` changes no labels. The r
 blocks records that bypass this validation. When the lease's marker names a newer
 record format, `report` fails with a diagnostic pointing to `UB_AGENTS_REPORT`.
 
-A stop report is `--status blocked`, or an outcome whose lease declaration adds a
+A stop report is `--status blocked`, or an outcome whose recorded transition adds a
 stop label. It needs at least one `--action` or `--option`. Repeat `--action` for
 independent asks that are all needed, and `--option` for alternative ways to clear
 one blocker, recommendation first. Each value is one non-empty line of at most 300
@@ -279,39 +280,32 @@ escaped. An option that ends with a colon, a space and a single-backtick command
 that command as its own code block, for example
 ``--option 'Maintainer: run CI outside supervision: `mise run ci SHA`'``.
 
-The outcome stores the first ask in the scalar `action`. Several asks, or an ask with
-options, also fill `actions`, whose first value matches `action`. `options` lists
-alternatives in recommendation order. An options-only report also stores its first
-option in `action`. Handoff copies keep these fields. Missing or invalid asks are
-rejected before any write. New leases carry `action_required: true`, so the launcher
-also rejects a stop report without an ask during completion or recovery.
-Launcher-only reports and recovery receipts need no ask, and records without
-`action_required` stay valid.
+The outcome stores independent asks in `actions` and alternatives in `options`, in
+recommendation order. Handoff copies keep both lists. Missing or invalid asks are
+rejected before any write. Completion and recovery also reject stop reports without
+an ask. Launcher-only reports and recovery receipts need no ask.
 
-Outcomes can carry display-only fields: `host`, the launcher host from the original
-lease, and `denials`, up to 10 `{tool, command}` permission denials from a Claude
-run, with `denials_omitted` counting the rest. They never affect results, counts or
-labels, and readers ignore malformed values.
+Outcomes can carry display-only `denials`, up to 10 `{tool, command}` permission
+denials from a Claude run, with `denials_omitted` counting the rest. They never affect
+results, counts or labels, and readers ignore malformed values. The launcher host,
+run, runtime and original assignment SHA come from the outcome's source lease,
+identified by `lease_id` in its `assignment`'s history, including for handoff copies.
+Outcomes retain `agent` and `assignment` for history filtering.
 
-The running lease snapshots the agent's declared outcomes compactly. Each name maps
-to the labels to add, or to an object with `add`, `remove` and optional `sub-issues`
-when extra removals or sub-issue starts are configured. Removing every declared
-trigger is implied. The lease stores that full trigger set once in
-`declared_triggers` and the stop labels in `stop_labels`. Its `triggers` field lists
-only the trigger labels present at claim time:
+The lease stores run ownership: `agent`, `assignment`, `run`, `runtime`, `created`,
+`expires`, `state`, `attempt`, `attempt_effect`, `started` and `triggers` (the labels
+present at claim time). A PR lease also stores `assignment_sha`. A running lease has
+`host`; process groups live in a file in the local run directory. Run directories
+and issue branches are derived from the run identity; PR branches come from the PR.
+Neither absolute local paths nor these derived fields are published in the record.
+Optional lease fields record outcome rounds, cleanup diagnostics, recovery identity,
+result, summary, unreported execution and retry timing. The comment author supplies
+the actor. Reset records contain only `kind`, `agent`, `assignment`, `created` and
+`summary`.
 
-```json
-{
-  "triggers": ["ready"],
-  "declared_triggers": ["ready", "needs-changes"],
-  "stop_labels": ["needs-human"],
-  "outcomes": {
-    "handed-off": ["needs-review"],
-    "cleaned": {"add": ["needs-review"], "remove": ["old"]},
-    "maintainer": ["needs-human"]
-  }
-}
-```
+The running agent's outcome declarations are held in local `run.json` for `report`
+and listed in its prompt. They are not copied into the lease. Removing the agent's
+current configured triggers is implied for every successful transition.
 
 The outcome names its declaration and copies only the added labels and any explicit
 extra removals into `transition`, with `started`. The top-level
@@ -326,15 +320,17 @@ contains:
 }
 ```
 
-The launcher resolves the implied trigger removals and stop labels from the original
-lease. The transition must match that lease's declaration, so configuration edits or
-a restarted launcher cannot replace the recorded changes.
+The launcher uses the current agent triggers for implied removals and current stop
+labels for pausing. It replays the outcome's recorded transition without comparing
+it to current declarations, so configuration edits cannot replace or reject its
+recorded changes. Sub-issue approvals likewise use the recorded transition and
+resolved targets.
 
 For limited outcomes, the lease also stores `outcome_rounds`, for example
 `{"changes-requested": {"used": 3, "limit": 3}}`, which assignment context repeats.
-When `used >= limit`, the lease's `outcomes` declaration already holds the first stop
-label in place of the configured additions. The transition uses it unchanged, and
-recovery never recalculates it.
+When `used >= limit`, `report` substitutes the first stop label for the configured
+additions and supplies the default maintainer ask if needed. This effective transition
+is saved in the outcome; recovery never recalculates it.
 
 For a `sub-issues` outcome, `report` stores in the outcome's `sub_issues` list the
 open native sub-issues in the same repository that the lease account authored after
