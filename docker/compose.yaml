@@ -1,0 +1,24 @@
+# One launcher. Copy env.example to .env, fill it in, then:
+#   docker compose up -d && docker attach ub-agents-launcher
+services:
+  launcher:
+    build: .
+    image: ub-agents-launcher:local
+    container_name: ub-agents-launcher
+    hostname: ${UB_AGENTS_HOST:-docker-launcher}
+    env_file: .env
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+    volumes:
+      - home:/home/agent
+      - work:/work
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 4096
+    mem_limit: 8g
+volumes:
+  home:
+  work:
