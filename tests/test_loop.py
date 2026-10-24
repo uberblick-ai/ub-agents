@@ -277,6 +277,41 @@ class LoopTests(unittest.TestCase):
                 if draft:
                     self.assertIn("PR #2 is still a draft", verdict["summary"])
 
+    def test_earlier_branches_only_include_started_execution_leases(self):
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        history = [lease | changes for changes in (
+            {"run": "claiming", "state": "claiming"},
+            {"run": "withdrawn", "state": "withdrawn"},
+            {"run": "unstarted", "state": "released"},
+            {"run": "recovery", "started": True, "mode": "recovery"},
+        )]
+        with patch.object(self.loop.coordinator, "history", return_value=history):
+            earlier = self.loop.earlier_branches(plan.item, self.agent, lease["run"])
+            self.assertEqual(earlier, [])
+            prompt = self.loop.prompt_for(plan, lease,
+                                          {"earlier_branches": earlier, "report_command": "/launcher/report"}, "")
+            self.assertNotIn("Earlier runs of this issue recorded branches", prompt)
+            history.extend((lease | {"run": "real", "started": True, "state": "released"},
+                            lease | {"run": "other", "started": True, "agent": "other"},
+                            lease | {"started": True}))
+            self.assertEqual(self.loop.earlier_branches(plan.item, self.agent, lease["run"]),
+                             [issue_branch(history[-3])])
+            self.assertEqual(self.loop.earlier_branches(self.github.item(2), self.agent, lease["run"]), [])
+
+    def test_handoff_ignores_unstarted_and_recovery_branches(self):
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        self.loop.coordinator.update(lease, state="running", started=True)
+        outcome = self.loop.coordinator.report(lease, "success", "Handed off", handoff=2, outcome="done")
+        history = self.loop.coordinator.history(1) + [
+            lease | {"id": 100, "run": "withdrawn", "started": False, "state": "withdrawn"},
+            lease | {"id": 101, "run": "recovery", "mode": "recovery", "state": "released"}]
+        with patch.object(self.loop.coordinator, "history", return_value=history), \
+                patch.object(self.github, "prs_for_branch", wraps=self.github.prs_for_branch) as lookup:
+            self.loop.validate_success(plan, outcome)
+        lookup.assert_not_called()
+
     def test_handoff_continues_or_rejects_a_draft_on_an_earlier_run_branch(self):
         for handoff, accepted in ((3, False), (2, True)):
             with self.subTest(handoff=handoff):

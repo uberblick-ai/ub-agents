@@ -248,7 +248,8 @@ describe the procedure. The launcher enforces only these rules:
 - The handoff is rejected while another open PR sits on a branch recorded by this
   issue's earlier runs, so a duplicate is blocked for inspection. Assignment context
   lists those branches as `earlier_branches`, so a retried run, which starts on a new
-  branch, can continue an open draft from `origin`.
+  branch, can continue an open draft from `origin`. Only started execution runs
+  contribute branches; unstarted claims and outcome recovery create none.
 - A `pr` agent can name one of its outcomes as `on-conflict`. When GitHub reports the
   claimed PR as conflicting with its base at the observed head, the launcher records
   that outcome itself after the claim and does not start the agent. An unknown merge

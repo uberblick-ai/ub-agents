@@ -460,6 +460,16 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual((pr_plan.state, pr_plan.reason), ("owned", "A live run on #1 owns this item's branch"))
         self.assertIsNone(self.co.claim(pr_plan))
 
+    def test_shared_branch_owner_only_queries_started_execution_branches(self):
+        lease = self.start()
+        history = [lease,
+                   lease | {"run": "unstarted", "started": False},
+                   lease | {"run": "recovery", "mode": "recovery"},
+                   lease | {"run": "other", "agent": "other"}]
+        with patch.object(self.github, "prs_for_branch", wraps=self.github.prs_for_branch) as lookup:
+            self.assertIsNone(self.co.shared_branch_owner(self.github.item(1), self.agent, history))
+        lookup.assert_called_once_with(issue_branch(lease))
+
     def test_shared_branch_claim_race_elects_one_owner(self):
         old = self.start()
         branch = issue_branch(old)

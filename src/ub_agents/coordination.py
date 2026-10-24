@@ -335,7 +335,7 @@ class Coordinator:
         at a time touches a branch, so either side waits for the other."""
         if item.kind == "issue":
             branches = sorted({issue_branch(r) for r in history if r["kind"] == "lease"
-                               and r["agent"] == agent.name and r["started"]})
+                               and r["agent"] == agent.name and r["started"] and r.get("mode") != "recovery"})
             related = sorted({pr.number for branch in branches for pr in self.github.prs_for_branch(branch)})
         else:
             match = re.fullmatch(r"ub-agents/[a-z][a-z0-9_-]*/([1-9][0-9]*)/[A-Za-z0-9_-]+", item.branch or "")

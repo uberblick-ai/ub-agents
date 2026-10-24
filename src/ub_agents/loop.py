@@ -1622,11 +1622,12 @@ class Loop:
         return True
 
     def earlier_branches(self, item, agent, run):
-        """Branches derived from this issue's other runs of the agent; an open PR there is the draft to continue."""
+        """Branches from earlier executions; unstarted claims and recovery create none."""
         if item.kind != "issue":
             return []
         return sorted({issue_branch(r) for r in self.coordinator.history(item.number) if r["kind"] == "lease"
-                       and r["agent"] == agent.name and r["run"] != run})
+                       and r["agent"] == agent.name and r["run"] != run
+                       and r["started"] and r.get("mode") != "recovery"})
 
     def prompt_for(self, plan, lease, context, instructions, *, shared_instructions=""):
         earlier = context["earlier_branches"]
