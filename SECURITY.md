@@ -42,7 +42,8 @@ Out of scope:
 
 - An agent doing what trusted input asked it to. Agents run with the
   permissions you give them.
-- Outside text reaching agents while approvals are off. That is what off means.
+- Outside issue and pull request titles and bodies reaching agents while
+  approvals are off, which allows that input.
 - Vulnerabilities in the agent CLIs themselves (Claude Code, Codex). Report
   those to their vendors.
 - Versions older than the latest release.
