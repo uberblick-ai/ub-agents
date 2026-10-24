@@ -18,6 +18,16 @@ docker compose run --rm launcher doctor
 docker compose exec -u agent launcher ub-agents status
 ```
 
+## One-time logins inside the container
+
+Tools a project's agents use may need their own login, stored in the home volume.
+For Uberblick repositories, sign the corpus MCP in once; it prints a GitHub URL and
+code to approve in any browser:
+
+```sh
+docker compose exec -u agent launcher sh -c 'cd /work/uberblick-2 && mise exec -- ub auth login'
+```
+
 ## Projects whose checks use Docker
 
 The image includes a Docker engine. It starts only where the container may run
