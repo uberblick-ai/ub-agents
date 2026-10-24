@@ -23,7 +23,7 @@ priority:
 
 ## Milestones
 
-Milestones go in alphabetical order by title, for example v0.4.6 before v0.5.0.
+Milestones go in order by title, comparing numbers as numbers, for example v0.5.9 before v0.5.10.
 
 - `ignore` (the default): milestones don't change the order.
 - `order`: priority always wins. At equal priority, earlier milestones go first and issues without a milestone go last.
