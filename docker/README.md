@@ -10,11 +10,12 @@ docker compose up -d --build
 docker attach ub-agents-launcher # terminal view; detach with Ctrl-p Ctrl-q
 ```
 
-Other commands run in the same setup:
+Other commands run in the same setup. Use `-u agent` with `exec`; the container starts
+as root to run dockerd, and files created as root lock the agent out.
 
 ```sh
 docker compose run --rm launcher doctor
-docker compose exec launcher ub-agents status
+docker compose exec -u agent launcher ub-agents status
 ```
 
 ## Projects whose checks use Docker

@@ -38,4 +38,17 @@ if [ -f mise.toml ] || [ -f .mise.toml ] || [ -f .tool-versions ]; then
   mise install
 fi
 
+# The launcher runs checkout-setup only after a pull changes a watched file, so a
+# fresh clone would start without dependencies. Run it on every start instead.
+/opt/ub-agents/bin/python - <<'PY'
+import subprocess, sys, yaml
+try:
+    setting = (yaml.safe_load(open("ub-agents.yaml")) or {}).get("checkout-setup")
+except FileNotFoundError:
+    sys.exit()
+if setting:
+    print("checkout-setup:", " ".join(setting["command"]), flush=True)
+    subprocess.run(setting["command"], check=True, timeout=setting.get("timeout-seconds", 600))
+PY
+
 exec ub-agents "$@"
