@@ -1,0 +1,15 @@
+# Linux hosts with Sysbox (https://github.com/nestybox/sysbox): the launcher runs
+# its own Docker daemon without --privileged and never sees the host's Docker.
+services:
+  launcher:
+    runtime: sysbox-runc
+    read_only: false
+    cap_drop: !reset []
+    cap_add: !reset []
+    security_opt: !reset []
+    environment:
+      UB_AGENTS_DOCKERD: "on"
+    volumes:
+      - docker:/var/lib/docker
+volumes:
+  docker:

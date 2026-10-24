@@ -1,0 +1,16 @@
+# Docker inside a privileged container. A privileged container can take over the
+# machine that runs it, so use this only on a VM dedicated to the launcher, never
+# on Docker Desktop, which shares your home folder into its VM.
+services:
+  launcher:
+    privileged: true
+    read_only: false
+    cap_drop: !reset []
+    cap_add: !reset []
+    security_opt: !reset []
+    environment:
+      UB_AGENTS_DOCKERD: "on"
+    volumes:
+      - docker:/var/lib/docker
+volumes:
+  docker:
