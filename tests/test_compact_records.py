@@ -7,7 +7,7 @@ import unittest
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import RecordError
 from ub_agents.records import MARKER, body, payload, records
-from tests.support import FakeGitHub, agent, issue
+from tests.support import FakeGitHub, agent, issue, pr
 
 
 class CompactRecordTests(unittest.TestCase):
@@ -18,14 +18,14 @@ class CompactRecordTests(unittest.TestCase):
         self.worker = agent(self.root, outcomes={
             'done': {'add': ('needs-review',), 'remove': ()},
             'cleaned': {'add': (), 'remove': ('old',)}})
-        self.github = FakeGitHub(issue())
+        self.github = FakeGitHub(issue(), pr())
         self.co = Coordinator(self.github, 'operator', lambda: 1000)
 
     def claim(self):
         return self.co.claim(self.co.plan(self.github.item(1), self.worker, ('needs-human',)),
                              ('needs-human',))
 
-    def test_new_lease_and_outcomes_only_store_shared_context_once(self):
+    def test_new_lease_and_outcome_hold_only_their_own_fields(self):
         lease = self.claim()
         self.assertEqual(MARKER, '<!-- ub-agents:v4 -->')
         self.assertTrue(self.github.comments(1)[0]['body'].startswith(MARKER))
@@ -33,7 +33,8 @@ class CompactRecordTests(unittest.TestCase):
         self.assertEqual(set(json.loads(body(payload(lease)).split('```json\n')[1].split('\n```')[0])), {
             'kind', 'run', 'agent', 'assignment', 'runtime', 'triggers', 'created', 'expires',
             'state', 'attempt', 'started', 'attempt_effect'})
-        outcome = self.co.report(lease, 'success', 'Done', outcome='done')
+        self.co.update(lease, state='running', started=True, host='launcher-host')
+        outcome = self.co.report(lease, 'success', 'Done', handoff=2, outcome='done')
         for key in ('run', 'runtime', 'host', 'assignment_sha', 'action'):
             self.assertNotIn(key, outcome)
         self.assertEqual(outcome['transition'], {'add': ['needs-review'], 'started': False})
@@ -41,6 +42,20 @@ class CompactRecordTests(unittest.TestCase):
                                transition_complete=True)
         self.assertEqual(outcome['transition'], {'add': ['needs-review'], 'started': True})
         self.assertTrue(outcome['transition_complete'])
+        self.co.accept(lease, outcome)
+        copied, = self.co.history(2)
+        self.assertEqual(payload(copied), payload(outcome))
+        self.assertEqual(set(json.loads(body(payload(outcome)).split('```json\n')[1].split('\n```')[0])), {
+            'kind', 'agent', 'assignment', 'lease_id', 'created', 'status', 'summary', 'handoff',
+            'candidate_sha', 'accepted', 'outcome', 'transition', 'transition_complete'})
+
+    def test_pr_lease_keeps_its_original_assignment_head(self):
+        plan = self.co.plan(self.github.item(2), self.worker, ('needs-human',))
+        lease = self.co.claim(plan, ('needs-human',))
+        self.assertEqual(lease['assignment_sha'], self.github.item(2).head)
+        self.assertNotIn('branch', lease)
+        outcome = self.co.report(lease, 'success', 'Done', outcome='done')
+        self.assertNotIn('assignment_sha', outcome)
 
     def test_explicit_removals_are_preserved_without_implied_triggers(self):
         outcome = self.co.report(self.claim(), 'success', 'Cleaned', outcome='cleaned')
@@ -58,7 +73,7 @@ class CompactRecordTests(unittest.TestCase):
             text = f'<!-- ub-agents:v{version} -->\nmalformed old data'
             self.assertEqual(records([dict(id=1, body=text, user={'login': 'operator'})]), [])
 
-    def test_invalid_compact_snapshots_and_transitions_fail_closed(self):
+    def test_invalid_transitions_fail_closed(self):
         lease = self.claim()
         outcome = self.co.report(lease, 'success', 'Done', outcome='done')
         for transition in ({'add': [], 'started': 1}, {'add': [], 'started': False, 'remove': 'ready'},
@@ -70,7 +85,7 @@ class CompactRecordTests(unittest.TestCase):
                 with self.assertRaises(RecordError):
                     records([{'id': 1, 'body': body(forged), 'user': {'login': 'operator'}}])
 
-    def test_every_lease_requires_attempt_effect_and_shared_context(self):
+    def test_every_lease_requires_attempt_effect_and_claim_triggers(self):
         lease = self.claim()
         for recovery in (False, True):
             for field in ('attempt_effect', 'triggers'):
@@ -82,7 +97,7 @@ class CompactRecordTests(unittest.TestCase):
                     with self.assertRaises(RecordError):
                         records([{'id': 1, 'body': body(forged), 'user': {'login': 'operator'}}])
 
-    def test_recovery_lease_also_writes_attempt_effect_and_shared_context(self):
+    def test_recovery_lease_names_the_original_lease_and_run(self):
         lease = self.claim()
         self.co.report(lease, 'success', 'Done', outcome='done')
         self.co.clock = lambda: 1061

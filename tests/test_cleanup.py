@@ -88,6 +88,14 @@ class CleanupTests(unittest.TestCase):
             record_process_group(self.root, self.lease["run"], fields.pop("process_group"))
         edit_lease(self.github, self.lease, **fields)
 
+    def test_unreadable_process_record_preserves_expired_local_artifacts(self):
+        self.update(state='running', expires=iso(timestamp() - 1), process_group=123456)
+        path = self.root / '.ub-agents/runs' / self.lease['run'] / 'process-group'
+        path.write_text('unreadable')
+        rows = self.actions(True)
+        self.assertTrue(all(row['action'] == 'kept' for row in rows.values()))
+        self.assertIn('process check cannot be confirmed', rows['worktree']['reason'])
+
     def hook(self, script, timeout=3):
         self.cleaner.config = replace(self.config, cleanup=CleanupHook((sys.executable, "-c", script), timeout))
 

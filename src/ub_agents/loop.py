@@ -35,7 +35,7 @@ from .prompts import CONTINUATION_PROMPT, FORK_PR_PROMPT, RETROSPECTIVE_PROMPT, 
 from .hooks import run_hook
 from .notices import ACTION_MARKER
 from .records import (attempts, backoff, display_provenance, issue_branch, iso, latest_leases, lease_by_id,
-                      lease_summary, outcome_declarations, resolve_transition, same_run, seconds, timestamp, validate_report_action)
+                      lease_summary, outcome_declarations, records, resolve_transition, same_run, seconds, timestamp, validate_report_action)
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
 from .renewal import LeaseRenewal
@@ -226,8 +226,6 @@ class Loop:
     def _publish_observation(self, method, *args):
         if self.observer is not None:
             try:
-                if method == "record" and args[0]["kind"] == "outcome":
-                    args = (display_provenance(args[0], self.coordinator.history(args[0]["assignment"])),)
                 getattr(self.observer, method)(*args)
             except _GracefulStop:
                 raise
@@ -691,7 +689,9 @@ class Loop:
         histories = {plan.item.number: plan.history}
         for record in plan.history:
             if record["kind"] == "outcome" and record["assignment"] not in histories:
-                histories[record["assignment"]] = self._planning_coordinator(github, observe).history(record["assignment"])
+                seen = github.observed_comments(record["assignment"]) or ()
+                histories[record["assignment"]] = records([comment for comment in seen
+                    if authors.get((comment.get("user") or {}).get("login", "").casefold())])
         displayed = replace(plan, history=tuple(display_provenance(record, histories[record["assignment"]])
                                                for record in plan.history))
         (observe or self._observe)("plan", displayed, filing, comments, authors)
@@ -1693,7 +1693,7 @@ class Loop:
             self.coordinator.update_outcome(lease, outcome, **denials)
         self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
                                  parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts,
-                                 unreported=unreported)
+                                 unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers)
 
     def finalize(self, lease, plan, outcome, what):
         """Validate a success report, apply its transition and accept it.

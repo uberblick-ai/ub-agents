@@ -267,7 +267,7 @@ configuration.
 `report` verifies the run's current ownership and creates one versioned outcome
 comment. `--outcome NAME` reports a declared outcome with status `success`;
 undeclared names are rejected. `--status retry|blocked` changes no labels. The runner
-blocks records that bypass this validation. When the lease's marker names a newer
+validates the recorded transition and its source lease. When the lease's marker names a newer
 record format, `report` fails with a diagnostic pointing to `UB_AGENTS_REPORT`.
 
 A stop report is `--status blocked`, or an outcome whose recorded transition adds a

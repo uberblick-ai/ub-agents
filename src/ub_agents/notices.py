@@ -222,6 +222,7 @@ class Notices:
                                 key=lambda c: c["id"], default=None)
             linked = {r["id"] for r in history if latest_action and r["url"]
                       and f"]({r['url']})" in latest_action["body"]}
+            current_run = self.provenance([outcome])[0].get("run")
             outdated = set()
             for record in history:
                 sha = record.get("candidate_sha") or record.get("assignment_sha")
@@ -229,7 +230,7 @@ class Notices:
                                        and record["attempt_effect"] == "unchanged")
                 if (record["kind"] in {"lease", "outcome"} and record["id"] < cutoff
                         and sha and sha != outcome["candidate_sha"]
-                        and record.get("run") != self.provenance([outcome])[0].get("run") and not approval_withdrawal
+                        and record.get("run") != current_run and not approval_withdrawal
                         and record["id"] not in linked):
                     outdated.add(record["id"])
             self.minimize([comment for comment in comments if comment["id"] in outdated])
@@ -242,9 +243,10 @@ class Notices:
         target = lease["assignment"]
         rounds = None
         transition = reported.get("transition", {}) if reported else {}
+        source = lease
+        if reported and reported["lease_id"] != lease["id"]:
+            source = lease_by_id(records(self.comments(reported["assignment"])), reported["lease_id"])
         if transition:
-            source = lease if reported["lease_id"] == lease["id"] else lease_by_id(
-                records(self.comments(reported["assignment"])), reported["lease_id"])
             rounds = exhausted_rounds(source, reported["outcome"])
         stops = sorted(set(transition.get("add", ())).intersection(stop_labels))
         parked = (lease["result"] == "success" and reported

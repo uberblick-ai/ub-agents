@@ -13,9 +13,10 @@ from .errors import AgentError, GitHubError, LostOwnership, RecordError, Runtime
 from .finalization import FinalizationReads
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
-from .records import (MARKER, attempt_effect, attempts, backoff, body, exhausted_rounds, iso, latest_leases,
-                      issue_branch, lease_by_id, lease_summary, live_leases, outcome_declarations, outcome_rounds, payload, records, recovers,
-                      report_asks, same_handoff, same_run, seconds, stop_report, timestamp)
+from .records import (MARKER, attempt_effect, attempts, backoff, body, display_provenance, exhausted_rounds,
+                      iso, issue_branch, latest_leases, lease_by_id, lease_summary, live_leases,
+                      outcome_declarations, outcome_rounds, payload, records, recovers, report_asks,
+                      same_handoff, same_run, seconds, stop_report, timestamp)
 from .trust import LauncherTrust
 
 
@@ -75,11 +76,16 @@ class Coordinator:
         # A failed POST may have created this record without returning its ID.
         # Keep only this launcher's uncertain claim; restarts use normal expiry.
         self.lost_claim = None
+        # In-process reports share claim configuration; agent commands use run.json.
         self._report_context = {}
+        # Display callbacks join provenance from reads already needed for coordination.
+        self._observed_leases = {}
 
     def observed(self, record):
         if self.on_record is not None:
-            self.on_record(record)
+            if record["kind"] == "lease":
+                self._observed_leases[record["id"]] = record
+            self.on_record(display_provenance(record, self._observed_leases.values()))
 
     def history(self, number):
         if isinstance(self.github, FinalizationReads):
@@ -89,7 +95,10 @@ class Coordinator:
     def _history(self, number):
         comments = self.github.comments(number)
         try:
-            return records(comments, trusted=self.trust.observation())
+            history = records(comments, trusted=self.trust.observation())
+            if self.on_record is not None:
+                self._observed_leases.update((r["id"], r) for r in history if r["kind"] == "lease")
+            return history
         except (RecordError, GitHubError):
             raise
         except AgentError as exc:
@@ -575,7 +584,7 @@ class Coordinator:
             return False
 
     def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
-                max_attempts=None, *, unreported=False):
+                max_attempts=None, *, unreported=False, stop_labels=None, triggers=None):
         self.assert_owned(lease)
         reported = self.outcome(lease)
         now = self.clock()
@@ -587,10 +596,11 @@ class Coordinator:
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect,
                     **({"unreported": True} if unreported else {}))
+        _, claimed_stops, claimed_triggers = self._report_context.pop(lease["id"], ({}, (), ()))
         self.notices.advisory("released run comments", lambda:
                               self.notices.released(lease, reported, summary, parking_outcome, max_attempts,
-                                  stop_labels=self._report_context.get(lease["id"], ({}, (), ()))[1],
-                                  triggers=self._report_context.get(lease["id"], ({}, (), ()))[2]))
+                                  stop_labels=claimed_stops if stop_labels is None else stop_labels,
+                                  triggers=claimed_triggers if triggers is None else triggers))
 
     def outcome(self, lease):
         matches = [r for r in self.history(lease["assignment"])

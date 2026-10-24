@@ -144,6 +144,17 @@ class StatusTests(unittest.TestCase):
         self.assertIn("Run is starting; no process group recorded yet.", plain)
         self.groups.assert_not_called()
 
+    def test_unreadable_local_process_record_is_unknown(self):
+        lease = self.local_lease()
+        path = self.root / '.ub-agents/runs' / lease['run'] / 'process-group'
+        for value in ('broken', '0', '-1'):
+            with self.subTest(value=value):
+                path.write_text(value)
+                rows, plain = self.status()
+                self.assertEqual(rows[0]['process'], 'unknown')
+                self.assertIn('Run process record is unreadable', plain)
+        self.groups.assert_not_called()
+
     def test_claim_without_host_is_in_progress(self):
         lease = self.loop.coordinator.claim(self.loop.plans()[0])
         rows, plain = self.status()

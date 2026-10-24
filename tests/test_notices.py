@@ -182,7 +182,7 @@ class NoticeTests(unittest.TestCase):
         self.assertFalse(self.github.minimized_ids)
 
     def test_accepted_outcome_must_belong_to_the_claim_on_the_same_item(self):
-        for mismatch in ({"assignment": 2, "handoff": 1}, {"run": "another-run"}, {"lease_id": 999}):
+        for mismatch in ({"assignment": 2, "handoff": 1}, {"agent": "another-agent"}, {"lease_id": 999}):
             with self.subTest(mismatch=mismatch):
                 self.setUp()
                 lease = self.start()
@@ -723,12 +723,20 @@ class NoticeTests(unittest.TestCase):
         self.assertIn('same role (`worker`)', resume)
         self.assertIn('different role', resume)
 
+    def test_failure_handoff_resolves_its_run_without_a_transition(self):
+        lease = self.start()
+        reported = self.co.report(lease, 'retry', 'Transient failure', handoff=2)
+        self.assertNotIn('transition', reported)
+        self.co.release(lease, 'retry', reported['summary'])
+        self.assertFalse(any('Advisory' in line for line in self.output))
+
     def test_options_handoff_keeps_choices_visible_and_stop_label_resume_folded(self):
         options = ['Maintainer: merge after CI: `mise run ci SHA`', 'Maintainer: request a fix.']
         loop, github = self.parked_loop(handoff=2, action=None, option=options)
         copied = loop.coordinator.history(2)[0]
         self.assertEqual(copied['options'], options)
-        self.assertEqual(copied['actions'][0], options[0])
+        self.assertNotIn('action', copied)
+        self.assertNotIn('actions', copied)
         notice = next(c['body'] for c in github.comments(2) if c['body'].startswith(ACTION_MARKER))
         visible, resume, details = self.pr_sections(notice)
         for text in ('To unblock, do one of:', '1. Maintainer: merge after CI (recommended)',
@@ -763,7 +771,7 @@ class NoticeTests(unittest.TestCase):
         summary = '## Human must merge\n\n- Migration reasoning\n- Review evidence'
         loop.coordinator.report(lease, "success", summary, outcome="human", action="Maintainer: choose A or B; recommend A.")
         self.now += 61
-        changed = agent(self.root, kind="pr", triggers=("ready", "different"),
+        changed = agent(self.root, kind="pr", triggers=("needs-changes", "different"),
                         outcomes={"other": {"add": ("wrong",), "remove": ()}})
         loop = Loop(config(self.root, changed), self.github, "operator", output=self.output.append)
         loop.coordinator.clock = lambda: self.now
@@ -773,7 +781,7 @@ class NoticeTests(unittest.TestCase):
         self.assertIn(f"Recovered {lease['run']}:\n\n{summary}", notice)
         self.assertIn("Human must merge", notice)
         self.assertIn("Remove the stop label(s) `needs-human`", notice)
-        self.assertIn("`ready`, `different`", notice)
+        self.assertIn("`needs-changes`, `different`", notice)
         self.assertIn("a" * 40, notice)
         loop.tick()
         self.assertEqual(len(self.notices(2)), 1)
@@ -805,8 +813,8 @@ class NoticeTests(unittest.TestCase):
         notices = self.notices(2)
         self.assertEqual(len(notices), 1)
         self.assertIn("Remove the stop label(s) `needs-human`", notices[0]["body"])
-        self.assertIn("`ready`, `needs-changes`", notices[0]["body"])
-        self.assertNotIn("`different`", notices[0]["body"])
+        self.assertIn("`ready`, `different`", notices[0]["body"])
+        self.assertIn("`different`", notices[0]["body"])
         self.assertFalse(self.notices(1))
         self.assertFalse(any("Advisory" in line for line in self.output))
 

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from ub_agents.run_config import record_process_group
 import json
 import os
@@ -92,6 +93,7 @@ class DiagnosticRetentionTests(unittest.TestCase):
     def test_expired_local_group_must_be_confirmed_gone(self):
         lease = self.lease()
         record_process_group(self.root, lease["run"], 1234)
+        os.utime(self.runs / lease["run"] / "process-group", (self.old,) * 2)
         edit_lease(self.github, lease, state="running", expires=iso(self.now - 1))
         for result in ([1234], CleanupError("ps unavailable")):
             kwargs = {"side_effect": result} if isinstance(result, Exception) else {"return_value": result}
@@ -165,10 +167,10 @@ class DiagnosticRetentionTests(unittest.TestCase):
         lease = self.lease()
         branch = "ub-agents/worker/1/other-run"
         self.github.items[2] = replace(pr(), branch=branch)
-        edit_lease(self.github, lease, assignment=2, assignment_sha=self.github.items[2].head)
         self.github.store[2] = self.github.store.pop(1)
         for comment in self.github.store[2]:
             comment["issue_url"] = "https://api.github.com/repos/org/project/issues/2"
+        edit_lease(self.github, lease, assignment=2, assignment_sha=self.github.items[2].head)
         self.inventory.return_value = [Artifact("branch", branch, "other-run")]
         self.prune()
         self.assertTrue((self.runs / lease["run"]).exists())

@@ -251,7 +251,7 @@ class StartupCleanupTests(unittest.TestCase):
         calls = []
         original = Cleaner.remove_worktree
 
-        def pause(*args):
+        def pause(*args, **kwargs):
             calls.append(stage)
             entered.set()
             if not release.wait(5):

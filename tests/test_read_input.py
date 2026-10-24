@@ -102,6 +102,7 @@ class ReadInputTests(unittest.TestCase):
                                  feedback(6, "copilot", second=6, type="User"),
                                  feedback(7, "other-bot", second=6, __typename="Bot"),
                                  feedback(8, "maintainer", body="<!-- ub-agents:v99 -->\nrecord"),
+                                 feedback(11, body="<!-- ub-agents:v3 -->\nmalformed old record"),
                                  feedback(9, "operator", body="<!-- ub-agents:action-needed old-run -->\nnotice")]
             self.start(number)
             loop = Loop(self.config, self.github, "operator")
