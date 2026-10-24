@@ -78,27 +78,94 @@ pre code { font: inherit; background: none; padding: 0 }
 .wrap section h2::before { content: "## "; color: var(--muted); font-weight: 400 }
 .wrap section pre { margin-bottom: 16px }
 
-/* Terminal snapshot: dark in both themes */
+/* Terminal demo: the terminal view drawn as two framed panes and a status line, animated by site/demo.html. Dark in both themes. */
 .term-section { padding-block: 8px 44px }
-.term { background: var(--term-bg); color: var(--term-fg); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font: 12.5px/1.42 var(--term); border: 1px solid var(--line) }
-.term pre { background: none; border: 0; padding: 0; margin: 0; font: inherit; overflow: visible; width: max-content; color: inherit }
-.term .acc { color: var(--term-acc) } .term .rule { color: var(--term-rule) } .term .dim { color: var(--term-dim) }
-.term .blue { color: var(--term-blue) } .term .red { color: var(--term-red) } .term .green { color: var(--term-green) }
-.term .g { display: inline-block; width: 1ch; text-align: center; font-style: normal }
-.term .v, .term .h, .term .d, .term .corner, .term .sel { display: inline-block; vertical-align: top; height: 1.42em; position: relative }
-.term .v, .term .corner { width: 1ch }
-.term .v::before, .term .h::before, .term .d::before, .term .corner::before { content: ""; position: absolute; border: 0 solid currentColor }
-.term .v::before { left: calc(50% - .5px); top: 0; bottom: 0; border-left-width: 1px }
-.term .h::before, .term .d::before { left: 0; right: 0; top: calc(50% - .5px); border-top-width: 1px }
-.term .d::before { border-top-style: dashed }
-.term .tl::before { left: calc(50% - .5px); top: calc(50% - .5px); right: 0; bottom: 0; border-width: 1px 0 0 1px; border-top-left-radius: 3px }
-.term .tr::before { left: 0; top: calc(50% - .5px); right: calc(50% - .5px); bottom: 0; border-width: 1px 1px 0 0; border-top-right-radius: 3px }
-.term .bl::before { left: calc(50% - .5px); top: 0; right: 0; bottom: calc(50% - .5px); border-width: 0 0 1px 1px; border-bottom-left-radius: 3px }
-.term .br::before { left: 0; top: 0; right: calc(50% - .5px); bottom: calc(50% - .5px); border-width: 0 1px 1px 0; border-bottom-right-radius: 3px }
-.term .sel { background: var(--term-sel); color: var(--term-acc) }
-.term .b { font-weight: 600 } .term .u { text-decoration: underline; text-underline-offset: 2px }
-.term .tab { background: var(--term-acc); color: var(--term-bg) }
-.term .green.dim, .term .acc.dim { opacity: .6 }
+.tui { position: relative; background: var(--term-bg); color: var(--term-fg); border: 1px solid var(--line); border-radius: 8px; padding: 16px 14px 8px; font: 11px/1.5 var(--term); box-shadow: 0 18px 40px rgb(0 0 0 / 12%) }
+.tui .g { display: inline-block; width: 1ch; text-align: center; font-style: normal }
+.tui .acc { color: var(--term-acc) } .tui .dim { color: var(--term-dim) } .tui .blue { color: var(--term-blue) } .tui .red { color: var(--term-red) } .tui .green { color: var(--term-green) }
+.tui .tscreen { display: grid; grid-template-columns: minmax(0, 42fr) minmax(0, 70fr); gap: 10px }
+.tui .pane { position: relative; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--term-rule); border-radius: 6px; padding: 10px 10px 6px }
+.tui .twork { border-color: var(--term-acc) }
+.tui .ptitle { position: absolute; top: calc(-0.75em - 1px); left: 8px; padding: 0 6px; background: var(--term-bg); color: var(--term-acc); white-space: nowrap }
+.tui .tside .ptitle { color: var(--term-dim) }
+.tui .sec { padding-top: 4px }
+.tui .sec + .sec { padding-top: 12px }
+.tui .sh { display: flex; align-items: center; gap: 8px; white-space: nowrap }
+.tui .sh::after { content: ""; flex: 1; border-top: 1px dashed var(--term-rule) }
+.tui .sec.s-run .sh, .tui .sec.s-run .g { color: var(--term-blue) }
+.tui .sec.s-att .sh { color: var(--term-red) }
+.tui .sec.s-elig .sh { color: var(--term-green) }
+.tui .sec.past .sh { color: var(--term-dim) }
+.tui .rw { margin-top: 3px; border-radius: 2px }
+.tui .rw.new { animation: tui-in .3s ease-out both }
+.tui .rw.sel { background: var(--term-sel) }
+.tui .rw.sel .tt { color: var(--term-acc) }
+.tui .rw.low, .tui .past .rw { opacity: .6 }
+.tui .row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 0 7px; white-space: nowrap }
+.tui .row .tt { overflow: hidden; text-overflow: ellipsis }
+.tui .row .st { color: var(--term-dim) }
+.tui .row .st.green { color: var(--term-green) } .tui .row .st.red { color: var(--term-red) }
+.tui .sub { padding-left: 2ch; color: var(--term-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.tui .idle { padding-left: 2ch; margin-top: 3px; color: var(--term-dim) }
+.tui .tbar { display: flex; align-items: center; gap: 0; padding: 0 0 6px; border-bottom: 1px dashed var(--term-rule); color: var(--term-dim); white-space: nowrap }
+.tui .tab { padding: 0 6px }
+.tui .tab.on { background: var(--term-acc); color: var(--term-bg) }
+.tui .tsep { color: var(--term-rule); margin: 0 6px 0 4px }
+.tui .tmode { white-space: pre } .tui .tmode .u { color: var(--term-acc); text-decoration: underline; text-underline-offset: 2px }
+.tui .tbar button { margin-left: auto; font: inherit; color: var(--term-dim); background: none; border: 1px solid var(--term-rule); border-radius: 4px; padding: 0 8px; cursor: pointer }
+.tui .tbar button:hover { color: var(--term-fg); background: var(--term-sel) }
+.tui .thead { padding: 6px 0; border-bottom: 1px dashed var(--term-rule) }
+.tui .thead .t1 { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.tui .thead .ino { text-decoration: underline; text-underline-offset: 2px }
+.tui .thead .t2 { color: var(--term-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.tui .tbody { height: 30em; overflow: hidden; position: relative }
+.tui .tempty { margin: 0; padding: 8px 0; color: var(--term-dim) }
+.tui .tlog { list-style: none; margin: 0; padding: 6px 0 4px; height: 100%; overflow-y: auto; scrollbar-width: none }
+.tui .tlog li { display: none; grid-template-columns: 9ch minmax(0, 1fr); gap: 0 8px; align-items: baseline; padding: 1px 0 }
+.tui .tlog li.on { display: grid; animation: tui-in .25s ease-out both }
+.tui .tlog time { color: var(--term-dim) }
+.tui .tlog .l { overflow-wrap: anywhere }
+.tui .tlog .l i { font-style: normal; color: var(--term-dim) }
+.tui .tlog .l b { font-weight: 600 }
+.tui .tlog .l em { font-style: normal } .tui .tlog .add { color: var(--term-green) } .tui .tlog .del { color: var(--term-red) } .tui .tlog .el { color: var(--term-dim) }
+.tui .tlog li[data-k="info"] .l { color: var(--term-dim) } .tui .tlog li[data-k="info"] .l b { color: var(--term-fg); font-weight: 400 }
+.tui .tlog li[data-k="think"] .l { color: var(--term-dim); font-style: italic }
+.tui .tlog li[data-k="done"] .l { color: var(--term-green); font-weight: 600 }
+.tui .tlog li[data-k="ask"] .l { color: var(--term-red); font-weight: 600 }
+.tui .tlog .r { grid-column: 2; padding-left: 2ch; color: var(--term-dim); opacity: 0; transition: opacity .2s }
+.tui .tlog .r.on { opacity: 1 }
+.tui .tdoc { padding-top: 6px; animation: tui-in .25s ease-out both }
+.tui .tdoc p, .tui .tdoc ul, .tui .tdoc ol, .tui .tdoc pre, .tui .tdoc h4 { margin: 0 0 8px; max-width: none }
+.tui .tdoc h4 { font-size: inherit; font-weight: 600 }
+.tui .tdoc ul, .tui .tdoc ol { padding-left: 3ch }
+.tui .tdoc code { background: none; padding: 0; color: var(--term-acc); font: inherit }
+.tui .tdoc pre { font: inherit; color: var(--term-fg); background: var(--term-sel); border: 0; border-radius: 3px; padding: 4px 8px; overflow: hidden }
+.tui .fold { margin-bottom: 4px }
+.tui .fold .fb { display: none; padding: 4px 0 4px 2ch }
+.tui .fold.open .fb { display: block; animation: tui-in .25s ease-out both }
+.tui .fold.open .fh .g { transform: rotate(90deg) }
+.tui .src { margin-top: 10px }
+.tui .truns { width: 100%; border-collapse: collapse; margin-top: 6px; animation: tui-in .25s ease-out both; table-layout: fixed }
+.tui .truns th { font-weight: 400; color: var(--term-dim); text-align: left }
+.tui .truns th, .tui .truns td { padding: 0 8px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.tui .truns th:nth-child(1) { width: 13ch } .tui .truns th:nth-child(2) { width: 9ch } .tui .truns th:nth-child(4) { width: 13ch } .tui .truns th:nth-child(5) { width: 24ch }
+.tui .tfoot { padding-top: 5px; border-top: 1px dashed var(--term-rule); color: var(--term-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 2.1em }
+.tui .tstatus { display: flex; justify-content: space-between; gap: 16px; margin-top: 8px; padding: 0 2px; color: var(--term-dim); white-space: pre; overflow: hidden }
+.tui .tkey { position: absolute; right: 18px; bottom: 34px; display: flex; align-items: center; gap: 8px; font: 600 13px/1 var(--term); color: var(--term-bg); background: var(--term-acc); border-radius: 5px; padding: 6px 9px; box-shadow: 0 0 0 3px rgb(0 0 0 / 35%); opacity: 0; pointer-events: none }
+.tui .tkey span { font-weight: 400; font-size: 11px }
+.tui .tkey.on { animation: tui-key 1.6s ease-out both }
+@keyframes tui-in { from { opacity: 0; transform: translateY(3px) } to { opacity: 1; transform: none } }
+@keyframes tui-key { 0% { opacity: 0; transform: translateY(4px) } 12%, 70% { opacity: 1; transform: none } 100% { opacity: 0 } }
+@media (max-width: 760px) {
+  .tui { font-size: 10.5px; padding: 14px 10px 8px }
+  .tui .tscreen { grid-template-columns: minmax(0, 1fr); gap: 16px }
+  .tui .tsep, .tui .tmode, .tui .tstatus, .tui .tlog time { display: none }
+  .tui .tlog li { grid-template-columns: minmax(0, 1fr) }
+  .tui .tbody { height: 24em }
+  .tui .truns th:nth-child(4), .tui .truns td:nth-child(4) { display: none }
+  .tui .tkey { bottom: 12px }
+}
+@media (prefers-reduced-motion: reduce) { .tui *, .tui .tkey.on { animation: none !important } }
 figure { margin: 0 }
 figcaption { font-size: 13px; color: var(--muted); margin-top: 10px }
 

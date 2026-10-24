@@ -1,0 +1,247 @@
+<div class="tui" id="tui" role="img" aria-label="An animated example of the ub-agents terminal view on the ub-agents repository. The launcher picks issue 630 and an implementer starts on it. Its Agent tab streams the run: it reads the issue and the code, edits four files, runs the tests and opens pull request 632. The view switches to the Issue and Runs tabs and back. Then it selects issue 589, where the issue-preparer asked a person to decide, and its Unblock tab lists three options with a recommendation and the command that resumes the agent. When the implementer finishes, the pull request moves on to the reviewer.">
+  <div class="tscreen">
+    <div class="pane twork"><div class="ptitle">Work · pass complete</div><div id="twork"></div></div>
+    <div class="pane tside"><div class="ptitle" id="tptitle">Agent</div>
+      <div class="tbar"><span id="ttabs"></span><span class="tsep">│</span><span class="tmode"><span class="u">Formatted</span>  Raw</span><button type="button" id="treplay">Replay</button></div>
+      <div class="thead" id="thead"></div>
+      <div class="tbody" id="tbody"></div>
+      <div class="tfoot" id="tfoot"></div>
+    </div>
+  </div>
+  <div class="tstatus"><span id="tstatus">ub-agents · uberblick-ai/ub-agents</span><span>1-4 tabs  ↑↓ select  ? keys  q quit</span></div>
+  <kbd class="tkey" id="tkey" aria-hidden="true"></kbd>
+</div>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const tui = $('tui'), work = $('twork'), tabs = $('ttabs'), ptitle = $('tptitle'), head = $('thead'), body = $('tbody'), foot = $('tfoot'), status = $('tstatus'), key = $('tkey');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const FRAMES = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const g = (c, cls) => `<i class="g ${cls || ''}">${c}</i>`;
+
+  // The example session: real issues on this repository, one run shortened to a minute.
+  const ITEMS = {
+    630: { ref: '#630', title: 'Order milestone titles with numbers compared as numbers' },
+    632: { ref: '⌥632', title: 'Order milestone titles by comparing numbers numerically' },
+    589: { ref: '#589', title: 'Give agent runs a narrower GitHub token' },
+    633: { ref: '#633', title: 'Trim the coordination records to the fields only they can hold' },
+    631: { ref: '#631', title: 'Cut the 0.3.6 release' },
+    628: { ref: '⌥628', title: 'Collapse a run\'s claim once its outcome is posted' },
+    624: { ref: '#624', title: 'Trust listed bots as PR authors' },
+  };
+  const LOGS = {
+    630: { claim: '11:37:05', meta: 'implementer · codex gpt-6.1-sol xhigh · attempt 1', lines: [
+      ['info', '11:37:05', 'claimed <b>#630</b> Order milestone titles with numbers compared as numbers · implementer · attempt 1'],
+      ['tool', '11:37:09', '<b>Bash</b> gh issue view 630 --comments', '', 900],
+      ['think', '11:37:14', 'The preparer narrowed this to one sort key that the GitHub client and the test fake share. Digit runs compare as numbers, so v0.5.9 sorts before v0.5.10.', '', 1200],
+      ['tool', '11:37:16', '<b>Read</b> AGENTS.md', '', 700],
+      ['tool', '11:37:17', '<b>Read</b> .agents/implementer.md', '', 600],
+      ['tool', '11:37:20', '<b>Grep</b> milestone_order', '2 files', 800],
+      ['tool', '11:37:22', '<b>Read</b> src/ub_agents/github.py', '', 700],
+      ['tool', '11:37:24', '<b>Read</b> tests/support.py', '', 600],
+      ['think', '11:37:41', 'Both sort by the plain title. One natural key in github.py, imported by the fake, so the two cannot drift.', '', 1200],
+      ['tool', '11:38:12', '<b>Edit</b> src/ub_agents/github.py <em class="add">+14</em> <em class="del">−2</em>', '', 1300],
+      ['tool', '11:38:20', '<b>Edit</b> tests/support.py <em class="add">+2</em> <em class="del">−3</em>', '', 900],
+      ['tool', '11:39:02', '<b>Edit</b> tests/test_github.py <em class="add">+38</em> <em class="del">−6</em>', '', 1500],
+      ['tool', '11:39:15', '<b>Edit</b> site/content/configuration/07-queue.md <em class="add">+1</em> <em class="del">−1</em>', '', 900],
+      ['tool', '11:39:21', '<b>Edit</b> docs/configuration.md <em class="add">+1</em> <em class="del">−1</em>', '', 800],
+      ['tool', '11:39:30', '<b>Bash</b> .venv/bin/python -m tests<span class="el"></span>', '2,185 tests passed', 900, 111, true],
+      ['think', '11:41:28', 'All green. CI has to pass on this exact head before I hand off.', '', 900],
+      ['tool', '11:41:35', '<b>Bash</b> git commit -m "Order milestone titles with numbers compared as numbers (#630)"', '', 1100],
+      ['tool', '11:41:40', '<b>Bash</b> git push -u origin HEAD', '', 900],
+      ['tool', '11:41:46', '<b>Bash</b> gh pr create --label needs-review', '#632', 1100],
+      ['tool', '11:41:52', '<b>Bash</b> gh pr checks 632 --watch<span class="el"></span>', '5 checks passed', 900, 388],
+      ['done', '11:48:23', '✓ handed off <b>⌥632</b> · needs-review', '', 1000],
+    ] },
+    589: { claim: '08:12:40', meta: 'issue-preparer · claude opus-5-5 high · attempt 1', lines: [
+      ['info', '08:12:40', 'claimed <b>#589</b> Give agent runs a narrower GitHub token · issue-preparer · attempt 1'],
+      ['tool', '08:12:44', '<b>Bash</b> gh issue view 589 --comments'],
+      ['tool', '08:12:51', '<b>Grep</b> GH_TOKEN|gh auth token', '4 files'],
+      ['tool', '08:13:02', '<b>Read</b> src/ub_agents/loop.py'],
+      ['think', '08:15:37', 'A narrower token needs a source the launcher does not have today. Which one is a decision for a person, not for preparation.'],
+      ['ask', '08:16:02', '? needs-human · asked where the token comes from'],
+    ] },
+    632: { claim: '11:48:41', meta: 'reviewer · claude opus-5-5 high · attempt 1', lines: [
+      ['info', '11:48:41', 'claimed <b>⌥632</b> Order milestone titles by comparing numbers numerically · reviewer · attempt 1'],
+      ['tool', '11:48:45', '<b>Bash</b> gh pr diff 632', '', 900],
+      ['tool', '11:48:47', '<b>Bash</b> gh issue view 630', '', 800],
+      ['think', '11:48:55', 'Checking each acceptance criterion against the diff, starting with the shared sort key.', '', 1000],
+    ] },
+  };
+  const ISSUES = {
+    630: `<p>Milestones are ordered by their exact title as a plain string. That puts <code>v0.5.10</code> before <code>v0.5.9</code>, so <code>gate</code> would work on the wrong milestone once a version part reaches two digits.</p>
+<p>Compare titles in natural order instead: runs of digits compare as numbers, everything else compares as today.</p>
+<pre>open:   v0.5.10, v0.5.9, v0.10.0, Backlog
+today:  Backlog, v0.10.0, v0.5.10, v0.5.9
+after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
+<h4>Acceptance criteria</h4>
+<ul><li>The GitHub client and the test fake share one sort key, so they cannot drift.</li><li>Tests cover the mockup above, a title without numbers and the <code>v1</code>/<code>v01</code> tie-break.</li><li>The queue docs say “comparing numbers as numbers”.</li></ul>
+<p class="dim">Source: GitHub · milestone v0.3.6 · filed by bk-one</p>`,
+    589: `<p>Agents inherit the launcher's whole environment and GitHub login. Outside text that steers an agent, or code a run executes, can use the launcher account's full write access.</p>
+<p>Each run should get a short-lived token limited to its repository and what its role needs, and the launcher's own credentials stay out of the run environment.</p>
+<p class="dim">Source: GitHub · milestone v0.4.0 · filed by bk-one</p>`,
+  };
+  const RUNS = {
+    630: [['10 min ago', '✓', 'filed by bk-one', 'GitHub', 'filed'], ['6 min ago', '✓', 'issue-preparer · Issue prepared: checked the scope…', 'uberblick', 'prepared'], ['just now', 'spin', 'implementer', 'this machine', 'running']],
+    589: [['5 days ago', '✓', 'filed by bk-one', 'GitHub', 'filed'], ['6 h ago', '✗', 'issue-preparer · Needs a token source', 'uberblick', 'needs-human · BLOCKED: token source']],
+  };
+  const UNBLOCK = `<p>Agent runs inherit the launcher's GitHub login, so a run can do anything the launcher account can. A narrower token per run needs a source the launcher does not have today.</p>
+<p>To unblock, do one of:</p>
+<ol><li>Maintainer: mint a short-lived GitHub App token per run, limited to the repository <span class="dim">(recommended)</span></li><li>Maintainer: give each launcher a second, fine-grained token for agent runs</li><li>Maintainer: keep the launcher's token and close this as not planned</li></ol>
+<div class="fold" id="tresume"><div class="fh"><i class="g acc">▸</i> To resume issue-preparer</div><div class="fb">Remove <code>needs-human</code>, then run:<pre>ub-agents retry 589 --agent issue-preparer \\
+  --reason "Use a GitHub App token per run"</pre></div></div>
+<div class="fold"><div class="fh"><i class="g acc">▸</i> Reasoning and evidence</div></div>
+<p class="dim src">Source: action-needed comment · 08:16 · snapshot</p>`;
+
+  let S, gen = 0, spin = 0, frame = 0, logs = {}, logDone;
+  const sleep = (ms, id) => new Promise((ok, no) => setTimeout(() => id === gen ? ok() : no('stale'), ms));
+
+  function fresh() {
+    return {
+      running: [], attention: [{ id: 589, glyph: '?', gcls: 'red', right: '6h', rcls: 'red', sub: 'issue-preparer · needs-human · token source' }],
+      eligible: [{ id: 630, glyph: '●', gcls: 'green', right: 'next', rcls: 'green', sub: 'implementer' },
+                 { id: 633, glyph: '●', gcls: 'green', right: 'ready', sub: 'implementer' },
+                 { id: 631, glyph: '●', gcls: 'green', right: 'low', sub: 'issue-preparer · priority:low', low: true }],
+      recent: [{ id: 628, glyph: '✓', gcls: 'green', right: 'merged', sub: 'integrator · 11:02 · squash-merged' },
+               { id: 628, glyph: '✓', gcls: 'green', right: 'approved', sub: 'reviewer · 10:51' },
+               { id: 624, glyph: '✓', gcls: 'green', right: 'merged', sub: 'integrator · 10:20 · squash-merged' }],
+      sel: 630, tab: 'agent', act: 'picking next item', open: false,
+    };
+  }
+
+  function row(r) {
+    const it = ITEMS[r.id], pr = it.ref[0] === '⌥';
+    const ref = pr ? `<span class="acc">⌥</span>${it.ref.slice(1)}` : it.ref;
+    const sel = r.id === S.sel && !r.past ? ' sel' : '';
+    return `<div class="rw${sel}${r.low ? ' low' : ''}" data-k="${r.id}-${r.right}"><div class="row">${g(r.glyph, r.gcls + (r.glyph === FRAMES[0] ? ' spin' : ''))}<span class="ref">${ref}</span><span class="tt">${esc(it.title)}</span><span class="st ${r.rcls || ''}">${r.right}</span></div><div class="sub">${r.sub}</div></div>`;
+  }
+  let seen = new Set();
+  function renderWork() {
+    const sec = (label, cls, rows, extra) => `<div class="sec ${cls}"><div class="sh">${label}</div>${rows.map(row).join('')}${extra || ''}</div>`;
+    let h = sec(`Running · ${S.running.length}`, 's-run', S.running, S.running.length ? '' : `<div class="idle">${S.act === 'picking next item' ? g(FRAMES[0], 'spin') + ' picking next item' : 'Idle'}</div>`);
+    if (S.attention.length) h += sec(`Needs attention · ${S.attention.length}`, 's-att', S.attention);
+    h += sec(`Eligible · ${S.eligible.length}`, 's-elig', S.eligible);
+    h += sec(`Recent activity · ${S.recent.length + 1} today`, 'past', S.recent.slice(0, 3).map(r => ({ ...r, past: true })));
+    work.innerHTML = h;
+    const now = new Set();
+    for (const el of work.querySelectorAll('.rw')) { now.add(el.dataset.k); if (!seen.has(el.dataset.k)) el.classList.add('new'); }
+    seen = now;
+  }
+
+  function buildLog(id) {
+    const ol = document.createElement('ol'); ol.className = 'tlog';
+    for (const [k, t, html, r, wait, el, hold] of LOGS[id].lines) {
+      const li = document.createElement('li'); li.dataset.k = k; if (wait) li.dataset.wait = wait; if (el) li.dataset.el = el; if (hold) li.dataset.hold = 1;
+      li.innerHTML = `<time>${t}</time><span class="l">${k === 'tool' ? '<i>▸</i> ' : ''}${html}</span>${r ? `<span class="r">${r}</span>` : ''}`;
+      if (k === 'think') li.querySelector('.l').dataset.t = li.querySelector('.l').textContent;
+      ol.append(li);
+    }
+    return ol;
+  }
+  const elapsed = (id, t) => { const s = x => x.split(':').reduce((a, b) => a * 60 + +b, 0); const d = s(t) - s(LOGS[id].claim); return `${String(Math.floor(d / 60)).padStart(2, '0')}:${String(d % 60).padStart(2, '0')}`; };
+  function follow(ol) { ol.scrollTop = ol.scrollHeight; }
+  function setElapsed(id, t) { const r = S.running.find(r => r.id === id); if (r) { r.right = elapsed(id, t); const el = work.querySelector(`.rw[data-k^="${id}-"] .st`); if (el) el.textContent = r.right; } }
+
+  // Streams a run's log line by line; thinking types out, long commands count their seconds.
+  async function stream(id, ol, quick) {
+    for (const li of ol.children) {
+      if (!quick) await sleep(+(li.dataset.wait || 0), runId);
+      // The rest of the run plays once the viewer is back on its Agent tab.
+      while (li.dataset.hold && !(S.sel === id && S.tab === 'agent')) await sleep(200, runId);
+      li.classList.add('on'); setElapsed(id, li.querySelector('time').textContent); follow(ol);
+      const r = li.querySelector('.r');
+      if (li.dataset.k === 'think' && !quick) {
+        const l = li.querySelector('.l'), words = l.dataset.t.split(' '); l.textContent = '';
+        for (let k = 0; k < words.length; k++) { l.textContent += (k ? ' ' : '') + words[k]; follow(ol); await sleep(55 + Math.random() * 50, runId); }
+        await sleep(600, runId);
+      } else if (li.dataset.el && !quick) {
+        const s = li.querySelector('.el'), total = +li.dataset.el;
+        for (let n = 0; n < total; n = Math.min(total, n + Math.ceil(total / 9))) { s.textContent = ` · ${n}s`; await sleep(380, runId); }
+        s.textContent = ` · ${total}s`;
+      } else if (!quick) await sleep(li.dataset.k === 'info' ? 900 : 450, runId);
+      else { const s = li.querySelector('.el'); if (s) s.textContent = ` · ${li.dataset.el}s`; }
+      if (r) r.classList.add('on');
+      follow(ol);
+    }
+  }
+  let runId = 0;
+
+  function renderSide() {
+    const id = S.sel, it = ITEMS[id], attention = S.attention.some(r => r.id === id);
+    if (S.tab === 'unblock' && !attention) S.tab = 'agent';
+    const names = { agent: 'Agent', issue: 'Issue', runs: 'Runs', unblock: 'Unblock' };
+    tabs.innerHTML = ['agent', 'issue', 'runs'].concat(attention ? ['unblock'] : []).map((t, i) => `<span class="tab${t === S.tab ? ' on' : ''}">${i + 1} ${names[t]}</span>`).join('');
+    ptitle.textContent = names[S.tab];
+    const run = S.running.some(r => r.id === id), log = LOGS[id];
+    const meta = S.tab === 'unblock' ? 'issue-preparer · needs-human · waiting 6h · since 08:16' : log ? log.meta : '';
+    head.innerHTML = `<div class="t1"><span class="ino">${it.ref}</span> ${esc(it.title)}</div><div class="t2">${meta}</div>`;
+    let content;
+    if (S.tab === 'agent') content = logs[id] || Object.assign(document.createElement('p'), { className: 'tempty', textContent: 'No run in progress.' });
+    else if (S.tab === 'issue') content = Object.assign(document.createElement('div'), { className: 'tdoc', innerHTML: ISSUES[id] || '' });
+    else if (S.tab === 'runs') {
+      content = document.createElement('table'); content.className = 'truns';
+      content.innerHTML = '<tr><th>when</th><th>result</th><th>agent · summary</th><th>where</th><th>outcome</th></tr>' + (RUNS[id] || []).map(([w, r, a, h, o]) =>
+        `<tr><td>${w}</td><td>${r === 'spin' ? g(FRAMES[0], 'spin blue') : `<span class="${r === '✓' ? 'green' : 'red'}">${r}</span>`}</td><td>${esc(a)}</td><td class="dim">${h}</td><td>${o}</td></tr>`).join('');
+    } else {
+      content = Object.assign(document.createElement('div'), { className: 'tdoc', innerHTML: UNBLOCK });
+      if (S.open) content.querySelector('#tresume').classList.add('open');
+    }
+    if (body.firstChild !== content) body.replaceChildren(content);
+    if (S.tab === 'agent' && logs[id]) follow(logs[id]);
+    foot.innerHTML = run ? `${g(FRAMES[frame], 'spin blue')} <span class="blue">${S.running.find(r => r.id === id).sub.split(' ·')[0]} running</span> · no outcome reported`
+      : attention ? `${g('?', 'red')} <span class="red">issue-preparer needs-human</span> · decide in the Unblock tab or on GitHub`
+      : id === 630 && S.done ? `${g('✓', 'green')} <span class="green">implementer handed-off</span> · ⌥632 needs-review` : '';
+    status.textContent = `ub-agents · uberblick-ai/ub-agents · ${S.act}`;
+  }
+  const render = () => { renderWork(); renderSide(); };
+
+  async function press(k, label, id) {
+    key.innerHTML = `${k}<span>${label}</span>`; key.classList.remove('on'); void key.offsetWidth; key.classList.add('on');
+    await sleep(350, id);
+  }
+
+  async function play() {
+    const id = ++gen; runId = id;
+    S = fresh(); seen = new Set(); logs = { 589: buildLog(589) };
+    for (const li of logs[589].children) li.classList.add('on');
+    logs[589].querySelectorAll('.r').forEach(r => r.classList.add('on'));
+    render();
+    if (reduce) { // one still frame: the run in progress, its log so far
+      S.eligible.shift(); S.running = [{ id: 630, glyph: FRAMES[0], gcls: 'blue', right: '04:25', sub: 'implementer · this launcher · attempt 1' }]; S.act = 'running assignment';
+      logs[630] = buildLog(630); render();
+      [...logs[630].children].slice(0, 15).forEach(li => { li.classList.add('on'); const r = li.querySelector('.r'); if (r) r.classList.add('on'); const s = li.querySelector('.el'); if (s) s.textContent = ` · ${li.dataset.el}s`; });
+      follow(logs[630]); return;
+    }
+    try {
+      await sleep(1800, id);
+      S.eligible.shift(); S.running = [{ id: 630, glyph: FRAMES[0], gcls: 'blue', right: '00:00', sub: 'implementer · this launcher · attempt 1' }];
+      S.act = 'running assignment'; logs[630] = buildLog(630); render();
+      const run = stream(630, logs[630]).then(() => true, () => false);
+      await sleep(10500, id); await press('2', 'Issue', id); S.tab = 'issue'; renderSide();
+      await sleep(5500, id); await press('3', 'Runs', id); S.tab = 'runs'; renderSide();
+      await sleep(4500, id); await press('1', 'Agent', id); S.tab = 'agent'; renderSide();
+      await sleep(4000, id); await press('↓', 'Select', id); S.sel = 589; render();
+      await sleep(3200, id); await press('4', 'Unblock', id); S.tab = 'unblock'; renderSide();
+      await sleep(6500, id); await press('⏎', 'Expand', id); S.open = true; $('tresume').classList.add('open');
+      await sleep(5000, id); await press('↑', 'Select', id); S.sel = 630; S.tab = 'agent'; render();
+      if (!await run) return;
+      await sleep(1600, id);
+      S.done = true; S.running = []; S.act = 'picking next item';
+      S.recent.unshift({ id: 630, glyph: '✓', gcls: 'green', right: '⌥632', sub: 'implementer · 11:48 · needs-review' });
+      S.eligible.unshift({ id: 632, glyph: '●', gcls: 'green', right: 'next', rcls: 'green', sub: 'reviewer' }); render();
+      await sleep(2600, id);
+      S.eligible.shift(); S.running = [{ id: 632, glyph: FRAMES[0], gcls: 'blue', right: '00:00', sub: 'reviewer · this launcher · attempt 1' }];
+      S.act = 'running assignment'; S.sel = 632; logs[632] = buildLog(632); render();
+      await stream(632, logs[632]);
+      await sleep(5000, id); play();
+    } catch (e) { if (e !== 'stale') throw e; }
+  }
+
+  clearInterval(spin);
+  spin = setInterval(() => { frame = (frame + 1) % FRAMES.length; for (const s of tui.querySelectorAll('.spin')) s.textContent = FRAMES[frame]; }, 100);
+  $('treplay').addEventListener('click', play);
+  const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { io.disconnect(); play(); } }, { threshold: 0.25 });
+  S = fresh(); render(); io.observe(tui);
+})();
+</script>
