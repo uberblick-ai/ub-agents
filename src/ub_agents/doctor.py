@@ -18,6 +18,7 @@ from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub, repository_visibility
 from .labels import LabelUse, configured_labels, confirm_label_creation
 from .launcher_lock import launcher_summary, running_launcher
+from .mcp_probe import PROBE_TIMEOUT
 from .records import iso
 from .refresh import control_checkout_checks
 from .trust import WRITERS
@@ -89,9 +90,9 @@ class Doctor:
     def probe(self, command, cwd=None):
         try:
             result = self.runner(list(command), cwd=cwd, capture_output=True, text=True,
-                                 timeout=20, check=False, stdin=subprocess.DEVNULL)
+                                 timeout=PROBE_TIMEOUT, check=False, stdin=subprocess.DEVNULL)
         except subprocess.TimeoutExpired:
-            raise AgentError("probe timed out (20s)") from None
+            raise AgentError(f"probe timed out ({PROBE_TIMEOUT}s)") from None
         except (OSError, UnicodeError):
             raise AgentError("probe could not run") from None
         if result.returncode:
