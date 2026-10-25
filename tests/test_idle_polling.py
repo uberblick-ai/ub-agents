@@ -29,6 +29,7 @@ class IdlePollingTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
+        (self.root / "ub-agents.yaml").touch()
         self.config = replace(config(self.root), poll_seconds=30)
         self.runner = RecordingRunner(self.root)
         self.github = GitHub("org/project", self.runner)
@@ -418,7 +419,8 @@ class IdlePollingTests(unittest.TestCase):
                         patch.object(Loop, "_discovery_tick", side_effect=tick) as ticks, \
                         patch.object(Loop, "_wait", side_effect=wait), \
                         redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
-                    self.assertEqual(main(["launch"]), 0 if sig == signal.SIGTERM else 130)
+                    self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]),
+                                     0 if sig == signal.SIGTERM else 130)
                 ticks.assert_called_once()
                 self.assertEqual(signal.getsignal(sig), handler)
 

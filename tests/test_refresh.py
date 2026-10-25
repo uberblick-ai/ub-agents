@@ -314,7 +314,7 @@ class RefreshTests(unittest.TestCase):
                         patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                         patch("ub_agents.loop.supervise") as execution, \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["launch"]), 0)
+                    self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]), 0)
                 execution.assert_not_called()
                 self.assertEqual(merges, [0])
                 self.assertEqual(git(self.root, "rev-parse", "HEAD"),
@@ -936,7 +936,7 @@ class RefreshTests(unittest.TestCase):
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 redirect_stdout(io.StringIO()), redirect_stderr(error):
-            self.assertEqual(main(["launch", "--once"]), 1)
+            self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)
         self.assertIn("control checkout is dirty", error.getvalue())
         self.assertIn("dirty", error.getvalue())
         self.assertEqual(self.github.writes, [])
