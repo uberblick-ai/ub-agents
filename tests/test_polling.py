@@ -477,7 +477,7 @@ class PollingTests(unittest.TestCase):
     def test_provenance_read_failure_skips_poll_instead_of_blocking_a_plan(self):
         builder = agent(self.root, name="builder", kind="issue", command=(),
                         runtimes=(Runtime("codex", "author-model", "high"),))
-        reviewer = agent(self.root, name="reviewer", kind="pr", different_from="builder", command=(),
+        reviewer = agent(self.root, name="reviewer", kind="pr", different_from=("builder",), command=(),
                          runtimes=(Runtime("claude", "review-model", "high"),))
         self.github.items[2] = pr(head="a" * 40)
         self.loop = Loop(config(self.root, builder, reviewer), self.github, "operator", output=self.lines.append)

@@ -256,11 +256,16 @@ Each agent has exactly one of `runtime` or `command`.
 | `command` | Argv list | Runs instead of an LLM session. A relative path containing `/` resolves against the configuration's directory. |
 | `worktree` | Boolean, `false` | `true` runs in a private checkout: a same-repository PR's exact head, a fork PR's base branch tip, or a fresh branch for an issue. See [pull requests](approvals.md#pull-requests). |
 | `runtime-args` | List or mapping | Replaces all top-level `runtime-args`; `[]` or `{}` disables them. |
-| `different-runtime-from` | Agent name | Another runtime agent. On a PR, this agent must use a different CLI and model from that agent's run on the current head. See [runtime independence](coordination.md#runtime-independence-and-candidate-provenance). |
+| `different-runtime-from` | Agent name or nonempty list | Use a different CLI and model from each named runtime agent's accepted outcome: the latest on an issue, or for the current PR head. `null` clears the setting. See [runtime independence](coordination.md#runtime-independence-and-candidate-provenance). |
 | `on-conflict` | Outcome name | `pr` agents only; an outcome that adds no stop label. Recorded instead of starting the agent when GitHub reports the PR as conflicting. |
 | `health-check` | Argv list | See [Project health checks](#project-health-checks). |
 | `retrospectives` | Positive integer | See [Retrospectives](#retrospectives). |
 | Limit keys | | Override the timeout and retry [`limits`](#limits). The lease keys are top level only. |
+
+`different-runtime-from` accepts a single name such as `implementer` or a list such
+as `[implementer, reviewer]`. Names must be unique, identify other runtime agents,
+and cannot refer to command agents. Local configuration replaces the whole value;
+use `null` to clear it. Doctor checks runtime independence against each named agent.
 
 ### Project health checks
 

@@ -1169,6 +1169,50 @@ launchers: [operator]
         self.missing.add("claude")
         self.assertFalse(self.diagnose()["ok"])
 
+    def test_issue_runtime_independence_checks_every_named_source(self):
+        self.github.label_names.append("prepare")
+        self.path.write_text(self.path.read_text() + '''  preparer:
+    runtime: codex:model-c:high
+    trigger: prepare
+    outcomes: {done: {}}
+    instructions: instructions.md
+    kind: issue
+  reviewer:
+    runtime: claude:model-b:high
+    trigger: needs-review
+    outcomes: {done: {}}
+    instructions: instructions.md
+    kind: issue
+    different-runtime-from: [worker, preparer]
+''')
+        result = self.diagnose()
+        self.assertTrue(result["ok"])
+        checks = self.checks(result, "different-runtime-from")
+        self.assertEqual([(c["status"], c["message"]) for c in checks], [
+            ("ok", "independent execution available after worker"),
+            ("ok", "independent execution available after preparer")])
+        self.assertEqual(len({c["id"] for c in checks}), len(checks))
+
+        configured = load_config(self.path)
+        co = Coordinator(self.github, "operator", lambda: 1000, runtime_available=self.which)
+        item = issue(labels=("ready", "prepare"))
+        self.github.items[1] = item
+        for source in configured.agents[:2]:
+            lease = co.claim(co.plan(item, source, ()))
+            co.update(lease, state="running", started=True)
+            outcome = co.report(lease, "success", "Prepared", outcome="done")
+            co.accept(lease, outcome)
+            co.release(lease, "success", "Prepared")
+        plan = co.plan(issue(labels=("needs-review",)), configured.agents[-1], ())
+        self.assertEqual((plan.state, plan.runtime.cli), ("ready", "claude"))
+
+        self.path.write_text(self.path.read_text().replace("runtime: codex:model-c:high", "runtime: claude:model-c:high"))
+        result = self.diagnose()
+        self.assertFalse(result["ok"])
+        checks = self.checks(result, "different-runtime-from")
+        self.assertEqual([c["status"] for c in checks], ["ok", "warn", "fail"])
+        self.assertIn("preparer", checks[-1]["message"])
+
     def test_ps_unavailable_failure_bad_output_and_missing_self(self):
         for response in (FileNotFoundError("ps"), subprocess.CompletedProcess([], 9, "", "sk-private"),
                          "bad output", "bad 1 S\n", "123456789 1 S\n", subprocess.TimeoutExpired("ps", 20)):
