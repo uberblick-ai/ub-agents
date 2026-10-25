@@ -18,6 +18,7 @@ from ub_agents.doctor import diagnose, render
 from ub_agents.errors import AgentError
 from ub_agents.execution import repository_checks
 from ub_agents.github import GitHub
+from ub_agents.launcher_lock import launcher_lock
 from tests.support import DoctorGitHub, RecordingDiscussionRunner, RecordingRunner, issue, isolate_observations
 
 
@@ -100,6 +101,24 @@ agents:
         code, output = self.cli(True)
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
+
+    def test_launcher_is_informational_online_offline_and_in_every_output_mode(self):
+        (self.root / ".ub-agents").mkdir()
+        for offline in (False, True):
+            baseline = self.diagnose(offline=offline)
+            self.assertIsNone(baseline["launcher"])
+            self.assertIn("No launcher running on this checkout", self.capture(baseline))
+            with launcher_lock(self.root) as owner:
+                result = self.diagnose(offline=offline)
+                self.assertEqual(result["launcher"], owner)
+                self.assertEqual(result["checks"], baseline["checks"])
+                self.assertEqual(result["ok"], baseline["ok"])
+                for verbose in (False, True):
+                    output = self.capture(result, verbose=verbose)
+                    for value in (str(owner["pid"]), owner["host"], owner["started_at"]):
+                        self.assertIn(value, output)
+                self.assertEqual(json.loads(self.capture(result, json_output=True))["launcher"], owner)
+            self.assertIsNone(self.diagnose(offline=offline)["launcher"])
 
     def test_offline_cli_never_reaches_github_network_runtimes_commands_or_prompts(self):
         self.path.write_text(self.path.read_text() + '''    retrospectives: 203
@@ -256,7 +275,8 @@ launchers: [operator]
         result = self.diagnose()
         self.assertTrue(all(c["status"] == "ok" for c in result["checks"]))
         self.assertEqual(len(self.checks(result, "github-label")), 4)
-        expected = ("ok machine: 7 checks passed\n"
+        expected = ("No launcher running on this checkout\n"
+                    "ok machine: 7 checks passed\n"
                     "ok configuration: 11 checks passed\n"
                     "ok GitHub: 5 checks passed, 4 labels present\n"
                     "ok runtimes: 20 checks passed\n"
@@ -349,6 +369,7 @@ launchers: [operator]
         ]
         result = {"version": 2, "ok": False, "checks": checks}
         self.assertEqual(self.capture(result, verbose=True),
+                         "No launcher running on this checkout\n"
                          "skip runtime-auth:worker:codex:model-a:high worker/codex:model-a:high executable unavailable\n"
                          "fail github-label:ready - Label ready is missing\n"
                          "  remedy: Create ready\n"

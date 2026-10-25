@@ -16,6 +16,7 @@ from .errors import AgentError
 from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub, repository_visibility
 from .labels import LabelUse, configured_labels, confirm_label_creation
+from .launcher_lock import launcher_summary, running_launcher
 from .records import iso
 from .refresh import control_checkout_checks
 from .trust import WRITERS
@@ -72,6 +73,7 @@ class Doctor:
         self.config = None
         self.missing_labels = []
         self.approvals = None
+        self.launcher = None
 
     def add(self, id, status, message, remedy=None, *, required=True, agent=None, runtime=None, uses=None):
         # Scope repeated checks with stable configuration identities.
@@ -124,6 +126,7 @@ class Doctor:
                      required=False)
 
     def run(self, path, *, offline=False):
+        self.launcher = running_launcher(Path(path).resolve().parent)
         self.add("python", "ok" if sys.version_info >= (3, 11) else "fail",
                  f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
                  "Install Python 3.11 or newer" if sys.version_info < (3, 11) else None)
@@ -345,7 +348,7 @@ class Doctor:
                 del value["uses"]
             checks.append(value)
         return {"version": 2, "ok": not any(c.required and c.status == "fail" for c in self.checks),
-                "checks": checks}
+                "checks": checks, "launcher": self.launcher}
 
     def create_missing_labels(self):
         if not confirm_label_creation(self.config, self.github, self.missing_labels):
@@ -553,6 +556,7 @@ def render(result, json_output=False, verbose=False):
     if json_output:
         print(json.dumps(result, indent=2))
         return
+    print(launcher_summary(result.get("launcher")))
     if verbose:
         for check in result["checks"]:
             render_check(check)

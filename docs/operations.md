@@ -23,6 +23,19 @@ reason, for example `#400 implementer: declined — Head moved before claim`.
 
 ## Stopping and restarting
 
+Every launch mode holds one exclusive lock for its resolved control checkout.
+A second launch exits before startup and names the running launcher's pid, host
+and start time. Stop that launcher first, or use
+`ub-agents retry NUMBER --reason "Blocker resolved"` to hand it an item.
+Separate control checkouts can each launch.
+
+`ub-agents status` and `ub-agents doctor` (also `--offline`) show the running
+launcher or that none is running. Both JSON outputs add `launcher`: an object
+with `pid`, `host` and UTC `started_at`, or `null`. Doctor treats this as information,
+without adding a warning or failure. The lock is released as soon as the launcher
+exits, including on SIGKILL, and is not retained by its agents or helpers. A leftover
+owner record never blocks a restart; do not delete the lock files while launching.
+
 | Signal or key | Effect | Exit |
 |---|---|---|
 | `q` in the view | No new claims. The current run or recovery finishes, including its report, label transitions and cleanup. | 0 |

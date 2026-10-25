@@ -194,7 +194,8 @@ class StatusTests(unittest.TestCase):
         rows, plain = self.status()
         self.assertIsNone(rows[0]["process"])
         self.assertIsNone(rows[0]["process_reason"])
-        self.assertEqual(plain, "#1 worker: ready · priority none · attempts 0\n  Trigger matched\n")
+        self.assertEqual(plain, "#1 worker: ready · priority none · attempts 0\n  Trigger matched\n"
+                               "No launcher running on this checkout\n")
         self.groups.assert_not_called()
 
     def notice(self, reason, *, author="operator", created=None):
@@ -545,11 +546,12 @@ class ItemStatusTests(unittest.TestCase):
                              agent(self.root, name="reviewer", kind="pr"),
                              agent(self.root, name="other", triggers=("other",)))
         result, plain = self.status()
-        self.assertEqual(set(result), {"assignments"})
+        self.assertEqual(set(result), {"assignments", "launcher"})
         self.assertEqual([(r["number"], r["agent"], r["state"], r["attempts"])
                           for r in result["assignments"]], [(11, "first", "ready", 0), (11, "second", "ready", 0)])
         self.assertEqual(plain, "#11 first: ready · priority none · attempts 0\n  Trigger matched\n"
-                               "#11 second: ready · priority none · attempts 0\n  Trigger matched\n")
+                               "#11 second: ready · priority none · attempts 0\n  Trigger matched\n"
+                               "No launcher running on this checkout\n")
 
     def test_no_rows_explain_untriggered_closed_and_inapplicable_items(self):
         worker = agent(self.root, kind="issue", triggers=("ready",))
@@ -567,8 +569,8 @@ class ItemStatusTests(unittest.TestCase):
                 self.github.items[11] = item
                 self.config = config(self.root, *agents)
                 result, plain = self.status()
-                self.assertEqual(result, {"assignments": [], "explanation": reason})
-                self.assertEqual(plain, f"#11: {reason}\n")
+                self.assertEqual(result, {"assignments": [], "explanation": reason, "launcher": None})
+                self.assertEqual(plain, f"#11: {reason}\nNo launcher running on this checkout\n")
 
     def test_own_priority_and_milestone_without_inheritance_or_ordering(self):
         self.config = config(self.root, queue=Queue(milestones="order", priority=Priority(("urgent", "normal"))))
