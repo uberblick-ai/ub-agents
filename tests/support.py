@@ -57,6 +57,17 @@ class RecordingAwakeProcess:
         self.returncode = -9
 
 
+class RecordingMCPProbe:
+    """Private server startup metadata; never launch a configured real server."""
+    def __init__(self, result=(3, None)):
+        self.result = result
+        self.calls = []
+
+    def __call__(self, command, *, cwd, env):
+        self.calls.append((command, cwd, env))
+        return self.result
+
+
 class RecordingDescriptionTransport:
     """Explicit completions, including a request that remains hung until close."""
     def __init__(self):
