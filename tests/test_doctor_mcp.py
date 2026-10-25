@@ -237,6 +237,109 @@ agents:
         self.assertNotIn("secret-token", json.dumps(result))
         self.assertEqual(self.probe.calls, [])
 
+    def test_malformed_claude_sources_do_not_block_codex_probe(self):
+        config = load_config(self.path)
+        for path, arguments in (
+                (".mcp.json", ()),
+                ("../home/.claude/.claude.json", ()),
+                ("../home/.claude/settings.json", ()),
+                (".claude/settings.json", ()),
+                ("extra-mcp.json", ("--mcp-config", "extra-mcp.json")),
+                ("extra-settings.json", ("--settings", "extra-settings.json"))):
+            with self.subTest(path=path):
+                self.write(".mcp.json", {"mcpServers": {"x": {"command": "claude-server"}}})
+                self.write(".claude/settings.json", {"enabledMcpjsonServers": ["x"]})
+                self.write(path, '{"private": secret-token}')
+                worker = replace(config.agents[0], runtime_args={
+                    "claude": ("--allowedTools", "mcp__x__*", *arguments),
+                    "codex": ("-c", 'mcp_servers.x.command="codex-server"')})
+                result = self.run_checks(config=replace(config, agents=(worker,)))
+                checks = result["checks"]
+                calls = list(self.probe.calls)
+                self.probe.calls.clear()
+                (self.project / path).unlink()
+                self.assertEqual([c["runtime"] for c in checks if c["id"].startswith("runtime-mcp-config:")],
+                                 ["claude:model:high"])
+                codex = [c for c in checks if c.get("server") == "x" and c["runtime"].startswith("codex:")]
+                self.assertEqual([(c["status"], c["message"]) for c in codex], [("ok", "x: loaded; 3 tools")])
+                self.assertEqual([call[0] for call in calls], [["codex-server"]])
+                self.assertNotIn("secret-token", json.dumps(result))
+
+    def test_malformed_codex_user_config_does_not_block_claude_probe(self):
+        self.write("../home/.codex/config.toml", 'command=secret-token\n')
+        self.write(".mcp.json", {"mcpServers": {"x": {"command": "claude-server"}}})
+        self.write(".claude/settings.json", {"enabledMcpjsonServers": ["x"]})
+        config = load_config(self.path)
+        worker = replace(config.agents[0], runtimes=tuple(reversed(config.agents[0].runtimes)),
+                         runtime_args={"codex": ("-c", 'mcp_servers.x.command="codex-server"')})
+        checks = self.checks(config=replace(config, agents=(worker,)))
+        self.assertEqual([c["runtime"] for c in checks if c["id"].startswith("runtime-mcp-config:")],
+                         ["codex:model:high"])
+        self.assertEqual(checks[-1]["message"], "x: loaded; 3 tools")
+        self.assertEqual([call[0] for call in self.probe.calls], [["claude-server"]])
+
+    def test_ignored_config_errors_preserve_loaded_and_pending_verdicts(self):
+        self.write(".mcp.json", {"mcpServers": {"x": {"command": "claude-server"},
+                                              "pending": {"command": "never-start"}}})
+        self.write(".claude/settings.json", {"enabledMcpjsonServers": ["x"]})
+        config = load_config(self.path)
+        worker = replace(config.agents[0], runtime_args={
+            "codex": ("-c", 'mcp_servers.x.command="codex-server"')})
+        for path in (".codex/config.toml", "../.codex/config.toml", "../.mcp.json"):
+            with self.subTest(path=path):
+                self.write(path, "private invalid configuration")
+                checks = self.checks(config=replace(config, agents=(worker,)))
+                calls = list(self.probe.calls)
+                self.probe.calls.clear()
+                (self.project / path).unlink()
+                self.assertFalse(any(c["id"].startswith("runtime-mcp-config:") for c in checks))
+                self.assertEqual([c["status"] for c in checks if c.get("server") == "x"], ["ok", "ok"])
+                self.assertEqual(checks[0]["message"], "pending: pending approval")
+                self.assertEqual([call[0] for call in calls], [["claude-server"], ["codex-server"]])
+
+    def test_excluded_claude_sources_do_not_block_explicit_probe(self):
+        self.write(".mcp.json", "private invalid configuration")
+        self.write("../home/.claude/.claude.json", "private invalid configuration")
+        config = load_config(self.path)
+        for arguments in (("--strict-mcp-config",), ("--setting-sources=",)):
+            with self.subTest(arguments=arguments):
+                worker = replace(config.agents[0], runtime_args={"claude": (
+                    *arguments, "--mcp-config", '{"mcpServers":{"x":{"command":"explicit"}}}')})
+                checks = self.checks(config=replace(config, agents=(worker,)))
+                calls = list(self.probe.calls)
+                self.probe.calls.clear()
+                self.assertFalse(any(c["id"].startswith("runtime-mcp-config:") for c in checks))
+                self.assertEqual(checks[0]["message"], "x: loaded; 3 tools")
+                self.assertEqual([call[0] for call in calls], [["explicit"]])
+
+    def test_inline_errors_do_not_block_later_agents_using_the_same_runtime(self):
+        self.write(".mcp.json", {"mcpServers": {"x": {"command": "claude-server"}}})
+        self.write(".claude/settings.json", {"enabledMcpjsonServers": ["x"]})
+        config = load_config(self.path)
+        worker = config.agents[0]
+        reviewer = replace(worker, name="reviewer", runtimes=worker.runtimes[:1])
+        for flag in ("--mcp-config", "--settings"):
+            with self.subTest(flag=flag):
+                broken = replace(worker, runtime_args={"claude": (flag, '{"private": secret-token}')})
+                checks = self.checks(config=replace(config, agents=(broken, reviewer)))
+                calls = list(self.probe.calls)
+                self.probe.calls.clear()
+                self.assertEqual([(c["agent"], c["runtime"]) for c in checks
+                                  if c["id"].startswith("runtime-mcp-config:")], [("worker", "claude:model:high")])
+                self.assertEqual(checks[-1]["message"], "x: loaded; 3 tools")
+                self.assertEqual([call[0] for call in calls], [["claude-server"]])
+
+    def test_project_denial_does_not_block_user_or_explicit_servers(self):
+        self.write(".claude/settings.json", {"disabledMcpjsonServers": ["x"]})
+        self.write("../home/.claude/.claude.json", {"mcpServers": {"x": {"command": "user-server"}}})
+        self.assertEqual(self.checks()[0]["message"], "x: loaded; 3 tools")
+        self.write(".mcp.json", {"mcpServers": {"x": {"command": "denied-project-server"}}})
+        config = load_config(self.path)
+        worker = replace(config.agents[0], runtime_args={"claude": (
+            "--mcp-config", '{"mcpServers":{"x":{"command":"explicit"}}}')})
+        self.assertEqual(self.checks(config=replace(config, agents=(worker,)))[0]["message"], "x: loaded; 3 tools")
+        self.assertEqual([call[0] for call in self.probe.calls], [["user-server"], ["explicit"]])
+
 
 class StdioProbeTests(unittest.TestCase):
     def probe(self, script, *, timeout=2):

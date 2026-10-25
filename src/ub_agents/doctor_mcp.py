@@ -77,10 +77,10 @@ class MCPChecks:
         self.probe = probe or probe_stdio
         self.cache = {}
         self.errors = set()
-        self.project_claude = self.servers(self.read(config.root / ".mcp.json"), "mcpServers")
-        self.project_codex = self.servers(self.read(config.root / ".codex/config.toml"), "mcp_servers")
+        self.project_claude = self.servers(self.read(config.root / ".mcp.json", runtime_reads=False), "mcpServers")
+        self.project_codex = self.servers(self.read(config.root / ".codex/config.toml", runtime_reads=False), "mcp_servers")
 
-    def read(self, path):
+    def read(self, path, *, runtime_reads=True):
         try:
             text = path.read_text(encoding="utf-8")
             value = tomllib.loads(text) if path.suffix == ".toml" else json.loads(text)
@@ -91,7 +91,10 @@ class MCPChecks:
             return {}
         except (OSError, ValueError, UnicodeError):
             # No parser exceptions: they may quote commands or credentials.
-            self.errors.add(path)
+            # Discovery also inspects files the runtime will never load. Their
+            # errors must not suppress probes of valid, effective definitions.
+            if runtime_reads:
+                self.errors.add(path)
             return {}
 
     @staticmethod
@@ -122,15 +125,16 @@ class MCPChecks:
         for parent in self.config.root.parents:
             path = parent / ".codex/config.toml"
             if path != home / "config.toml":
-                unread.update(self.servers(self.read(path), "mcp_servers"))
+                unread.update(self.servers(self.read(path, runtime_reads=False), "mcp_servers"))
         return loaded, unread, {}, {}
 
     def claude(self, arguments):
         home = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
         user_path = home / ".claude.json" if "CLAUDE_CONFIG_DIR" in os.environ else Path.home() / ".claude.json"
-        user = self.read(user_path)
         sources = flags(arguments, "--setting-sources")
         sources = set(sources[-1].split(",")) if sources else {"user", "project", "local"}
+        strict = "--strict-mcp-config" in arguments
+        user = self.read(user_path, runtime_reads="user" in sources and not strict)
         settings = []
         if "user" in sources:
             settings.append(self.read(home / "settings.json"))
@@ -142,12 +146,12 @@ class MCPChecks:
         approvals = {name for value in settings for name in strings(value.get("enabledMcpjsonServers"))}
         denied = {name for value in settings for name in strings(value.get("disabledMcpjsonServers"))}
         all_approved = any(value.get("enableAllProjectMcpServers") is True for value in settings)
-        strict = "--strict-mcp-config" in arguments
         loaded = dict(self.servers(user, "mcpServers")) if "user" in sources and not strict else {}
         pending = {}
         unread = dict(self.project_claude) if strict or "project" not in sources else {}
         if not strict and "project" in sources:
-            for name, entry in self.project_claude.items():
+            project = self.servers(self.read(self.config.root / ".mcp.json"), "mcpServers")
+            for name, entry in project.items():
                 # Project entries take precedence over user entries even while pending.
                 loaded.pop(name, None)
                 if name not in denied and (all_approved or name in approvals):
@@ -159,12 +163,12 @@ class MCPChecks:
                 loaded[name] = entry
                 pending.pop(name, None)
         for parent in self.config.root.parents:
-            unread.update(self.servers(self.read(parent / ".mcp.json"), "mcpServers"))
+            unread.update(self.servers(self.read(parent / ".mcp.json", runtime_reads=False), "mcpServers"))
         # These entries and approval choices are keyed to the control checkout,
         # and therefore do not apply at a new worktree path.
         local = mapping(mapping(user.get("projects")).get(str(self.config.root)))
         unread.update(self.servers(local, "mcpServers"))
-        return loaded, unread, pending, {name: "pending approval" for name in denied}
+        return loaded, unread, pending, {name: "pending approval" for name in denied if name in pending}
 
     def json_argument(self, value):
         if value.lstrip().startswith("{"):
@@ -182,8 +186,7 @@ class MCPChecks:
             expected = self.expected(agent)
             for runtime in agent.runtimes:
                 arguments = agent.runtime_args_for(runtime)
-                self.errors = {path for path in self.errors if path in {
-                    self.config.root / ".mcp.json", self.config.root / ".codex/config.toml"}}
+                self.errors = set()
                 if offline:
                     loaded, unread, pending, denied = {}, {}, {}, {}
                     explicit = (self.servers(codex_overrides(arguments), "mcp_servers")
@@ -191,7 +194,7 @@ class MCPChecks:
                 else:
                     loaded, unread, pending, denied = getattr(self, runtime.cli)(arguments)
                     explicit = self.servers(codex_overrides(arguments), "mcp_servers")
-                names = expected | set(explicit) if runtime.cli == "codex" else expected
+                names = expected | set(explicit) if runtime.cli == "codex" else set(expected)
                 # Explicit Claude --mcp-config entries are relevant too; unrelated
                 # user-wide servers do not expand the project's checks.
                 if runtime.cli == "claude":
@@ -207,7 +210,7 @@ class MCPChecks:
                     if offline:
                         doctor.add("runtime-mcp", "skip", f"{name}: offline: MCP servers are not checked", **kwargs)
                         continue
-                    state = (denied.get(name) or "loaded" if name in loaded else
+                    state = ("loaded" if name in loaded else
                              "pending approval" if name in pending else "unread" if name in unread else "missing")
                     if self.errors:
                         state = "unread"

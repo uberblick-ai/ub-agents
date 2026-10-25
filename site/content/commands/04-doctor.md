@@ -53,8 +53,9 @@ remote stdio execution are skipped. Unapproved or unread servers are never start
 MCP problems are optional warnings and do not change doctor's exit code. Messages
 and remedies contain no server output, environment values or credentials. In
 `--json`, each `runtime-mcp` check includes `agent`, `runtime` and `server`;
-configuration read errors appear as `runtime-mcp-config` warnings. To make the
-launcher wait for a required service, configure a
+errors in configuration a runtime reads appear as `runtime-mcp-config` warnings
+for that alternative. Malformed files it ignores do not prevent valid servers
+from being probed. To make the launcher wait for a required service, configure a
 [health check](/docs/configuration/agents.html#health-check).
 
 ## Offline
