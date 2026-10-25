@@ -142,7 +142,7 @@ class Agent:
     runtimes: tuple[Runtime, ...]
     command: tuple[str, ...]
     runtime_args: tuple[str, ...] | dict[str, tuple[str, ...]]
-    different_from: str | None
+    different_from: tuple[str, ...]
     kind: str
     worktree: bool
     lease_seconds: float
@@ -437,9 +437,13 @@ def _parse_config(data, root, *, planned=()):
                             if runtimes and runtime_defaults else ())
         different = item.get("different-runtime-from")
         if different is not None:
-            string(different, f"{name} different-runtime-from")
-            if different not in definitions or different == name or command:
+            different = strings(different, f"{name} different-runtime-from")
+            if len(set(different)) != len(different):
+                raise AgentError(f"{name}: different-runtime-from must contain unique agent names")
+            if any(source not in definitions or source == name for source in different) or command:
                 raise AgentError(f"{name}: different-runtime-from must reference another runtime agent")
+        else:
+            different = ()
         kind = item.get("kind", "either")
         if kind not in ("issue", "pr", "either"):
             raise AgentError(f"{name}: kind must be issue, pr, or either")
@@ -499,8 +503,9 @@ def _parse_config(data, root, *, planned=()):
                 if labels.intersection(stop) or not labels <= issue_triggers:
                     raise AgentError(f"{agent.name}: sub-issues add must contain only issue agent trigger labels, "
                                      "and no stop labels")
-        if agent.different_from and not next(a for a in agents if a.name == agent.different_from).runtimes:
-            raise AgentError(f"{agent.name}: runtime independence requires runtime provenance")
+        for source in agent.different_from:
+            if not next(a for a in agents if a.name == source).runtimes:
+                raise AgentError(f"{agent.name}: runtime independence requires runtime provenance from {source}")
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
                   runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup,

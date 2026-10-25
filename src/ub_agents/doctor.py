@@ -474,22 +474,23 @@ class Doctor:
                      f"{len(usable[agent.name])} usable runtime alternative(s)",
                      None if available else f"Install and authenticate at least one runtime for agent {agent.name}", agent=agent)
         for agent in config.agents:
-            if not agent.different_from:
-                continue
-            source = usable[agent.different_from]
-            covered = [r for r in source if any(candidate.different_from(r) for candidate in usable[agent.name])]
-            for runtime in source:
-                if runtime not in covered:
-                    self.add("different-runtime-from", "warn",
-                             f"{agent.name} has no independent usable alternative for {agent.different_from} using {runtime.name}",
-                             f"Install/configure a different CLI and model for {agent.name}, or remove this alternative from {agent.different_from}",
-                             required=False, agent=agent, runtime=runtime)
-            if not covered:
-                self.add("different-runtime-from", "fail",
-                         f"{agent.name} cannot independently run after {agent.different_from}",
-                         f"Install/authenticate independent runtime alternatives for {agent.name} and {agent.different_from}", agent=agent)
-            else:
-                self.add("different-runtime-from", "ok", f"independent execution available after {agent.different_from}", agent=agent)
+            for name in agent.different_from:
+                check_id = ("different-runtime-from" if len(agent.different_from) == 1
+                            else f"different-runtime-from:{name}")
+                source = usable[name]
+                covered = [r for r in source if any(candidate.different_from(r) for candidate in usable[agent.name])]
+                for runtime in source:
+                    if runtime not in covered:
+                        self.add(check_id, "warn",
+                                 f"{agent.name} has no independent usable alternative for {name} using {runtime.name}",
+                                 f"Install/configure a different CLI and model for {agent.name}, or remove this alternative from {name}",
+                                 required=False, agent=agent, runtime=runtime)
+                if not covered:
+                    self.add(check_id, "fail",
+                             f"{agent.name} cannot independently run after {name}",
+                             f"Install/authenticate independent runtime alternatives for {agent.name} and {name}", agent=agent)
+                else:
+                    self.add(check_id, "ok", f"independent execution available after {name}", agent=agent)
 
     def local(self, config, git_ready):
         local = config.root / ".ub-agents"

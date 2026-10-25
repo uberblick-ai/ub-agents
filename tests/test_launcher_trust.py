@@ -325,7 +325,7 @@ class LauncherTrustTests(unittest.TestCase):
     def test_independent_runtime_uses_cross_account_recovered_handoff(self):
         author = replace(self.worker, name="author", command=(),
                          runtimes=(Runtime("codex", "model-a", "high"),), kind="issue")
-        reviewer = replace(self.worker, name="reviewer", command=(), different_from="author", kind="pr",
+        reviewer = replace(self.worker, name="reviewer", command=(), different_from=("author",), kind="pr",
                            runtimes=(Runtime("codex", "model-a", "high"), Runtime("claude", "model-b", "high")))
         with patch("ub_agents.coordination.shutil.which", return_value="/tools/runtime"):
             source = self.start(self.b, worker=author)

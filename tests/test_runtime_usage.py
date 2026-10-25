@@ -380,7 +380,7 @@ class UsageLoopTests(unittest.TestCase):
         self.assertEqual(loop.coordinator.history(2)[0]["runtime"], alternative.name)
 
     def test_independence_first_runtime_rule_still_applies(self):
-        independent = replace(self.role, kind="pr", different_from="author",
+        independent = replace(self.role, kind="pr", different_from=("author",),
                               runtimes=self.role.runtimes + (Runtime("codex", "other", "high"),))
         github = FakeGitHub(pr(labels=("ready",)))
         loop = Loop(config(self.root, independent), github, "operator", output=self.lines.append)
@@ -424,7 +424,7 @@ agents:
 
     def test_paused_independent_runtime_cannot_fall_back_to_authors_cli(self):
         author = replace(self.role, name="author", kind="pr", runtimes=(Runtime("codex", "author-model", "high"),))
-        reviewer = replace(self.role, name="reviewer", kind="pr", different_from="author",
+        reviewer = replace(self.role, name="reviewer", kind="pr", different_from=("author",),
                            runtimes=self.role.runtimes + (Runtime("codex", "other-model", "high"),))
         github = FakeGitHub(pr(labels=("ready",)))
         loop = Loop(config(self.root, author, reviewer), github, "operator", output=self.lines.append)

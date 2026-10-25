@@ -31,6 +31,52 @@ class ConfigTests(unittest.TestCase):
                    if entry.group == "console_scripts"}
         self.assertEqual(scripts, {"ub-agents": "ub_agents.cli:main"})
 
+    def test_runtime_independence_accepts_a_name_or_unique_nonempty_list(self):
+        (self.root / 'instructions.md').write_text('Task')
+        base = '''repository: org/project
+agents:
+  preparer:
+    runtime: claude:model-a:high
+    instructions: instructions.md
+    trigger: prepare
+    outcomes: {done: {}}
+  implementer:
+    runtime: codex:model-b:high
+    instructions: instructions.md
+    trigger: ready
+    outcomes: {done: {}}
+  command:
+    command: [echo]
+    trigger: command
+    outcomes: {done: {}}
+  reviewer:
+    runtime: [claude:model-a:high, codex:model-b:high]
+    instructions: instructions.md
+    trigger: review
+    outcomes: {done: {}}
+'''
+        for value, expected in (('preparer', ('preparer',)), ('[preparer]', ('preparer',)),
+                                ('[preparer, implementer]', ('preparer', 'implementer')),
+                                ('null', ())):
+            with self.subTest(value=value):
+                configured = self.load(base + f'    different-runtime-from: {value}\n')
+                self.assertEqual(configured.agents[-1].different_from, expected)
+        for value, reason in (
+                ('[]', 'string or nonempty list'), ('{}', 'string or nonempty list'),
+                ('[preparer, preparer]', 'unique agent names'),
+                ('[preparer, reviewer]', 'another runtime agent'),
+                ('[preparer, unknown]', 'another runtime agent'),
+                ('[preparer, command]', 'runtime provenance from command'),
+                ('command', 'runtime provenance from command'),
+                ('[preparer, 1]', 'nonempty string'), ('[null]', 'nonempty string'),
+                ('[false]', 'nonempty string'), ('[[preparer]]', 'nonempty string'),
+                ("['']", 'nonempty string'), ("['   ']", 'nonempty string')):
+            with self.subTest(value=value), self.assertRaisesRegex(AgentError, reason):
+                self.load(base + f'    different-runtime-from: {value}\n')
+        with self.assertRaisesRegex(AgentError, 'another runtime agent'):
+            self.load(base.replace('    runtime: [claude:model-a:high, codex:model-b:high]\n',
+                                   '    command: [echo]\n') + '    different-runtime-from: preparer\n')
+
     def test_max_rounds_validation_in_offline_doctor(self):
         base = '''repository: org/project
 agents:

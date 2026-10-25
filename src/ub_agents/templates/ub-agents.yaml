@@ -51,7 +51,8 @@ agents:
     worktree: true
     agent-timeout-minutes: 60
     # Run this role on a different runtime from issue-preparer for independent review.
-    # This is a recommendation: different-runtime-from currently requires a PR.
+    # Configure runtime alternatives with different CLIs and models, then enable:
+    # different-runtime-from: issue-preparer
 
   implementer:
     runtime: "codex:gpt-6.1-sol:high"

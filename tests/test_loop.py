@@ -225,7 +225,7 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(self.github.writes, self.last_writes)
 
     def test_stale_independent_review_cannot_be_accepted(self):
-        reviewer = replace(self.agent, different_from="builder", kind="pr")
+        reviewer = replace(self.agent, different_from=("builder",), kind="pr")
         candidate = self.github.item(2)
         plan = self.loop.coordinator.plan(candidate, replace(self.agent, kind="pr"), ())
         lease = self.loop.coordinator.claim(plan)

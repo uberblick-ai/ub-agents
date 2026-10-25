@@ -95,7 +95,7 @@ agents:
                 effective = load_config(self.path)
                 self.assertEqual(tuple(r.name for r in effective.agents[0].runtimes), expected)
                 self.assertEqual(effective.agents[1], base.agents[1])
-                self.assertEqual(effective.agents[1].different_from, 'implementer')
+                self.assertEqual(effective.agents[1].different_from, ('implementer',))
 
     def test_other_scalars_and_lists_replace_including_empty_lists(self):
         self.local.write_text('''poll-seconds: 10
@@ -139,7 +139,24 @@ agents:
                 self.assertIn(reason, str(error.exception))
         # Nullable fields retain their existing schema behavior.
         self.local.write_text('agents: {reviewer: {different-runtime-from: null}}')
-        self.assertIsNone(load_config(self.path).agents[1].different_from)
+        self.assertEqual(load_config(self.path).agents[1].different_from, ())
+
+    def test_runtime_independence_sources_replace_or_clear_the_whole_list(self):
+        self.path.write_text(self.path.read_text() + '''  preparer:
+    runtime: codex:prepare:high
+    instructions: role.md
+    trigger: prepare
+    outcomes: {done: {}}
+''')
+        for value, expected in (('[implementer, preparer]', ('implementer', 'preparer')),
+                                ('[preparer]', ('preparer',)),
+                                ('implementer', ('implementer',)), ('null', ())):
+            with self.subTest(value=value):
+                self.local.write_text(f'agents: {{reviewer: {{different-runtime-from: {value}}}}}')
+                self.assertEqual(load_config(self.path).agents[1].different_from, expected)
+                # The next local setting replaces a base list as well as a scalar.
+                self.path.write_text(self.path.read_text().replace(
+                    'different-runtime-from: implementer', 'different-runtime-from: [implementer, preparer]'))
 
     def test_invalid_local_yaml_and_schema_errors_name_the_local_file(self):
         for content, reason in (

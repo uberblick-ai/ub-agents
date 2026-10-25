@@ -424,23 +424,35 @@ died.
 
 ## Runtime independence and candidate provenance
 
-`different-runtime-from: NAME` requires a PR. An accepted report from `NAME`
-identifies the source runtime for the **current PR head** only when a successful
-source release or outcome recovery backs it; invalid source provenance blocks. The
-source issue outcome is copied to the PR before the handoff's trigger labels are
-added and updated on acceptance. A revision records provenance for its new head.
+`different-runtime-from: NAME` works on issues and PRs. On an issue, the source
+runtime comes from `NAME`'s **latest accepted successful outcome on that issue**.
+A newer accepted preparation or revision replaces the previous source runtime;
+issue body revisions are not tracked. On a PR, an accepted report from `NAME`
+identifies the source runtime for the **current PR head**. In both cases, a
+successful source release or outcome recovery must back the report; invalid source
+provenance blocks.
 
-A started, unfinished handoff for the current head blocks the independent role until
-acceptance and source release or recovery. If publishing the pending copy fails, no
-triggers are added. If accepting it fails, the pending copy stays, and recovery
-repairs it without running the source again. Planning rereads the source outcome and
-lease, so a rejected report or a reset that abandons the handoff stops a stale copy
-from blocking.
+For issue-to-PR handoffs, the source issue outcome is copied to the PR before the
+handoff's trigger labels are added and updated on acceptance. A revision records
+provenance for its new head.
 
-Without an accepted report from `NAME` for the current head, the agent uses only its
-first configured runtime. If that runtime's CLI is not installed, planning blocks
-with `No eligible runtime executable is installed`. The launcher does not detect
-authorship or guess the source runtime.
+A started, unfinished handoff for the current PR head blocks the independent role
+until acceptance and source release or recovery. On issues, a started, unaccepted
+source handoff blocks even when an older accepted outcome exists. If publishing the
+pending copy fails, no triggers are added. If accepting it fails, the pending copy
+stays, and recovery repairs it without running the source again. Planning rereads
+the source outcome and lease, so a rejected report or a reset that abandons the
+handoff stops a stale copy from blocking.
+
+The setting also accepts a nonempty list, such as
+`different-runtime-from: [implementer, reviewer]`. Each identified source excludes
+runtimes that share its CLI or model. If every runtime is excluded, planning blocks
+with `No runtime has a different CLI and model from the candidate author`.
+
+Without an accepted report from any named agent on the issue or for the current PR
+head, the agent uses only its first configured runtime. If that runtime's CLI is
+not installed, planning blocks with `No eligible runtime executable is installed`.
+The launcher does not detect authorship or guess the source runtime.
 
 When the source is identified, the eligible runtime must differ from it in CLI
 **and** model; `codex` and `claude` imply OpenAI and Anthropic. Effort is ignored.
@@ -453,7 +465,7 @@ protection. Project instructions may set stricter identity rules.
 
 Independent assignments start a fresh CLI session pointed at the original
 requirements, acceptance criteria, code, diff and candidate evidence, not
-implementation transcripts. With `different-runtime-from`, a moved assigned head
+implementation transcripts. On PRs with `different-runtime-from`, a moved assigned head
 fails validation, and no result for an earlier head satisfies a newer candidate.
 
 ## Run prompt

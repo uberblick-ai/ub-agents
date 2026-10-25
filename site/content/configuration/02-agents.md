@@ -85,12 +85,32 @@ outcomes:
 
 ## Different runtime from
 
-Make a pull request agent run on a different CLI and model from the agent that wrote the current commit. A different effort alone does not count.
+Run on a different CLI and model from another agent's accepted outcome. On issues,
+this uses that agent's latest accepted successful outcome on the same issue. On
+pull requests, it uses the accepted outcome for the current head. A different
+effort alone does not count. A successful source release or outcome recovery must
+back the outcome; invalid provenance or a started, unfinished source handoff blocks.
 
 ```yaml
 runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.1-sol:high"]
 different-runtime-from: implementer
 ```
+
+For independent issue review, use `different-runtime-from: issue-preparer` and
+configure both runtime alternatives on the issue reviewer.
+
+To exclude several sources, use a nonempty list:
+
+```yaml
+different-runtime-from: [implementer, reviewer]
+```
+
+The selected runtime must differ in both CLI and model from every identified
+source. If none of the named agents has an accepted outcome for the issue or
+current PR head, only the first configured runtime is used. If every runtime is
+excluded, planning blocks. Names must be unique and refer to other runtime agents,
+not command agents. Doctor checks each named source. Local configuration replaces
+the whole value; `null` clears it.
 
 ## Runtime arguments
 
