@@ -528,7 +528,7 @@ agents:
                         self.assertEqual(main(["status"] + (["--json"] if json_output else [])), 0)
                     if json_output:
                         result = json.loads(output.getvalue())
-                        self.assertEqual(set(result), {"assignments"})
+                        self.assertEqual(set(result), {"assignments", "launcher"})
                         self.assertEqual(len(result["assignments"]), len(github.items))
                         if github.items:
                             self.assertEqual(result["assignments"][0]["state"], "ready")

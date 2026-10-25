@@ -32,6 +32,7 @@ class PollingTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        (self.root / "ub-agents.yaml").touch()
         self.github = PollGitHub(issue())
         self.config = config(self.root, agent(self.root, kind="issue"))
         self.lines = []
@@ -405,7 +406,7 @@ class PollingTests(unittest.TestCase):
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         patch("ub_agents.cli.Loop", return_value=self.loop), \
                         patch.object(self.loop.stop_event, "wait") as waits, redirect_stderr(stderr):
-                    self.assertEqual(main(argv), 1)
+                    self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), *argv]), 1)
                 waits.assert_not_called()
                 self.assertEqual(self.github.writes, [])
                 if argv[0] == "launch":
@@ -422,7 +423,7 @@ class PollingTests(unittest.TestCase):
                 patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.launch_checks", side_effect=error), redirect_stderr(stderr):
-            self.assertEqual(main(["launch", "--once"]), 1)
+            self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)
         self.assertEqual(stderr.getvalue(), f"ub-agents: {' '.join(str(error).split())}; "
                          "Fix the cause and restart ub-agents launch.\n")
         self.assertEqual(self.github.writes, [])
@@ -451,7 +452,8 @@ class PollingTests(unittest.TestCase):
                         patch("ub_agents.cli.SignalEvent", side_effect=[self.loop.stop_event, interrupt]), \
                         patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(sig)), \
                         redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["launch"]), 0 if sig == signal.SIGTERM else 130)
+                    self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]),
+                                     0 if sig == signal.SIGTERM else 130)
                 self.assertEqual(signal.getsignal(sig), handler)
                 self.assertEqual(self.github.reads, [("observe", ())])
                 self.assertEqual(self.github.writes, [])
@@ -470,7 +472,7 @@ class PollingTests(unittest.TestCase):
                 patch("ub_agents.cli.SignalEvent", side_effect=[self.loop.stop_event, interrupt]), \
                 patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(signal.SIGTERM)), \
                 redirect_stderr(io.StringIO()):
-            self.assertEqual(main(["launch"]), 0)
+            self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]), 0)
         self.assertEqual(self.github.writes, [])
         self.assertTrue(self.lines[0].startswith("GitHub rate limit reached"))
 

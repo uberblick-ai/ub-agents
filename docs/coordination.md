@@ -536,8 +536,21 @@ part of discovery, so continuous launch retries its transient failures.
 New issue worktrees start from the remote default branch. PR worktrees in the same
 repository check out the exact candidate SHA. Fork PR worktrees use the base branch
 tip and keep the verified head in a run-owned ref for diff review; see
-[pull requests](approvals.md#pull-requests). Two launchers sharing one checkout, or
-a concurrent startup sweep, are outside this boundary. See
+[pull requests](approvals.md#pull-requests). Each resolved control-checkout path
+allows one launcher: every launch mode takes an exclusive, non-blocking kernel
+lock before logging, refreshing, sweeping, claiming or publishing. A second
+launcher exits with the holder's pid, host and start time; stop the holder first
+or use `ub-agents retry` to hand it an item. Separate checkouts, including Git
+worktrees sharing repository metadata, have independent locks.
+
+The lock lives in `.ub-agents/launcher.lock`, with `.ub-agents/launcher.guard`
+serializing acquisition and owner metadata publication. Neither file is removed:
+the kernel lock alone decides whether a launcher is running, so stale owner
+records never block startup. The launcher keeps the lock until exit; errors and
+SIGKILL release it too. Agents and helpers do not inherit it. `status` and `doctor`,
+including `doctor --offline`, report this checkout's live holder or none; this is
+informational and does not affect doctor's checks. Builds without this lock and
+launchers on other hosts sharing network storage are outside this boundary. See
 [Stopping and restarting](operations.md#stopping-and-restarting) for signals.
 
 Each process gets a new POSIX session and process group. Termination sends TERM,
