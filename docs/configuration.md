@@ -464,6 +464,13 @@ Grant each role what it needs in `runtime-args`. When `doctor` warns that an age
 none for a listed CLI, configure top-level `runtime-args` or agent overrides covering
 every CLI in each agent's runtime list.
 
+Online `doctor` also checks the MCP servers named by tool references in role or
+shared instructions and runtime arguments, plus project MCP registrations. It
+reports whether each runtime would load them in a fresh worktree and probes only
+loaded stdio servers, listing their tool counts. These checks are optional warnings
+and are skipped with `--offline`. See [doctor's MCP checks](https://agents.uberblick.ai/docs/commands/doctor.html#mcp-servers)
+and [runtime setup for Uberblick](https://agents.uberblick.ai/docs/guides/with-uberblick.html).
+
 For Codex, `[--sandbox, danger-full-access]` grants full access, including commits and
 pushes. Its default `workspace-write` sandbox cannot commit in private worktrees,
 whose Git metadata lives in the main checkout; [Codex sandbox options](design/codex-sandbox.md)

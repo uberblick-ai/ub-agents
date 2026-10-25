@@ -120,6 +120,22 @@ agents:
                 self.assertEqual(json.loads(self.capture(result, json_output=True))["launcher"], owner)
             self.assertIsNone(self.diagnose(offline=offline)["launcher"])
 
+    def test_mcp_checks_are_optional_in_json_cli_and_runtimes_area(self):
+        (self.root / ".mcp.json").write_text('{"mcpServers":{"x":{"command":"unapproved-server"}}}')
+        (self.root / ".codex").mkdir()
+        (self.root / ".codex/config.toml").write_text('[mcp_servers.x]\ncommand="untrusted-server"\n')
+        with patch("ub_agents.doctor_mcp.probe_stdio", side_effect=AssertionError("unloaded server started")):
+            result = self.diagnose()
+            check = self.one(result, "runtime-mcp")
+            self.assertEqual((check["status"], check["required"], check["server"]), ("warn", False, "x"))
+            self.assertTrue(result["ok"])
+            code, output = self.cli(True)
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(output), result)
+            from ub_agents.doctor import CHECK_AREAS
+            self.assertEqual(CHECK_AREAS["runtime-mcp"], "runtimes")
+            self.assertEqual(self.one(self.diagnose(offline=True), "runtime-mcp")["status"], "skip")
+
     def test_offline_cli_never_reaches_github_network_runtimes_commands_or_prompts(self):
         self.path.write_text(self.path.read_text() + '''    retrospectives: 203
   reviewer:
