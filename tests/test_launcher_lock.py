@@ -26,6 +26,9 @@ from ub_agents.launcher_lock import running_launcher
 
 def run(args):
     print(json.dumps(running_launcher(args.config.parent)), flush=True)
+    # LaunchStream flushes the terminal before appending to its log. A second
+    # line on the original stream acknowledges that the logged write completed.
+    print("ready", file=sys.__stdout__, flush=True)
     sys.stdin.read()
 
 with patch("ub_agents.cli.run", side_effect=run):
@@ -56,6 +59,7 @@ class LauncherLockTests(unittest.TestCase):
         self.assertTrue(select.select([process.stdout], [], [], 10)[0], "launcher did not start")
         line = process.stdout.readline()
         self.assertTrue(line, process.communicate(timeout=10) if process.poll() is not None else "no owner")
+        self.assertEqual(process.stdout.readline().strip(), "ready")
         owner = json.loads(line)
         self.assertEqual(owner["pid"], process.pid)
         self.assertEqual(owner["host"], socket.gethostname())
