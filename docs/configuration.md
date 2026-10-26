@@ -90,25 +90,36 @@ Explained on the website: [Checkout setup](https://agents.uberblick.ai/docs/conf
 ```yaml
 checkout-setup:
   command: [sh, -c, 'mise trust ./mise.toml && exec mise run install']
-  when-changed: [pnpm-lock.yaml, mise.toml]
   timeout-seconds: 600
+```
+
+Without `when-changed`, setup runs in the control checkout before every new run,
+after the refresh, even if HEAD did not move. The command must be idempotent and
+fast when nothing changed. For slower installs, add an optional `when-changed` list:
+
+```yaml
+checkout-setup:
+  command: [npm, ci]
+  when-changed: [package-lock.json, package.json]
 ```
 
 | Key | Type and default | Rules |
 |---|---|---|
 | `command` | Required argv list | Runs without a shell in the checkout being set up, before the agent starts. Runtime permissions do not apply. |
-| `when-changed` | Required list | Literal repository-relative file paths. Absolute paths, directories and `..` are rejected. |
+| `when-changed` | Optional non-empty list | Literal repository-relative file paths. Absolute paths, directories, `..`, an empty list and `null` are rejected. Omit it to run after every refresh. |
 | `timeout-seconds` | Number, `600` | Positive, at most 3600. |
 
 Keep tracked files unchanged and install into ignored paths, so the next refresh still
 finds a clean checkout.
 
-**Control checkout.** Before each new run, after the refresh, the launcher compares the
-watched files with the last commit where setup succeeded, or before any success, with
-the HEAD before the fast-forward. If any differ, setup runs once before claiming. Pulls
-made by hand are not detected. A failure stops launch before a claim and charges no
-attempt. Setup then stays pending and runs on every launch until it succeeds. Its state
-and logs live under `$XDG_STATE_HOME/ub-agents/checkouts/` (default
+**Control checkout.** With `when-changed`, before each new run, after the refresh, the
+launcher compares the watched files with the last commit where setup succeeded, or
+before any success, with the HEAD before the fast-forward. If any differ, setup runs
+once before claiming. In this mode, pulls made by hand are not detected. Without
+`when-changed`, setup runs after every refresh. A failure in either mode stops launch
+before a claim and charges no attempt. Setup then stays pending and runs on every
+launch until it succeeds. Its state and logs live under
+`$XDG_STATE_HOME/ub-agents/checkouts/` (default
 `~/.local/state/ub-agents/checkouts/`).
 
 **Private worktrees.** With `worktree: true`, setup runs once in each new private

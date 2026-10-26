@@ -83,6 +83,13 @@ agents:
         self.prompt = prompt
         return code, stdout.getvalue()
 
+    def test_offline_accepts_checkout_setup_without_when_changed(self):
+        self.path.write_text(self.path.read_text() + "checkout-setup:\n"
+                             "  command: [sh, -c, 'mise trust ./mise.toml && exec mise run install']\n")
+        result = self.diagnose(offline=True)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.one(result, "config")["status"], "ok")
+
     def test_success_json_schema_and_stable_human_order(self):
         result = self.diagnose()
         self.assertTrue(result["ok"])

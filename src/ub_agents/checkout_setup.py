@@ -127,7 +127,10 @@ def run_setup(config, interrupt, output, activity, previous=None):
                                                 "succeeded": False, "pending": None}
             setting = config.checkout_setup
             trigger = record["pending"]
-            if trigger is None:
+            if setting.when_changed is None:
+                # Empty is a refresh trigger, distinct from any valid file path.
+                trigger = ""
+            elif trigger is None:
                 trigger = next((name for name in setting.when_changed
                                 if git(root, "diff", "--name-only", record["baseline"], head,
                                        "--", f":(literal){name}")), None)
@@ -138,14 +141,15 @@ def run_setup(config, interrupt, output, activity, previous=None):
             # Persist pending before spawn: even a later reversion must retry a
             # failed/partially completed install, rather than trust its packages.
             write_record(directory, record | {"pending": trigger})
+            cause = f"{trigger} changed" if trigger else "refresh"
             attempt = directory / "attempts" / uuid.uuid4().hex
             attempt.mkdir(parents=True)
             log = attempt / "process.log"
             log.touch()
             command = shlex.join(setting.command)
-            message = f"checkout setup running after {trigger} changed: {command} (log: {log})"
+            message = f"checkout setup running after {cause}: {command} (log: {log})"
             output(message)
-            activity(f"checkout setup running: {trigger} changed")
+            activity(f"checkout setup running: {cause}")
             confirmed = False
             try:
                 code = supervise(list(setting.command), root, setup_environment(), attempt,
@@ -166,7 +170,7 @@ def run_setup(config, interrupt, output, activity, previous=None):
         interrupted = isinstance(exc, KeyboardInterrupt)
         detail = f"{command} interrupted" if interrupted and log is not None else " ".join(str(exc).split())
         if log is not None:
-            detail = f"checkout setup failed after {trigger} changed: {detail} (log: {log})."
+            detail = f"checkout setup failed after {cause}: {detail} (log: {log})."
         else:
             detail = f"checkout setup failed: {detail} (state: {directory})."
         if isinstance(exc, CleanupError):

@@ -190,7 +190,7 @@ class CleanupHook:
 @dataclass(frozen=True)
 class CheckoutSetup:
     command: tuple[str, ...]
-    when_changed: tuple[str, ...]
+    when_changed: tuple[str, ...] | None = None
     timeout_seconds: float = 600
 
 
@@ -353,8 +353,9 @@ def _parse_config(data, root, *, planned=()):
     checkout_setup = None
     if "checkout-setup" in data:
         setup = mapping(data["checkout-setup"], {"command", "when-changed", "timeout-seconds"}, "checkout-setup")
-        paths = argv(setup.get("when-changed"), "checkout-setup when-changed")
-        for value in paths:
+        paths = (argv(setup["when-changed"], "checkout-setup when-changed")
+                 if "when-changed" in setup else None)
+        for value in paths or ():
             path = Path(value)
             if path.is_absolute() or ".." in path.parts or not path.parts or (root / path).is_dir():
                 raise AgentError("checkout-setup when-changed must contain repository-relative file paths")
