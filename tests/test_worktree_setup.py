@@ -38,12 +38,12 @@ class WorktreeSetupTests(unittest.TestCase):
         self.lines = []
         self.observer = Mock()
 
-    def loop(self, script=None, timeout=3, *, configured=True):
+    def loop(self, script=None, timeout=3, *, configured=True, when_changed=("lockfile",)):
         script = script or ("from pathlib import Path; import sys; "
-                            "Path('node_modules').mkdir(); "
+                            "Path('node_modules').mkdir(exist_ok=True); "
                             "Path('node_modules/installed').write_text(sys.argv[1]); "
                             "print('install output')")
-        setting = CheckoutSetup((sys.executable, "-c", script, "literal;argument"), ("lockfile",), timeout)
+        setting = CheckoutSetup((sys.executable, "-c", script, "literal;argument"), when_changed, timeout)
         cfg = replace(config(self.root, self.role), checkout_setup=setting if configured else None)
         self.current = Loop(cfg, self.github, "operator", output=self.lines.append,
                             observer=self.observer, interrupt_event=threading.Event())
@@ -68,7 +68,13 @@ class WorktreeSetupTests(unittest.TestCase):
         return lease, directory, worktree
 
     def test_each_new_private_worktree_installs_before_agent_without_watched_changes(self):
-        loop = self.loop()
+        self.assert_each_new_private_worktree_installs(("lockfile",))
+
+    def test_each_new_private_worktree_installs_without_when_changed(self):
+        self.assert_each_new_private_worktree_installs(None)
+
+    def assert_each_new_private_worktree_installs(self, when_changed):
+        loop = self.loop(when_changed=when_changed)
         def installed(cwd, env, run_dir):
             self.assertNotEqual(cwd, self.root)
             self.assertEqual((cwd / "node_modules/installed").read_text(), "literal;argument")
@@ -87,7 +93,7 @@ class WorktreeSetupTests(unittest.TestCase):
         self.observer.activity.assert_any_call("checkout setup running in worktree")
         self.assertEqual(sum(line.startswith("checkout setup running in worktree") for line in self.lines), 2)
         self.assertNotIn("install output", self.lines)
-        self.assertFalse((self.root / "node_modules").exists())
+        self.assertEqual((self.root / "node_modules").exists(), when_changed is None)
         self.assertEqual(list((self.root / ".ub-agents/worktrees").iterdir()), [])
 
     def test_no_extra_setup_for_shared_checkout_or_missing_configuration(self):
@@ -142,10 +148,11 @@ class WorktreeSetupTests(unittest.TestCase):
         git(self.root, "update-ref", "refs/pull/2/head", head)
         git(self.root, "reset", "--hard", base)
         self.role = replace(self.role, kind="pr")
-        for repository in ("outside/project", None):
-            with self.subTest(repository=repository):
+        for repository, when_changed in (("outside/project", ("lockfile",)), (None, ("lockfile",)),
+                                         ("outside/project", None), (None, None)):
+            with self.subTest(repository=repository, when_changed=when_changed):
                 self.github = FakeGitHub(pr(head=head, head_repository=repository))
-                loop = self.loop()
+                loop = self.loop(when_changed=when_changed)
                 def inspect(cwd, env, run_dir):
                     self.assertEqual(git(cwd, "rev-parse", "HEAD"), base)
                     self.assertEqual((cwd / "lockfile").read_text(), "control dependencies")

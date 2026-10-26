@@ -26,10 +26,12 @@ class CheckoutSetupTests(unittest.TestCase):
     execute = test_refresh.RefreshTests.execute
     assert_success = test_refresh.RefreshTests.assert_success
 
-    def setup_setting(self, script="print('install output')", timeout=600):
+    def setup_setting(self, script="print('install output')", timeout=600, *,
+                      when_changed=("pnpm-lock.yaml", "mise.toml")):
         path = self.upstream / "ub-agents.yaml"
-        setting = {"command": [sys.executable, "-c", script],
-                   "when-changed": ["pnpm-lock.yaml", "mise.toml"], "timeout-seconds": timeout}
+        setting = {"command": [sys.executable, "-c", script], "timeout-seconds": timeout}
+        if when_changed is not None:
+            setting["when-changed"] = list(when_changed)
         path.write_text(path.read_text() + "checkout-setup: " + json.dumps(setting) + "\n")
 
     def new_loop(self, *, observer=None):
@@ -38,8 +40,9 @@ class CheckoutSetupTests(unittest.TestCase):
         self.loop = Loop(load_config(path), self.github, "operator", output=self.lines.append,
                          config_path=path, observer=observer, interrupt_event=threading.Event())
 
-    def push_setup(self, script="print('install output')", timeout=600):
-        self.setup_setting(script, timeout)
+    def push_setup(self, script="print('install output')", timeout=600, *,
+                   when_changed=("pnpm-lock.yaml", "mise.toml")):
+        self.setup_setting(script, timeout, when_changed=when_changed)
         (self.upstream / "pnpm-lock.yaml").write_text("lock version 1\n")
         self.push_policy()
         self.new_loop()
@@ -90,6 +93,42 @@ class CheckoutSetupTests(unittest.TestCase):
             self.execute()
         setup.assert_not_called()
         self.assertFalse(any(line.startswith("checkout setup") for line in self.lines))
+
+    def test_without_watched_files_runs_after_every_refresh_before_claim(self):
+        from unittest.mock import Mock
+        observer = Mock()
+        self.push_setup(when_changed=None)
+        self.loop.observer = observer
+        before = git(self.root, "rev-parse", "HEAD")
+        heads = []
+        writes = []
+
+        def install(*args, **kwargs):
+            self.assertEqual(self.github.writes, writes)
+            self.assertEqual(args[1], self.root)
+            self.assertEqual(args[4], 600)
+            self.assertIsNone(self.loop.config.checkout_setup.when_changed)
+            return supervise(*args, **kwargs)
+
+        def installed(cwd, prompt):
+            head = git(self.root, "rev-parse", "HEAD")
+            heads.append(head)
+            self.assertEqual(self.record(), {"baseline": head, "succeeded": True, "pending": None})
+
+        with patch("ub_agents.checkout_setup.supervise", side_effect=install) as setup:
+            self.execute(installed)
+            writes = list(self.github.writes)
+            self.execute(installed)
+        self.assertEqual(setup.call_count, 2)
+        self.assertNotEqual(heads[0], before)
+        self.assertEqual(heads[0], heads[1])
+        messages = [line for line in self.lines if line.startswith("checkout setup")]
+        self.assertEqual(len(messages), 2)
+        self.assertTrue(all("running after refresh:" in line for line in messages))
+        observer.activity.assert_any_call("checkout setup running: refresh")
+        logs = list(setup_directory(self.root).glob("attempts/*/process.log"))
+        self.assertEqual(len(logs), 2)
+        self.assertTrue(all(log.read_text() == "install output\n" for log in logs))
 
     def assert_setup_survives_refresh_stop(self, request_stop, exception):
         self.push_setup()
@@ -199,7 +238,7 @@ class CheckoutSetupTests(unittest.TestCase):
                 patch("ub_agents.checkout_setup.supervise", side_effect=install):
             self.execute()
 
-    def failed_launch(self, expected=1):
+    def failed_launch(self, expected=1, *, cause="pnpm-lock.yaml changed"):
         errors, output = io.StringIO(), io.StringIO()
         with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
                 patch("ub_agents.cli.GitHub", return_value=self.github), \
@@ -218,10 +257,36 @@ class CheckoutSetupTests(unittest.TestCase):
         wait.assert_not_called()
         self.assertEqual(self.github.writes, [])
         self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
-        self.assertIn("checkout setup failed after pnpm-lock.yaml changed", errors.getvalue())
+        self.assertIn(f"checkout setup failed after {cause}", errors.getvalue())
         self.assertIn("log:", errors.getvalue())
         self.assertIn(f"Fix the install in {self.root} and launch again.", errors.getvalue())
         return errors.getvalue()
+
+    def test_without_watched_files_failure_stops_launch_and_retries_after_unchanged_refresh(self):
+        marker = setup_directory(self.root) / "fixed"
+        self.push_setup(f"from pathlib import Path; import sys; print('install failed'); "
+                        f"sys.exit(0 if Path({str(marker)!r}).exists() else 1)", when_changed=None)
+        self.assertIn("exited 1", self.failed_launch(cause="refresh"))
+        refreshed = git(self.root, "rev-parse", "HEAD")
+        self.new_loop()
+        self.assertIn("exited 1", self.failed_launch(cause="refresh"))
+        self.assertEqual(git(self.root, "rev-parse", "HEAD"), refreshed)
+        marker.touch()
+        self.new_loop()
+        self.execute()
+        self.assertEqual(self.record(), {"baseline": refreshed, "succeeded": True, "pending": None})
+        self.execute()
+        self.assertEqual(len(list(setup_directory(self.root).glob("attempts/*/process.log"))), 4)
+
+    def test_failed_refresh_setup_retries_even_if_watched_files_are_added(self):
+        self.push_setup("import sys; sys.exit(1)", when_changed=None)
+        self.failed_launch(cause="refresh")
+        path = self.upstream / "ub-agents.yaml"
+        path.write_text(path.read_text().replace('"timeout-seconds": 600',
+                                                '"timeout-seconds": 600, "when-changed": ["unchanged"]'))
+        self.push_policy("Watch a file without changing it\n")
+        self.new_loop()
+        self.assertIn("exited 1", self.failed_launch(cause="refresh"))
 
     def test_failure_retries_without_another_fast_forward_until_success(self):
         marker = setup_directory(self.root) / "fixed"
@@ -258,6 +323,13 @@ class CheckoutSetupTests(unittest.TestCase):
         attempt = next((setup_directory(self.root) / "attempts").iterdir())
         self.assertEqual((attempt / "stopped").read_text(), "confirmed\n")
         self.assertEqual(self.record()["pending"], "pnpm-lock.yaml")
+
+    def test_without_watched_files_timeout_stops_command(self):
+        self.push_setup("import time; time.sleep(30)", 0.1, when_changed=None)
+        self.assertIn("timed out after 0.1 seconds", self.failed_launch(cause="refresh"))
+        attempt = next((setup_directory(self.root) / "attempts").iterdir())
+        self.assertEqual((attempt / "stopped").read_text(), "confirmed\n")
+        self.assertIsNotNone(self.record()["pending"])
 
     def test_interrupt_stops_command_without_claiming(self):
         self.push_setup("import time; time.sleep(30)")
@@ -350,14 +422,17 @@ class CheckoutSetupConfigTests(unittest.TestCase):
             base = "repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
             path.write_text(base)
             self.assertIsNone(load_config(path).checkout_setup)
+            path.write_text(base + "checkout-setup: {command: [mise, run, install]}\n")
+            self.assertEqual(load_config(path).checkout_setup, CheckoutSetup(("mise", "run", "install")))
             path.write_text(base + "checkout-setup: {command: [mise, run, install], when-changed: [pnpm-lock.yaml, mise.toml]}\n")
             self.assertEqual(load_config(path).checkout_setup,
                              CheckoutSetup(("mise", "run", "install"), ("pnpm-lock.yaml", "mise.toml")))
-            invalid = ["null", "[]", "{}", "{command: [echo]}", "{when-changed: [lock]}",
+            invalid = ["null", "[]", "{}", "{when-changed: [lock]}",
                        "{command: echo, when-changed: [lock]}",
                        "{command: [], when-changed: [lock]}",
                        "{command: [echo], when-changed: lock}",
                        "{command: [echo], when-changed: []}",
+                       "{command: [echo], when-changed: null}",
                        "{command: [echo], when-changed: [true]}",
                        "{command: [echo], when-changed: ['']}",
                        "{command: [echo], when-changed: [/lock]}",
@@ -374,3 +449,6 @@ class CheckoutSetupConfigTests(unittest.TestCase):
                     with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()) as error:
                         self.assertEqual(main(["--config", str(path), "doctor", "--offline"]), 1)
                     self.assertIn("checkout-setup", error.getvalue())
+                    if "when-changed: []" in value or "when-changed: null" in value:
+                        with self.assertRaisesRegex(AgentError, "checkout-setup when-changed"):
+                            load_config(path)
