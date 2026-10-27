@@ -1,3 +1,4 @@
+from ub_agents.run_config import record_process_group
 from copy import deepcopy
 from dataclasses import replace
 import json
@@ -83,7 +84,17 @@ class CleanupTests(unittest.TestCase):
     def update(self, **fields):
         # Cleanup observes already ended/crashed runs, including expired leases.
         # Fixture edits do not act as a still-owning supervisor.
+        if "process_group" in fields:
+            record_process_group(self.root, self.lease["run"], fields.pop("process_group"))
         edit_lease(self.github, self.lease, **fields)
+
+    def test_unreadable_process_record_preserves_expired_local_artifacts(self):
+        self.update(state='running', expires=iso(timestamp() - 1), process_group=123456)
+        path = self.root / '.ub-agents/runs' / self.lease['run'] / 'process-group'
+        path.write_text('unreadable')
+        rows = self.actions(True)
+        self.assertTrue(all(row['action'] == 'kept' for row in rows.values()))
+        self.assertIn('process check cannot be confirmed', rows['worktree']['reason'])
 
     def hook(self, script, timeout=3):
         self.cleaner.config = replace(self.config, cleanup=CleanupHook((sys.executable, "-c", script), timeout))
@@ -428,12 +439,12 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(self.actions(True)["worktree"]["action"], "removed")
 
     def test_hook_created_live_lease_keeps_worktree_and_open_pr_keeps_only_branch(self):
-        def hook(*args):
+        def hook(*args, **kwargs):
             self.update(state="running", expires=iso(timestamp() + 60))
         with patch("ub_agents.cleanup.run_hook", side_effect=hook):
             self.assertTrue(all(row["action"] == "kept" for row in self.cleaner.clean(True)))
         self.update(state="released")
-        def open_pr(*args):
+        def open_pr(*args, **kwargs):
             self.github.items[2] = replace(pr(head=self.head), branch=self.branch)
         with patch("ub_agents.cleanup.run_hook", side_effect=open_pr):
             rows = self.actions(True)
@@ -532,18 +543,20 @@ class CleanupTests(unittest.TestCase):
 
     def test_continued_local_run_protects_branch_even_with_missing_original_lease(self):
         from ub_agents.records import body, payload
-        continued = payload(self.lease) | {"run": "continued", "state": "running",
+        self.github.items[2] = replace(pr(head=self.head), branch=self.branch, state="closed", merged=True)
+        continued = payload(self.lease) | {"assignment": 2, "assignment_sha": self.head, "run": "continued", "state": "running",
                                             "expires": iso(timestamp() + 60)}
         self.github.store = {}
-        self.github.create_comment(1, body(continued))
+        self.github.create_comment(2, body(continued))
         rows = self.actions(True)
         self.assertEqual(rows["worktree"]["action"], "removed")
         self.assertIn("lease is live", rows["branch"]["reason"])
 
     def test_shared_branch_unconfirmed_cleanup_keeps_other_artifacts(self):
         from ub_agents.records import body, payload
-        continued = payload(self.lease) | {"run": "continued", "host": "other-host", "cleanup": "unconfirmed"}
-        self.github.create_comment(1, body(continued))
+        self.github.items[2] = replace(pr(head=self.head), branch=self.branch, state="closed", merged=True)
+        continued = payload(self.lease) | {"assignment": 2, "assignment_sha": self.head, "run": "continued", "host": "other-host", "cleanup": "unconfirmed"}
+        self.github.create_comment(2, body(continued))
         rows = self.actions(True)
         self.assertEqual(rows["worktree"]["action"], "removed")
         self.assertIn("cleanup is unconfirmed", rows["branch"]["reason"])

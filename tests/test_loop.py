@@ -14,7 +14,7 @@ from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnershi
 from ub_agents.loop import Loop
 from ub_agents.observations import Observations
 from ub_agents.prompts import RETROSPECTIVE_PROMPT
-from ub_agents.records import attempts, body, iso, timestamp
+from ub_agents.records import issue_branch, outcome_declarations, attempts, body, iso, timestamp
 from ub_agents.report_command import launcher_report_command
 from ub_agents.view_data import Session, work_pane
 from tests.support import stub_refresh, FakeGitHub, MemoryPublisher, agent, config, edit_lease, issue, pr
@@ -129,7 +129,7 @@ class LoopTests(unittest.TestCase):
         doc = (Path(__file__).resolve().parents[1] / 'docs/coordination.md').read_text()
         quote = doc.split('<!-- run-prompt:start -->\n```text\n')[1].split('```\n<!-- run-prompt:end -->')[0]
         values = {'agent': plan.agent.name, 'report_command': context['report_command'],
-                  'outcomes': json.dumps(lease['outcomes'], sort_keys=True),
+                  'outcomes': json.dumps(outcome_declarations(plan.agent), sort_keys=True),
                   'labels': json.dumps(sorted(set(self.loop.config.stop_labels) | set(self.agent.triggers)
                                               | {'outside-input'})),
                   'earlier_branches': json.dumps(context['earlier_branches']),
@@ -277,6 +277,41 @@ class LoopTests(unittest.TestCase):
                 if draft:
                     self.assertIn("PR #2 is still a draft", verdict["summary"])
 
+    def test_earlier_branches_only_include_started_execution_leases(self):
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        history = [lease | changes for changes in (
+            {"run": "claiming", "state": "claiming"},
+            {"run": "withdrawn", "state": "withdrawn"},
+            {"run": "unstarted", "state": "released"},
+            {"run": "recovery", "started": True, "mode": "recovery"},
+        )]
+        with patch.object(self.loop.coordinator, "history", return_value=history):
+            earlier = self.loop.earlier_branches(plan.item, self.agent, lease["run"])
+            self.assertEqual(earlier, [])
+            prompt = self.loop.prompt_for(plan, lease,
+                                          {"earlier_branches": earlier, "report_command": "/launcher/report"}, "")
+            self.assertNotIn("Earlier runs of this issue recorded branches", prompt)
+            history.extend((lease | {"run": "real", "started": True, "state": "released"},
+                            lease | {"run": "other", "started": True, "agent": "other"},
+                            lease | {"started": True}))
+            self.assertEqual(self.loop.earlier_branches(plan.item, self.agent, lease["run"]),
+                             [issue_branch(history[-3])])
+            self.assertEqual(self.loop.earlier_branches(self.github.item(2), self.agent, lease["run"]), [])
+
+    def test_handoff_ignores_unstarted_and_recovery_branches(self):
+        plan = self.loop.plans()[0]
+        lease = self.loop.coordinator.claim(plan)
+        self.loop.coordinator.update(lease, state="running", started=True)
+        outcome = self.loop.coordinator.report(lease, "success", "Handed off", handoff=2, outcome="done")
+        history = self.loop.coordinator.history(1) + [
+            lease | {"id": 100, "run": "withdrawn", "started": False, "state": "withdrawn"},
+            lease | {"id": 101, "run": "recovery", "mode": "recovery", "state": "released"}]
+        with patch.object(self.loop.coordinator, "history", return_value=history), \
+                patch.object(self.github, "prs_for_branch", wraps=self.github.prs_for_branch) as lookup:
+            self.loop.validate_success(plan, outcome)
+        lookup.assert_not_called()
+
     def test_handoff_continues_or_rejects_a_draft_on_an_earlier_run_branch(self):
         for handoff, accepted in ((3, False), (2, True)):
             with self.subTest(handoff=handoff):
@@ -284,7 +319,8 @@ class LoopTests(unittest.TestCase):
                 github.change(3, branch="later/branch")
                 loop = Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
                 def prepare(workspace):
-                    workspace.lease['branch'] = "feature/test"
+                    workspace.branch = issue_branch(workspace.lease)
+                    github.change(2, branch=workspace.branch)
                     return self.root
                 with patch("ub_agents.loop.Workspace.prepare", prepare), \
                         patch("ub_agents.loop.supervise", return_value=1):
@@ -294,7 +330,7 @@ class LoopTests(unittest.TestCase):
 
                 def execute(command, cwd, env, *args, **kwargs):
                     context = json.loads(Path(env["UB_AGENTS_CONTEXT"]).read_text())
-                    self.assertEqual(context["earlier_branches"], ["feature/test"])
+                    self.assertEqual(context["earlier_branches"], [issue_branch(loop.coordinator.history(1)[0])])
                     github.change(2, draft=False)
                     lease = next(r for r in reversed(loop.coordinator.history(1)) if r['kind'] == 'lease')
                     loop.coordinator.report(lease, "success", "Handed off", handoff=handoff, outcome="done")

@@ -14,7 +14,7 @@ from ub_agents.config import Runtime
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
-from ub_agents.records import MARKER, attempts, body, iso, live_leases, payload, seconds
+from ub_agents.records import issue_branch, MARKER, attempts, body, iso, live_leases, payload, seconds
 from tests.support import AccountGitHub, PollGitHub, agent, config, issue, pr
 
 
@@ -83,10 +83,9 @@ class LauncherTrustTests(unittest.TestCase):
         self.assertEqual(len(attempts(self.a.history(1), "worker", self.now)), 2)
 
     def test_shared_branch_owner_and_election_include_other_accounts(self):
-        branch = "ub-agents/worker/1/earlier"
-        self.github.change(2, branch=branch, draft=True, labels=frozenset({"needs-changes"}))
         old = self.start(self.a)
-        self.a.update(old, branch=branch)
+        branch = issue_branch(old)
+        self.github.change(2, branch=branch, draft=True, labels=frozenset({"needs-changes"}))
         self.assertEqual(self.b.plan(self.github.item(2), self.worker, ()).state, "owned")
         self.a.release(old, "retry", "Interrupted")
         plans = [self.a.plan(self.github.item(1), self.worker, ()),
@@ -259,7 +258,7 @@ class LauncherTrustTests(unittest.TestCase):
                     self.b.assert_owned(lease)
                 if status == "success":
                     copied, = self.a.history(2)
-                    self.assertEqual((copied["actor"], copied["run"]), ("alice", outcome["run"]))
+                    self.assertEqual((copied["actor"], copied["lease_id"]), ("alice", lease["id"]))
                     self.assertTrue(self.a.released_success(history, copied))
                     self.assertTrue(self.b.outcome(lease)["accepted"])
                 self.github.change(1, labels=frozenset({"ready"}))

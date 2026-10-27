@@ -13,8 +13,8 @@ from .coordination import Coordinator
 from .errors import AgentError, CleanupError, RecordError
 from .execution import fetched_head, git, group_members
 from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
-from .records import records, seconds
-from .run_config import run_directory
+from .records import lease_branch, records, seconds
+from .run_config import process_group, run_directory
 from .worktree_setup import confirm_worktree_setup_stopped
 
 BRANCH = re.compile(r"ub-agents?/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
@@ -124,10 +124,10 @@ class Cleaner:
             return
         if seconds(lease["expires"]) > self.coordinator.clock():
             raise AgentError("Run lease is live")
-        group = lease.get("process_group")
-        if type(group) is not int or group < 1:
-            return
         try:
+            group = process_group(self.root, lease["run"])
+            if group is None:
+                return
             members = group_members(group)
         except CleanupError as exc:
             raise AgentError(f"Expired run's process check cannot be confirmed: {exc}") from exc
@@ -142,12 +142,12 @@ class Cleaner:
         # malformed threads that may also contain a valid, protective lease.
         numbers = invalid | {r["assignment"] for r in index if r["kind"] == "lease"
                              and (r["run"] == artifact.run or
-                                  (artifact.kind == "branch" and r.get("branch") == artifact.name))}
+                                  (artifact.kind == "branch" and lease_branch(r, self.github) == artifact.name))}
         history = [r for number in sorted(numbers) for r in self.history(number)]
         own = [r for r in history if r["kind"] == "lease" and r["run"] == artifact.run]
         leases = [r for r in history if r["kind"] == "lease"
                   and (r["run"] == artifact.run or
-                       (artifact.kind == "branch" and r.get("branch") == artifact.name))]
+                       (artifact.kind == "branch" and lease_branch(r, self.github) == artifact.name))]
         runs = {artifact.run} | {r["run"] for r in leases}
         if runs & self.blocked_runs:
             raise AgentError("Cleanup hook failed; artifacts preserved")
@@ -159,7 +159,7 @@ class Cleaner:
         if artifact.kind == "branch":
             if any(pr.state == "open" for pr in self.github.prs_for_branch(artifact.name, state="all")):
                 raise AgentError("Branch is the head of an open PR")
-        lease = own[0] | {"branch": branch or own[0].get("branch")} if len(own) == 1 else {
+        lease = own[0] | {"branch": branch or lease_branch(own[0], self.github)} if len(own) == 1 else {
             "run": artifact.run, "agent": None, "assignment": None, "state": None,
             "branch": branch,
         }
@@ -263,7 +263,7 @@ class Cleaner:
                     if artifact.kind == "worktree":
                         with self.mutation(artifact):
                             self.intent(artifact, reason)
-                            failure = run_hook(self.config, lease, Path(artifact.name), outcome)
+                            failure = run_hook(self.config, lease, Path(artifact.name), outcome, branch=lease.get("branch"))
                             if failure:
                                 self.blocked_runs.add(artifact.run)
                                 raise AgentError(f"Cleanup hook failed; retry later: {failure}")

@@ -329,7 +329,7 @@ class TransitionTests(unittest.TestCase):
         self.execute(handoff=2)
         outcomes = [r for r in self.loop.coordinator.history(1) if r['kind'] == 'outcome']
         self.assertEqual([r['accepted'] for r in outcomes], [False, True])
-        self.assertNotEqual(outcomes[0]['run'], outcomes[1]['run'])
+        self.assertNotEqual(outcomes[0]['lease_id'], outcomes[1]['lease_id'])
 
     def test_trigger_gone_blocks_before_first_change(self):
         self.execute(lambda _: self.github.change(1, labels=frozenset({'old', 'unrelated'})), handoff=2)
@@ -341,7 +341,7 @@ class TransitionTests(unittest.TestCase):
     def test_reported_outcome_recovers_with_changed_configuration_without_execution(self):
         self.claim_and_report(handoff=2)
         self.now += 61
-        changed = replace(self.agent, triggers=('different',), outcomes={'new': {'add': ('wrong',), 'remove': ()}})
+        changed = replace(self.agent, outcomes={'new': {'add': ('wrong',), 'remove': ()}})
         restarted = self.new_loop(changed)
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(restarted.tick())
@@ -350,14 +350,14 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
         self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
 
-    def test_all_declared_triggers_survive_a_single_trigger_claim_and_config_reload(self):
+    def test_current_triggers_are_used_after_config_reload(self):
         self.github.change(1, labels=frozenset({'ready', 'old', 'unrelated'}))
         lease, _ = self.claim_and_report(handoff=2)
         self.assertEqual(lease['triggers'], ['ready'])
         # A different declared trigger replaces the one present at claim time.
         self.github.change(1, labels=frozenset({'needs-changes', 'old', 'unrelated'}))
         self.now += 61
-        changed = replace(self.agent, triggers=('different',),
+        changed = replace(self.agent, triggers=('needs-changes', 'different'),
                           outcomes={'new': {'add': ('wrong',), 'remove': ()}})
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(self.new_loop(changed).tick())
@@ -688,15 +688,13 @@ class TransitionTests(unittest.TestCase):
         history = restarted.coordinator.history(1)
         self.assertTrue(history[1]['accepted'])
         self.assertEqual(history[1]['candidate_sha'], 'a' * 40)
-        self.assertEqual(history[1]['assignment_sha'], 'a' * 40)
+        self.assertEqual(history[0]['assignment_sha'], 'a' * 40)
         self.assertEqual(history[-2]['result'], 'success')
         self.assertEqual(len(attempts(history, self.agent.name, self.now)), 0)
         self.assertEqual(self.github.item(1).labels, {'ready-to-merge', 'unrelated'})
 
     def test_invalid_success_records_block_without_labels(self):
-        for change in ({'outcome': 'undeclared'}, {'outcome': None, 'transition': None},
-                       {'transition': {'add': ['wrong'], 'started': False}},
-                       {'transition': {'add': ['needs-review'], 'remove': [], 'started': False}}):
+        for change in ({'outcome': None, 'transition': None}, {'transition': None}):
             with self.subTest(change=change):
                 self.setUp()
                 def forge(outcome):

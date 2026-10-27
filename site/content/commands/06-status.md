@@ -46,3 +46,5 @@ Assignments have one object per row: `number`, `kind`, `agent`, `state`, `reason
 ```text
 {{help status}}
 ```
+
+Coordination records use format v4. Outcome run identity, runtime, launcher host and original PR head are resolved from the source lease; local process details come from the run directory on the lease's host.
