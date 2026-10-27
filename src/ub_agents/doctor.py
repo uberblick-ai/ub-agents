@@ -13,9 +13,12 @@ import sys
 from .config import instruction_text, load_config
 from .approvals import Roles, resolve_policy
 from .errors import AgentError
+from .doctor_mcp import MCPChecks
 from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub, repository_visibility
 from .labels import LabelUse, configured_labels, confirm_label_creation
+from .launcher_lock import launcher_summary, running_launcher
+from .mcp_probe import PROBE_TIMEOUT
 from .records import iso
 from .refresh import control_checkout_checks
 from .trust import WRITERS
@@ -38,7 +41,7 @@ AREAS = {
                "github-retrospectives"),
     # "commands" is the existing skip check when configuration is unavailable.
     "runtimes": ("command", "commands", "runtime-permissions", "runtime-executable", "runtime-auth", "runtimes",
-                 "different-runtime-from"),
+                 "different-runtime-from", "runtime-mcp", "runtime-mcp-config"),
 }
 CHECK_AREAS = {id: area for area, ids in AREAS.items() for id in ids}
 
@@ -60,6 +63,7 @@ class Check:
     message: str
     remedy: str | None
     uses: list[LabelUse] | None = None
+    server: str | None = None
 
 
 class Doctor:
@@ -72,20 +76,23 @@ class Doctor:
         self.config = None
         self.missing_labels = []
         self.approvals = None
+        self.launcher = None
 
-    def add(self, id, status, message, remedy=None, *, required=True, agent=None, runtime=None, uses=None):
+    def add(self, id, status, message, remedy=None, *, required=True, agent=None, runtime=None, uses=None, server=None):
         # Scope repeated checks with stable configuration identities.
         scope = [id] + ([agent.name] if agent else []) + ([runtime.name] if runtime else [])
+        if server is not None:
+            scope.append(server)
         self.checks.append(Check(":".join(scope), status, required,
                                  agent.name if agent else None, runtime.name if runtime else None,
-                                 public(message), public(remedy) if remedy else None, uses))
+                                 public(message), public(remedy) if remedy else None, uses, server))
 
     def probe(self, command, cwd=None):
         try:
             result = self.runner(list(command), cwd=cwd, capture_output=True, text=True,
-                                 timeout=20, check=False, stdin=subprocess.DEVNULL)
+                                 timeout=PROBE_TIMEOUT, check=False, stdin=subprocess.DEVNULL)
         except subprocess.TimeoutExpired:
-            raise AgentError("probe timed out (20s)") from None
+            raise AgentError(f"probe timed out ({PROBE_TIMEOUT}s)") from None
         except (OSError, UnicodeError):
             raise AgentError("probe could not run") from None
         if result.returncode:
@@ -124,6 +131,7 @@ class Doctor:
                      required=False)
 
     def run(self, path, *, offline=False):
+        self.launcher = running_launcher(Path(path).resolve().parent)
         self.add("python", "ok" if sys.version_info >= (3, 11) else "fail",
                  f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
                  "Install Python 3.11 or newer" if sys.version_info < (3, 11) else None)
@@ -289,6 +297,7 @@ class Doctor:
         if config:
             if not offline:
                 self.agents(config)
+            MCPChecks(config).run(self, offline=offline)
             self.local(config, git_ready)
         else:
             for id in ("commands", "runtimes", "different-runtime-from", "local-state", "local-state-ignored"):
@@ -343,9 +352,11 @@ class Doctor:
             value = asdict(check)
             if check.uses is None:
                 del value["uses"]
+            if check.server is None:
+                del value["server"]
             checks.append(value)
         return {"version": 2, "ok": not any(c.required and c.status == "fail" for c in self.checks),
-                "checks": checks}
+                "checks": checks, "launcher": self.launcher}
 
     def create_missing_labels(self):
         if not confirm_label_creation(self.config, self.github, self.missing_labels):
@@ -474,22 +485,23 @@ class Doctor:
                      f"{len(usable[agent.name])} usable runtime alternative(s)",
                      None if available else f"Install and authenticate at least one runtime for agent {agent.name}", agent=agent)
         for agent in config.agents:
-            if not agent.different_from:
-                continue
-            source = usable[agent.different_from]
-            covered = [r for r in source if any(candidate.different_from(r) for candidate in usable[agent.name])]
-            for runtime in source:
-                if runtime not in covered:
-                    self.add("different-runtime-from", "warn",
-                             f"{agent.name} has no independent usable alternative for {agent.different_from} using {runtime.name}",
-                             f"Install/configure a different CLI and model for {agent.name}, or remove this alternative from {agent.different_from}",
-                             required=False, agent=agent, runtime=runtime)
-            if not covered:
-                self.add("different-runtime-from", "fail",
-                         f"{agent.name} cannot independently run after {agent.different_from}",
-                         f"Install/authenticate independent runtime alternatives for {agent.name} and {agent.different_from}", agent=agent)
-            else:
-                self.add("different-runtime-from", "ok", f"independent execution available after {agent.different_from}", agent=agent)
+            for name in agent.different_from:
+                check_id = ("different-runtime-from" if len(agent.different_from) == 1
+                            else f"different-runtime-from:{name}")
+                source = usable[name]
+                covered = [r for r in source if any(candidate.different_from(r) for candidate in usable[agent.name])]
+                for runtime in source:
+                    if runtime not in covered:
+                        self.add(check_id, "warn",
+                                 f"{agent.name} has no independent usable alternative for {name} using {runtime.name}",
+                                 f"Install/configure a different CLI and model for {agent.name}, or remove this alternative from {name}",
+                                 required=False, agent=agent, runtime=runtime)
+                if not covered:
+                    self.add(check_id, "fail",
+                             f"{agent.name} cannot independently run after {name}",
+                             f"Install/authenticate independent runtime alternatives for {agent.name} and {name}", agent=agent)
+                else:
+                    self.add(check_id, "ok", f"independent execution available after {name}", agent=agent)
 
     def local(self, config, git_ready):
         local = config.root / ".ub-agents"
@@ -552,6 +564,7 @@ def render(result, json_output=False, verbose=False):
     if json_output:
         print(json.dumps(result, indent=2))
         return
+    print(launcher_summary(result.get("launcher")))
     if verbose:
         for check in result["checks"]:
             render_check(check)

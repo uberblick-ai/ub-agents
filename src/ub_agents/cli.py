@@ -24,6 +24,7 @@ from .help import CommentHelpFormatter, HelpParser, InitHelpFormatter
 from .loop import Loop, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS, _GracefulStop
 from .init_setup import runtime_guidance
 from .launch_log import launch_output
+from .launcher_lock import launcher_lock, launcher_summary, running_launcher
 from .labels import configured_labels
 from .refresh import control_checkout_checks
 from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases, own_comment,
@@ -62,6 +63,8 @@ def parser():
                                  formatter_class=CommentHelpFormatter,
                                  overview_options=("--json",),
                                  description="Check machine, GitHub and runtime prerequisites. "
+                                 "Check MCP configuration for each agent/runtime/server and probe loaded stdio servers. "
+                                 "MCP problems are optional warnings. "
                                  "Use --offline for local validation without GitHub or agent runtimes. "
                                  "Create missing workflow labels only after a confirmed interactive prompt. "
                                  "Show warnings and failures with a summary per area by default; "
@@ -385,6 +388,7 @@ def run(args):
                 config_path=config.root / DEFAULT_CONFIG if args.default_config else args.config,
                 default_config=args.default_config, interrupt_event=interrupt)
     if args.command == "status":
+        launcher = running_launcher(config.root)
         now = timestamp()
         explanation = None
         if args.number is None:
@@ -397,7 +401,7 @@ def run(args):
             if not rows:
                 explanation = loop.item_explanation(item)
         if args.json:
-            result = {"assignments": rows}
+            result = {"assignments": rows, "launcher": launcher}
             if loop.milestone_skips:
                 result["milestone_skips"] = list(loop.milestone_skips)
             if explanation is not None:
@@ -439,6 +443,7 @@ def run(args):
                     suffix = f" · waiting {waiting}" if waiting else ""
                     print(f"  Action needed: {row['notice_url']}{suffix}")
         if not args.json:
+            print(launcher_summary(launcher))
             for line in loop.milestone_skips:
                 print(line)
         return
@@ -608,6 +613,7 @@ def main(argv=None):
                 name = DEFAULT_CONFIG if args.default_config else str(args.config)
                 raise AgentError(f"No {name} here; run ub-agents init to set up a project")
             if args.command == "launch":
+                stack.enter_context(launcher_lock(args.config.parent))
                 args.launch_output = stack.enter_context(launch_output(args.config.parent))
                 from .launcher_code import startup_copy
                 stack.enter_context(startup_copy())

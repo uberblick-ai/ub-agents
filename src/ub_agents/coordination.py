@@ -238,30 +238,12 @@ class Coordinator:
             return None
         eligible = list(agent.runtimes)
         if agent.different_from:
-            if item.kind != "pr":
-                raise AgentError("Independent candidate execution requires a PR")
-            reports = [r for r in history if r["kind"] == "outcome" and r["status"] == "success"
-                       and r["agent"] == agent.different_from and r.get("candidate_sha") == item.head]
-            source = [r for r in reports if r.get("accepted") is True]
-            if not source:
-                for report in reports:
-                    if (not report.get("rejected") and report.get("transition", {}).get("started")
-                            and self.handoff_pending(report)):
-                        raise AgentError(f"Candidate handoff from {agent.different_from} is still pending")
+            sources = [runtime for name in agent.different_from
+                       if (runtime := self.source_runtime(item, name, history)) is not None]
+            if not sources:
                 eligible = eligible[:1]
             else:
-                source = source[-1]
-                origin = self.history(source["assignment"])
-                lease = lease_by_id(origin, source["lease_id"])
-                if lease and not same_handoff(source, lease):
-                    raise AgentError("Candidate provenance does not match its source lease")
-                if not self.released_success(origin, source):
-                    raise AgentError("Candidate provenance has no successfully released source lease")
-                try:
-                    cli, model, effort = lease["runtime"].split(":")
-                except ValueError as exc:
-                    raise AgentError("Candidate runtime provenance is incomplete") from exc
-                eligible = [r for r in eligible if r.different_from(Runtime(cli, model, effort))]
+                eligible = [r for r in eligible if all(r.different_from(source) for source in sources)]
                 if not eligible:
                     raise AgentError("No runtime has a different CLI and model from the candidate author")
         paused = {}
@@ -279,6 +261,35 @@ class Coordinator:
         reason = ("No eligible runtime executable is installed, usable and available"
                   if self.runtime_available else "No eligible runtime executable is installed")
         raise AgentError(reason)
+
+    def source_runtime(self, item, name, history):
+        reports = [r for r in history if r["kind"] == "outcome" and r["status"] == "success"
+                   and r["agent"] == name
+                   and (r.get("candidate_sha") == item.head if item.kind == "pr"
+                        else r["assignment"] == item.number)]
+        accepted = [r for r in reports if r.get("accepted") is True]
+        source = accepted[-1] if accepted else None
+        for report in reports:
+            # A newer issue revision can start routing while the previous accepted
+            # outcome still exists. Wait for the revision to settle before using it.
+            if source and (item.kind == "pr" or report["id"] <= source["id"]):
+                continue
+            if (not report.get("rejected") and report.get("transition", {}).get("started")
+                    and self.handoff_pending(report)):
+                raise AgentError(f"Candidate handoff from {name} is still pending")
+        if source is None:
+            return None
+        origin = self.history(source["assignment"])
+        lease = lease_by_id(origin, source["lease_id"])
+        if lease and not same_handoff(source, lease):
+            raise AgentError("Candidate provenance does not match its source lease")
+        if not self.released_success(origin, source):
+            raise AgentError("Candidate provenance has no successfully released source lease")
+        try:
+            cli, model, effort = lease["runtime"].split(":")
+        except ValueError as exc:
+            raise AgentError("Candidate runtime provenance is incomplete") from exc
+        return Runtime(cli, model, effort)
 
     def handoff_pending(self, report):
         # A copied marker may lag acceptance or rejection on the source item.

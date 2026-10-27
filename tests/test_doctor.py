@@ -18,6 +18,7 @@ from ub_agents.doctor import diagnose, render
 from ub_agents.errors import AgentError
 from ub_agents.execution import repository_checks
 from ub_agents.github import GitHub
+from ub_agents.launcher_lock import launcher_lock
 from tests.support import DoctorGitHub, RecordingDiscussionRunner, RecordingRunner, issue, isolate_observations
 
 
@@ -82,6 +83,13 @@ agents:
         self.prompt = prompt
         return code, stdout.getvalue()
 
+    def test_offline_accepts_checkout_setup_without_when_changed(self):
+        self.path.write_text(self.path.read_text() + "checkout-setup:\n"
+                             "  command: [sh, -c, 'mise trust ./mise.toml && exec mise run install']\n")
+        result = self.diagnose(offline=True)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.one(result, "config")["status"], "ok")
+
     def test_success_json_schema_and_stable_human_order(self):
         result = self.diagnose()
         self.assertTrue(result["ok"])
@@ -100,6 +108,40 @@ agents:
         code, output = self.cli(True)
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
+
+    def test_launcher_is_informational_online_offline_and_in_every_output_mode(self):
+        (self.root / ".ub-agents").mkdir()
+        for offline in (False, True):
+            baseline = self.diagnose(offline=offline)
+            self.assertIsNone(baseline["launcher"])
+            self.assertIn("No launcher running on this checkout", self.capture(baseline))
+            with launcher_lock(self.root) as owner:
+                result = self.diagnose(offline=offline)
+                self.assertEqual(result["launcher"], owner)
+                self.assertEqual(result["checks"], baseline["checks"])
+                self.assertEqual(result["ok"], baseline["ok"])
+                for verbose in (False, True):
+                    output = self.capture(result, verbose=verbose)
+                    for value in (str(owner["pid"]), owner["host"], owner["started_at"]):
+                        self.assertIn(value, output)
+                self.assertEqual(json.loads(self.capture(result, json_output=True))["launcher"], owner)
+            self.assertIsNone(self.diagnose(offline=offline)["launcher"])
+
+    def test_mcp_checks_are_optional_in_json_cli_and_runtimes_area(self):
+        (self.root / ".mcp.json").write_text('{"mcpServers":{"x":{"command":"unapproved-server"}}}')
+        (self.root / ".codex").mkdir()
+        (self.root / ".codex/config.toml").write_text('[mcp_servers.x]\ncommand="untrusted-server"\n')
+        with patch("ub_agents.doctor_mcp.probe_stdio", side_effect=AssertionError("unloaded server started")):
+            result = self.diagnose()
+            check = self.one(result, "runtime-mcp")
+            self.assertEqual((check["status"], check["required"], check["server"]), ("warn", False, "x"))
+            self.assertTrue(result["ok"])
+            code, output = self.cli(True)
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(output), result)
+            from ub_agents.doctor import CHECK_AREAS
+            self.assertEqual(CHECK_AREAS["runtime-mcp"], "runtimes")
+            self.assertEqual(self.one(self.diagnose(offline=True), "runtime-mcp")["status"], "skip")
 
     def test_offline_cli_never_reaches_github_network_runtimes_commands_or_prompts(self):
         self.path.write_text(self.path.read_text() + '''    retrospectives: 203
@@ -256,7 +298,8 @@ launchers: [operator]
         result = self.diagnose()
         self.assertTrue(all(c["status"] == "ok" for c in result["checks"]))
         self.assertEqual(len(self.checks(result, "github-label")), 4)
-        expected = ("ok machine: 7 checks passed\n"
+        expected = ("No launcher running on this checkout\n"
+                    "ok machine: 7 checks passed\n"
                     "ok configuration: 11 checks passed\n"
                     "ok GitHub: 5 checks passed, 4 labels present\n"
                     "ok runtimes: 20 checks passed\n"
@@ -349,6 +392,7 @@ launchers: [operator]
         ]
         result = {"version": 2, "ok": False, "checks": checks}
         self.assertEqual(self.capture(result, verbose=True),
+                         "No launcher running on this checkout\n"
                          "skip runtime-auth:worker:codex:model-a:high worker/codex:model-a:high executable unavailable\n"
                          "fail github-label:ready - Label ready is missing\n"
                          "  remedy: Create ready\n"
@@ -1168,6 +1212,50 @@ launchers: [operator]
         self.assertEqual([c["status"] for c in self.checks(result, "different-runtime-from")], ["warn", "ok"])
         self.missing.add("claude")
         self.assertFalse(self.diagnose()["ok"])
+
+    def test_issue_runtime_independence_checks_every_named_source(self):
+        self.github.label_names.append("prepare")
+        self.path.write_text(self.path.read_text() + '''  preparer:
+    runtime: codex:model-c:high
+    trigger: prepare
+    outcomes: {done: {}}
+    instructions: instructions.md
+    kind: issue
+  reviewer:
+    runtime: claude:model-b:high
+    trigger: needs-review
+    outcomes: {done: {}}
+    instructions: instructions.md
+    kind: issue
+    different-runtime-from: [worker, preparer]
+''')
+        result = self.diagnose()
+        self.assertTrue(result["ok"])
+        checks = self.checks(result, "different-runtime-from")
+        self.assertEqual([(c["status"], c["message"]) for c in checks], [
+            ("ok", "independent execution available after worker"),
+            ("ok", "independent execution available after preparer")])
+        self.assertEqual(len({c["id"] for c in checks}), len(checks))
+
+        configured = load_config(self.path)
+        co = Coordinator(self.github, "operator", lambda: 1000, runtime_available=self.which)
+        item = issue(labels=("ready", "prepare"))
+        self.github.items[1] = item
+        for source in configured.agents[:2]:
+            lease = co.claim(co.plan(item, source, ()))
+            co.update(lease, state="running", started=True)
+            outcome = co.report(lease, "success", "Prepared", outcome="done")
+            co.accept(lease, outcome)
+            co.release(lease, "success", "Prepared")
+        plan = co.plan(issue(labels=("needs-review",)), configured.agents[-1], ())
+        self.assertEqual((plan.state, plan.runtime.cli), ("ready", "claude"))
+
+        self.path.write_text(self.path.read_text().replace("runtime: codex:model-c:high", "runtime: claude:model-c:high"))
+        result = self.diagnose()
+        self.assertFalse(result["ok"])
+        checks = self.checks(result, "different-runtime-from")
+        self.assertEqual([c["status"] for c in checks], ["ok", "warn", "fail"])
+        self.assertIn("preparer", checks[-1]["message"])
 
     def test_ps_unavailable_failure_bad_output_and_missing_self(self):
         for response in (FileNotFoundError("ps"), subprocess.CompletedProcess([], 9, "", "sk-private"),

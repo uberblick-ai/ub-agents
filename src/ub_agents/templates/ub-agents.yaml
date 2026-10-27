@@ -5,12 +5,19 @@ queue:
   milestones: ignore
   dependencies: wait
 
-# Reinstall control-checkout dependencies after watched files change on refresh.
-# Upgrade every launcher before enabling this setting.
+# Set up dependencies before every new run, after the control-checkout refresh,
+# even if HEAD did not move, and in each new private worktree (except fork PRs).
+# The command must be idempotent and fast when nothing changed.
+# Upgrade every launcher before omitting when-changed; earlier builds require it.
 # checkout-setup:
-#   command: [mise, run, install]
-#   when-changed: [pnpm-lock.yaml, mise.toml]
+#   command: [sh, -c, 'mise trust ./mise.toml && exec mise run install']
 #   timeout-seconds: 600
+
+# For slower installs, optional when-changed limits control-checkout setup to
+# changes in these repository-relative files; an empty list or null is invalid.
+# checkout-setup:
+#   command: [npm, ci]
+#   when-changed: [package-lock.json, package.json]
 
 # Default arguments for each CLI; add the other CLI's entry for mixed runtimes.
 # Grants full access without the Codex sandbox: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
@@ -51,7 +58,8 @@ agents:
     worktree: true
     agent-timeout-minutes: 60
     # Run this role on a different runtime from issue-preparer for independent review.
-    # This is a recommendation: different-runtime-from currently requires a PR.
+    # Configure runtime alternatives with different CLIs and models, then enable:
+    # different-runtime-from: issue-preparer
 
   implementer:
     runtime: "codex:gpt-6.1-sol:high"

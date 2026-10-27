@@ -123,7 +123,7 @@ class TransitionTests(unittest.TestCase):
         self.agent = replace(self.agent, command=(), runtimes=(source,))
         reviewer = agent(self.root, name='reviewer', kind='pr', triggers=('needs-review',),
                          command=(), runtimes=(source, Runtime('codex', 'reviewer-model', 'high')),
-                         different_from=self.agent.name)
+                         different_from=(self.agent.name,))
         self.loop = self.new_loop(self.agent, reviewer)
         return reviewer
 
@@ -224,7 +224,7 @@ class TransitionTests(unittest.TestCase):
         reviewer_runtime = Runtime('claude', 'reviewer-model', 'high')
         self.agent = replace(self.agent, command=(), runtimes=(builder_runtime,))
         reviewer = replace(self.agent, name='reviewer', kind='pr', triggers=('needs-review',),
-                           runtimes=(reviewer_runtime,), different_from=self.agent.name)
+                           runtimes=(reviewer_runtime,), different_from=(self.agent.name,))
         self.loop = self.new_loop(self.agent, reviewer)
         with patch('ub_agents.coordination.shutil.which', return_value='installed'):
             self.assertTrue(self.execute(handoff=2, exit_code=1))
@@ -643,7 +643,7 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(plan.state, 'ready')
         if 'head' in changes:
             first = Runtime('claude', 'reviewer-model', 'high')
-            independent = replace(reviewer, command=(), different_from=self.agent.name,
+            independent = replace(reviewer, command=(), different_from=(self.agent.name,),
                                   runtimes=(first, Runtime('codex', 'other-model', 'high')))
             with patch('ub_agents.coordination.shutil.which', return_value='installed'):
                 independent_plan = restarted.coordinator.plan(self.github.item(2), independent, ())
@@ -669,7 +669,7 @@ class TransitionTests(unittest.TestCase):
                 self.assertEqual(self.labels_changed(), [])
 
     def test_started_independent_pr_transition_recovers_after_head_moves(self):
-        self.agent = replace(self.agent, triggers=('needs-review',), different_from='builder',
+        self.agent = replace(self.agent, triggers=('needs-review',), different_from=('builder',),
                              outcomes={'approved': {'add': ('ready-to-merge',), 'remove': ()}})
         self.github.items = {1: pr(1, labels=('needs-review', 'unrelated'))}
         self.loop = self.new_loop()
