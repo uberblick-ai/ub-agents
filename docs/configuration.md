@@ -241,8 +241,8 @@ Each reference in its body needs a closing keyword, such as `Closes #21`. Closed
 and other repositories do not count.
 
 **Milestones.** `order` and `gate` use the open milestones with open issues or PRs,
-alphabetically by title. An unreadable milestone list or item stops selection. With
-`ignore`, milestones are not read.
+by title, comparing numbers as numbers. An unreadable milestone list or item stops
+selection. With `ignore`, milestones are not read.
 
 **Dependencies.** With `wait`, a new issue start waits while any GitHub "blocked by"
 issue is open, including in other repositories, rechecked before claiming. An open

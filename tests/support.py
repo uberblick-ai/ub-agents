@@ -10,7 +10,7 @@ import tempfile
 import threading
 
 from ub_agents.config import Agent, Config, Queue, instruction_text
-from ub_agents.github import Dependency, Item, SubIssue
+from ub_agents.github import Dependency, Item, SubIssue, milestone_title_key
 from ub_agents.records import MARKER, body, payload, records
 
 
@@ -326,7 +326,8 @@ class FakeGitHub:
         active = [(m["title"], m["number"]) for m in self.milestones
                   if m["state"] == "open" and any(i.state == "open" and i.milestone == m["number"]
                                                  for i in self.items.values())]
-        return tuple(number for _, number in sorted(active, key=lambda milestone: milestone[0]))
+        ordered = sorted(active, key=lambda milestone: milestone_title_key(milestone[0]))
+        return tuple(number for _, number in ordered)
 
     def item(self, number, kind=None):
         return self.items[number]
