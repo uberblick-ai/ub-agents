@@ -1,3 +1,4 @@
+from ub_agents.run_config import process_group
 from contextlib import ExitStack
 from dataclasses import replace
 import json
@@ -38,7 +39,7 @@ class HookTests(unittest.TestCase):
     def prepare(self, workspace):
         workspace.private.mkdir(parents=True)
         workspace.created = True
-        workspace.lease["branch"] = "ub-agents/worker/1/" + workspace.lease["run"]
+        workspace.branch = "ub-agents/worker/1/" + workspace.lease["run"]
         self.workspace = workspace
         return workspace.private
 
@@ -91,7 +92,7 @@ class HookTests(unittest.TestCase):
                 self.assertEqual(len(self.removed), 1)
                 self.assertFalse(self.workspace.created)
                 kept = next(line for line in lines if "kept local branch" in line)
-                self.assertIn(self.workspace.lease["branch"], kept)
+                self.assertIn(self.workspace.branch, kept)
                 self.assertIn("a" * 40, kept)
                 self.assertIn("injected branch cleanup failure", kept)
 
@@ -474,11 +475,11 @@ class HookTests(unittest.TestCase):
         events = self.root / ".ub-agents" / "runs" / self.workspace.lease["run"] / "events.jsonl"
         self.assertIn("cleanup-unconfirmed", events.read_text())
 
-    def test_launcher_records_real_agent_process_group_on_lease(self):
+    def test_launcher_records_real_agent_process_group_locally(self):
         self.agent = replace(self.agent, worktree=False)
         loop = self.loop()
         self.assertTrue(loop.tick())
         lease = loop.coordinator.history(1)[0]
         pid = int((self.root / ".ub-agents" / "runs" / lease["run"] / "pid").read_text())
-        self.assertEqual(lease["process_group"], pid)
+        self.assertEqual(process_group(self.root, lease["run"]), pid)
         self.assertEqual(group_members(pid), [])

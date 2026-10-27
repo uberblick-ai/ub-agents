@@ -8,6 +8,11 @@ ub-agents status 143      # why #143 is or isn't running
 ub-agents status --json   # the same results, machine readable
 ```
 
+Status also shows the launcher running on this control checkout, with pid, host
+and start time, or says none is running. Each checkout allows one launcher across
+all [`launch`](/docs/commands/launch.html) modes; stop the current launcher before
+starting another, or use [`retry`](/docs/commands/retry.html) to hand it an item.
+
 ## One item
 
 `status 143` explains one item with the same checks as [`launch 143`](/docs/commands/launch.html#one-agent-or-one-item). For a claimed item it shows who holds it, on which machine and until when.
@@ -29,10 +34,17 @@ ub-agents status --json   # the same results, machine readable
 
 ## JSON output
 
-`--json` prints `{"assignments": [...]}` with one object per row: `number`, `kind`, `agent`, `state`, `reason`, `attempts`, `priority`, `priority_inherited_from`, `priority_from_issue`, `milestone`, `milestone_inherited_from`, `open_blockers`, `runtime`, `candidate_sha`, `result`, `lease`, `process`, `process_reason`, `outcome`, `notice_url`, `waiting_since`, `stop_labels` and `attention_reason`. Unknown values are `null`. The top level adds `milestone_skips` when `gate` passed over a milestone, and `explanation` when `status NUMBER` has no row for the item.
+`--json` prints `{"assignments": [...], "launcher": ...}`. The top-level `launcher`
+is `{"pid": 1234, "host": "machine", "started_at": "2026-10-25T11:00:00Z"}`
+for the launcher holding this checkout's lock, or `null` when none is running.
+Leftover owner records do not count as running launchers.
+
+Assignments have one object per row: `number`, `kind`, `agent`, `state`, `reason`, `attempts`, `priority`, `priority_inherited_from`, `priority_from_issue`, `milestone`, `milestone_inherited_from`, `open_blockers`, `runtime`, `candidate_sha`, `result`, `lease`, `process`, `process_reason`, `outcome`, `notice_url`, `waiting_since`, `stop_labels` and `attention_reason`. Unknown values are `null`. The top level adds `milestone_skips` when `gate` passed over a milestone, and `explanation` when `status NUMBER` has no row for the item.
 
 [Queue](/docs/configuration/queue.html) explains the order and milestones, and [unstick an item](/docs/guides/stuck-items.html) what to do next.
 
 ```text
 {{help status}}
 ```
+
+Coordination records use format v4. Outcome run identity, runtime, launcher host and original PR head are resolved from the source lease; local process details come from the run directory on the lease's host.

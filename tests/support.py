@@ -57,6 +57,17 @@ class RecordingAwakeProcess:
         self.returncode = -9
 
 
+class RecordingMCPProbe:
+    """Private server startup metadata; never launch a configured real server."""
+    def __init__(self, result=(3, None)):
+        self.result = result
+        self.calls = []
+
+    def __call__(self, command, *, cwd, env):
+        self.calls.append((command, cwd, env))
+        return self.result
+
+
 class RecordingDescriptionTransport:
     """Explicit completions, including a request that remains hung until close."""
     def __init__(self):
@@ -172,7 +183,7 @@ def stub_refresh(test):
 def agent(root, **overrides):
     defaults = dict(name="worker", triggers=("ready", "needs-changes"), instructions=None,
                     runtimes=(), command=(sys.executable, "-c", "pass"), runtime_args=(),
-                    different_from=None, kind="either", worktree=False,
+                    different_from=(), kind="either", worktree=False,
                     lease_seconds=60, timeout_seconds=10,
                     max_attempts=3, backoff_seconds=0, max_backoff_seconds=0,
                     outcomes={"done": {"add": (), "remove": ()}})

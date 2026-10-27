@@ -8,6 +8,16 @@ ub-agents launch
 
 Press `q` to stop after the current run, or Ctrl-C to stop right away.
 
+Only one launcher can run on a control checkout at a time, in any launch mode.
+A second launch exits before startup, naming the running launcher's pid, host and
+start time. Stop that launcher first, or use [`retry`](/docs/commands/retry.html)
+to hand it an item. Different paths resolving to the same checkout share this
+limit; separate control checkouts can each run a launcher.
+
+[`status`](/docs/commands/status.html) and [`doctor`](/docs/commands/doctor.html)
+show the launcher running on this checkout. The lock is released when its process
+exits, including after SIGKILL, even while its agents or helpers finish.
+
 ## One agent or one item
 
 ```bash

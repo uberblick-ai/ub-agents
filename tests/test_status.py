@@ -1,3 +1,4 @@
+from ub_agents.run_config import record_process_group
 from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
 from dataclasses import replace
@@ -55,8 +56,9 @@ class StatusTests(unittest.TestCase):
 
     def local_lease(self, **changes):
         lease = self.claim()
-        edit_lease(self.github, lease, host="local-host", process_group=1234,
-                   log_dir="/runs/current", **changes)
+        record_process_group(self.root, lease["run"], 1234)
+        edit_lease(self.github, lease, host="local-host",
+                   **changes)
         return lease
 
     def test_running_lease_summary_and_backward_compatible_json(self):
@@ -78,7 +80,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn("#1 worker: running", plain)
         self.assertIn("claimed by @operator on local-host at 09:16Z · codex:gpt-6.1-sol:xhigh · "
                       "lease ends 12:31Z (in 2h 41m)", plain)
-        self.assertIn("Agent running; log: /runs/current/process.log", plain)
+        self.assertIn(f"Agent running; log: {self.root}/.ub-agents/runs/{lease['run']}/process.log", plain)
         self.assertNotIn("2026-10-03T", plain)
         self.assertEqual(self.groups.call_count, 2)
         self.groups.assert_called_with(1234)
@@ -142,6 +144,17 @@ class StatusTests(unittest.TestCase):
         self.assertIn("Run is starting; no process group recorded yet.", plain)
         self.groups.assert_not_called()
 
+    def test_unreadable_local_process_record_is_unknown(self):
+        lease = self.local_lease()
+        path = self.root / '.ub-agents/runs' / lease['run'] / 'process-group'
+        for value in ('broken', '0', '-1'):
+            with self.subTest(value=value):
+                path.write_text(value)
+                rows, plain = self.status()
+                self.assertEqual(rows[0]['process'], 'unknown')
+                self.assertIn('Run process record is unreadable', plain)
+        self.groups.assert_not_called()
+
     def test_claim_without_host_is_in_progress(self):
         lease = self.loop.coordinator.claim(self.loop.plans()[0])
         rows, plain = self.status()
@@ -194,7 +207,8 @@ class StatusTests(unittest.TestCase):
         rows, plain = self.status()
         self.assertIsNone(rows[0]["process"])
         self.assertIsNone(rows[0]["process_reason"])
-        self.assertEqual(plain, "#1 worker: ready · priority none · attempts 0\n  Trigger matched\n")
+        self.assertEqual(plain, "#1 worker: ready · priority none · attempts 0\n  Trigger matched\n"
+                               "No launcher running on this checkout\n")
         self.groups.assert_not_called()
 
     def notice(self, reason, *, author="operator", created=None):
@@ -361,7 +375,8 @@ class StatusTests(unittest.TestCase):
         self.github.change(1, labels=frozenset({"ready"}))
 
         later = self.claim()
-        self.loop.coordinator.update(later, host="local-host", process_group=1234)
+        record_process_group(self.root, later["run"], 1234)
+        self.loop.coordinator.update(later, host="local-host")
         rows, plain = self.status()
         self.assertEqual((rows[0]["state"], rows[0]["lease"]["run"]), ("owned", later["run"]))
         self.assertIsNone(rows[0]["outcome"])
@@ -401,7 +416,7 @@ class StatusTests(unittest.TestCase):
         self.loop.coordinator.release(lease, "success", "Completed")
         rows, plain = self.status()
         self.assertIsNone(rows[0]["lease"])
-        self.assertEqual(rows[0]["outcome"]["run"], lease["run"])
+        self.assertEqual(rows[0]["outcome"]["lease_id"], lease["id"])
         self.assertEqual(rows[0]["result"], "success")
         self.assertIn("last result: success", plain)
         self.assertIn("reported: success", plain)
@@ -411,7 +426,8 @@ class StatusTests(unittest.TestCase):
         reported = self.loop.coordinator.report(source, "success", "Completed", outcome="done")
         self.now += 61
         recovery = self.loop.coordinator.claim(self.loop.plans()[0], recovery=True)
-        self.loop.coordinator.update(recovery, host="local-host", process_group=1234)
+        record_process_group(self.root, recovery["run"], 1234)
+        self.loop.coordinator.update(recovery, host="local-host")
         rows, plain = self.status()
         self.assertEqual(rows[0]["lease"]["run"], recovery["run"])
         self.assertEqual(rows[0]["outcome"]["id"], reported["id"])
@@ -432,7 +448,7 @@ class StatusTests(unittest.TestCase):
     def test_outcome_must_match_lease_id_and_run_provenance(self):
         lease = self.local_lease()
         reported = self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
-        for changes in ({"lease_id": lease["id"] + 100}, {"lease_id": lease["id"], "run": "other-run"}):
+        for changes in ({"lease_id": lease["id"] + 100}, {"lease_id": lease["id"], "agent": "other-agent"}):
             with self.subTest(changes=changes):
                 self.loop.coordinator.update_outcome(lease, reported, **changes)
                 rows, plain = self.status()
@@ -456,7 +472,8 @@ class StatusTests(unittest.TestCase):
                     self.now += 1
 
                 lease = self.claim(other.name)
-                self.loop.coordinator.update(lease, host="local-host", process_group=1234)
+                record_process_group(self.root, lease["run"], 1234)
+                self.loop.coordinator.update(lease, host="local-host")
                 reported = self.loop.coordinator.report(lease, "success", "Other completed", outcome="done")
                 rows, plain = self.status()
                 by_agent = {row["agent"]: row for row in rows}
@@ -545,11 +562,12 @@ class ItemStatusTests(unittest.TestCase):
                              agent(self.root, name="reviewer", kind="pr"),
                              agent(self.root, name="other", triggers=("other",)))
         result, plain = self.status()
-        self.assertEqual(set(result), {"assignments"})
+        self.assertEqual(set(result), {"assignments", "launcher"})
         self.assertEqual([(r["number"], r["agent"], r["state"], r["attempts"])
                           for r in result["assignments"]], [(11, "first", "ready", 0), (11, "second", "ready", 0)])
         self.assertEqual(plain, "#11 first: ready · priority none · attempts 0\n  Trigger matched\n"
-                               "#11 second: ready · priority none · attempts 0\n  Trigger matched\n")
+                               "#11 second: ready · priority none · attempts 0\n  Trigger matched\n"
+                               "No launcher running on this checkout\n")
 
     def test_no_rows_explain_untriggered_closed_and_inapplicable_items(self):
         worker = agent(self.root, kind="issue", triggers=("ready",))
@@ -567,8 +585,8 @@ class ItemStatusTests(unittest.TestCase):
                 self.github.items[11] = item
                 self.config = config(self.root, *agents)
                 result, plain = self.status()
-                self.assertEqual(result, {"assignments": [], "explanation": reason})
-                self.assertEqual(plain, f"#11: {reason}\n")
+                self.assertEqual(result, {"assignments": [], "explanation": reason, "launcher": None})
+                self.assertEqual(plain, f"#11: {reason}\nNo launcher running on this checkout\n")
 
     def test_own_priority_and_milestone_without_inheritance_or_ordering(self):
         self.config = config(self.root, queue=Queue(milestones="order", priority=Priority(("urgent", "normal"))))
@@ -655,7 +673,8 @@ class ItemStatusTests(unittest.TestCase):
 
     def test_live_owner_and_report_without_trigger(self):
         co, lease = self.claim()
-        co.update(lease, host="local-host", process_group=1234, log_dir="/runs/current")
+        record_process_group(self.root, lease["run"], 1234)
+        co.update(lease, host="local-host",  log_dir="/runs/current")
         reported = co.report(lease, "success", "Completed", outcome="done")
         self.github.change(11, labels=frozenset())
         self.groups.return_value = [1235]

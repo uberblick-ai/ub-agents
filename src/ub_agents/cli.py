@@ -9,7 +9,6 @@ from pathlib import Path
 import signal
 import socket
 import sys
-import uuid
 
 from . import __version__
 from .approvals import pr_author_exclusions
@@ -25,6 +24,7 @@ from .help import CommentHelpFormatter, HelpParser, InitHelpFormatter
 from .loop import Loop, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS, _GracefulStop
 from .init_setup import runtime_guidance
 from .launch_log import launch_output
+from .launcher_lock import launcher_lock, launcher_summary, running_launcher
 from .labels import configured_labels
 from .refresh import control_checkout_checks
 from .records import (MARKER, body, iso, latest_leases, lease_by_id, live_leases, own_comment,
@@ -63,6 +63,8 @@ def parser():
                                  formatter_class=CommentHelpFormatter,
                                  overview_options=("--json",),
                                  description="Check machine, GitHub and runtime prerequisites. "
+                                 "Check MCP configuration for each agent/runtime/server and probe loaded stdio servers. "
+                                 "MCP problems are optional warnings. "
                                  "Use --offline for local validation without GitHub or agent runtimes. "
                                  "Create missing workflow labels only after a confirmed interactive prompt. "
                                  "Show warnings and failures with a summary per area by default; "
@@ -186,8 +188,9 @@ def report_run(args):
     if lease is None or lease["actor"].casefold() != coordinator.actor.casefold():
         raise AgentError("Supervised lease was not found on GitHub or is not owned by this account")
     record = coordinator.report(lease, args.status or "success", args.summary, args.handoff,
-                                outcome=args.outcome, action=args.action, option=args.option)
-    print(json.dumps({"run": record["run"], "status": record["status"], "url": record["url"]}))
+                                outcome=args.outcome, action=args.action, option=args.option,
+                                declarations=context["outcomes"], stop_labels=context["stop-labels"])
+    print(json.dumps({"run": lease["run"], "status": record["status"], "url": record["url"]}))
 
 
 def status_rows(loop, now=None, *, plans=None):
@@ -210,7 +213,7 @@ def status_rows(loop, now=None, *, plans=None):
         process, process_reason = None, None
         if lease:
             if lease["id"] not in processes:
-                processes[lease["id"]] = process_details(lease, history, now, host)
+                processes[lease["id"]] = process_details(lease, history, now, host, root=loop.config.root)
             process, process_reason = processes[lease["id"]]
         source = next((r for r in active if r["agent"] == plan.agent.name), None) or latest
         if source and source.get("mode") == "recovery":
@@ -372,9 +375,8 @@ def run(args):
         if live_leases(history, timestamp()):
             raise AgentError("Cannot reset attempts while an assignment is owned")
         item = github.item(args.number)
-        record = {"kind": "reset", "run": uuid.uuid4().hex,
-                  "agent": args.agent, "actor": actor, "runtime": "operator",
-                  "assignment": item.number, "assignment_sha": item.head, "created": iso(timestamp()), "summary": args.reason}
+        record = {"kind": "reset", "agent": args.agent, "actor": actor,
+                  "assignment": item.number, "created": iso(timestamp()), "summary": args.reason}
         created = records([github.create_comment(item.number, body(record))])[0]
         coordinator.notices.resumed(item.number)
         print(f"Reset {args.agent} attempts on #{item.number}: {created['url']}")
@@ -386,6 +388,7 @@ def run(args):
                 config_path=config.root / DEFAULT_CONFIG if args.default_config else args.config,
                 default_config=args.default_config, interrupt_event=interrupt)
     if args.command == "status":
+        launcher = running_launcher(config.root)
         now = timestamp()
         explanation = None
         if args.number is None:
@@ -398,7 +401,7 @@ def run(args):
             if not rows:
                 explanation = loop.item_explanation(item)
         if args.json:
-            result = {"assignments": rows}
+            result = {"assignments": rows, "launcher": launcher}
             if loop.milestone_skips:
                 result["milestone_skips"] = list(loop.milestone_skips)
             if explanation is not None:
@@ -440,6 +443,7 @@ def run(args):
                     suffix = f" · waiting {waiting}" if waiting else ""
                     print(f"  Action needed: {row['notice_url']}{suffix}")
         if not args.json:
+            print(launcher_summary(launcher))
             for line in loop.milestone_skips:
                 print(line)
         return
@@ -609,6 +613,7 @@ def main(argv=None):
                 name = DEFAULT_CONFIG if args.default_config else str(args.config)
                 raise AgentError(f"No {name} here; run ub-agents init to set up a project")
             if args.command == "launch":
+                stack.enter_context(launcher_lock(args.config.parent))
                 args.launch_output = stack.enter_context(launch_output(args.config.parent))
                 from .launcher_code import startup_copy
                 stack.enter_context(startup_copy())

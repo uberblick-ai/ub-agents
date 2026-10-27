@@ -22,7 +22,7 @@ Point each agent at its file. Say what the role does, which checks to run, what 
 instructions: .agents/implementer.md
 ```
 
-[How the loop works](/docs/how-the-loop-works.html#issues-from-idea-to-ready) describes what the starter roles report. For issue review, pick a different runtime yourself: `different-runtime-from` only works for pull request agents.
+[How the loop works](/docs/how-the-loop-works.html#issues-from-idea-to-ready) describes what the starter roles report. For independent issue review, configure the issue reviewer with [`different-runtime-from: issue-preparer`](/docs/configuration/agents.html#different-runtime-from) and runtime alternatives with different CLIs and models. The reviewer uses the preparer's latest accepted successful outcome on the same issue.
 
 ## Shared policy
 

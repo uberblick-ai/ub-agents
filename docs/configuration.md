@@ -90,25 +90,36 @@ Explained on the website: [Checkout setup](https://agents.uberblick.ai/docs/conf
 ```yaml
 checkout-setup:
   command: [sh, -c, 'mise trust ./mise.toml && exec mise run install']
-  when-changed: [pnpm-lock.yaml, mise.toml]
   timeout-seconds: 600
+```
+
+Without `when-changed`, setup runs in the control checkout before every new run,
+after the refresh, even if HEAD did not move. The command must be idempotent and
+fast when nothing changed. For slower installs, add an optional `when-changed` list:
+
+```yaml
+checkout-setup:
+  command: [npm, ci]
+  when-changed: [package-lock.json, package.json]
 ```
 
 | Key | Type and default | Rules |
 |---|---|---|
 | `command` | Required argv list | Runs without a shell in the checkout being set up, before the agent starts. Runtime permissions do not apply. |
-| `when-changed` | Required list | Literal repository-relative file paths. Absolute paths, directories and `..` are rejected. |
+| `when-changed` | Optional non-empty list | Literal repository-relative file paths. Absolute paths, directories, `..`, an empty list and `null` are rejected. Omit it to run after every refresh. |
 | `timeout-seconds` | Number, `600` | Positive, at most 3600. |
 
 Keep tracked files unchanged and install into ignored paths, so the next refresh still
 finds a clean checkout.
 
-**Control checkout.** Before each new run, after the refresh, the launcher compares the
-watched files with the last commit where setup succeeded, or before any success, with
-the HEAD before the fast-forward. If any differ, setup runs once before claiming. Pulls
-made by hand are not detected. A failure stops launch before a claim and charges no
-attempt. Setup then stays pending and runs on every launch until it succeeds. Its state
-and logs live under `$XDG_STATE_HOME/ub-agents/checkouts/` (default
+**Control checkout.** With `when-changed`, before each new run, after the refresh, the
+launcher compares the watched files with the last commit where setup succeeded, or
+before any success, with the HEAD before the fast-forward. If any differ, setup runs
+once before claiming. In this mode, pulls made by hand are not detected. Without
+`when-changed`, setup runs after every refresh. A failure in either mode stops launch
+before a claim and charges no attempt. Setup then stays pending and runs on every
+launch until it succeeds. Its state and logs live under
+`$XDG_STATE_HOME/ub-agents/checkouts/` (default
 `~/.local/state/ub-agents/checkouts/`).
 
 **Private worktrees.** With `worktree: true`, setup runs once in each new private
@@ -256,11 +267,16 @@ Each agent has exactly one of `runtime` or `command`.
 | `command` | Argv list | Runs instead of an LLM session. A relative path containing `/` resolves against the configuration's directory. |
 | `worktree` | Boolean, `false` | `true` runs in a private checkout: a same-repository PR's exact head, a fork PR's base branch tip, or a fresh branch for an issue. See [pull requests](approvals.md#pull-requests). |
 | `runtime-args` | List or mapping | Replaces all top-level `runtime-args`; `[]` or `{}` disables them. |
-| `different-runtime-from` | Agent name | Another runtime agent. On a PR, this agent must use a different CLI and model from that agent's run on the current head. See [runtime independence](coordination.md#runtime-independence-and-candidate-provenance). |
+| `different-runtime-from` | Agent name or nonempty list | Use a different CLI and model from each named runtime agent's accepted outcome: the latest on an issue, or for the current PR head. `null` clears the setting. See [runtime independence](coordination.md#runtime-independence-and-candidate-provenance). |
 | `on-conflict` | Outcome name | `pr` agents only; an outcome that adds no stop label. Recorded instead of starting the agent when GitHub reports the PR as conflicting. |
 | `health-check` | Argv list | See [Project health checks](#project-health-checks). |
 | `retrospectives` | Positive integer | See [Retrospectives](#retrospectives). |
 | Limit keys | | Override the timeout and retry [`limits`](#limits). The lease keys are top level only. |
+
+`different-runtime-from` accepts a single name such as `implementer` or a list such
+as `[implementer, reviewer]`. Names must be unique, identify other runtime agents,
+and cannot refer to command agents. Local configuration replaces the whole value;
+use `null` to clear it. Doctor checks runtime independence against each named agent.
 
 ### Project health checks
 
@@ -458,6 +474,13 @@ The launcher adds no permission flags, so the CLIs usually cannot edit files or 
 Grant each role what it needs in `runtime-args`. When `doctor` warns that an agent has
 none for a listed CLI, configure top-level `runtime-args` or agent overrides covering
 every CLI in each agent's runtime list.
+
+Online `doctor` also checks the MCP servers named by tool references in role or
+shared instructions and runtime arguments, plus project MCP registrations. It
+reports whether each runtime would load them in a fresh worktree and probes only
+loaded stdio servers, listing their tool counts. These checks are optional warnings
+and are skipped with `--offline`. See [doctor's MCP checks](https://agents.uberblick.ai/docs/commands/doctor.html#mcp-servers)
+and [runtime setup for Uberblick](https://agents.uberblick.ai/docs/guides/with-uberblick.html).
 
 For Codex, `[--sandbox, danger-full-access]` grants full access, including commits and
 pushes. Its default `workspace-write` sandbox cannot commit in private worktrees,

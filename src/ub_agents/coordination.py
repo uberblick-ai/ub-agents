@@ -13,9 +13,10 @@ from .errors import AgentError, GitHubError, LostOwnership, RecordError, Runtime
 from .finalization import FinalizationReads
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
-from .records import (MARKER, attempt_effect, attempts, backoff, body, exhausted_rounds, iso, latest_leases,
-                      lease_by_id, lease_summary, live_leases, outcome_rounds, payload, records, recovers,
-                      report_asks, same_handoff, same_run, seconds, stop_report, timestamp)
+from .records import (MARKER, attempt_effect, attempts, backoff, body, display_provenance, exhausted_rounds,
+                      iso, issue_branch, latest_leases, lease_by_id, lease_summary, live_leases,
+                      outcome_declarations, outcome_rounds, payload, records, recovers, report_asks,
+                      same_handoff, same_run, seconds, stop_report, timestamp)
 from .trust import LauncherTrust
 
 
@@ -75,10 +76,16 @@ class Coordinator:
         # A failed POST may have created this record without returning its ID.
         # Keep only this launcher's uncertain claim; restarts use normal expiry.
         self.lost_claim = None
+        # In-process reports share claim configuration; agent commands use run.json.
+        self._report_context = {}
+        # Display callbacks join provenance from reads already needed for coordination.
+        self._observed_leases = {}
 
     def observed(self, record):
         if self.on_record is not None:
-            self.on_record(record)
+            if record["kind"] == "lease":
+                self._observed_leases[record["id"]] = record
+            self.on_record(display_provenance(record, self._observed_leases.values()))
 
     def history(self, number):
         if isinstance(self.github, FinalizationReads):
@@ -88,7 +95,10 @@ class Coordinator:
     def _history(self, number):
         comments = self.github.comments(number)
         try:
-            return records(comments, trusted=self.trust.observation())
+            history = records(comments, trusted=self.trust.observation())
+            if self.on_record is not None:
+                self._observed_leases.update((r["id"], r) for r in history if r["kind"] == "lease")
+            return history
         except (RecordError, GitHubError):
             raise
         except AgentError as exc:
@@ -111,7 +121,7 @@ class Coordinator:
         seen, feedback = set(), []
         for record in sorted(pending, key=lambda r: r["id"]):
             # A handoff copy has a different comment ID but belongs to the same run.
-            key = (record["assignment"], record["agent"], record["run"], record["lease_id"])
+            key = (record["assignment"], record["agent"], record["lease_id"])
             if key in seen:
                 continue
             seen.add(key)
@@ -228,30 +238,12 @@ class Coordinator:
             return None
         eligible = list(agent.runtimes)
         if agent.different_from:
-            if item.kind != "pr":
-                raise AgentError("Independent candidate execution requires a PR")
-            reports = [r for r in history if r["kind"] == "outcome" and r["status"] == "success"
-                       and r["agent"] == agent.different_from and r.get("candidate_sha") == item.head]
-            source = [r for r in reports if r.get("accepted") is True]
-            if not source:
-                for report in reports:
-                    if (not report.get("rejected") and report.get("transition", {}).get("started")
-                            and self.handoff_pending(report)):
-                        raise AgentError(f"Candidate handoff from {agent.different_from} is still pending")
+            sources = [runtime for name in agent.different_from
+                       if (runtime := self.source_runtime(item, name, history)) is not None]
+            if not sources:
                 eligible = eligible[:1]
             else:
-                source = source[-1]
-                origin = self.history(source["assignment"])
-                lease = lease_by_id(origin, source["lease_id"])
-                if lease and not same_handoff(source, lease):
-                    raise AgentError("Candidate provenance does not match its source lease")
-                if not self.released_success(origin, source):
-                    raise AgentError("Candidate provenance has no successfully released source lease")
-                try:
-                    cli, model, effort = source["runtime"].split(":")
-                except ValueError as exc:
-                    raise AgentError("Candidate runtime provenance is incomplete") from exc
-                eligible = [r for r in eligible if r.different_from(Runtime(cli, model, effort))]
+                eligible = [r for r in eligible if all(r.different_from(source) for source in sources)]
                 if not eligible:
                     raise AgentError("No runtime has a different CLI and model from the candidate author")
         paused = {}
@@ -269,6 +261,35 @@ class Coordinator:
         reason = ("No eligible runtime executable is installed, usable and available"
                   if self.runtime_available else "No eligible runtime executable is installed")
         raise AgentError(reason)
+
+    def source_runtime(self, item, name, history):
+        reports = [r for r in history if r["kind"] == "outcome" and r["status"] == "success"
+                   and r["agent"] == name
+                   and (r.get("candidate_sha") == item.head if item.kind == "pr"
+                        else r["assignment"] == item.number)]
+        accepted = [r for r in reports if r.get("accepted") is True]
+        source = accepted[-1] if accepted else None
+        for report in reports:
+            # A newer issue revision can start routing while the previous accepted
+            # outcome still exists. Wait for the revision to settle before using it.
+            if source and (item.kind == "pr" or report["id"] <= source["id"]):
+                continue
+            if (not report.get("rejected") and report.get("transition", {}).get("started")
+                    and self.handoff_pending(report)):
+                raise AgentError(f"Candidate handoff from {name} is still pending")
+        if source is None:
+            return None
+        origin = self.history(source["assignment"])
+        lease = lease_by_id(origin, source["lease_id"])
+        if lease and not same_handoff(source, lease):
+            raise AgentError("Candidate provenance does not match its source lease")
+        if not self.released_success(origin, source):
+            raise AgentError("Candidate provenance has no successfully released source lease")
+        try:
+            cli, model, effort = lease["runtime"].split(":")
+        except ValueError as exc:
+            raise AgentError("Candidate runtime provenance is incomplete") from exc
+        return Runtime(cli, model, effort)
 
     def handoff_pending(self, report):
         # A copied marker may lag acceptance or rejection on the source item.
@@ -324,8 +345,8 @@ class Coordinator:
         own, and a PR's branch may belong to an issue whose run is continuing it. One agent
         at a time touches a branch, so either side waits for the other."""
         if item.kind == "issue":
-            branches = sorted({r["branch"] for r in history if r["kind"] == "lease"
-                               and r["agent"] == agent.name and r.get("branch")})
+            branches = sorted({issue_branch(r) for r in history if r["kind"] == "lease"
+                               and r["agent"] == agent.name and r["started"] and r.get("mode") != "recovery"})
             related = sorted({pr.number for branch in branches for pr in self.github.prs_for_branch(branch)})
         else:
             match = re.fullmatch(r"ub-agents/[a-z][a-z0-9_-]*/([1-9][0-9]*)/[A-Za-z0-9_-]+", item.branch or "")
@@ -396,37 +417,23 @@ class Coordinator:
         record = {"kind": "lease", "run": uuid.uuid4().hex,
                   "agent": plan.agent.name, "assignment": current.number,
                   "assignment_sha": current.head,
-                  "branch": current.branch, "runtime": plan.runtime.name if plan.runtime else "direct",
+                  "runtime": plan.runtime.name if plan.runtime else "direct",
                   "triggers": sorted(current.labels.intersection(plan.agent.triggers)),
                   "actor": self.actor, "created": iso(now),
                   "expires": iso(now + plan.agent.lease_seconds), "state": "claiming",
                   "attempt": len(attempts(history, plan.agent.name, now)) + 1, "started": False,
-                  "attempt_effect": "pending", "declared_triggers": list(plan.agent.triggers),
-                  "stop_labels": list(stop_labels), "action_required": True}
+                  "attempt_effect": "pending"}
         if not recovery:
             rounds = {name: {"used": outcome_rounds(history, current.number, plan.agent.name, name),
                              "limit": changes["max-rounds"]}
                       for name, changes in plan.agent.outcomes.items() if "max-rounds" in changes}
             if rounds:
                 record["outcome_rounds"] = rounds
-            record["outcomes"] = {
-                name: (({"add": list(changes["add"]), "remove": list(changes["remove"])} |
-                        ({"sub-issues": {"add": list(changes["sub-issues"]["add"])}}
-                         if "sub-issues" in changes else {}))
-                       if changes["remove"] or "sub-issues" in changes else list(changes["add"]))
-                for name, changes in plan.agent.outcomes.items()}
-            # Pin the effective transition before execution. Recovery uses this
-            # declaration even if the configuration or count later changes.
-            for name, budget in rounds.items():
-                if budget["used"] >= budget["limit"]:
-                    declaration = record["outcomes"][name]
-                    record["outcomes"][name] = ([stop_labels[0]] if isinstance(declaration, list)
-                                               else declaration | {"add": [stop_labels[0]]})
         if recovery:
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
-                       "recovered_run": outcome["run"]}
+                       "recovered_run": lease_by_id(history, outcome["lease_id"])["run"]}
         if self.cleanup_control is not None:
-            self.cleanup_control.protect(record)
+            self.cleanup_control.protect(record, branch=current.branch if current.kind == "pr" else issue_branch(record))
         if before_write is not None:
             before_write()
         try:
@@ -436,6 +443,7 @@ class Coordinator:
                 self.lost_claim = record
             raise
         created = records([comment], self.actor)[0]
+        self._report_context[created["id"]] = ({} if recovery else outcome_declarations(plan.agent), tuple(stop_labels), tuple(plan.agent.triggers))
         self.observed(created)
         if self.on_claim is not None:
             self.on_claim(created)
@@ -587,7 +595,7 @@ class Coordinator:
             return False
 
     def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
-                max_attempts=None, *, unreported=False):
+                max_attempts=None, *, unreported=False, stop_labels=None, triggers=None):
         self.assert_owned(lease)
         reported = self.outcome(lease)
         now = self.clock()
@@ -599,8 +607,11 @@ class Coordinator:
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect,
                     **({"unreported": True} if unreported else {}))
+        _, claimed_stops, claimed_triggers = self._report_context.pop(lease["id"], ({}, (), ()))
         self.notices.advisory("released run comments", lambda:
-                              self.notices.released(lease, reported, summary, parking_outcome, max_attempts))
+                              self.notices.released(lease, reported, summary, parking_outcome, max_attempts,
+                                  stop_labels=claimed_stops if stop_labels is None else stop_labels,
+                                  triggers=claimed_triggers if triggers is None else triggers))
 
     def outcome(self, lease):
         matches = [r for r in self.history(lease["assignment"])
@@ -611,42 +622,44 @@ class Coordinator:
             self.observed(matches[0])
         return matches[0] if matches else None
 
-    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, option=None, agent_report=True):
-        declarations = lease.get("outcomes")
+    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, option=None, agent_report=True,
+               declarations=None, stop_labels=None):
+        if declarations is None:
+            declarations, claimed_stops = self._report_context.get(lease["id"], ({}, (), ()))[:2]
+            if stop_labels is None:
+                stop_labels = claimed_stops
+        stop_labels = stop_labels or ()
+        transition = None
         if outcome is not None:
-            if declarations is None or outcome not in declarations or status != "success":
+            if outcome not in declarations or status != "success":
                 raise AgentError("Outcome is not declared by the running agent")
-        elif status == "success" and declarations is not None:
+        elif status == "success" and declarations:
             raise AgentError("Success must name a declared outcome: report --outcome NAME")
-        if status == "success" and exhausted_rounds(lease, outcome) and action is None and option is None:
-            action = "Maintainer: review the open findings and decide whether to allow more rounds."
+        if outcome is not None:
+            transition = declarations[outcome] | {"started": False}
+            if exhausted_rounds(lease, outcome):
+                transition = transition | {"add": [stop_labels[0]]}
+                if action is None and option is None:
+                    action = "Maintainer: review the open findings and decide whether to allow more rounds."
         try:
-            actions, options = report_asks(action, option, required=agent_report and stop_report(lease, status, outcome))
+            actions, options = report_asks(action, option, required=agent_report and stop_report(status, transition, stop_labels))
         except ValueError as exc:
             raise AgentError(str(exc)) from exc
         self.assert_owned(lease)
         if self.outcome(lease):
             raise AgentError("This run already has an outcome")
         destination = self.github.item(handoff, "pr") if handoff else self.github.item(lease["assignment"])
-        record = {k: lease[k] for k in ("run", "agent", "assignment", "assignment_sha", "runtime", "actor")}
+        record = {k: lease[k] for k in ("agent", "assignment", "actor")}
         record |= {"kind": "outcome", "lease_id": lease["id"],
                    "created": iso(self.clock()), "status": status, "summary": summary,
                    "handoff": handoff, "candidate_sha": destination.head, "accepted": False}
         if actions:
-            record["action"] = actions[0]
-            if len(actions) > 1 or options:
-                record["actions"] = actions
+            record["actions"] = actions
         if options:
             record["options"] = options
-            if not actions:
-                record["action"] = options[0]  # Valid for v0.1.13 completion and recovery.
-        if lease.get("host"):
-            record["host"] = lease["host"]
         if outcome is not None:
-            declaration = declarations[outcome]
-            if isinstance(declaration, list):
-                declaration = {"add": declaration}
-            record |= {"outcome": outcome, "transition": declaration | {"started": False}}
+            record |= {"outcome": outcome, "transition": transition}
+            declaration = transition
             if "sub-issues" in declaration:
                 assignment = self.github.item(lease["assignment"])
                 if assignment.kind != "issue":

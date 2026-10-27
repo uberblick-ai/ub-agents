@@ -1,3 +1,4 @@
+from ub_agents.run_config import record_process_group
 from copy import deepcopy
 from contextlib import chdir
 from dataclasses import replace
@@ -661,8 +662,9 @@ class ObservationTests(unittest.TestCase):
         github = PollGitHub(issue())
         other = self.loop(github, False)
         lease = other.coordinator.claim(other.plans()[0])
+        record_process_group(self.root, lease["run"], os.getpid())
         other.coordinator.update(lease, state="running", host=socket.gethostname(),
-                                 log_dir="/private/other/logs", process_group=os.getpid())
+                                 log_dir="/private/other/logs")
         loop = self.loop(github)
         loop.launch(once=True)
         row = self.memory.snapshots[-1]["latest_pass"]["rows"][0]

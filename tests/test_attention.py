@@ -84,10 +84,10 @@ class AttentionTests(unittest.TestCase):
 
     def test_parking_outcome_action_is_shown_without_a_notice(self):
         action = 'Maintainer: merge this PR under project policy.'
-        for outcome in (self.outcome(action=action), self.outcome(action=action, assignment=10, handoff=1)):
+        for outcome in (self.outcome(actions=[action]), self.outcome(actions=[action], assignment=10, handoff=1)):
             row, _ = self.row(replace(self.plan, history=(outcome,)))
             self.assertEqual(row.data['attention_reason'], action)
-        outcome = self.outcome(action=action, accepted=False, status='blocked', transition_complete=False)
+        outcome = self.outcome(actions=[action], accepted=False, status='blocked', transition_complete=False)
         row, _ = self.row(replace(self.plan, state='blocked', history=(self.finished(), outcome)))
         self.assertEqual(row.data['attention_reason'], action)
         recovered = self.finished(id=10, mode='recovery', recovered_lease_id=1)

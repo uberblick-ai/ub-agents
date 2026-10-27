@@ -148,7 +148,7 @@ class DenialsLoopTests(unittest.TestCase):
         self.assertEqual(denial_fields(history[1]), fields)
         self.assertEqual(denial_fields(copy), fields)
         self.assertTrue(copy["accepted"])
-        self.assertEqual(copy["run"], history[1]["run"])
+        self.assertEqual(copy["lease_id"], history[1]["lease_id"])
 
     def test_no_result_codex_and_aborted_runs_have_no_denial_fields(self):
         for events, cli, failure in (([], "claude", None), ([result([denied()])], "codex", None),

@@ -19,3 +19,5 @@ When a newer release exists, the terminal view shows a banner with the command t
 ## With a service
 
 If a [service](/docs/guides/add-a-launcher.html#run-it-as-a-service) restarts the launcher, upgrade first, then send `SIGTERM`. The launcher finishes its run, and the service starts the new version.
+
+Coordination format v4 requires a coordinated upgrade: stop every launcher with no runs in flight, upgrade every machine, then restart. v3 records stop being read, resetting attempt counts, max-rounds counts, blocked state and earlier-run branches. Before restarting, park items that must stay stopped with a stop label and close or finish agent draft PRs from earlier runs.

@@ -77,6 +77,9 @@ class RunConfigTests(unittest.TestCase):
                          {"issue": "ready", "pr": []}, {"issue": [], "pr": [1]},
                          {"issue": [" "], "pr": []}),
             "retrospectives": (True, "203", 203.0, 0, -1, [], {}),
+            "outcomes": (None, [], {'': {'add': []}}, {'done': {'remove': []}},
+                         {'done': {'add': [''], 'remove': []}}),
+            "stop-labels": (None, 'needs-human', {}, [None], ['']),
         }
         for field, values in invalid.items():
             for value in values:

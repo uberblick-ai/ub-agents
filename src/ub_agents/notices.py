@@ -5,8 +5,8 @@ import re
 import socket
 
 from .errors import LostOwnership
-from .records import (MARKER, declared_transition, exhausted_rounds, lease_by_id, records,
-                      reported_actions, resolve_transition, same_handoff, same_run)
+from .records import (MARKER, display_provenance, exhausted_rounds, lease_by_id, records,
+                      reported_actions, same_handoff, same_run)
 from .trust import LauncherTrust
 
 ACTION_MARKER = "<!-- ub-agents:action-needed "
@@ -168,21 +168,34 @@ class Notices:
         self.advisory(f"Action needed post on #{number}", lambda: self.post_once(
             number, action_body(marker, [action], check.reason, resume=f"Then resume:\n\n{resume}"), marker))
 
+    def provenance(self, history):
+        origins = {}
+        result = []
+        for record in history:
+            if record["kind"] == "outcome":
+                assignment = record["assignment"]
+                if assignment not in origins:
+                    origins[assignment] = (history if lease_by_id(history, record["lease_id"]) else
+                                           records(self.comments(assignment)))
+                record = display_provenance(record, origins[assignment])
+            result.append(record)
+        return result
+
     def superseded(self, number, agent, run):
         def minimize_records():
             comments = self.comments(number)
-            history = [r for r in records(comments)
+            history = [r for r in self.provenance(records(comments))
                        if r["agent"] == agent and r["kind"] in {"lease", "outcome"}]
-            current = [r["id"] for r in history if r["run"] == run]
+            current = [r["id"] for r in history if r.get("run") == run]
             if not current:
                 return
             latest = {r["kind"]: r for r in history}
             outdated = {r["id"] for r in history
-                        if r["id"] < min(current) and r["run"] != latest[r["kind"]]["run"]}
+                        if r["id"] < min(current) and r.get("run") != latest[r["kind"]].get("run")}
             accepted = {r["lease_id"]: r for r in history
                         if r["kind"] == "outcome" and r["accepted"] and not r.get("rejected")}
             outdated.update(r["id"] for r in history
-                            if r["kind"] == "lease" and r["run"] == run
+                            if r["kind"] == "lease" and r.get("run") == run
                             and r["assignment"] == number and r["state"] == "released"
                             and r["id"] in accepted and same_run(accepted[r["id"]], r))
             self.minimize([comment for comment in comments if comment["id"] in outdated])
@@ -198,7 +211,7 @@ class Notices:
 
         def minimize_records():
             comments = self.comments(number)
-            history = records(comments)
+            history = self.provenance(records(comments))
             copies = [r for r in history if r["kind"] == "outcome"
                       and r["lease_id"] == outcome["lease_id"] and same_handoff(r, outcome)
                       and r.get("candidate_sha") == outcome["candidate_sha"] and r["accepted"]]
@@ -209,6 +222,7 @@ class Notices:
                                 key=lambda c: c["id"], default=None)
             linked = {r["id"] for r in history if latest_action and r["url"]
                       and f"]({r['url']})" in latest_action["body"]}
+            current_run = self.provenance([outcome])[0].get("run")
             outdated = set()
             for record in history:
                 sha = record.get("candidate_sha") or record.get("assignment_sha")
@@ -216,24 +230,25 @@ class Notices:
                                        and record["attempt_effect"] == "unchanged")
                 if (record["kind"] in {"lease", "outcome"} and record["id"] < cutoff
                         and sha and sha != outcome["candidate_sha"]
-                        and record["run"] != outcome["run"] and not approval_withdrawal
+                        and record.get("run") != current_run and not approval_withdrawal
                         and record["id"] not in linked):
                     outdated.add(record["id"])
             self.minimize([comment for comment in comments if comment["id"] in outdated])
 
         self.advisory(f"superseded candidates on #{number}", minimize_records)
 
-    def released(self, lease, outcome, summary, parking_outcome=None, max_attempts=None):
+    def released(self, lease, outcome, summary, parking_outcome=None, max_attempts=None, *,
+                 stop_labels=(), triggers=()):
         reported = parking_outcome or outcome
         target = lease["assignment"]
         rounds = None
         transition = reported.get("transition", {}) if reported else {}
+        source = lease
+        if reported and reported["lease_id"] != lease["id"]:
+            source = lease_by_id(records(self.comments(reported["assignment"])), reported["lease_id"])
         if transition:
-            source = lease if reported["lease_id"] == lease["id"] else lease_by_id(
-                records(self.comments(reported["assignment"])), reported["lease_id"])
-            transition = resolve_transition(transition, declared_transition(source, reported["outcome"]))
             rounds = exhausted_rounds(source, reported["outcome"])
-        stops = sorted(set(transition.get("add", ())).intersection(transition.get("stop_labels", ())))
+        stops = sorted(set(transition.get("add", ())).intersection(stop_labels))
         parked = (lease["result"] == "success" and reported
                   and reported.get("accepted") and reported.get("transition_complete") and stops)
         if parked:
@@ -243,7 +258,7 @@ class Notices:
                            f"({rounds['used']} rounds already used).\n\n{reported['summary']}")
         self.superseded(lease["assignment"], lease["agent"], lease["run"])
         if reported and reported.get("handoff") and reported["handoff"] != lease["assignment"]:
-            self.superseded(reported["handoff"], lease["agent"], reported["run"])
+            self.superseded(reported["handoff"], lease["agent"], source["run"])
         exhausted = (lease["result"] == "retry" and lease.get("unreported")
                      and lease.get("attempt_effect") == "failure" and max_attempts is not None
                      and lease["attempt"] >= max_attempts)
@@ -252,7 +267,7 @@ class Notices:
         if lease["result"] == "blocked" or parked or exhausted:
             self.advisory(f"Action needed post on #{target}",
                           lambda: self.post_action(target, lease, reported, summary, stops if parked else (),
-                                                   transition.get("triggers", ()), rounds=rounds if parked else None))
+                                                   triggers, rounds=rounds if parked else None))
         # A parking handoff can post a new notice. Preserve its evidence rather
         # than the links of the notice it just superseded.
         if (lease["result"] == "success" and reported and reported.get("accepted")
@@ -263,9 +278,9 @@ class Notices:
         marker = f"{ACTION_MARKER}{lease['run']} -->"
         comments = self.comments(number)
         existing = next((c for c in comments if (c.get("body") or "").startswith(marker)), None)
-        history = records(comments)
-        anchors = [r["id"] for r in history if r["run"] == lease["run"]
-                   or (outcome and r["run"] == outcome["run"])]
+        history = self.provenance(records(comments))
+        anchors = [r["id"] for r in history if r.get("run") == lease["run"]
+                   or (outcome and r.get("lease_id") == outcome["lease_id"])]
         if anchors and any(r["kind"] in {"lease", "reset"} and r["id"] > max(anchors) for r in history):
             return  # A later claim/reset already resumed this item.
         if existing:
@@ -303,7 +318,7 @@ class Notices:
         extra = ""
         if lease.get("unreported") or outcome is None:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
-                     f"Run log directory: `{lease.get('log_dir') or 'unavailable'}`.")
+                     f"Run: `{lease['run']}`.")
         actions = reported_actions(outcome) if outcome and not outcome.get("rejected") else []
         options = outcome.get("options", ()) if outcome and not outcome.get("rejected") else ()
         if rounds:

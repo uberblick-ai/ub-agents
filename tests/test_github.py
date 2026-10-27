@@ -732,7 +732,7 @@ agents:
                            "created": iso(now - 86400), "expires": iso(now - 86340),
                            "state": "running",
                            "attempt": 1, "started": True, "attempt_effect": "pending",
-                           "declared_triggers": ["ready"], "stop_labels": []}
+                           "triggers": ["ready"]}
                 comments[100].update(body=body(unfinished), user={"login": "operator"},
                                      issue_url="https://api.github.com/repos/org/project/issues/42")
                 reads = 0

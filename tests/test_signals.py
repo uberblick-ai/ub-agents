@@ -29,6 +29,7 @@ class SignalTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
+        (self.root / "ub-agents.yaml").touch()
         self.github = FakeGitHub(issue(), issue(3))
         self.config = config(self.root, agent(self.root, kind="issue"))
         self.loop = Loop(self.config, self.github, "operator", output=lambda *_: None)
@@ -45,7 +46,7 @@ class SignalTests(unittest.TestCase):
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.Loop", side_effect=loop), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            return main(["launch"])
+            return main(["--config", str(self.root / "ub-agents.yaml"), "launch"])
 
     def run_signals(self, signals):
         marker = self.root / ".ub-agents" / "finished"

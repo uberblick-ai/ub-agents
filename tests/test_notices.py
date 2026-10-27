@@ -16,7 +16,7 @@ from ub_agents.discovery import Discovery
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER, action_body, notice_reason
-from ub_agents.records import attempts, body, iso, payload, records, seconds
+from ub_agents.records import attempts, body, display_provenance, iso, payload, records, seconds
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
@@ -89,8 +89,10 @@ class NoticeTests(unittest.TestCase):
                 before, after = comment["body"].split("<details>\n", 1)
                 self.assertEqual(len(before.strip().splitlines()), 2)  # hidden marker + human line
                 self.assertIn("worker", before)
-                self.assertIn(record["runtime"], before)
-                self.assertIn("aaaaaaa", before)
+                if record["kind"] == "lease":
+                    self.assertIn(record["runtime"], before)
+                if record["kind"] != "reset":
+                    self.assertIn("aaaaaaa", before)
                 self.assertIn("<summary>Coordination record</summary>", after)
                 self.assertNotIn("<details open", comment["body"])
                 self.github.minimize_comment(comment)
@@ -114,7 +116,7 @@ class NoticeTests(unittest.TestCase):
         self.co.report(latest, "retry", "Another transient failure")
         self.co.release(latest, "retry", "Another transient failure")
         history = self.co.history(1)
-        for comment, record in zip(self.github.comments(1), history):
+        for comment, record in zip(self.github.comments(1), [display_provenance(r, history) for r in history]):
             self.assertEqual(comment["id"] in self.github.minimized_ids, record["run"] == first["run"])
         self.assertEqual(len(history), 6)
         self.assertEqual(len(attempts(history, "worker", self.now)), 2)
@@ -180,7 +182,7 @@ class NoticeTests(unittest.TestCase):
         self.assertFalse(self.github.minimized_ids)
 
     def test_accepted_outcome_must_belong_to_the_claim_on_the_same_item(self):
-        for mismatch in ({"assignment": 2, "handoff": 1}, {"run": "another-run"}, {"lease_id": 999}):
+        for mismatch in ({"assignment": 2, "handoff": 1}, {"agent": "another-agent"}, {"lease_id": 999}):
             with self.subTest(mismatch=mismatch):
                 self.setUp()
                 lease = self.start()
@@ -407,7 +409,7 @@ class NoticeTests(unittest.TestCase):
             self.assertTrue(loop.recover(loop.coordinator.plan(self.github.item(1), worker, ("needs-human",))))
         self.assertEqual({c["id"] for c in self.github.comments(2) if c["id"] in self.github.minimized_ids},
                          {old["id"], old_outcome["id"]})
-        copied = next(r for r in loop.coordinator.history(2) if r["run"] == outcome["run"])
+        copied = next(r for r in loop.coordinator.history(2) if r.get("lease_id") == outcome["lease_id"])
         self.assertTrue(copied["accepted"])
         self.assertNotIn(copied["id"], self.github.minimized_ids)
         source_history = loop.coordinator.history(1)
@@ -455,7 +457,7 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(len(notices), 1)
         comment = notices[0]["body"]
         visible, resume, details = self.pr_sections(comment)
-        self.assertIn(f'**Action needed**\n\n**{outcome["action"]}**\n\n', visible)
+        self.assertIn(f'**Action needed**\n\n**{outcome["actions"][0]}**\n\n', visible)
         self.assertNotIn(outcome['summary'], visible)
         self.assertIn(f'{outcome["summary"]}\n\nCandidate:', details)
         for expected in ("**Action needed**", outcome["summary"], "a" * 40, "APPROVED", "SUCCESS",
@@ -639,9 +641,8 @@ class NoticeTests(unittest.TestCase):
                 self.assertEqual(self.notices(2), [posted])
                 self.assertEqual(self.notices(2)[0]['body'], old)
 
-    def test_legacy_record_preserves_summary_without_inventing_decisions(self):
+    def test_launcher_report_preserves_summary_without_inventing_decisions(self):
         lease = self.start()
-        self.co.update(lease, action_required=None)
         summary = '## First choice\n\nA or B?\n\n## Second choice\n\nC or D?'
         outcome = self.co.report(lease, 'blocked', summary, agent_report=False)
         self.co.release(lease, 'blocked', summary)
@@ -701,9 +702,9 @@ class NoticeTests(unittest.TestCase):
         notices = [c for c in github.comments(2) if c["body"].startswith(ACTION_MARKER)]
         self.assertEqual(len(notices), 1)
         outcome = next(r for r in loop.coordinator.history(1) if r['kind'] == 'outcome')
-        self.assertIn(f'**Action needed**\n\n**{outcome["action"]}**\n\n', notices[0]['body'])
+        self.assertIn(f'**Action needed**\n\n**{outcome["actions"][0]}**\n\n', notices[0]['body'])
         copied = next(r for r in loop.coordinator.history(2) if r['kind'] == 'outcome')
-        self.assertEqual(copied['action'], outcome['action'])
+        self.assertEqual(copied['actions'][0], outcome['actions'][0])
         self.assertEqual([(p.item.number, p.state) for p in loop.plans()], [(2, "parked")])
         source = loop.coordinator.history(1)
         for record in source:
@@ -713,7 +714,7 @@ class NoticeTests(unittest.TestCase):
         asks = ['Owner: choose A or B; recommend A.', 'Maintainer: merge after the owner chooses A.']
         loop, github = self.parked_loop(handoff=2, action=asks)
         copied = loop.coordinator.history(2)[0]
-        self.assertEqual(copied['action'], asks[0])
+        self.assertEqual(copied['actions'][0], asks[0])
         self.assertEqual(copied['actions'], asks)
         notice = next(c['body'] for c in github.comments(2) if c['body'].startswith(ACTION_MARKER))
         visible, resume, details = self.pr_sections(notice)
@@ -722,12 +723,20 @@ class NoticeTests(unittest.TestCase):
         self.assertIn('same role (`worker`)', resume)
         self.assertIn('different role', resume)
 
+    def test_failure_handoff_resolves_its_run_without_a_transition(self):
+        lease = self.start()
+        reported = self.co.report(lease, 'retry', 'Transient failure', handoff=2)
+        self.assertNotIn('transition', reported)
+        self.co.release(lease, 'retry', reported['summary'])
+        self.assertFalse(any('Advisory' in line for line in self.output))
+
     def test_options_handoff_keeps_choices_visible_and_stop_label_resume_folded(self):
         options = ['Maintainer: merge after CI: `mise run ci SHA`', 'Maintainer: request a fix.']
         loop, github = self.parked_loop(handoff=2, action=None, option=options)
         copied = loop.coordinator.history(2)[0]
         self.assertEqual(copied['options'], options)
-        self.assertEqual(copied['action'], options[0])
+        self.assertNotIn('action', copied)
+        self.assertNotIn('actions', copied)
         notice = next(c['body'] for c in github.comments(2) if c['body'].startswith(ACTION_MARKER))
         visible, resume, details = self.pr_sections(notice)
         for text in ('To unblock, do one of:', '1. Maintainer: merge after CI (recommended)',
@@ -762,7 +771,7 @@ class NoticeTests(unittest.TestCase):
         summary = '## Human must merge\n\n- Migration reasoning\n- Review evidence'
         loop.coordinator.report(lease, "success", summary, outcome="human", action="Maintainer: choose A or B; recommend A.")
         self.now += 61
-        changed = agent(self.root, kind="pr", triggers=("different",),
+        changed = agent(self.root, kind="pr", triggers=("needs-changes", "different"),
                         outcomes={"other": {"add": ("wrong",), "remove": ()}})
         loop = Loop(config(self.root, changed), self.github, "operator", output=self.output.append)
         loop.coordinator.clock = lambda: self.now
@@ -772,8 +781,7 @@ class NoticeTests(unittest.TestCase):
         self.assertIn(f"Recovered {lease['run']}:\n\n{summary}", notice)
         self.assertIn("Human must merge", notice)
         self.assertIn("Remove the stop label(s) `needs-human`", notice)
-        self.assertIn("`ready`, `needs-changes`", notice)
-        self.assertNotIn("`different`", notice)
+        self.assertIn("`needs-changes`, `different`", notice)
         self.assertIn("a" * 40, notice)
         loop.tick()
         self.assertEqual(len(self.notices(2)), 1)
@@ -785,7 +793,7 @@ class NoticeTests(unittest.TestCase):
         lease = loop.coordinator.claim(loop.plans()[0], loop.config.stop_labels)
         loop.coordinator.report(lease, "success", "Human must merge", handoff=2, outcome="human", action="Maintainer: choose A or B; recommend A.")
         self.now += 61
-        changed = agent(self.root, kind="issue", triggers=("different",),
+        changed = agent(self.root, kind="issue", triggers=("ready", "different"),
                         outcomes={"other": {"add": ("wrong",), "remove": ()}})
         restarted = Loop(config(self.root, changed), self.github, "operator", output=self.output.append)
         restarted.coordinator.clock = lambda: self.now
@@ -795,7 +803,7 @@ class NoticeTests(unittest.TestCase):
         self.assertTrue(copied["accepted"])
         self.assertTrue(copied["transition_complete"])
         self.assertEqual(copied["assignment"], 1)
-        self.assertEqual(restarted.validate_report(copied)["triggers"], ["ready", "needs-changes"])
+        self.assertEqual(restarted.validate_report(copied)["triggers"], ["ready", "different"])
         recovery = next(r for r in restarted.coordinator.history(1)
                         if r["kind"] == "lease" and r.get("mode") == "recovery")
         self.assertNotIn("outcomes", recovery)
@@ -805,8 +813,8 @@ class NoticeTests(unittest.TestCase):
         notices = self.notices(2)
         self.assertEqual(len(notices), 1)
         self.assertIn("Remove the stop label(s) `needs-human`", notices[0]["body"])
-        self.assertIn("`ready`, `needs-changes`", notices[0]["body"])
-        self.assertNotIn("`different`", notices[0]["body"])
+        self.assertIn("`ready`, `different`", notices[0]["body"])
+        self.assertIn("`different`", notices[0]["body"])
         self.assertFalse(self.notices(1))
         self.assertFalse(any("Advisory" in line for line in self.output))
 
@@ -836,7 +844,7 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(self.notices(), [])
         self.assertEqual(self.co.plan(self.github.item(1), self.worker, ()).state, "ready")
 
-    def test_exhausted_exit_without_report_names_host_and_log_directory(self):
+    def test_exhausted_exit_without_report_names_host_and_run(self):
         for code in (0, 7):
             with self.subTest(code=code):
                 github = FakeGitHub(issue())
@@ -869,9 +877,10 @@ class NoticeTests(unittest.TestCase):
                 self.assertNotIn('Execution exited', visible)
                 self.assertIn('Attempt limit exhausted', details)
                 for expected in (f"Execution exited {code}", "Attempt limit exhausted", "max-attempts: 3",
-                                 "launcher-host", str(self.root / ".ub-agents" / "runs" / lease["run"]),
+                                 "launcher-host", lease["run"],
                                  lease["url"], outcome["url"], "ub-agents retry 1 --agent worker"):
                     self.assertIn(expected, notice)
+                self.assertNotIn(str(self.root), notice)
                 self.assertNotIn('Restore a matching trigger', notice)
                 self.assertNotIn('remove any stop label', notice)
                 before = deepcopy(github.writes)

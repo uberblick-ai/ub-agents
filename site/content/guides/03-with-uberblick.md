@@ -19,7 +19,12 @@ Install Uberblick:
 brew install uberblick-ai/tap/uberblick
 ```
 
-Then add its MCP server to `.mcp.json` in your repository and commit it, so every launcher picks it up:
+Configure the server for each runtime your loop uses. Agent worktrees start at new
+paths, so a setup that works interactively in the control checkout may not reach
+the loop's agents.
+
+For **Claude Code**, run `ub mcp install claude` to add the server to `.mcp.json`
+in your repository, then commit that file:
 
 ```json
 {
@@ -29,14 +34,44 @@ Then add its MCP server to `.mcp.json` in your repository and commit it, so ever
 }
 ```
 
-`ub mcp install claude` writes this entry for you. [Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the details.
+Also commit `.claude/settings.json` with the server approved for headless use:
+
+```json
+{
+  "enabledMcpjsonServers": ["uberblick"]
+}
+```
+
+For **Codex**, define the server in `runtime-args`. A project `.codex/config.toml`
+alone is unread in a new, untrusted worktree; setting only the tool approval mode
+does not register a server:
+
+```yaml
+runtime-args:
+  codex:
+    - -c
+    - 'mcp_servers.uberblick.command="ub"'
+    - -c
+    - 'mcp_servers.uberblick.args=["mcp", "serve"]'
+    - -c
+    - 'mcp_servers.uberblick.default_tools_approval_mode="approve"'
+```
+
+Merge these entries into your existing runtime arguments and keep any model or
+permission settings your roles need. [Agents over MCP](https://next.uberblick.ai/docs/agents)
+on the Uberblick site has the Uberblick configuration details.
 
 ## Let the agents use it
 
 Loop runs can't answer permission prompts, so allow the Uberblick tools for each role that reads the workspace, next to its [other permissions](/docs/configuration/permissions.html):
 
 - **Claude Code:** add `"mcp__uberblick__*"` to `--allowedTools`.
-- **Codex:** add `-c, 'mcp_servers.uberblick.default_tools_approval_mode="approve"'` to `runtime-args`.
+- **Codex:** include `mcp_servers.uberblick.default_tools_approval_mode="approve"`
+  alongside the command and arguments shown above.
+
+Run `ub-agents doctor` on each launcher to check that every configured runtime can
+load the server and that it starts and lists tools. MCP problems are warnings;
+`doctor --offline` skips these checks.
 
 ## Tell the roles what to do
 

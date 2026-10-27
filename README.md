@@ -62,6 +62,8 @@ and [.agents/](.agents/).
 - **Pull requests are welcome.** Agents review fork PRs as a diff and rely on CI;
   they can't push to your fork. See [approvals](docs/approvals.md) for how outside
   input is handled.
+- **Found a vulnerability?** Report it privately as [SECURITY.md](SECURITY.md)
+  describes, not in an issue.
 
 [AGENTS.md](AGENTS.md) has the checks, conventions, changelog and release rules
 that people and agents both follow. The roadmap is in the

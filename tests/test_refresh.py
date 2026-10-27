@@ -16,7 +16,7 @@ from ub_agents.config import Runtime, load_config
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
-from ub_agents.records import attempts, seconds, timestamp
+from ub_agents.records import issue_branch, attempts, seconds, timestamp
 from ub_agents.refresh import refresh_checkout
 from ub_agents.updates import Updates
 from tests.support import FakeGitHub, PollGitHub, agent, config, isolate_runtime_state, issue, pr
@@ -314,7 +314,7 @@ class RefreshTests(unittest.TestCase):
                         patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                         patch("ub_agents.loop.supervise") as execution, \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["launch"]), 0)
+                    self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]), 0)
                 execution.assert_not_called()
                 self.assertEqual(merges, [0])
                 self.assertEqual(git(self.root, "rev-parse", "HEAD"),
@@ -895,16 +895,19 @@ class RefreshTests(unittest.TestCase):
         with patch("ub_agents.coordination.shutil.which", return_value="installed"):
             plan = self.loop.coordinator.plan(self.github.item(1), self.worker, ())
             lease = self.loop.coordinator.claim(plan)
-        self.loop.coordinator.update(lease, state="running", started=True, branch="feature/test")
+        self.loop.coordinator.update(lease, state="running", started=True)
+        branch = issue_branch(lease)
+        self.github.change(2, branch=branch)
+        git(self.origin, "update-ref", f"refs/heads/{branch}", checkpoint)
         self.loop.coordinator.release(lease, "retry", "Interrupted")
         self.push_policy()
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
             # #32 delegates draft continuation to the agent in a fresh issue worktree.
             self.assertEqual(git(cwd, "rev-parse", "HEAD"), git(self.upstream, "rev-parse", "HEAD"))
             self.assertIn("Second operator policy", prompt)
-            self.assertIn('"earlier_branches": [\n    "feature/test"\n  ]', prompt)
+            self.assertIn(f'"earlier_branches": [\n    "{branch}"\n  ]', prompt)
             self.assertIn("continue an open draft PR", prompt)
-            draft = self.github.prs_for_branch("feature/test")[0]
+            draft = self.github.prs_for_branch(branch)[0]
             git(cwd, "fetch", "origin", draft.branch)
             git(cwd, "checkout", "--detach", "FETCH_HEAD")
             self.assertEqual(git(cwd, "rev-parse", "HEAD"), checkpoint)
@@ -936,7 +939,7 @@ class RefreshTests(unittest.TestCase):
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 redirect_stdout(io.StringIO()), redirect_stderr(error):
-            self.assertEqual(main(["launch", "--once"]), 1)
+            self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)
         self.assertIn("control checkout is dirty", error.getvalue())
         self.assertIn("dirty", error.getvalue())
         self.assertEqual(self.github.writes, [])

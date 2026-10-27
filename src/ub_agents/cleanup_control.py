@@ -31,14 +31,14 @@ class CleanupControl:
         with self.condition:
             return self.locks.setdefault(key, threading.RLock())
 
-    def protect(self, lease):
+    def protect(self, lease, branch=None):
         # Register before publishing the claim, hence before creating a tree.
         # Only a claim for the very artifact being removed can wait here.
         keys = [('run', lease['run'])]
         if lease.get('recovered_run'):
             keys.append(('run', lease['recovered_run']))
-        if lease.get('branch'):
-            keys.append(('branch', lease['branch']))
+        if branch:
+            keys.append(('branch', branch))
         for key in keys:
             with self.lock(key):
                 self.claims.add(key)

@@ -6,10 +6,10 @@ import re
 
 from .errors import AgentError, RecordError
 
-MARKER = "<!-- ub-agents:v3 -->"
+MARKER = "<!-- ub-agents:v4 -->"
 # All coordination markers are excluded from assignment and approval input;
 # only MARKER is parsed or used as coordination authority.
-RECORD_MARKERS = (MARKER, "<!-- ub-agents:v1 -->", "<!-- ub-agents:v2 -->")
+RECORD_MARKERS = (MARKER, "<!-- ub-agents:v1 -->", "<!-- ub-agents:v2 -->", "<!-- ub-agents:v3 -->")
 LEASE_STATES = {"claiming", "running", "released", "withdrawn"}
 OUTCOMES = {"success", "retry", "blocked"}
 # Fields that tie an outcome, a recovery or a contender to the run that owns it.
@@ -23,13 +23,16 @@ def record_version(text):
 
 
 def same_run(record, lease):
+    if record["kind"] == "outcome":
+        return same_handoff(record, lease) and record["actor"] == lease["actor"]
     return all(record.get(k) == lease.get(k) for k in PROVENANCE)
 
 
 def same_handoff(record, source):
     # A recovery may copy another account's outcome onto its handoff item.
     # GitHub keeps the copying account as that comment's author.
-    return all(record.get(k) == source.get(k) for k in PROVENANCE if k != "actor")
+    return (record.get("lease_id") == (source["id"] if source["kind"] == "lease" else source["lease_id"])
+            and all(record[k] == source[k] for k in ("agent", "assignment")))
 
 
 def recovers(recovery, source):
@@ -42,6 +45,27 @@ def recovers(recovery, source):
 
 def lease_by_id(history, lease_id):
     return next((r for r in history if r["kind"] == "lease" and r["id"] == lease_id), None)
+
+
+def display_provenance(record, history):
+    """Join outcome provenance for display without adding it to durable payloads."""
+    if record["kind"] != "outcome":
+        return record
+    lease = lease_by_id(history, record["lease_id"])
+    if lease is None or not same_handoff(record, lease):
+        return record
+    return record | {key: lease.get(key) for key in ("run", "runtime", "host", "assignment_sha")}
+
+
+def issue_branch(lease):
+    return f"ub-agents/{lease['agent']}/{lease['assignment']}/{lease['run']}"
+
+
+def lease_branch(lease, github):
+    if not lease.get("assignment"):
+        return None
+    return (github.item(lease["assignment"], "pr").branch if lease.get("assignment_sha")
+            else issue_branch(lease))
 
 
 def positive_int(value):
@@ -82,7 +106,8 @@ def body(record):
     note = " ".join(note.split())
     if len(note) > 240:
         note = note[:237] + "…"
-    line = f"{icon} {record['agent']} {state}{candidate} · {record['runtime']} — {note}"
+    runtime = f" · {record['runtime']}" if record.get("runtime") else ""
+    line = f"{icon} {record['agent']} {state}{candidate}{runtime} — {note}"
     # The comment author is the actor; empty fields are omitted.
     shown = {k: v for k, v in record.items() if v is not None and k != "actor"}
     return (f"{MARKER}\n{line}\n\n<details>\n<summary>Coordination record</summary>\n\n"
@@ -117,11 +142,14 @@ def records(comments, actor=None, *, trusted=None):
             # MARKER versions the record format. Payload fields cannot grant trust:
             # the actor is always the GitHub comment author.
             record["actor"] = comment["user"]["login"]
-            record = {"assignment_sha": None, "candidate_sha": None, "handoff": None} | record
+            if record.get("kind") == "lease":
+                record = {"assignment_sha": None} | record
+            elif record.get("kind") == "outcome":
+                record = {"candidate_sha": None, "handoff": None} | record
             validate(record)
             if comment.get("issue_url"):
                 number = int(comment["issue_url"].rsplit("/", 1)[1])
-                if number not in {record["assignment"], record["handoff"]}:
+                if number not in {record["assignment"], record.get("handoff")}:
                     raise ValueError("record is posted on the wrong item")
             result.append(record | {"id": comment["id"], "url": comment.get("html_url", "")})
         except (ValueError, KeyError, TypeError, AttributeError, IndexError, AgentError) as exc:
@@ -184,22 +212,24 @@ def validate_transition(transition, started=False):
             raise ValueError("empty sub-issues labels")
 
 
-def declared_transition(lease, name):
-    """Resolve a compact declaration without consulting current configuration."""
-    declaration = lease["outcomes"][name]
-    changes = {"add": declaration} if isinstance(declaration, list) else declaration
-    return changes | {"triggers": lease["declared_triggers"], "stop_labels": lease["stop_labels"],
-                      "remove": sorted(set(lease["declared_triggers"]).union(changes.get("remove", ())))}
+def outcome_declarations(agent):
+    """The agent's report declarations, held locally rather than in the lease."""
+    return {name: ({"add": list(changes["add"])} |
+                   ({"remove": list(changes["remove"])} if changes["remove"] else {}) |
+                   ({"sub-issues": {"add": list(changes["sub-issues"]["add"])}}
+                    if "sub-issues" in changes else {}))
+            for name, changes in agent.outcomes.items()}
 
 
 def outcome_rounds(history, assignment, agent, outcome):
     """Accepted rounds on this item since this agent's latest explicit reset."""
     reset = max((r["id"] for r in history if r["kind"] == "reset"
                  and r["assignment"] == assignment and r["agent"] == agent), default=0)
-    return len({(r["run"], r["lease_id"]) for r in history
+    return len({(lease["run"], lease["id"]) for r in history
                 if r["kind"] == "outcome" and r["assignment"] == assignment and r["agent"] == agent
                 and r["id"] > reset and r["status"] == "success" and r["accepted"]
-                and not r.get("rejected") and r.get("outcome") == outcome})
+                and not r.get("rejected") and r.get("outcome") == outcome
+                if (lease := lease_by_id(history, r["lease_id"])) and same_handoff(r, lease)})
 
 
 def exhausted_rounds(lease, outcome):
@@ -207,10 +237,9 @@ def exhausted_rounds(lease, outcome):
     return rounds if rounds and rounds["used"] >= rounds["limit"] else None
 
 
-def stop_report(lease, status, outcome=None):
-    return (status == "blocked" or status == "success" and outcome is not None
-            and outcome in (lease.get("outcomes") or {})
-            and bool(set(declared_transition(lease, outcome)["add"]).intersection(lease["stop_labels"])))
+def stop_report(status, transition, stop_labels):
+    return (status == "blocked" or status == "success"
+            and bool(set((transition or {}).get("add", ())).intersection(stop_labels)))
 
 
 def validate_action(action, required=False, flag="--action"):
@@ -247,48 +276,32 @@ def report_asks(action, option, required=False):
 
 
 def reported_actions(outcome):
-    """Read validated repeated asks, retaining historical scalar records."""
-    if "actions" in outcome:
-        return outcome["actions"]
-    # Options-only reports retain a scalar for v0.1.13 readers, not an extra ask.
-    return [] if outcome.get("options") else ([outcome["action"]] if outcome.get("action") else [])
+    return outcome.get("actions", [])
 
 
 def validate_outcome_actions(outcome, required=False):
-    validate_action(outcome.get("action"), required=required or "action" in outcome)
-    if "actions" in outcome:
-        actions = outcome["actions"]
-        if not isinstance(actions, list):
-            raise ValueError("--action values must be a non-empty list")
-        report_actions(actions, required=True)
-        if actions[0] != outcome.get("action"):
-            raise ValueError("--action first value must match the scalar action")
-    if "options" in outcome:
-        options = outcome["options"]
-        if not isinstance(options, list):
-            raise ValueError("--option values must be a non-empty list")
-        report_asks(reported_actions(outcome) or None, options, required=required)
-        if "actions" not in outcome and (not options or options[0] != outcome.get("action")):
-            raise ValueError("--option first value must match the compatibility scalar action")
+    for key in ("actions", "options"):
+        if key in outcome and not isinstance(outcome[key], list):
+            raise ValueError(f"--{key[:-1]} values must be a non-empty list")
+    report_asks(outcome.get("actions"), outcome.get("options"), required=required)
 
 
-def validate_report_action(lease, outcome):
-    # Old leases predate the requirement. Launcher-only reports and recovery
-    # receipts have no agent ask; notices supply a concise fallback.
-    required = (lease.get("action_required", False) and not lease.get("unreported")
+def validate_report_action(lease, outcome, stop_labels):
+    # Launcher-only reports and recovery receipts have no agent ask.
+    required = (not lease.get("unreported")
                 and lease.get("mode") != "recovery"
-                and stop_report(lease, outcome["status"], outcome.get("outcome")))
+                and stop_report(outcome["status"], outcome.get("transition"), stop_labels))
     validate_outcome_actions(outcome, required=required)
 
 
-def resolve_transition(transition, declaration):
-    """Resolve a compact transition using its original lease context."""
-    return transition | {"triggers": declaration["triggers"], "stop_labels": declaration["stop_labels"],
-                         "remove": sorted(set(declaration["triggers"]).union(transition.get("remove", ())))}
+def resolve_transition(transition, triggers, stop_labels):
+    """Replay the recorded changes with current workflow gates and triggers."""
+    return transition | {"triggers": list(triggers), "stop_labels": list(stop_labels),
+                         "remove": sorted(set(triggers).union(transition.get("remove", ())))}
 
 
 def validate(record):
-    for field in ("run", "agent", "actor", "runtime", "created"):
+    for field in ("agent", "actor", "created"):
         if not isinstance(record.get(field), str) or not record[field]:
             raise ValueError(f"missing {field}")
     if not positive_int(record.get("assignment")):
@@ -302,18 +315,18 @@ def validate(record):
             and record.get("attempt_effect") not in {"pending", "failure", "reset", "unchanged"}):
         raise ValueError("invalid attempt effect")
     if record.get("kind") == "lease":
+        for field in ("run", "runtime"):
+            if not isinstance(record.get(field), str) or not record[field]:
+                raise ValueError(f"missing {field}")
         if "outcome_rounds" in record:
             rounds = record["outcome_rounds"]
             if (not isinstance(rounds, dict) or not rounds
-                    or any(name not in record.get("outcomes", {}) or not isinstance(value, dict)
+                    or any(not isinstance(name, str) or not name.strip() or not isinstance(value, dict)
                            or set(value) != {"used", "limit"}
                            or type(value["used"]) is not int or value["used"] < 0
                            or not positive_int(value["limit"]) for name, value in rounds.items())):
                 raise ValueError("invalid outcome rounds")
-        if "action_required" in record and type(record["action_required"]) is not bool:
-            raise ValueError("invalid action requirement")
-        validate_labels(record.get("declared_triggers"))
-        validate_labels(record.get("stop_labels"))
+        validate_labels(record.get("triggers"))
         if record.get("state") not in LEASE_STATES:
             raise ValueError("invalid lease state")
         if not positive_int(record.get("attempt")):
@@ -322,8 +335,6 @@ def validate(record):
             raise ValueError("invalid started flag")
         if "cleanup" in record and record["cleanup"] != "unconfirmed":
             raise ValueError("invalid cleanup state")
-        if "process_group" in record and (type(record["process_group"]) is not int or record["process_group"] < 1):
-            raise ValueError("invalid process group")
         if "cleanup_hook_error" in record and not isinstance(record["cleanup_hook_error"], str):
             raise ValueError("invalid cleanup hook diagnostic")
         if record.get("mode") == "recovery":
@@ -334,16 +345,6 @@ def validate(record):
             if (record.get("mode") != "recovery" or not isinstance(record["recovery_reason"], str)
                     or not record["recovery_reason"].strip()):
                 raise ValueError("invalid operator recovery reason")
-        if "outcomes" in record:
-            declarations = record["outcomes"]
-            if (not isinstance(declarations, dict) or not declarations
-                    or any(not isinstance(name, str) or not name.strip() for name in declarations)):
-                raise ValueError("invalid outcome declarations")
-            for transition in declarations.values():
-                if isinstance(transition, list):
-                    validate_labels(transition)
-                else:
-                    validate_transition(transition)
         seconds(record.get("expires"))
         if "retry_after" in record:
             seconds(record["retry_after"])

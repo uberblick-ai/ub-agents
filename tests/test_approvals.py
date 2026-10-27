@@ -151,6 +151,12 @@ class ApprovalTests(unittest.TestCase):
         self.label(second=30)
         self.assertEqual(self.check().cleared_comment_ids, {c["id"], other["id"]})
 
+    def test_old_coordination_markers_are_excluded_without_parsing(self):
+        self.label()
+        for version in (1, 2, 3):
+            self.comment(text=f'<!-- ub-agents:v{version} -->\nMalformed old record')
+        self.assertTrue(self.check().allowed)
+
     def test_start_clears_existing_comments_but_later_edit_removes_clearance(self):
         c = self.comment(second=3)
         self.label()
