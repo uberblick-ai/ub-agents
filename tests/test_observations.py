@@ -27,7 +27,7 @@ from ub_agents.observations import (MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
-from ub_agents.view_data import Session, load_session, local_description, work_pane, work_rows
+from ub_agents.view_data import Session, history_path, item_history, load_session, local_description, work_pane, work_rows
 from ub_agents.view_worker import LocalWorker, Request
 from tests.support import FakeGitHub, MemoryPublisher, PollGitHub, agent, config, issue, pr, observation_writer_command, stub_refresh
 
@@ -167,7 +167,7 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(len(snapshot['latest_pass']['rows']), 1)
         self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
 
-    def test_size_trimming_preserves_attention_notices_before_surplus_history(self):
+    def test_histories_do_not_use_the_snapshot_budget_for_attention_notices(self):
         self.observer.begin_pass()
         plans = [(1, 'parked', 'Needs human'), (2, 'blocked', 'Attempt limit exhausted'),
                  (3, 'failed', 'Read failed'), (4, 'ready', 'Ready'),
@@ -197,13 +197,11 @@ class ObservationTests(unittest.TestCase):
         for key, notice in snapshot['action_needed'].items():
             if key in attention:
                 self.assertEqual(notice, retained['action_needed'][key])
-            else:
-                self.assertEqual(notice, {'omitted': True})
         self.assertTrue(all('description' not in row for row in snapshot['latest_pass']['rows']))
-        self.assertGreater(sum(history['omitted_runs'] for history in snapshot['histories'].values()), 0)
         for number in ('1', '2', '3'):
-            self.assertTrue(snapshot['histories'][number]['runs'])
-            self.assertEqual(snapshot['histories'][number]['runs'][-1]['time'], iso(1019))
+            self.assertNotIn('runs', snapshot['histories'][number])
+            self.assertEqual(len(self.memory.histories[-1][number]['runs']), MAX_OUTCOMES)
+            self.assertEqual(self.memory.histories[-1][number]['runs'][-1]['time'], iso(1019))
         self.assertEqual(snapshot['omitted']['plans'], 0)
 
     def test_attention_notices_are_marked_omitted_before_plans_are_trimmed(self):
@@ -261,7 +259,7 @@ class ObservationTests(unittest.TestCase):
                              'run': f'run-{number}-{index}', 'created': iso(1000 + index),
                              'expires': iso(2000 + index), 'state': 'released', 'summary': 'H' * MAX_TEXT}
                             for index in range(3))
-            plan = Plan(replace(issue(number), title=f'Item {number} ' + 'T' * 500),
+            plan = Plan(replace(issue(number), title=f'Item {number} ' + 'T' * 1600),
                         self.cfg.agents[0], None, state, reason, 1, history=history,
                         priority='priority:urgent' if number == 23 else None)
             self.observer.plan(plan)
@@ -293,7 +291,7 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(snapshot['omitted']['outcomes'], 2)
         self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
         for number in (23, 24, 25):
-            self.assertEqual(snapshot['histories'][str(number)]['runs'][-1]['time'], iso(1002))
+            self.assertEqual(self.memory.histories[-1][str(number)]['runs'][-1]['time'], iso(1002))
         self.assertEqual(self.observer.state, retained)
 
     def test_author_observations_use_existing_role_reads_and_fail_closed(self):
@@ -571,7 +569,8 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual([plan['agent'] for plan in merged.eligible_plans], ['worker', 'reviewer'])
         self.assertNotIn('description', kept)
         self.assertEqual(kept['history'], previous)
-        self.assertEqual(len(refreshed['history']['runs']), 1)
+        self.assertNotIn('runs', refreshed['history'])
+        self.assertEqual(len(self.memory.histories[-1]['1']['runs']), 1)
         self.observer.complete_pass()
         self.assertEqual(list(self.memory.snapshots[-1]['histories']), ['1'])
 
@@ -602,7 +601,7 @@ class ObservationTests(unittest.TestCase):
                          list(range(MAX_PLANS + 1, MAX_PLANS * 2 + 1)))
         self.assertEqual(complete['omitted']['plans'], 7)
         self.assertEqual(set(complete['histories']), {str(n) for n in range(MAX_PLANS + 1, MAX_PLANS * 2 + 1)})
-        self.assertEqual(complete['histories'][str(MAX_PLANS + 1)]['runs'][0]['state'], 'running')
+        self.assertEqual(self.memory.histories[-1][str(MAX_PLANS + 1)]['runs'][0]['state'], 'running')
 
     def test_header_context_uses_plan_failures_and_claims_authoritative_attempt(self):
         plan = Plan(issue(), self.cfg.agents[0], Runtime('codex', 'gpt-6.1-sol', 'xhigh'),
@@ -673,7 +672,7 @@ class ObservationTests(unittest.TestCase):
         self.assertNotIn("/private/other/logs", json.dumps(self.memory.snapshots))
         self.assertEqual(self.memory.snapshots[-1]["latest_pass"]["state"], "complete")
         self.assertIsNone(self.memory.snapshots[-1]["assignment"])
-        history = self.memory.snapshots[-1]["histories"]["1"]
+        history = self.memory.histories[-1]["1"]
         self.assertEqual([run["time"] for run in history["runs"]], [lease["created"]])
         self.assertEqual(history["runs"][0]["host"], socket.gethostname())
 
@@ -1031,6 +1030,9 @@ class PublisherTests(unittest.TestCase):
                 publisher.process.wait(timeout=5)
                 publisher.diagnostics.join(timeout=5)
                 self.assertFalse(publisher.diagnostics.is_alive())
+            if publisher.transport:
+                publisher.transport.join(timeout=5)
+                self.assertFalse(publisher.transport.is_alive())
         self.addCleanup(finish)
         return publisher
 
@@ -1085,6 +1087,67 @@ class PublisherTests(unittest.TestCase):
         observer.close()
         self.wait_for(lambda: self.read(observer.state["session"])["ended"])
         self.assertEqual(self.lines, [])
+
+    def test_full_histories_stream_on_exit_and_are_private_atomic_files(self):
+        observer = Observations(config(self.root), 'operator', None, self.publisher())
+        observer.begin_pass()
+        records = tuple({'kind': 'lease', 'assignment': 1, 'agent': 'worker',
+                         'run': str(number), 'created': iso(1000 + number),
+                         'expires': iso(2000 + number), 'state': 'released',
+                         'result': 'retry', 'summary': '😀' * (MAX_TEXT + 10)} for number in range(101))
+        observer.plan(Plan(issue(), config(self.root).agents[0], None, 'ready', 'Ready', 1, history=records))
+        observer.close()  # The final queued observation must survive immediate exit.
+        self.wait_for(lambda: (state := self.read(observer.state['session'])) and state['ended'])
+        path = self.root / '.ub-agents/sessions' / (observer.state['session'] + '.json')
+        self.assertLessEqual(path.stat().st_size, MAX_BYTES)
+        session = load_session(path)
+        self.assertIsNone(session.error)
+        self.assertNotIn('runs', session.data['histories']['1'])
+        row, = work_rows(session, self.root)
+        history = item_history(row, session, full=True)
+        self.assertEqual(len(history['runs']), len(records))
+        self.assertEqual([run['time'] for run in history['runs']], [record['created'] for record in records])
+        self.assertTrue(all(len(run['summary']) == MAX_TEXT for run in history['runs']))
+        file = history_path(path, '1')
+        self.assertGreater(file.stat().st_size, MAX_BYTES)
+        self.assertEqual(file.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(file.parent.stat().st_mode & 0o777, 0o700)
+        observer.publisher.transport.join(timeout=5)
+        observer.publisher.process.wait(timeout=5)
+        self.assertEqual(list(file.parent.glob('*.tmp')), [])
+        before = file.stat().st_ino
+        write_snapshot(path.parent, session.data | {'history_files': {'1': history | {'runs': []}}})
+        self.assertNotEqual(file.stat().st_ino, before)
+        self.assertEqual(item_history(row, session, full=True)['runs'], [])
+        self.assertEqual(file.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.lines, [])
+
+    def test_launcher_process_exit_flushes_full_history_before_sender_stops(self):
+        script = ("from pathlib import Path\nimport sys\n"
+                  "from ub_agents.observations import Observations, Publisher\n"
+                  "from ub_agents.coordination import Plan\n"
+                  "from ub_agents.records import iso\n"
+                  "from tests.support import config, issue\n"
+                  "root = Path(sys.argv[1])\n"
+                  "observer = Observations(config(root), 'operator', None, Publisher(root))\n"
+                  "(root / 'session').write_text(observer.state['session'])\n"
+                  "(root / 'helper-pid').write_text(str(observer.publisher.process.pid))\n"
+                  "observer.begin_pass()\n"
+                  "history = tuple({'kind': 'lease', 'assignment': 1, 'agent': 'worker', 'run': str(n),\n"
+                  "    'created': iso(1000 + n), 'state': 'released', 'result': 'retry',\n"
+                  "    'summary': '😀' * 2048} for n in range(101))\n"
+                  "observer.plan(Plan(issue(), config(root).agents[0], None, 'ready', 'Ready', 1, history=history))\n"
+                  "observer.close()\n")
+        subprocess.run([sys.executable, '-c', script, str(self.root)], check=True, timeout=5,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        session = (self.root / 'session').read_text()
+        self.wait_for(lambda: (state := self.read(session)) and state['ended'])
+        path = self.root / '.ub-agents/sessions' / (session + '.json')
+        history = json.loads(history_path(path, '1').read_text())
+        self.assertEqual(len(history['runs']), 101)
+        self.assertEqual(history['runs'][-1]['time'], iso(1100))
+        helper_pid = int((self.root / 'helper-pid').read_text())
+        self.wait_for(lambda: group_members(helper_pid) == [])
 
     def test_non_object_session_json_does_not_stop_publication_or_pruning(self):
         directory = self.root / ".ub-agents" / "sessions"
@@ -1273,15 +1336,22 @@ class PublisherTests(unittest.TestCase):
                 "ended": False, "pid": 99999999, "host": socket.gethostname(),
                 "published_at": iso(now)}))
             (directory / f"old-{number}.cleanup.log").write_text("kept worktree old: Run lease is live\n")
+            histories = directory / f"old-{number}.histories"
+            histories.mkdir()
+            (histories / 'item.json').write_text('{"runs": []}')
         (directory / "live.json").write_text(json.dumps({
             "ended": False, "pid": os.getpid(), "host": socket.gethostname(),
             "published_at": iso(now)}))
+        (directory / 'live.histories').mkdir()
         (directory / "stale.json").write_text(json.dumps({
             "ended": False, "pid": os.getpid(), "host": "another-host",
             "published_at": iso(now - STALE_SECONDS - 1)}))
         prune(directory, "own-session", now, socket.gethostname())
         self.assertTrue((directory / "live.json").exists())
+        self.assertTrue((directory / 'live.histories').exists())
         self.assertEqual(len(list(directory.glob("*.json"))), RETAINED_SESSIONS + 1)
         for number in range(RETAINED_SESSIONS + 10):
             self.assertEqual((directory / f"old-{number}.cleanup.log").exists(),
+                             (directory / f"old-{number}.json").exists())
+            self.assertEqual((directory / f"old-{number}.histories").exists(),
                              (directory / f"old-{number}.json").exists())

@@ -20,6 +20,7 @@ from tests.test_view_github import reply
 from tests.support import MemoryPublisher, RecordingDescriptionTransport, agent, config, issue
 from ub_agents.coordination import Plan
 from ub_agents.observations import Observations
+from ub_agents.observation_worker import write_snapshot
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 from ub_agents.view_data import POINTERS_LIMIT
 
@@ -29,7 +30,7 @@ from textual.widgets import Collapsible, Markdown, Static, Tab, TabbedContent, T
 from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
-from ub_agents.view_data import Session, work_pane
+from ub_agents.view_data import Session, item_history, work_pane
 from ub_agents.view_theme import theme_style
 from ub_agents.view_unblock import ACTION_MARKER, ActionComment
 
@@ -3394,8 +3395,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.select('plan:12')
             await self.ready(app, pilot, lambda: '⌥12 Foreign candidate' in identity())
             self.assertNotIn('Foreign candidate', displayed())
-            self.assertIn('closes #11 · 4 runs', displayed())
-            self.assertIn('3 earlier runs omitted.', displayed())
+            self.assertIn('closes #11 · 1 runs', displayed())
+            self.assertNotIn('earlier runs omitted', displayed())
             self.assertNotIn('filed by', displayed())
             self.assertNotIn('#114', displayed())
             self.state['histories']['12']['title'] = 'Updated candidate'
@@ -3413,14 +3414,47 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: 'New run' in displayed())
             self.assertEqual(app.selected, 'plan:12')
             self.assertEqual(app.rows[app.selected].state, 'earlier observation')
-            self.assertIn('closes #11 · 5 runs', displayed())
+            self.assertIn('closes #11 · 2 runs', displayed())
             self.state['histories'].pop('12')
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: '12' not in app.session.data['histories'])
             self.assertIn('New run', displayed())
-            self.assertIn('closes #11 · 5 runs', displayed())
+            self.assertIn('closes #11 · 2 runs', displayed())
             app.select('outcome:previous-run')
             await self.ready(app, pilot, lambda: '#10 Earlier item' in identity())
+            self.assertEqual(transport.calls, [])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_runs_read_full_files_and_refresh_without_github(self):
+        histories = self.state['histories']
+        histories['114']['runs'] = [
+            {'agent': 'implementer', 'result': 'retry', 'state': 'released',
+             'time': '2026-10-03T00:00:00Z', 'summary': f'Run {number}'} for number in range(31)]
+        metadata = {key: {name: value for name, value in history.items() if name != 'runs'}
+                    for key, history in histories.items()}
+        state = self.state | {'history_storage': 'files', 'histories': metadata, 'host': 'test-host'}
+        write_snapshot(self.path.parent, state | {'history_files': histories})
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+
+        def displayed():
+            stream = io.StringIO()
+            Console(file=stream, width=110, color_system=None).print(app.query_one('#runs_text', Static).content)
+            return stream.getvalue()
+
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('3')
+            await self.ready(app, pilot, lambda: '31 runs' in displayed())
+            table = list(app.query_one('#runs_text', Static).content.renderables)[1]
+            self.assertEqual(len(table.rows), 32)  # Filing, then all runs.
+            self.assertIn('Run 0', displayed())
+            self.assertIn('Run 30', displayed())
+            histories['114']['runs'].append(histories['114']['runs'][-1] | {'summary': 'Latest run'})
+            write_snapshot(self.path.parent, state | {'history_files': histories})
+            await self.ready(app, pilot, lambda: '32 runs' in displayed())
+            self.assertIn('Latest run', displayed())
             self.assertEqual(transport.calls, [])
             await pilot.press('q')
         app.worker.thread.join(2)
@@ -3811,11 +3845,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
 
     async def test_published_passes_keep_selection_details_focus_and_paused_log(self):
-        def write_snapshot(snapshot):
-            # Match the publisher: readers see a complete old or new snapshot.
-            temporary = self.path.with_suffix('.tmp')
-            temporary.write_text(json.dumps(snapshot))
-            os.replace(temporary, self.path)
+        def publish_files(snapshot):
+            write_snapshot(self.path.parent, snapshot | {'session': self.path.stem,
+                                                        'history_files': memory.histories[-1]})
 
         memory = MemoryPublisher()
         observer = Observations(config(self.root), 'operator', None, memory)
@@ -3831,7 +3863,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         for plan in plans:
             observer.plan(plan)
         observer.complete_pass()
-        write_snapshot(memory.snapshots[-1])
+        publish_files(memory.snapshots[-1])
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
@@ -3853,7 +3885,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             output.focus()
             async def publish():
                 snapshot = memory.snapshots[-1]
-                write_snapshot(snapshot)
+                publish_files(snapshot)
                 await self.ready(app, pilot, lambda: app.session.data['latest_pass'] == snapshot['latest_pass'])
                 self.assertEqual(app.selected, key)
                 self.assertIs(app.focused, output)
@@ -3861,7 +3893,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(markdown.source, 'Cached body 21')
                 self.assertEqual(sum(row.group != 'Recent activity' for row in app.rows.values()), len(app.nodes))
                 self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
-                self.assertEqual(app.rows[key].data['history']['runs'][0]['summary'], 'Cached history 21')
+                history = item_history(app.rows[key], app.session, full=True)
+                self.assertEqual(history['runs'][0]['summary'], 'Cached history 21')
                 stream = io.StringIO()
                 Console(file=stream, width=110, color_system=None).print(app.query_one('#runs_text', Static).content)
                 self.assertIn('Cached history 21', stream.getvalue())

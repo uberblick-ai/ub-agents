@@ -1,11 +1,12 @@
-"""Bounded launcher observations. Never an input to coordination or recovery."""
+"""Launcher observations with bounded snapshots and complete item histories."""
 
-import errno
+import atexit
 import json
 import os
 import socket
 import subprocess
 import threading
+import time
 import uuid
 
 from .records import iso, seconds, timestamp
@@ -30,12 +31,11 @@ RETAINED_SESSIONS = 20
 
 
 class Publisher:
-    """Nonblocking, atomic datagram mailbox to an expendable filesystem worker.
+    """Coalescing mailbox to an expendable filesystem worker.
 
-    Both ends are retained here so a full mailbox can discard pending snapshots
-    before sending the newest one. Messages are complete snapshots, never events.
-    The lifecycle pipe closes on clean exit *and* process death. The worker drains
-    the mailbox and marks the session ended without a launcher-side wait.
+    A sender thread streams complete observations, including unlimited histories.
+    Only the newest pending observation is retained while a send is in progress.
+    The lifecycle pipe closes after the final send, or on process death.
     """
 
     def __init__(self, root, output=print, command=None):
@@ -43,25 +43,29 @@ class Publisher:
         self.failed = False
         self.warning_lock = threading.Lock()
         self.process = None
+        self.condition = threading.Condition()
+        self.pending = None
+        self.closed = False
+        self.close_deadline = None
+        self.transport = None
         self.sender = self.receiver = self.life_write = None
         life_read = error_read = error_write = None
         error_stream = None
         try:
-            self.sender, self.receiver = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
-            # Darwin's default Unix datagram send buffer is only 2 KiB. Reserve
-            # per-socket space for a complete snapshot on both platforms.
-            self.sender.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, MAX_BYTES * 2)
-            self.receiver.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, MAX_BYTES * 2)
-            self.sender.setblocking(False)
+            self.sender, self.receiver = socket.socketpair()
+            # A stalled worker must release the lifecycle pipe even if a large
+            # observation cannot fit in the socket buffer.
+            self.sender.settimeout(0.1)
             self.receiver.setblocking(False)
             life_read, self.life_write = os.pipe()
             error_read, error_write = os.pipe()
             argv = command or helper_command("ub_agents.observation_worker")
             self.process = subprocess.Popen(
-                [*argv, str(root), str(self.receiver.fileno()), str(life_read), str(error_write), str(self.sender.fileno())],
-                pass_fds=(self.receiver.fileno(), life_read, error_write, self.sender.fileno(), *descriptors()),
+                [*argv, str(root), str(self.receiver.fileno()), str(life_read), str(error_write)],
+                pass_fds=(self.receiver.fileno(), life_read, error_write, *descriptors()),
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True)
+            self.receiver.close()
 
             # Transfer descriptor ownership before starting the listener. A signal
             # can interrupt Thread.start after the thread has already begun.
@@ -80,6 +84,9 @@ class Publisher:
                         self.warning(f"Observation worker exited {code}")
             self.diagnostics = threading.Thread(target=diagnostic, daemon=True)
             self.diagnostics.start()
+            self.transport = threading.Thread(target=self.send, daemon=True)
+            self.transport.start()
+            atexit.register(self.finish)
         except BaseException as exc:
             self.close()
             if not isinstance(exc, (OSError, RuntimeError)):
@@ -104,38 +111,65 @@ class Publisher:
             self.warning_lock.release()
 
     def submit(self, data):
-        if self.failed or self.life_write is None:
-            return
+        with self.condition:
+            if not self.failed and not self.closed:
+                self.pending = data
+                self.condition.notify()
+
+    def send(self):
         try:
-            self.sender.send(data)
+            while True:
+                with self.condition:
+                    self.condition.wait_for(lambda: self.pending is not None or self.closed)
+                    data, self.pending = self.pending, None
+                    if data is None:
+                        return
+                for part in (len(data).to_bytes(8, 'big'), data):
+                    remaining = memoryview(part)
+                    while remaining:
+                        try:
+                            sent = self.sender.send(remaining)
+                            if not sent:
+                                raise OSError('Observation stream closed')
+                            remaining = remaining[sent:]
+                        except TimeoutError:
+                            if self.close_deadline is not None and time.monotonic() >= self.close_deadline:
+                                raise TimeoutError('Observation writer stalled during exit')
         except OSError as exc:
-            if exc.errno not in {errno.EAGAIN, errno.EWOULDBLOCK, errno.ENOBUFS}:
-                self.warning(str(exc))
-                return
-            # A stuck writer cannot grow a backlog or make the producer wait.
-            for _ in range(256):
-                try:
-                    self.receiver.recv(MAX_BYTES + 1)
-                except BlockingIOError:
-                    break
-            try:
-                self.sender.send(data)
-            except OSError as exc:
-                if exc.errno not in {errno.EAGAIN, errno.EWOULDBLOCK, errno.ENOBUFS}:
-                    self.warning(str(exc))
+            self.warning(str(exc))
+        finally:
+            self.close_descriptors()
 
     def close(self):
+        with self.condition:
+            self.closed = True
+            if self.close_deadline is None:
+                self.close_deadline = time.monotonic() + 0.5
+            self.condition.notify()
+        if self.transport is None or self.transport.ident is None:
+            self.close_descriptors()
+        # Deliberately no wait, join, filesystem operation or worker callback.
+
+    def close_descriptors(self):
+        atexit.unregister(self.finish)
         descriptor, self.life_write = self.life_write, None
         if descriptor is not None:
             os.close(descriptor)
         for endpoint in (self.sender, self.receiver):
             if endpoint is not None:
                 endpoint.close()
-        # Deliberately no wait, join, filesystem operation or worker callback.
+
+    def finish(self):
+        # Daemon threads stop at interpreter exit. Give the final observation
+        # time to reach the worker before Python tears down the sender thread.
+        # Normal launcher operations and close() still never join or wait.
+        self.close()
+        if self.transport is not None and self.transport.ident is not None:
+            self.transport.join(timeout=1)
 
 
 class Observations:
-    """Pure, bounded state reduction on the launcher thread; publication is optional."""
+    """Display-only state reduction on the launcher thread; publication is optional."""
 
     def __init__(self, config, actor, config_path, publisher, clock=timestamp):
         self.publisher, self.clock = publisher, clock
@@ -151,7 +185,8 @@ class Observations:
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None, "update": None,
             "health_notice": None,
             "runtime_pauses": {},
-            "outcomes": [], "histories": {}, "action_needed": {}, "coordination_authors": {},
+            "outcomes": [], "histories": {}, "history_storage": "files",
+            "action_needed": {}, "coordination_authors": {},
             "omitted": {"plans": 0, "outcomes": 0},
             "limits": {"plans": MAX_PLANS, "outcomes": MAX_OUTCOMES, "text": MAX_TEXT,
                        "bytes": MAX_BYTES, "heartbeat_seconds": HEARTBEAT_SECONDS,
@@ -206,7 +241,14 @@ class Observations:
                     counts[name] += run.get("shortened", {}).get(name, 0)
             histories[key] = history | {"runs": [display_run(run) for run in history["runs"]],
                                         "shortened": counts}
-        state = self.bound(self.state | {"histories": histories}, shortened)
+        metadata = {key: {name: value for name, value in history.items() if name != "runs"}
+                    for key, history in histories.items()}
+        assignment = self.state["assignment"]
+        if assignment:
+            history = self.state["histories"].get(str(assignment["item"]), {})
+            run = next((run for run in history.get("runs", []) if run.get("run") == assignment.get("run")), {})
+            assignment = assignment | {"claimed_at": run.get("claim_time")}
+        state = self.bound(self.state | {"histories": metadata, "assignment": assignment}, shortened)
         groups = ([state["latest_pass"]["rows"]] if state["latest_pass"] else []) + [state["outcomes"],
                   list(state["histories"].values())]
         for rows in groups:
@@ -228,29 +270,17 @@ class Observations:
         while True:
             data = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             if len(data) <= MAX_BYTES:
-                self.publisher.submit(data)
+                self.publisher.submit(json.dumps(state | {"history_files": histories},
+                                                 ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
                 return
             # Account for row bytes once instead of repeatedly serializing the
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
             rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
-            # Preserve notices for visible attention rows before surplus
-            # history. Only this publication's copy loses text.
+            # Drop notices outside visible attention rows first. Only this
+            # publication's copy loses text.
             notices = state["action_needed"]
             excess = self.omit_notices(notices, (key for key in notices if key not in attention), excess)
-            # Omit globally oldest surplus runs, preserving the newest run of
-            # every referenced item, including the current assignment.
-            while excess > 0:
-                candidates = [(key, history) for key, history in state["histories"].items()
-                              if len(history["runs"]) > 1]
-                if not candidates:
-                    break
-                _, history = min(candidates, key=lambda pair: (
-                    seconds(pair[1]["runs"][0]["time"]) if pair[1]["runs"][0].get("time") else 0,
-                    pair[0]))
-                row = history["runs"].pop(0)
-                excess -= self.byte_size(row) + 1
-                history["omitted_runs"] += 1
             # Older outcomes and plans outside the visible sections go before
             # any visible plan, together with their unreferenced histories.
             while excess > 0 and state["outcomes"]:
@@ -262,7 +292,7 @@ class Observations:
                     excess = self.omit_row(state, "plans", rows, rows.index(row), excess)
             excess = self.omit_notices(notices, (key for key in notices if key in attention), excess)
             # Long visible titles and reasons can themselves fill the envelope.
-            # Shorten display text before losing a visible item or its newest run.
+            # Shorten snapshot display text before losing a visible item.
             for limit in (512, 128, 32):
                 if excess <= 0:
                     break
@@ -529,13 +559,12 @@ class Observations:
                    "closes": closing[0] if closing else None,
                    "filing": ({"author": source.author, "time": source.created_at}
                               if source and source.author and source.created_at else None),
-                   "runs": [self.bounded_run(run) for run in runs[-MAX_OUTCOMES:]],
-                   "omitted_runs": max(0, len(runs) - MAX_OUTCOMES)}
+                   "runs": [self.bounded_run(run) for run in runs]}
         key = str(plan.item.number)
         cached = (self.pass_histories.get(key) or self.state["histories"].get(key) or
                   self.previous_histories.get(key))
         if not plan.history_read and cached:
-            history.update(runs=[dict(run) for run in cached["runs"]], omitted_runs=cached["omitted_runs"],
+            history.update(runs=[dict(run) for run in cached["runs"]],
                            filing=history["filing"] or cached["filing"])
         observed_blockers(history, plan.item, self.stop_labels)
         return self.bounded(history)
@@ -633,9 +662,6 @@ class Observations:
             merge_record(history["runs"], record, self.stop_labels)
             history["runs"] = [self.bounded_run(row) for row in history["runs"]]
             sort_runs(history["runs"])
-            while len(history["runs"]) > MAX_OUTCOMES:
-                history["runs"].pop(0)
-                history["omitted_runs"] += 1
         assignment = self.state["assignment"]
         if not assignment or (record["assignment"], record["agent"]) != (assignment["item"], assignment["agent"]):
             self.emit()

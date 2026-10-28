@@ -9,7 +9,7 @@ GitHub.
 ## What the view reads
 
 The view runs in its own process on the launcher's host. It reads the launcher's
-[session snapshot](session-snapshots.md), run logs and run context from the
+[session snapshot and item history files](session-snapshots.md), run logs and run context from the
 control checkout. If the snapshot is missing, stale, ended or from another
 ub-agents version, the launcher prints one line and continues with plain output.
 The view opens before the startup checks and shows `checking setup`. Quitting then
@@ -198,8 +198,8 @@ content below the description, fully expanded.
 
 #### Runs
 
-Runs shows the selected item's history, oldest first, including runs by other
-launchers. A dim line above the table gives `closes #N` for a PR, `filed by
+Runs reads the selected item's local history file and shows every known run,
+oldest first, including runs by other launchers. A dim line above the table gives `closes #N` for a PR, `filed by
 LOGIN` and the run count. When the filing is known, the first row shows who filed
 the issue and when.
 
@@ -214,8 +214,9 @@ Each run row has:
 - the outcome, with `BLOCKED: …` for human blockers and `· N denied` when the run
   recorded [permission denials](coordination.md).
 
-Every row fits on one line. The snapshot keeps up to 20 runs per item, and a note
-counts older runs left out.
+Every row fits on one line. The run count matches the run rows shown, excluding
+the filing row. Histories have no run limit and are outside the snapshot's size
+budget.
 
 #### Unblock
 
@@ -288,7 +289,8 @@ copies with `pbcopy`. Option-drag uses the terminal's own selection.
 ### Limits and exit
 
 The snapshot bounds what the view can show: ten Eligible items, 20 recent
-outcomes, 20 runs per item and shortened text.
+outcomes and shortened text. The Runs tab lists every run the launcher knows for
+the selected item.
 [Session snapshots](session-snapshots.md) gives the limits and what is trimmed
 first.
 

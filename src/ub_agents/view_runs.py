@@ -1,4 +1,4 @@
-"""Read-only, per-item Runs table from the local session snapshot."""
+"""Read-only, per-item Runs table from local history files."""
 
 from datetime import datetime
 import socket
@@ -9,7 +9,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .denials import denial_count
-from .view_data import item_history, mapping, rows, text
+from .view_data import item_history, mapping, text
 from .view_spinner import spinner_frame
 from .view_theme import theme_style
 
@@ -89,7 +89,7 @@ def run_status(row, now):
     return 'running', text(row.get('state'), 'running')
 
 
-def runs_view(row, session, now=None, *, app=None):
+def runs_view(row, session, now=None, *, app=None, history=None):
     # The plain projection remains usable without a running Textual app.
     muted = theme_style(app, 'view-muted', dim=True)
     success = theme_style(app, 'view-success')
@@ -98,10 +98,11 @@ def runs_view(row, session, now=None, *, app=None):
         return Text('Select an item to see its history.')
     relative_now = now
     now = now or datetime.now().astimezone()
-    history = item_history(row, session)
-    runs = rows(history.get('runs'), 20)
-    omitted = history.get('omitted_runs', 0)
-    omitted = omitted if type(omitted) is int and omitted > 0 else 0
+    if history is None:
+        history = item_history(row, session, full=True)
+    runs = [run for run in history.get('runs', []) if isinstance(run, dict)]
+    if history.get('error'):
+        return Text(history['error'])
     filing = mapping(history.get('filing'))
     filed = isinstance(filing.get('author'), str) and bool(filing['author']) and moment(filing.get('time')) is not None
     details = []
@@ -109,9 +110,9 @@ def runs_view(row, session, now=None, *, app=None):
         details.append(f'closes #{history["closes"]}')
     if filed:
         details.append('filed by ' + text(filing['author']))
-    details.append(f'{len(runs) + omitted} runs')
+    details.append(f'{len(runs)} runs')
     subtitle = Text(' · '.join(details), style=muted, no_wrap=True, overflow='ellipsis')
-    if not filed and not runs and not omitted:
+    if not filed and not runs:
         return Group(subtitle, Text('No item history cached.'))
     table = Table(box=None, padding=(0, 1), pad_edge=False, expand=True, header_style=muted)
     table.add_column('when', width=11, no_wrap=True, overflow='ellipsis')
@@ -137,5 +138,4 @@ def runs_view(row, session, now=None, *, app=None):
             outcome += ' · BLOCKED: ' + ', '.join(text(b) for b in blockers[:10])
         table.add_row(relative_time(run.get('time'), relative_now), glyph, Text(summary),
                       run_host(run.get('host'), muted=muted), RunOutcome(outcome, denial_count(run)))
-    tail = [Text(f'{omitted} earlier runs omitted.', style=muted)] if omitted else []
-    return Group(subtitle, table, *tail)
+    return Group(subtitle, table)

@@ -149,6 +149,18 @@ def inactive_snapshot(parent, name, now, host):
 def prune_sessions(cleaner, parent, own, now, removed, failed, output):
     host, cutoff = socket.gethostname(), now - RETENTION_SECONDS
 
+    def remove_histories(session):
+        name = session + ".histories"
+        try:
+            info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            with removing(cleaner, Artifact("session", name, name), output):
+                if stat.S_ISLNK(info.st_mode):
+                    os.unlink(name, dir_fd=parent)
+                else:
+                    shutil.rmtree(name, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+
     def remove(name, *, companion=False):
         try:
             info = os.stat(name, dir_fd=parent, follow_symlinks=False)
@@ -188,6 +200,8 @@ def prune_sessions(cleaner, parent, own, now, removed, failed, output):
                 continue
             if not same_file(info, os.stat(name, dir_fd=parent, follow_symlinks=False)):
                 continue
+            if suffix == ".json":
+                remove_histories(session)
             if remove(name) and suffix == ".json":
                 if inactive_snapshot(parent, name, now, host):
                     remove(session + ".cleanup.log", companion=True)

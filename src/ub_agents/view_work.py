@@ -29,8 +29,13 @@ def section_rule(label, width, style):
 def assignment_claim_time(row):
     if not row.run:
         return None
-    # Published histories omit run IDs; the agent and lease expiry identify
-    # the assignment's run using only the existing cached snapshot.
+    if row.data.get('claimed_at'):
+        try:
+            stamp = datetime.fromisoformat(row.data['claimed_at'].replace('Z', '+00:00'))
+            return stamp if stamp.tzinfo is not None else None
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            return None
+    # Older snapshots carry histories instead of the assignment's claim time.
     expiry = row.data.get('lease_expires')
     history = rows(mapping(row.data.get('history')).get('runs'), 20)
     claim = next((run for run in reversed(history) if run.get('agent') == row.agent

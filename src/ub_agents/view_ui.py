@@ -1026,14 +1026,15 @@ class View(App):
         if self.session is None:
             return
         row = self.rows.get(self.selected)
-        history = item_history(row, self.session)
+        history = item_history(row, self.session, full=True)
         now = datetime.now().astimezone()
         active = any(history_status(run, now)[0] == 'running' for run in history.get('runs', []))
         visible = self.query_one(ItemTabs).active == 'runs'
         signature = (row.key if row else None, repr(history),
                      int(now.timestamp() * (SPINNER_FPS if active and visible else 1)))
         if signature != self.last_runs:
-            self.update_static(self.query_one('#runs_text', Static), runs_view(row, self.session, now=now, app=self))
+            self.update_static(self.query_one('#runs_text', Static),
+                               runs_view(row, self.session, now=now, app=self, history=history))
             self.last_runs = signature
 
     def description_key(self):

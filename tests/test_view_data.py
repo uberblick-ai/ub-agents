@@ -55,7 +55,7 @@ def fixture(root, *, runtime='claude:synthetic-model:high', count=0):
                            'acceptance': 'finalized', 'result': 'prepared', 'summary': 'Waiting for decision',
                            'human_blocker': ['needs-human'], 'time': '2026-10-04T00:00:00Z'}]}
     state['histories'] = {
-        '114': {'item': 114, 'kind': 'issue', 'title': 'Cached title', 'omitted_runs': 0,
+        '114': {'item': 114, 'kind': 'issue', 'title': 'Cached title',
                 'filing': {'author': 'bk-one', 'time': '2026-10-02T00:00:00Z'},
                 'runs': [{'agent': 'preparer', 'run': 'filed-run', 'result': 'success',
                           'outcome': 'prepared', 'summary': 'Waiting for decision',
@@ -63,10 +63,10 @@ def fixture(root, *, runtime='claude:synthetic-model:high', count=0):
                           'host': 'build-01.tail9c.ts.net', 'time': '2026-10-03T00:00:00Z'},
                          {'agent': 'implementer', 'run': 'owned-run', 'state': 'running',
                           'host': 'local-test-host', 'time': state['published_at']}]},
-        '10': {'item': 10, 'kind': 'issue', 'title': 'Earlier item', 'omitted_runs': 0,
+        '10': {'item': 10, 'kind': 'issue', 'title': 'Earlier item',
                'filing': None, 'runs': [dict(state['outcomes'][0], result='success', outcome='prepared')]},
         '12': {'item': 12, 'kind': 'pr', 'title': 'Foreign candidate', 'closes': 11,
-               'omitted_runs': 3, 'filing': None,
+               'filing': None,
                'runs': [{'agent': 'reviewer', 'run': 'foreign-run', 'state': 'running',
                          'host': 'other-host', 'time': state['published_at']}]},
     }
@@ -701,7 +701,7 @@ class ViewDataTests(unittest.TestCase):
                       {'version': 1, 'histories': []},
                       {'version': 1, 'histories': {'1': {'runs': [3]}}},
                       {'version': 1, 'histories': {'1': {'runs': [], 'filing': []}}},
-                      {'version': 1, 'histories': {'1': {'runs': [], 'omitted_runs': -1}}}):
+                      {'version': 1, 'histories': {'1': {'runs': 'bad'}}}):
             self.path.write_text(json.dumps(value))
             self.assertEqual(load_session(self.path).state(), 'malformed')
         self.assertEqual(Session(self.path, dict(self.state, ended=True)).state(), 'ended')

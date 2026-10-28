@@ -29,8 +29,8 @@ def read_json(path, limit=SNAPSHOT_BYTES):
     with os.fdopen(descriptor, 'rb') as stream:
         if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
             raise ValueError('Not a regular file')
-        data = stream.read(limit + 1)
-    if len(data) > limit:
+        data = stream.read() if limit is None else stream.read(limit + 1)
+    if limit is not None and len(data) > limit:
         raise ValueError(f'File exceeds {limit} bytes')
     value = json.loads(data)
     if not isinstance(value, dict):
@@ -80,6 +80,33 @@ class Session:
         return f'{self.state()} · snapshot {age:.0f}s old' if age is not None else f'{self.state()} · freshness unavailable'
 
 
+def validate_rows(groups):
+    for group in groups:
+        for row in group:
+            if not isinstance(row, dict):
+                raise ValueError('Invalid row')
+            if 'item' in row and (type(row['item']) is not int or row['item'] < 1):
+                raise ValueError('Invalid item number')
+            for field in ('agent', 'run', 'runtime', 'state', 'reason', 'process', 'process_reason', 'title', 'summary',
+                          'result', 'outcome', 'host', 'time', 'expires', 'acceptance', 'history_key'):
+                if row.get(field) is not None and not isinstance(row[field], str):
+                    raise ValueError(f'Invalid row {field}')
+            for field in ('owner', 'description'):
+                if row.get(field) is not None and not isinstance(row[field], dict):
+                    raise ValueError(f'Invalid row {field}')
+            for field in ('attempt', 'failures', 'max_attempts', 'handoff'):
+                value = row.get(field)
+                minimum = 0 if field == 'failures' else 1
+                if value is not None and (type(value) is not int or value < minimum):
+                    raise ValueError(f'Invalid row {field}')
+            blockers = row.get('human_blocker')
+            if blockers is not None and (not isinstance(blockers, list) or not all(isinstance(b, str) for b in blockers)):
+                raise ValueError('Invalid human blockers')
+            clis = row.get('paused_clis')
+            if clis is not None and (not isinstance(clis, list) or not all(isinstance(cli, str) for cli in clis)):
+                raise ValueError('Invalid paused CLIs')
+
+
 def load_session(path):
     try:
         data = read_json(path)
@@ -95,39 +122,14 @@ def load_session(path):
             raise ValueError('Invalid pass rows')
         groups = [data.get('outcomes', []), mapping(data.get('latest_pass')).get('rows', [])]
         for history in mapping(data.get('histories')).values():
-            if not isinstance(history, dict) or not isinstance(history.get('runs'), list):
+            if not isinstance(history, dict) or not isinstance(history.get('runs', []), list):
                 raise ValueError('Invalid item history')
             if history.get('filing') is not None and not isinstance(history['filing'], dict):
                 raise ValueError('Invalid filing data')
-            if type(history.get('omitted_runs', 0)) is not int or history.get('omitted_runs', 0) < 0:
-                raise ValueError('Invalid omitted runs')
-            groups.extend(([history], history['runs']))
+            groups.extend(([history], history.get('runs', [])))
         if data.get('assignment'):
             groups.append([data['assignment']])
-        for group in groups:
-            for row in group:
-                if not isinstance(row, dict):
-                    raise ValueError('Invalid row')
-                if 'item' in row and (type(row['item']) is not int or row['item'] < 1):
-                    raise ValueError('Invalid item number')
-                for field in ('agent', 'run', 'runtime', 'state', 'reason', 'process', 'process_reason', 'title', 'summary',
-                              'result', 'outcome', 'host', 'time', 'expires', 'acceptance', 'history_key'):
-                    if row.get(field) is not None and not isinstance(row[field], str):
-                        raise ValueError(f'Invalid row {field}')
-                for field in ('owner', 'description'):
-                    if row.get(field) is not None and not isinstance(row[field], dict):
-                        raise ValueError(f'Invalid row {field}')
-                for field in ('attempt', 'failures', 'max_attempts', 'handoff'):
-                    value = row.get(field)
-                    minimum = 0 if field == 'failures' else 1
-                    if value is not None and (type(value) is not int or value < minimum):
-                        raise ValueError(f'Invalid row {field}')
-                blockers = row.get('human_blocker')
-                if blockers is not None and (not isinstance(blockers, list) or not all(isinstance(b, str) for b in blockers)):
-                    raise ValueError('Invalid human blockers')
-                clis = row.get('paused_clis')
-                if clis is not None and (not isinstance(clis, list) or not all(isinstance(cli, str) for cli in clis)):
-                    raise ValueError('Invalid paused CLIs')
+        validate_rows(groups)
         return Session(path, data)
     except (OSError, ValueError, TypeError, RecursionError, OverflowError) as exc:
         return Session(path, {}, text(str(exc)))
@@ -380,12 +382,32 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):
     return Pane(tuple(sections), recent, tuple(work), selection.key if selection else None, title)
 
 
-def item_history(row, session):
+def history_path(snapshot, key):
+    # Hash the logical key: carried rows can have agent names in their keys.
+    return snapshot.with_suffix('.histories') / (sha256(key.encode('utf-8')).hexdigest() + '.json')
+
+
+def item_history(row, session, *, full=False):
     if not row:
         return {}
     history = mapping(row.data.get('history'))
     current = mapping(mapping(session.data.get('histories')).get(str(row.item))) if session else {}
-    return (current or history) if row.state == 'earlier observation' else (history or current)
+    metadata = (current or history) if row.state == 'earlier observation' else (history or current)
+    if full and session and session.data.get('history_storage') == 'files':
+        key = (str(row.item) if row.state == 'earlier observation' else
+               row.data.get('history_key', str(row.item)))
+        try:
+            cached = read_json(history_path(session.path, key), limit=None)
+            runs = cached.get('runs')
+            if not isinstance(runs, list) or not all(isinstance(run, dict) for run in runs):
+                raise ValueError('Invalid item history runs')
+            if cached.get('filing') is not None and not isinstance(cached['filing'], dict):
+                raise ValueError('Invalid filing data')
+            validate_rows([[cached], runs])
+            return cached
+        except (OSError, ValueError, TypeError, RecursionError, OverflowError) as exc:
+            return metadata | {'error': 'Cannot read item history: ' + text(str(exc))}
+    return metadata
 
 
 def related_plan(work, previous):
