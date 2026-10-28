@@ -253,6 +253,7 @@ class DiagnosticRetentionTests(unittest.TestCase):
         self.snapshot("dead", ended=False)
         for name in ("ended", "stale", "dead"):
             self.file(self.sessions / f"{name}.cleanup.log", time=self.now)
+            self.file(self.sessions / f"{name}.histories/item.json", '{"runs": []}', time=self.now)
         with patch("ub_agents.observation_worker.os.kill", side_effect=ProcessLookupError):
             self.prune()
         self.assertEqual(list(self.sessions.iterdir()), [])
@@ -267,8 +268,10 @@ class DiagnosticRetentionTests(unittest.TestCase):
         for name in ("live", "own"):
             self.file(self.sessions / f"{name}.cleanup.log")
             self.file(self.sessions / f"{name}.tmp")
+        for name in ("live", "own", "new", "boundary"):
+            self.file(self.sessions / f"{name}.histories/item.json")
         self.prune(session="own")
-        self.assertEqual(len(list(self.sessions.iterdir())), 8)
+        self.assertEqual(len(list(self.sessions.iterdir())), 12)
         self.assertEqual(self.lines, [])
 
     def test_old_orphan_files_prune_and_unknown_snapshots_preserve_companions(self):

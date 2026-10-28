@@ -136,7 +136,7 @@ def observation_writer_command(body):
     """Run a controlled failing or stalled writer in the real isolated helper."""
     script = ("import os,sys,socket,time\nfrom pathlib import Path\n"
               "from ub_agents.observation_worker import run\n"
-              "root,fd,life,errors,guard=sys.argv[1:]\n"
+              "root,fd,life,errors=sys.argv[1:]\n"
               "def writer(directory,state):\n"
               "    (Path(root)/'writer-entered').touch()\n" + body + "\n"
               "run(root,socket.socket(fileno=int(fd)),int(life),int(errors),writer=writer)\n")
@@ -147,9 +147,12 @@ class MemoryPublisher:
     """Keep CLI unit tests deterministic; publisher isolation has its own suite."""
     def __init__(self, *args, **kwargs):
         self.snapshots = []
+        self.histories = []
 
     def submit(self, data):
-        self.snapshots.append(json.loads(data))
+        state = json.loads(data)
+        self.histories.append(state.pop('history_files', {}))
+        self.snapshots.append(state)
 
     def close(self):
         pass

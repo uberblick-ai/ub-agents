@@ -20,6 +20,7 @@ from tests.test_view_github import reply
 from tests.support import MemoryPublisher, RecordingDescriptionTransport, agent, config, issue
 from ub_agents.coordination import Plan
 from ub_agents.observations import Observations
+from ub_agents.observation_worker import write_snapshot
 from ub_agents.view_github import DescriptionLoads, Response, parse_response
 from ub_agents.view_data import POINTERS_LIMIT
 
@@ -3394,8 +3395,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.select('plan:12')
             await self.ready(app, pilot, lambda: '⌥12 Foreign candidate' in identity())
             self.assertNotIn('Foreign candidate', displayed())
-            self.assertIn('closes #11 · 4 runs', displayed())
-            self.assertIn('3 earlier runs omitted.', displayed())
+            self.assertIn('closes #11 · 1 runs', displayed())
+            self.assertNotIn('earlier runs omitted', displayed())
             self.assertNotIn('filed by', displayed())
             self.assertNotIn('#114', displayed())
             self.state['histories']['12']['title'] = 'Updated candidate'
@@ -3413,14 +3414,47 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: 'New run' in displayed())
             self.assertEqual(app.selected, 'plan:12')
             self.assertEqual(app.rows[app.selected].state, 'earlier observation')
-            self.assertIn('closes #11 · 5 runs', displayed())
+            self.assertIn('closes #11 · 2 runs', displayed())
             self.state['histories'].pop('12')
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: '12' not in app.session.data['histories'])
             self.assertIn('New run', displayed())
-            self.assertIn('closes #11 · 5 runs', displayed())
+            self.assertIn('closes #11 · 2 runs', displayed())
             app.select('outcome:previous-run')
             await self.ready(app, pilot, lambda: '#10 Earlier item' in identity())
+            self.assertEqual(transport.calls, [])
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
+    async def test_runs_read_full_files_and_refresh_without_github(self):
+        histories = self.state['histories']
+        histories['114']['runs'] = [
+            {'agent': 'implementer', 'result': 'retry', 'state': 'released',
+             'time': '2026-10-03T00:00:00Z', 'summary': f'Run {number}'} for number in range(31)]
+        metadata = {key: {name: value for name, value in history.items() if name != 'runs'}
+                    for key, history in histories.items()}
+        state = self.state | {'history_storage': 'files', 'histories': metadata, 'host': 'test-host'}
+        write_snapshot(self.path.parent, state | {'history_files': histories})
+        transport = RecordingDescriptionTransport()
+        app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
+
+        def displayed():
+            stream = io.StringIO()
+            Console(file=stream, width=110, color_system=None).print(app.query_one('#runs_text', Static).content)
+            return stream.getvalue()
+
+        async with app.run_test(size=(110, 32)) as pilot:
+            await self.ready(app, pilot)
+            await pilot.press('3')
+            await self.ready(app, pilot, lambda: '31 runs' in displayed())
+            table = list(app.query_one('#runs_text', Static).content.renderables)[1]
+            self.assertEqual(len(table.rows), 32)  # Filing, then all runs.
+            self.assertIn('Run 0', displayed())
+            self.assertIn('Run 30', displayed())
+            histories['114']['runs'].append(histories['114']['runs'][-1] | {'summary': 'Latest run'})
+            write_snapshot(self.path.parent, state | {'history_files': histories})
+            await self.ready(app, pilot, lambda: '32 runs' in displayed())
+            self.assertIn('Latest run', displayed())
             self.assertEqual(transport.calls, [])
             await pilot.press('q')
         app.worker.thread.join(2)

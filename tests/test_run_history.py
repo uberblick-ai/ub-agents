@@ -16,7 +16,8 @@ from ub_agents.coordination import Coordinator, Plan
 from ub_agents.observations import MAX_BYTES, MAX_OUTCOMES, MAX_TEXT, Observations
 from ub_agents.records import display_provenance, iso
 from ub_agents.run_history import merge_record
-from ub_agents.view_data import Session, work_rows
+from ub_agents.observation_worker import write_snapshot
+from ub_agents.view_data import Session, history_path, item_history, load_session, work_rows
 from ub_agents.view_runs import relative_time, run_host, run_status, runs_view
 from tests.support import FakeGitHub, MemoryPublisher, agent, config, issue, pr
 
@@ -50,7 +51,10 @@ class RunsTests(unittest.TestCase):
         return plan
 
     def display(self, item=1, width=110):
-        session = Session(self.root / 'session.json', self.memory.snapshots[-1])
+        state = self.memory.snapshots[-1]
+        directory = self.root / '.ub-agents' / 'sessions'
+        write_snapshot(directory, state | {'history_files': self.memory.histories[-1]})
+        session = load_session(directory / (state['session'] + '.json'))
         row = next(row for row in work_rows(session, self.root) if row.item == item)
         view = runs_view(row, session, now=self.now)
         stream = io.StringIO()
@@ -124,12 +128,12 @@ class RunsTests(unittest.TestCase):
         source = outcome(host='outcome-host', id=2)
         copy = source | {'id': 3, 'actor': 'other-launcher'}
         self.plan(history=(claim(id=1), source, copy))
-        history = self.memory.snapshots[-1]['histories']['1']
+        history = self.memory.histories[-1]['1']
         self.assertEqual(len(history['runs']), 1)
         self.assertEqual(history['runs'][0]['host'], 'build-01.tail9c.ts.net')
         self.assertEqual(history['runs'][0]['time'], source['created'])
         self.plan(pr(), (copy,))
-        self.assertEqual(self.memory.snapshots[-1]['histories']['2']['runs'][0]['host'], 'outcome-host')
+        self.assertEqual(self.memory.histories[-1]['2']['runs'][0]['host'], 'outcome-host')
         self.plan(pr(), (outcome(),))
         value, _ = self.display(2)
         self.assertIn('unknown', value)
@@ -137,14 +141,14 @@ class RunsTests(unittest.TestCase):
     def test_all_launchers_oldest_first_and_live_record_updates(self):
         other = claim('other', 800, actor='other-launcher', agent='reviewer', host='other-host')
         plan = self.plan(history=(claim('own', 1000), other))
-        runs = self.memory.snapshots[-1]['histories']['1']['runs']
+        runs = self.memory.histories[-1]['1']['runs']
         self.assertEqual([row['agent'] for row in runs], ['reviewer', 'implementer'])
         self.assertEqual(runs[0]['time'], other['created'])
         self.observer.assignment(plan)
         self.observer.record(claim('own', 1000, runtime='direct'))
         self.observer.record(outcome('own', accepted=False, transition_complete=False))
         self.observer.record(claim('own', 1000, state='released', result='blocked', runtime='direct'))
-        runs = self.memory.snapshots[-1]['histories']['1']['runs']
+        runs = self.memory.histories[-1]['1']['runs']
         self.assertEqual(len(runs), 2)
         self.assertEqual(runs[-1]['result'], 'blocked')
         self.assertEqual(runs[-1]['acceptance'], 'unaccepted')
@@ -157,7 +161,7 @@ class RunsTests(unittest.TestCase):
                 denials = entries + [{'tool': 'Read', 'command': 'x' * 200}] * (count - 2)
                 fields = {'denials': denials} | ({'denials_omitted': omitted} if omitted else {})
                 self.plan(history=(claim(), outcome(**fields), claim('next', 1200)))
-                published = self.memory.snapshots[-1]['histories']['1']['runs']
+                published = self.memory.histories[-1]['1']['runs']
                 self.assertEqual(published[0]['denials'], denials)
                 self.assertNotIn('denials', published[1])
                 for width in (54, 60, 110):
@@ -217,24 +221,61 @@ class RunsTests(unittest.TestCase):
                 self.assertNotIn('denied', value)
                 self.assertEqual(len(list(view.renderables)[1].rows), 1)
 
-    def test_omitted_count_under_run_and_shared_byte_limits(self):
+    def test_every_run_survives_run_count_and_shared_byte_pressure(self):
         all_runs = [outcome(str(n), 1000 + n, summary='😀' * (MAX_TEXT + 20))
                     for n in range(MAX_OUTCOMES + 7)]
-        self.plan(history=all_runs)
+        self.plan(replace(issue(), author='bk-one'), history=reversed(all_runs))
         state = self.memory.snapshots[-1]
-        history = state['histories']['1']
-        self.assertEqual(len(history['runs']) + history['omitted_runs'], len(all_runs))
-        self.assertGreater(history['omitted_runs'], 7)  # UTF-8 bytes also require trimming.
-        self.assertTrue(history['runs'])
-        self.assertEqual(history['runs'][-1]['time'], all_runs[-1]['created'])
+        history = self.memory.histories[-1]['1']
+        self.assertEqual(len(history['runs']), len(all_runs))
+        self.assertEqual([run['time'] for run in history['runs']], [run['created'] for run in all_runs])
+        self.assertTrue(all(len(run['summary']) == MAX_TEXT for run in history['runs']))
+        self.assertNotIn('runs', state['histories']['1'])
+        self.assertNotIn('omitted_runs', history)
         self.assertLessEqual(len(json.dumps(state, ensure_ascii=False, separators=(',', ':')).encode()), MAX_BYTES)
-        value, _ = self.display()
+        value, view = self.display()
         self.assertIn(f'{len(all_runs)} runs', value)
-        self.assertIn(f'{history["omitted_runs"]} earlier runs omitted.', value)
+        table = list(view.renderables)[1]
+        self.assertEqual(len(table.rows), len(all_runs) + 1)
+        self.assertIn('filed by bk-one', table.columns[2]._cells[0].plain)
+        self.assertNotIn('earlier runs omitted', value)
+
+    def test_live_record_updates_keep_more_than_twenty_runs(self):
+        self.plan()
+        for number in range(31):
+            self.observer.record(claim(str(number), 1000 + number, state='released', result='retry'))
+        runs = self.memory.histories[-1]['1']['runs']
+        self.assertEqual(len(runs), 31)
+        self.assertEqual([run['time'] for run in runs], [iso(1000 + number) for number in range(31)])
+        value, view = self.display()
+        self.assertIn('31 runs', value)
+        self.assertEqual(len(list(view.renderables)[1].rows), 31)
+
+    def test_selected_file_is_read_without_loading_other_items(self):
+        self.plan(history=(outcome(),))
+        self.plan(pr(), history=(outcome(assignment=2),))
+        self.display()
+        state = self.memory.snapshots[-1]
+        snapshot = self.root / '.ub-agents' / 'sessions' / (state['session'] + '.json')
+        session = load_session(snapshot)
+        row = next(row for row in work_rows(session, self.root) if row.item == 1)
+        other = history_path(snapshot, '2')
+        other.write_text('malformed history')
+        from ub_agents.view_data import read_json
+        with patch('ub_agents.view_data.read_json', wraps=read_json) as read:
+            self.assertEqual(len(item_history(row, session, full=True)['runs']), 1)
+        self.assertEqual(read.call_args_list, [unittest.mock.call(history_path(snapshot, '1'), limit=None)])
+        path = history_path(snapshot, '1')
+        for data in ('bad', '{"runs": [null]}', '{"runs": {}}',
+                     '{"runs": [{"result": []}]}', '{"runs": [], "filing": []}'):
+            path.write_text(data)
+            self.assertIn('Cannot read item history', item_history(row, session, full=True)['error'])
+        path.unlink()
+        self.assertIn('Cannot read item history', item_history(row, session, full=True)['error'])
 
     def test_snapshots_publish_display_fields_and_keep_merge_state_private(self):
         plan = self.plan(history=(claim(summary='Claim summary', result='blocked'), outcome()))
-        published = self.memory.snapshots[-1]['histories']['1']['runs'][0]
+        published = self.memory.histories[-1]['1']['runs'][0]
         self.assertEqual(set(published), {'time', 'agent', 'summary', 'host', 'outcome', 'acceptance',
                                          'human_blocker', 'result', 'state', 'expires', 'rejection'})
         self.assertEqual(published['summary'], 'Claim summary')
@@ -242,50 +283,47 @@ class RunsTests(unittest.TestCase):
         self.assertEqual((internal['claim_time'], internal['outcome_time']), (iso(1000), iso(1100)))
         self.observer.assignment(plan)
         self.observer.record(claim(runtime='direct', state='released', result='success', summary='Finished'))
-        published = self.memory.snapshots[-1]['histories']['1']['runs'][0]
+        published = self.memory.histories[-1]['1']['runs'][0]
         self.assertEqual((published['summary'], published['result'], published['acceptance']),
                          ('Finished', 'success', 'finalized'))
 
     def test_unreadable_records_keep_cached_history_but_readable_empty_history_clears_it(self):
         plan = self.plan(history=(claim(), outcome()))
-        expected = self.memory.snapshots[-1]['histories']['1']['runs']
+        expected = self.memory.histories[-1]['1']['runs']
         self.observer.plan(replace(plan, state='blocked', reason='Unreadable record',
                                    history=(), history_read=False))
-        self.assertEqual(self.memory.snapshots[-1]['histories']['1']['runs'], expected)
+        self.assertEqual(self.memory.histories[-1]['1']['runs'], expected)
         self.observer.plan(replace(plan, history=()))
-        self.assertEqual(self.memory.snapshots[-1]['histories']['1']['runs'], [])
+        self.assertEqual(self.memory.histories[-1]['1']['runs'], [])
 
     def test_unreadable_records_recover_history_across_polling_passes(self):
         filed = replace(issue(labels=('needs-human',)), author='bk-one')
         plan = self.plan(filed, (claim(), outcome(handoff=None)))
-        expected = self.memory.snapshots[-1]['histories']['1']
+        expected = self.memory.histories[-1]['1']
         self.observer.complete_pass()
         for _ in range(2):
-            retained = self.memory.snapshots[-1]['histories']['1']
+            retained = self.memory.histories[-1]['1']
             self.observer.begin_pass()
-            self.assertEqual(self.memory.snapshots[-1]['histories']['1'], retained)
+            self.assertEqual(self.memory.histories[-1]['1'], retained)
             self.observer.plan(replace(plan, item=replace(filed, labels=frozenset(), author=None),
                                        state='blocked', reason='Unreadable record',
                                        history=(), history_read=False))
             self.observer.complete_pass()
-            history = self.memory.snapshots[-1]['histories']['1']
+            history = self.memory.histories[-1]['1']
             self.assertEqual(history['filing'], expected['filing'])
-            self.assertEqual(history['omitted_runs'], expected['omitted_runs'])
             self.assertEqual(history['runs'], [expected['runs'][0] | {'human_blocker': []}])
             self.assertEqual(self.observer.previous_histories, {})
         # A successful read of an empty history clears the recovered runs.
         self.observer.begin_pass()
         self.observer.plan(replace(plan, history=()))
         self.observer.complete_pass()
-        self.assertEqual(self.memory.snapshots[-1]['histories']['1']['runs'], [])
+        self.assertEqual(self.memory.histories[-1]['1']['runs'], [])
         self.observer.begin_pass()
         self.observer.complete_pass()
-        self.assertEqual(self.memory.snapshots[-1]['histories'], {})
+        self.assertEqual(self.memory.histories[-1], {})
         self.assertEqual(self.observer.previous_histories, {})
 
-    def test_byte_pressure_keeps_each_items_newest_runs_and_exact_omissions(self):
-        # Assignment is inserted first, as in a running launcher. Surplus
-        # history exceeds the byte limit in some cases; newest runs must survive.
+    def test_byte_pressure_keeps_all_runs_outside_the_snapshot(self):
         for items, count, summary_length in ((20, 5, 700), (30, 2, 800), (40, 1, 80)):
             with self.subTest(items=items, count=count):
                 memory = MemoryPublisher()
@@ -308,21 +346,13 @@ class RunsTests(unittest.TestCase):
                 self.assertLessEqual(observer.byte_size(state), MAX_BYTES)
                 self.assertEqual(state['omitted']['plans'], 0)
                 self.assertTrue(all('description' not in row for row in state['latest_pass']['rows']))
-                removed, retained_surplus = [], []
-                for item, history in state['histories'].items():
+                for item, history in memory.histories[-1].items():
                     original = observer.state['histories'][item]['runs']
                     times = [run['time'] for run in history['runs']]
                     self.assertTrue(times)
-                    self.assertEqual(times, [run['time'] for run in original[-len(times):]])
-                    self.assertEqual(history['omitted_runs'], count - len(times))
+                    self.assertEqual(times, [run['time'] for run in original])
                     self.assertEqual(len(original), count)  # Publication leaves the cache intact.
-                    removed.extend(run['time'] for run in original[:history['omitted_runs']])
-                    retained_surplus.extend(times[:-1])
-                if count == 5:
-                    self.assertTrue(removed)
-                    self.assertLessEqual(max(removed), min(retained_surplus))
-                    self.assertGreaterEqual(len(state['histories']['1']['runs']), 2)
-                self.assertEqual(state['histories']['1']['runs'][-1]['time'], plans[0].history[-1]['created'])
+                self.assertEqual(memory.histories[-1]['1']['runs'][-1]['time'], plans[0].history[-1]['created'])
 
     def test_newest_runs_survive_plan_omissions_and_return_when_pressure_clears(self):
         plans = [Plan(replace(issue(item), body='B' * 2000), agent(self.root), None, 'ready', 'Ready', 1,
@@ -333,19 +363,18 @@ class RunsTests(unittest.TestCase):
             self.observer.plan(plan)
         state = self.memory.snapshots[-1]
         self.assertLessEqual(self.observer.byte_size(state), MAX_BYTES)
-        self.assertGreater(state['omitted']['plans'], 0)
+        self.assertEqual(state['omitted']['plans'], 0)
         listed = {str(row['item']) for row in state['latest_pass']['rows']}
         self.assertEqual(set(state['histories']), listed | {'20'})
-        for history in state['histories'].values():
+        for history in self.memory.histories[-1].values():
             self.assertEqual(len(history['runs']), 1)
-            self.assertEqual(history['omitted_runs'], 0)
         self.observer.begin_pass()
         self.observer.plan(plans[-1])
         self.observer.complete_pass()
         state = self.memory.snapshots[-1]
         self.assertEqual(state['omitted']['plans'], 0)
         self.assertNotIn('description', state['latest_pass']['rows'][0])
-        self.assertEqual(state['histories']['20']['runs'][0]['time'], iso(1020))
+        self.assertEqual(self.memory.histories[-1]['20']['runs'][0]['time'], iso(1020))
 
     def test_result_colors_spinner_summary_shortening_and_blockers(self):
         filed = replace(issue(labels=('needs-human',)), author='bk-one')
@@ -415,7 +444,7 @@ class RunsTests(unittest.TestCase):
         stamp = self.now.timestamp()
         reported = outcome(created=stamp, outcome='approved', accepted=False, transition_complete=False)
         self.plan(history=(claim(created=stamp - 60), reported))
-        run = self.memory.snapshots[-1]['histories']['1']['runs'][0]
+        run = self.memory.histories[-1]['1']['runs'][0]
         self.assertEqual(run_status(run, self.now), ('running', 'running'))
         value, view = self.display()
         self.assertIn('approved', value)

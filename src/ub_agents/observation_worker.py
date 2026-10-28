@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import select
+import shutil
 import socket
 import stat
 import sys
@@ -13,6 +14,7 @@ import time
 from .observations import (HEARTBEAT_SECONDS, MAX_BYTES, RETAINED_SESSIONS,
                            STALE_SECONDS, VERSION)
 from .records import iso, seconds, timestamp
+from .view_data import history_path
 
 
 def private_directory(path):
@@ -60,19 +62,20 @@ def prune(directory, own, now, host):
         except FileNotFoundError:
             continue  # Another publisher may have pruned it already.
     for _, path in sorted(retained, reverse=True)[RETAINED_SESSIONS:]:
-        path.unlink(missing_ok=True)
         if path.suffix == ".json":
+            histories = path.with_suffix(".histories")
+            if histories.is_symlink():
+                histories.unlink(missing_ok=True)
+            elif histories.exists():
+                try:
+                    shutil.rmtree(histories)
+                except FileNotFoundError:
+                    pass  # A concurrent publisher may have pruned it already.
             path.with_suffix(".cleanup.log").unlink(missing_ok=True)
+        path.unlink(missing_ok=True)
 
 
-def write_snapshot(directory, state):
-    private_directory(directory.parent)
-    private_directory(directory)
-    state = state | {"published_at": iso(timestamp())}
-    data = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    if len(data) > MAX_BYTES:
-        raise ValueError("Snapshot exceeds byte limit")
-    path = directory / f"{state['session']}.json"
+def atomic_json(path, data):
     temporary = path.with_suffix(".tmp")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -81,6 +84,23 @@ def write_snapshot(directory, state):
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def write_snapshot(directory, state):
+    private_directory(directory.parent)
+    private_directory(directory)
+    histories = state.get("history_files", {})
+    state = {key: value for key, value in state.items() if key != "history_files"}
+    state = state | {"published_at": iso(timestamp())}
+    data = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(data) > MAX_BYTES:
+        raise ValueError("Snapshot exceeds byte limit")
+    path = directory / f"{state['session']}.json"
+    for key, history in histories.items():
+        target = history_path(path, key)
+        private_directory(target.parent)
+        atomic_json(target, json.dumps(history, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    atomic_json(path, data)
     prune(directory, state["session"], timestamp(), state["host"])
 
 
@@ -97,6 +117,9 @@ def run(root, receiver, life, errors, writer=write_snapshot):
 
     threading.Thread(target=watch_parent, daemon=True).start()
     latest = None
+    buffer = bytearray()
+    expected = None
+    receiver.setblocking(False)
     directory = Path(root) / ".ub-agents" / "sessions"
     try:
         while True:
@@ -107,12 +130,25 @@ def run(root, receiver, life, errors, writer=write_snapshot):
             # Bound draining so continuous activity cannot starve publication.
             for _ in range(256):
                 try:
-                    data = receiver.recv(MAX_BYTES + 1)
+                    data = receiver.recv(MAX_BYTES)
                 except BlockingIOError:
                     break
-                candidate = json.loads(data)
-                if len(data) <= MAX_BYTES and candidate.get("version") == VERSION:
-                    latest = candidate
+                if not data:
+                    break
+                buffer.extend(data)
+                while True:
+                    if expected is None:
+                        if len(buffer) < 8:
+                            break
+                        expected = int.from_bytes(buffer[:8], 'big')
+                        del buffer[:8]
+                    if len(buffer) < expected:
+                        break
+                    candidate = json.loads(buffer[:expected])
+                    del buffer[:expected]
+                    expected = None
+                    if candidate.get("version") == VERSION:
+                        latest = candidate
             if latest:
                 writer(directory, latest)
             if finishing:
@@ -124,10 +160,7 @@ def run(root, receiver, life, errors, writer=write_snapshot):
 
 
 def main():
-    root, receiver_fd, life_fd, error_fd, sender_fd = sys.argv[1:]
-    # Keep the inherited sender descriptor open for the lifetime of this helper.
-    # Darwin discards queued datagrams on peer disconnect; this reference lets
-    # the final snapshot survive launcher close/exit without any producer wait.
+    root, receiver_fd, life_fd, error_fd = sys.argv[1:]
     receiver = socket.socket(fileno=int(receiver_fd))
     receiver.setblocking(False)
     run(root, receiver, int(life_fd), int(error_fd))

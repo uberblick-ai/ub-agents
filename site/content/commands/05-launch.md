@@ -36,6 +36,10 @@ In a terminal, launch opens a live view of what is running, what needs a person,
 - `u` switches the log between formatted and raw.
 - `c` keeps your Mac awake while the launcher runs. It starts off each time, and the display can still sleep.
 
+The Runs tab lists every run the launcher knows for the selected item, oldest
+first, including failures and runs by other launchers. It reads private local
+history files without accessing GitHub.
+
 The footer shows usage pauses and launcher activity, such as `claude paused for 1d 4h · next poll 26s`. Outside a terminal, or with `--no-ui`, launch prints plain lines instead. See the [terminal-view reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/terminal-view.md#using-the-view).
 
 ## Before each run
