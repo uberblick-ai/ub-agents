@@ -34,10 +34,11 @@ because PIDs can be reused. An idle session has a fresh heartbeat and
 and `stopping`.
 
 An isolated worker writes the files from a coalescing mailbox, so a slow or failed
-writer never delays the launcher; it reports at most one diagnostic per session, and
-the last snapshot may stay stale. A sender thread streams one complete observation
-at a time and keeps only the newest pending observation. Each successful write keeps at most 20 other
-inactive sessions and never removes live ones. The startup sweep prunes older files;
+writer never holds up coordination or supervision; it reports at most one
+diagnostic per session, and the last snapshot may stay stale. A sender thread streams one complete observation
+at a time and keeps only the newest pending observation. At process exit, the
+sender gets a bounded grace period to flush the final observation. Each successful
+write keeps at most 20 other inactive sessions and never removes live ones. The startup sweep prunes older files;
 see [stale artifact cleanup](configuration.md#stale-artifact-cleanup).
 
 ## Snapshot fields

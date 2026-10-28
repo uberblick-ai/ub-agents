@@ -1,5 +1,6 @@
 """Launcher observations with bounded snapshots and complete item histories."""
 
+import atexit
 import json
 import os
 import socket
@@ -85,6 +86,7 @@ class Publisher:
             self.diagnostics.start()
             self.transport = threading.Thread(target=self.send, daemon=True)
             self.transport.start()
+            atexit.register(self.finish)
         except BaseException as exc:
             self.close()
             if not isinstance(exc, (OSError, RuntimeError)):
@@ -149,12 +151,21 @@ class Publisher:
         # Deliberately no wait, join, filesystem operation or worker callback.
 
     def close_descriptors(self):
+        atexit.unregister(self.finish)
         descriptor, self.life_write = self.life_write, None
         if descriptor is not None:
             os.close(descriptor)
         for endpoint in (self.sender, self.receiver):
             if endpoint is not None:
                 endpoint.close()
+
+    def finish(self):
+        # Daemon threads stop at interpreter exit. Give the final observation
+        # time to reach the worker before Python tears down the sender thread.
+        # Normal launcher operations and close() still never join or wait.
+        self.close()
+        if self.transport is not None and self.transport.ident is not None:
+            self.transport.join(timeout=1)
 
 
 class Observations:

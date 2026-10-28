@@ -1122,6 +1122,33 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(file.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.lines, [])
 
+    def test_launcher_process_exit_flushes_full_history_before_sender_stops(self):
+        script = ("from pathlib import Path\nimport sys\n"
+                  "from ub_agents.observations import Observations, Publisher\n"
+                  "from ub_agents.coordination import Plan\n"
+                  "from ub_agents.records import iso\n"
+                  "from tests.support import config, issue\n"
+                  "root = Path(sys.argv[1])\n"
+                  "observer = Observations(config(root), 'operator', None, Publisher(root))\n"
+                  "(root / 'session').write_text(observer.state['session'])\n"
+                  "(root / 'helper-pid').write_text(str(observer.publisher.process.pid))\n"
+                  "observer.begin_pass()\n"
+                  "history = tuple({'kind': 'lease', 'assignment': 1, 'agent': 'worker', 'run': str(n),\n"
+                  "    'created': iso(1000 + n), 'state': 'released', 'result': 'retry',\n"
+                  "    'summary': '😀' * 2048} for n in range(101))\n"
+                  "observer.plan(Plan(issue(), config(root).agents[0], None, 'ready', 'Ready', 1, history=history))\n"
+                  "observer.close()\n")
+        subprocess.run([sys.executable, '-c', script, str(self.root)], check=True, timeout=5,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        session = (self.root / 'session').read_text()
+        self.wait_for(lambda: (state := self.read(session)) and state['ended'])
+        path = self.root / '.ub-agents/sessions' / (session + '.json')
+        history = json.loads(history_path(path, '1').read_text())
+        self.assertEqual(len(history['runs']), 101)
+        self.assertEqual(history['runs'][-1]['time'], iso(1100))
+        helper_pid = int((self.root / 'helper-pid').read_text())
+        self.wait_for(lambda: group_members(helper_pid) == [])
+
     def test_non_object_session_json_does_not_stop_publication_or_pruning(self):
         directory = self.root / ".ub-agents" / "sessions"
         directory.mkdir(parents=True)
