@@ -30,7 +30,7 @@ from textual.widgets import Collapsible, Markdown, Static, Tab, TabbedContent, T
 from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
                                RawAccess, UpdateBanner, View, pane_line)
 from ub_agents.view_worker import LocalWorker
-from ub_agents.view_data import Session, work_pane
+from ub_agents.view_data import Session, item_history, work_pane
 from ub_agents.view_theme import theme_style
 from ub_agents.view_unblock import ACTION_MARKER, ActionComment
 
@@ -3845,11 +3845,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app.worker.thread.join(2)
 
     async def test_published_passes_keep_selection_details_focus_and_paused_log(self):
-        def write_snapshot(snapshot):
-            # Match the publisher: readers see a complete old or new snapshot.
-            temporary = self.path.with_suffix('.tmp')
-            temporary.write_text(json.dumps(snapshot))
-            os.replace(temporary, self.path)
+        def publish_files(snapshot):
+            write_snapshot(self.path.parent, snapshot | {'session': self.path.stem,
+                                                        'history_files': memory.histories[-1]})
 
         memory = MemoryPublisher()
         observer = Observations(config(self.root), 'operator', None, memory)
@@ -3865,7 +3863,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         for plan in plans:
             observer.plan(plan)
         observer.complete_pass()
-        write_snapshot(memory.snapshots[-1])
+        publish_files(memory.snapshots[-1])
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
@@ -3887,7 +3885,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             output.focus()
             async def publish():
                 snapshot = memory.snapshots[-1]
-                write_snapshot(snapshot)
+                publish_files(snapshot)
                 await self.ready(app, pilot, lambda: app.session.data['latest_pass'] == snapshot['latest_pass'])
                 self.assertEqual(app.selected, key)
                 self.assertIs(app.focused, output)
@@ -3895,7 +3893,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(markdown.source, 'Cached body 21')
                 self.assertEqual(sum(row.group != 'Recent activity' for row in app.rows.values()), len(app.nodes))
                 self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
-                self.assertEqual(app.rows[key].data['history']['runs'][0]['summary'], 'Cached history 21')
+                history = item_history(app.rows[key], app.session, full=True)
+                self.assertEqual(history['runs'][0]['summary'], 'Cached history 21')
                 stream = io.StringIO()
                 Console(file=stream, width=110, color_system=None).print(app.query_one('#runs_text', Static).content)
                 self.assertIn('Cached history 21', stream.getvalue())

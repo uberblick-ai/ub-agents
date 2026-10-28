@@ -1,4 +1,4 @@
-"""Bounded launcher observations. Never an input to coordination or recovery."""
+"""Launcher observations with bounded snapshots and complete item histories."""
 
 import json
 import os
@@ -158,7 +158,7 @@ class Publisher:
 
 
 class Observations:
-    """Pure, bounded state reduction on the launcher thread; publication is optional."""
+    """Display-only state reduction on the launcher thread; publication is optional."""
 
     def __init__(self, config, actor, config_path, publisher, clock=timestamp):
         self.publisher, self.clock = publisher, clock
@@ -266,8 +266,8 @@ class Observations:
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
             rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
-            # Preserve notices for visible attention rows before surplus
-            # history. Only this publication's copy loses text.
+            # Drop notices outside visible attention rows first. Only this
+            # publication's copy loses text.
             notices = state["action_needed"]
             excess = self.omit_notices(notices, (key for key in notices if key not in attention), excess)
             # Older outcomes and plans outside the visible sections go before
@@ -281,7 +281,7 @@ class Observations:
                     excess = self.omit_row(state, "plans", rows, rows.index(row), excess)
             excess = self.omit_notices(notices, (key for key in notices if key in attention), excess)
             # Long visible titles and reasons can themselves fill the envelope.
-            # Shorten display text before losing a visible item or its newest run.
+            # Shorten snapshot display text before losing a visible item.
             for limit in (512, 128, 32):
                 if excess <= 0:
                     break
