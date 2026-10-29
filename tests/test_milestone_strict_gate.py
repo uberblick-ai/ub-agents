@@ -172,6 +172,39 @@ class StrictMilestoneGateTests(unittest.TestCase):
         now += 61
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()], [(1, "recover"), (2, "ready")])
 
+    def test_later_milestone_keeps_blocked_and_stop_parked_diagnostics(self):
+        self.worker = agent(self.root, max_attempts=1)
+        self.loop = self.make_loop()
+        co = self.loop.coordinator
+        for number, (case, state, reason) in enumerate((
+                ("blocked", "blocked", "Last run blocked: Need a decision"),
+                ("human", "parked", "Stop label"),
+                ("attempts", "blocked", "Attempt limit exhausted"),
+                ("cleanup", "blocked", "Previous cleanup was unconfirmed")), start=1):
+            with self.subTest(case=case):
+                self.add(issue(number, milestone=20))
+                lease = co.claim(co.plan(self.github.item(number), self.worker, ()))
+                co.update(lease, state="running", started=True)
+                if case in {"blocked", "human"}:
+                    co.report(lease, "blocked", "Need a decision", action="Maintainer: decide how to proceed.")
+                    co.release(lease, "blocked", "Need a decision")
+                else:
+                    co.release(lease, "retry", "Retry later")
+                if case == "human":
+                    self.github.change(number, labels=frozenset({"ready", "needs-human"}))
+                elif case == "cleanup":
+                    co.update(lease, cleanup="unconfirmed")
+                _, targeted = self.loop.item_plans(number)
+                expected = next(targeted)
+                self.assertEqual(expected.state, state)
+                self.assertTrue(expected.reason.startswith(reason), expected.reason)
+                row = next(row for row in status_rows(self.loop) if row["number"] == number)
+                self.assertEqual((row["state"], row["reason"]), (expected.state, expected.reason))
+                self.assertEqual(plan_group(row), "Needs attention")
+                claiming = next(p for p in self.loop.iter_plans(claiming=True) if p.item.number == number)
+                self.assertEqual((claiming.state, claiming.reason), (expected.state, expected.reason))
+        self.assertIsNone(self.choice())
+
     def test_unreadable_milestones_stop_selection(self):
         self.add(issue(1, milestone=10), pr(2, body="Unrelated"))
         with patch.object(self.github, "open_milestones", side_effect=AgentError("Unreadable milestones")), \

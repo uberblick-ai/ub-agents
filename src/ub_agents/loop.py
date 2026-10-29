@@ -450,7 +450,7 @@ class Loop:
         eligible = False
         for plan in plans:
             if (active is not None and plan.item.kind == "issue"
-                    and plan.state not in {"owned", "recover"} and plan.milestone != active):
+                    and plan.state == "ready" and plan.milestone != active):
                 plan = replace(plan, state="parked", runtime=None,
                                reason=f"Waiting for active milestone #{active}", approval_gate=None)
             elif approve is not None:

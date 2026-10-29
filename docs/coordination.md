@@ -79,7 +79,8 @@ need `ub-agents retry`.
    next new issue at equal or higher priority. Dependency waits never hold it back.
 3. New issues must pass the [dependency gate](configuration.md#queue), checked
    during planning, again at claim time and before approval parking. Milestones choose among
-   eligible issues; `strict-gate` parks issues outside the current milestone.
+   eligible issues; `strict-gate` parks otherwise-ready issues outside the current
+   milestone, preserving blocked and parked issues' own reasons.
 4. Milestone modes rank open milestones by title (`order` and `gate` count only those with open items). With
    `ignore`, milestones play no part. In `order` mode they break priority ties for
    new issues; issues without a listed milestone rank last within their priority.
