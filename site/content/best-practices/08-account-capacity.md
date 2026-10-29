@@ -2,6 +2,8 @@
 
 One GitHub account supports **up to ten launchers**, counted across every machine and repository using it. For many short runs, put launchers beyond **about seven on a second account**.
 
+Give the second account the same repository write access, log in with it on the extra launchers' machines, and add it to `launchers` if the repository sets that list, for example `launchers: [acme-agent, acme-agent-2]`. See [Launcher accounts](/docs/configuration/launchers.html).
+
 ## Why the account matters
 
 GitHub allows about **5,000 REST requests/hour per user**, shared by every token of that user, including agents' own `gh` calls. Separate tokens don't add quota. See [GitHub's rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#primary-rate-limit-for-authenticated-users).
