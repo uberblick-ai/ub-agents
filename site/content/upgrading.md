@@ -1,6 +1,6 @@
 # Upgrading
 
-A running launcher picks up configuration and instruction changes by itself, but keeps the ub-agents version it started with. To upgrade, stop it, upgrade and start it again. Read the [release notes](https://github.com/uberblick-ai/ub-agents/releases) first: if a release says launchers must be upgraded together, stop every launcher before upgrading any.
+A running launcher picks up configuration and instruction changes by itself, but keeps the ub-agents version it started with. To upgrade, stop it, upgrade and start it again. Most releases let you upgrade and restart launchers one at a time. Check the [release notes](https://github.com/uberblick-ai/ub-agents/releases) before upgrading: they say when every launcher must be stopped and upgraded together because of a coordination record-format change or a new config key that older launchers reject.
 
 ```sh
 brew update && brew upgrade ub-agents
