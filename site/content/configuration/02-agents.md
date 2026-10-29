@@ -91,6 +91,8 @@ pull requests, it uses the accepted outcome for the current head. A different
 effort alone does not count. A successful source release or outcome recovery must
 back the outcome; invalid provenance or a started, unfinished source handoff blocks.
 
+For opencode, the provider prefix is ignored when comparing models: `opencode:openai/gpt-6.1-sol` shares a model with `codex:gpt-6.1-sol:high`. Two opencode runtimes share a CLI and are never independent.
+
 ```yaml
 runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.1-sol:high"]
 different-runtime-from: implementer

@@ -7,6 +7,9 @@ between roles with labels. To use it, start at
 **[agents.uberblick.ai](https://agents.uberblick.ai)**. This README is for working
 on ub-agents itself.
 
+Built-in runtimes are Claude Code, Codex and opencode, including local models through
+Ollama. See [runtimes](https://agents.uberblick.ai/docs/configuration/runtimes.html).
+
 `ub-agents launch` running this repository's own loop:
 
 ```text

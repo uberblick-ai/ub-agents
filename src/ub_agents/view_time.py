@@ -28,7 +28,7 @@ def runtime_pauses(data, now):
     values = data.get('runtime_pauses')
     if not isinstance(values, dict):
         return {}
-    return {cli: end for cli in ('claude', 'codex') if (end := deadline(values.get(cli), now)) is not None}
+    return {cli: end for cli in ('claude', 'codex', 'opencode') if (end := deadline(values.get(cli), now)) is not None}
 
 
 def plan_pauses(plan, pauses):

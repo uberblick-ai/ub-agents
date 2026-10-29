@@ -115,7 +115,7 @@ def instruction_text(root, path, where):
         raise InstructionError(f"{where} is unreadable: {path}: {exc}") from exc
 
 
-CLIS = ("codex", "claude")
+CLIS = ("codex", "claude", "opencode")
 UPDATE_CLIS = (*CLIS, "gh", "ub")
 
 
@@ -123,15 +123,38 @@ UPDATE_CLIS = (*CLIS, "gh", "ub")
 class Runtime:
     cli: str
     model: str
-    effort: str
+    effort: str = ""
+
+    @classmethod
+    def parse(cls, spec):
+        cli, _, model = spec.partition(":")
+        if cli == "opencode":
+            provider, separator, identifier = model.partition("/")
+            if not separator or not provider.strip() or not identifier.strip():
+                raise AgentError("runtime must be opencode:provider/model")
+            return cls(cli, model)
+        parts = spec.split(":")
+        if len(parts) != 3 or not all(parts):
+            raise AgentError("runtime must be cli:model:effort")
+        if cli not in CLIS:
+            raise AgentError(f"runtime cli must be one of {', '.join(CLIS)}")
+        return cls(*parts)
 
     @property
     def name(self):
+        if self.cli == "opencode":
+            return f"{self.cli}:{self.model}"
         return f"{self.cli}:{self.model}:{self.effort}"
 
+    @property
+    def local(self):
+        return self.cli == "opencode" and self.model.startswith("ollama/")
+
     def different_from(self, other):
-        # Effort alone never establishes independent execution; the CLI implies the provider.
-        return self.cli != other.cli and self.model != other.model
+        # A provider prefix must not hide the same model behind a different CLI.
+        def model(runtime):
+            return runtime.model.split("/", 1)[1] if runtime.cli == "opencode" else runtime.model
+        return self.cli != other.cli and model(self) != model(other)
 
 
 @dataclass(frozen=True)
@@ -416,13 +439,10 @@ def _parse_config(data, root, *, planned=()):
             health_check = (str(root / health_check[0]),) + health_check[1:]
         runtimes = []
         for spec in strings(item["runtime"], f"{name} runtime") if "runtime" in item else ():
-            parts = spec.split(":")
-            if len(parts) != 3 or not all(parts):
-                raise AgentError(f"{name}: runtime must be cli:model:effort")
-            cli, model, effort = parts
-            if cli not in CLIS:
-                raise AgentError(f"{name}: runtime cli must be one of {', '.join(CLIS)}")
-            runtimes.append(Runtime(cli, model, effort))
+            try:
+                runtimes.append(Runtime.parse(spec))
+            except AgentError as exc:
+                raise AgentError(f"{name}: {exc}") from exc
         # Retain the configured path, including symlinks, for validation on each run.
         instruction = (root / string(item["instructions"], f"{name} instructions")
                        if "instructions" in item else None)
@@ -555,7 +575,7 @@ def validate_runtime_args(arguments, clis, name, *, key=None):
         for placeholder in re.findall(r"\{[a-zA-Z0-9_-]+\}", arg):
             if placeholder not in {"{scratch}", "{report_command}"}:
                 raise AgentError(f"{prefix}unknown {label} placeholder {placeholder}")
-    # Provenance records cli:model:effort and independence checks trust it; sessions start fresh.
+    # Independence checks trust recorded models; sessions start fresh.
     forbidden = {"--model", "-m", "--effort", "--resume", "-r", "resume", "--continue",
                  "model", "model_provider", "model_reasoning_effort"}
     if "codex" in clis:
@@ -567,5 +587,11 @@ def validate_runtime_args(arguments, clis, name, *, key=None):
         if any(arg.split("=", 1)[0] == "--output-format" for arg in arguments):
             raise AgentError(f"{prefix}{label} must not set --output-format; "
                              "the launcher requires stream-json for Claude process.log")
+    if "opencode" in clis:
+        forbidden.update({"--variant", "--format", "--session", "-s", "--fork", "-c"})
+        if any(re.match(r"^-[msc].+", arg) for arg in arguments):
+            raise AgentError(f"{prefix}{label} must not change the model, variant, format or session")
+        if any(arg.replace("--no-", "--", 1).split("=", 1)[0] in forbidden for arg in arguments):
+            raise AgentError(f"{prefix}{label} must not change the model, variant, format or session")
     if any(arg.removeprefix("--config=").split("=", 1)[0] in forbidden for arg in arguments):
         raise AgentError(f"{prefix}{label} must not change the model, effort or session")

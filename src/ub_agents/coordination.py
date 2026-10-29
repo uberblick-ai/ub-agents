@@ -249,7 +249,7 @@ class Coordinator:
         paused = {}
         for runtime in eligible:
             if (self.runtime_available or shutil.which)(runtime.cli):
-                pause = self.runtime_paused(runtime.cli)
+                pause = None if runtime.local else self.runtime_paused(runtime.cli)
                 if pause:
                     paused[runtime.cli] = pause
                     continue
@@ -286,10 +286,9 @@ class Coordinator:
         if not self.released_success(origin, source):
             raise AgentError("Candidate provenance has no successfully released source lease")
         try:
-            cli, model, effort = lease["runtime"].split(":")
-        except ValueError as exc:
+            return Runtime.parse(lease["runtime"])
+        except AgentError as exc:
             raise AgentError("Candidate runtime provenance is incomplete") from exc
-        return Runtime(cli, model, effort)
 
     def handoff_pending(self, report):
         # A copied marker may lag acceptance or rejection on the source item.

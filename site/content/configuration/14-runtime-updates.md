@@ -1,11 +1,12 @@
 # Runtime updates
 
-Keeps Claude Code, Codex, the GitHub CLI (`gh`) and Uberblick (`ub`) up to date, once a day, between runs. Off unless you turn it on; leaving out a CLI runs no updater for it.
+Keeps Claude Code, Codex, opencode, the GitHub CLI (`gh`) and Uberblick (`ub`) up to date, once a day, between runs. Off unless you turn it on; leaving out a CLI runs no updater for it.
 
 ```yaml
 runtime-updates:
   claude: auto
   codex: auto
+  opencode: auto
   gh: auto
   ub: auto
   timeout-seconds: 300
@@ -19,6 +20,8 @@ Detects how the CLI was installed and uses its own updater: native installer, np
 claude: auto
 ```
 
+For opencode, auto supports global npm installs of `opencode-ai` (`npm install -g opencode-ai@latest`) and the Homebrew `opencode` formula (`brew upgrade --formula opencode`). Installer-script and other unknown installs are skipped with a note; configure a custom command for those.
+
 ## Your own command
 
 For other installs, give the command that updates only that CLI.
@@ -26,6 +29,8 @@ For other installs, give the command that updates only that CLI.
 ```yaml
 codex:
   command: [mise, upgrade, codex]
+opencode:
+  command: [mise, upgrade, opencode]
 gh:
   command: [mise, upgrade, gh]
 ub:
@@ -44,7 +49,7 @@ claude: off
 
 ## Shared
 
-Launchers on one machine share one daily check per installation, across projects, so turning updates off in one project doesn't stop another from updating the same CLI. Claude Code and Codex are checked only when an agent uses them; `gh` whenever it's configured. `ub` is checked when it would find `.uberblick.json` in the project root or an ancestor, regardless of the agent runtime. Without a workspace file, a configured `ub` policy reports an unused skip.
+Launchers on one machine share one daily check per installation, across projects, so turning updates off in one project doesn't stop another from updating the same CLI. Claude Code, Codex and opencode are checked only when an agent uses them; `gh` whenever it's configured. `ub` is checked when it would find `.uberblick.json` in the project root or an ancestor, regardless of the agent runtime. Without a workspace file, a configured `ub` policy reports an unused skip.
 
 Updates wait until no run or queue check is using the CLI. Every run in an Uberblick project reserves an installed `ub` through execution and cleanup, even with updates off, so the next run starts a fresh MCP server after an update. A missing `ub` does not hold runs unless an earlier update left it unusable. If an update leaves `ub` unusable, new runs in Uberblick projects wait until it works again; an unusable `gh` holds every project's new runs.
 

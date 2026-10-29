@@ -17,6 +17,7 @@ import stat
 from .log_format import (ClaudeFormatter, CodexFormatter, Entry, MAX_RECORD, record_notice,
                          entry, inert, raw_entry, shorten, skipped_entry, with_elapsed)
 from .log_json import BoundedJSON
+from .opencode_logs import OpencodeFormatter
 
 MAX_ENTRIES = 200
 READ_BUDGET = 32 * 1024
@@ -63,7 +64,8 @@ class LogReader:
         self.path = Path(path).absolute()
         self.runtime = runtime
         self.clock = clock or (lambda: datetime.now(timezone.utc))
-        self.formatter = CodexFormatter() if runtime == "codex" else ClaudeFormatter()
+        self.formatter = (OpencodeFormatter() if runtime == "opencode" else
+                          CodexFormatter() if runtime == "codex" else ClaudeFormatter())
         self.entries = deque(maxlen=MAX_ENTRIES)
         self.refs = deque(maxlen=MAX_ENTRIES)
         self.total_entries = 0
@@ -128,7 +130,7 @@ class LogReader:
         trailing = b""
         kind = self.raw_kind
         boundary = self.runtime == 'codex' and kind and kind.startswith('partial ')
-        if (oversized and self.runtime in ('claude', 'codex') and not kind and
+        if (oversized and self.runtime in ('claude', 'codex', 'opencode') and not kind and
                 raw.lstrip().startswith(b'{')):
             self.record_json = BoundedJSON()
             self.record_json.feed(raw)
@@ -152,7 +154,7 @@ class LogReader:
             "partial raw record (page boundary); full record in raw file")
         value = (skipped_entry(raw, self.capture, kind) if skipped else
                  raw_entry(raw, self.capture, kind) if kind else
-                 self.formatter.decode(raw, self.capture) if self.runtime in ("claude", "codex") else
+                 self.formatter.decode(raw, self.capture) if self.runtime in ("claude", "codex", "opencode") else
                  raw_entry(raw, self.capture))
         claude_span = self.runtime == 'claude' and kind and kind.startswith('oversized ')
         if self.record_json is not None or boundary or claude_span:

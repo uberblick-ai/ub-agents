@@ -38,6 +38,6 @@ Yes. Open a pull request and add `needs-review`. The loop reviews it, fixes it a
 
 ## Which agents does it run?
 
-Claude Code, Codex, or any command. Each role picks its own CLI and model, and can list alternatives for when one is unavailable. See [Runtimes](/docs/configuration/runtimes.html).
+Claude Code, Codex, opencode (including local models through Ollama), or any command. Each role picks its own CLI and model, and can list alternatives for when one is unavailable. See [Runtimes](/docs/configuration/runtimes.html).
 
 We plan to support more runtimes out of the box. [Open an issue](https://github.com/uberblick-ai/ub-agents/issues/new) to tell us which one you need, and we'll look into it.

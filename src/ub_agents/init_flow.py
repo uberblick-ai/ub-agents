@@ -8,7 +8,7 @@ import subprocess
 from rich.text import Text
 
 from . import __version__
-from .doctor import public
+from .doctor import opencode_models, public
 from .errors import AgentError
 from .execution import git
 from .github import REPOSITORY
@@ -22,7 +22,8 @@ from .init_tailoring import TITLE as TAILOR_TITLE, command as tailoring_command
 from .labels import configured_labels
 from .uberblick import WORKSPACE_FILE, workspace_binding
 
-RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", "codex:gpt-6.1-sol:high")}
+RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", "codex:gpt-6.1-sol:high"),
+            "opencode": ("opencode", "")}
 PRIORITIES = "prio:urgent, prio:high, prio:medium, prio:low"
 WORKFLOW_GUIDE = "https://agents.uberblick.ai/docs/configuration/"
 UPDATES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtime-updates"
@@ -216,12 +217,23 @@ class Flow:
         values = {name: self.runtime if self.runtime and name == preferred else RUNTIMES[name][1] for name in clis}
         options = []
         for name in clis:
-            _, model, effort = (values[name].split(":") + ["", ""])[:3]
+            if name == "opencode":
+                model, effort = values[name].partition(":")[2], ""
+            else:
+                _, model, effort = (values[name].split(":") + ["", ""])[:3]
             state = self.probes.clis.get(name, "not installed") if self.probes else ""
             hint = " · ".join(part for part in (model, effort, state if state == "not installed" else "") if part)
             options.append(Option(name, RUNTIMES.get(name, (name,))[0], hint))
         message = "Which agent runs the loop?"
         cli = self.ask.select(message, options, clis.index(cli), "Model and effort can be changed later in ub-agents.yaml.")
+        if cli == "opencode" and not values[cli]:
+            models = self.probes.models if self.probes else opencode_models(self.doctor, self.path.parent)
+            if not models:
+                raise AgentError("No opencode models available; configure a provider and check opencode models, "
+                                 "or pass --runtime opencode:provider/model")
+            model = self.ask.select("Which opencode model?", [Option(model, model) for model in models])
+            values[cli] = "opencode:" + model
+            self.t.answered("Which opencode model?", model)
         option = next(o for o in options if o.value == cli)
         self.t.step(message, [Text(f"{option.label} · {option.hint}" if option.hint else option.label, style=DIM),
                               Text(f"Great, {option.label} is the default for all agents.", style=DIM),
@@ -231,6 +243,7 @@ class Flow:
     def choose_permissions(self, runtime):
         cli = runtime.split(":", 1)[0]
         grant = ("full access, no sandbox" if cli == "codex" else
+                 "auto-approve requests; configured deny rules still apply" if cli == "opencode" else
                  "edits, git, gh and report commands without asking")
         message = "Let agents work without asking?"
         options = [Option(True, "Yes", grant), Option(False, "No", "set runtime-args later")]

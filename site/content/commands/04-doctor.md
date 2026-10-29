@@ -1,5 +1,7 @@
 # ub-agents doctor
 
+For opencode runtimes, doctor checks that the executable is installed and that `opencode models` lists each configured provider/model ID. Missing models need provider/model configuration in opencode. Offline mode validates runtime strings and arguments without invoking opencode. Opencode MCP configuration is not checked; use `opencode mcp list` yourself.
+
 Run `ub-agents doctor` when a launch fails or you're unsure your setup is complete. It checks your machine, the configuration, GitHub access, labels and agent CLIs, and shows a fix for every problem.
 
 ```sh

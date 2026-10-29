@@ -4,6 +4,22 @@ These captures show `ub-agents init` in a 96-column terminal. The
 [init page](https://agents.uberblick.ai/docs/commands/init.html) explains each
 choice and what init writes.
 
+The runtime step detects Claude Code, Codex and opencode. Selecting opencode asks
+which model to use from `opencode models`, then writes `opencode:provider/model`
+without an effort part. Model tags keep their colons, for example
+`opencode:ollama/qwen3.8:27b-mlx`. Passing that value with `init --runtime` skips
+the model question. Configure the opencode provider and model before setup.
+
+For opencode, **Let agents work without asking?** offers auto approval. Yes writes
+`runtime-args: {opencode: [--auto]}`; No and unattended setup leave it commented.
+Use a version supporting `opencode run --auto` and review its permission rules:
+auto approval allows requests for edits, shell commands (including checks, commits,
+pushes and report commands), and external directories such as scratch and Git
+metadata, while explicit deny rules still apply. See
+[permissions](https://agents.uberblick.ai/docs/configuration/permissions.html#opencode).
+The Uberblick extra currently registers MCP only for Claude Code and Codex;
+opencode MCP setup stays manual.
+
 ## Active question
 
 ```text

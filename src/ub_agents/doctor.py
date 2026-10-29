@@ -31,6 +31,12 @@ AUTH_PROBES = {"codex": ("codex", "login", "status"),
                "claude": ("claude", "auth", "status")}
 
 
+def opencode_models(doctor, root):
+    """One provider/model ID per line; preserve Ollama tags and provider names."""
+    return tuple(dict.fromkeys(line.strip() for line in doctor.probe(("opencode", "models"), cwd=root).splitlines()
+                               if "/" in line and all(line.strip().split("/", 1))))
+
+
 AREAS = {
     "machine": ("python", "platform", "git", "gh", "process-inspection", "local-state", "local-state-ignored"),
     "configuration": ("config", "instructions", "policy-placeholder", "policy-merging",
@@ -41,7 +47,7 @@ AREAS = {
                "github-retrospectives"),
     # "commands" is the existing skip check when configuration is unavailable.
     "runtimes": ("command", "commands", "runtime-permissions", "runtime-executable", "runtime-auth", "runtimes",
-                 "different-runtime-from", "runtime-mcp", "runtime-mcp-config"),
+                 "different-runtime-from", "runtime-model", "runtime-mcp", "runtime-mcp-config"),
 }
 CHECK_AREAS = {id: area for area, ids in AREAS.items() for id in ids}
 
@@ -340,7 +346,7 @@ class Doctor:
                 self.add("command", "skip", reason, agent=agent)
             else:
                 for runtime in agent.runtimes:
-                    for id in ("runtime-executable", "runtime-auth"):
+                    for id in ("runtime-executable", "runtime-model" if runtime.cli == "opencode" else "runtime-auth"):
                         self.add(id, "skip", reason, agent=agent, runtime=runtime)
                 self.add("runtimes", "skip", reason, agent=agent)
             if agent.different_from:
@@ -440,6 +446,7 @@ class Doctor:
 
     def agents(self, config):
         usable = {}
+        models, models_error = None, None
         without_permissions = [agent.name for agent in config.agents
                                if any(not agent.runtime_args_for(runtime) for runtime in agent.runtimes)]
         if without_permissions:
@@ -461,7 +468,16 @@ class Doctor:
                 auth_error = None
                 if installed:
                     try:
-                        self.probe(AUTH_PROBES[runtime.cli])
+                        if runtime.cli == "opencode":
+                            if models is None and models_error is None:
+                                try:
+                                    models = opencode_models(self, config.root)
+                                except AgentError as exc:
+                                    models_error = str(exc)
+                            if models_error or runtime.model not in models:
+                                raise AgentError(models_error or f"opencode models does not list {runtime.model}")
+                        else:
+                            self.probe(AUTH_PROBES[runtime.cli])
                     except AgentError as exc:
                         auth_error = str(exc)
                 alternatives.append((runtime, installed, auth_error))
@@ -476,10 +492,14 @@ class Doctor:
                          required=not available, **kwargs)
                 remedy = None
                 if auth_error:
-                    remedy = (("Run codex login" if runtime.cli == "codex" else "Run claude auth login")
+                    remedy = (("Configure the provider and model in opencode, then check opencode models"
+                               if runtime.cli == "opencode" else
+                               "Run codex login" if runtime.cli == "codex" else "Run claude auth login")
                               + f" or remove {runtime.name} from agent {agent.name}'s runtime")
-                self.add("runtime-auth", "skip" if not installed else unavailable_status if auth_error else "ok",
-                         "executable unavailable" if not installed else auth_error or "auth probe passed",
+                self.add("runtime-model" if runtime.cli == "opencode" else "runtime-auth",
+                         "skip" if not installed else unavailable_status if auth_error else "ok",
+                         "executable unavailable" if not installed else auth_error or (
+                             "model listed by opencode models" if runtime.cli == "opencode" else "auth probe passed"),
                          remedy, required=not available, **kwargs)
             self.add("runtimes", "ok" if available else "fail",
                      f"{len(usable[agent.name])} usable runtime alternative(s)",

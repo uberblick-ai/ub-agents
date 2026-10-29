@@ -34,8 +34,9 @@ class JsonLines:
 
 
 class UsageOutput:
-    def __init__(self, cli, run_dir, usage, env):
+    def __init__(self, cli, run_dir, usage, env, *, model=None):
         self.cli, self.usage = cli, usage
+        self.local = cli == "opencode" and model is not None and model.startswith("ollama/")
         self.log = JsonLines(run_dir / "process.log")
         self.codex_home = Path(env.get("CODEX_HOME") or Path.home() / ".codex")
         self.thread = None
@@ -99,6 +100,25 @@ class UsageOutput:
                 reached = True
             if "resets_at" in event:
                 self.reset_time = event["resets_at"]
+        elif self.cli == "opencode" and not self.local and event.get("type") == "error":
+            error = event.get("error")
+            data = error.get("data") if isinstance(error, dict) else None
+            if isinstance(data, dict):
+                reached = data.get("statusCode") == 429
+                markers = ("rate_limit_exceeded", "usage_limit_exceeded", "rate_limit", "usage_limit")
+                reached = reached or data.get("code") in markers
+                # Some providers report a quota code with a non-429 HTTP status.
+                body = data.get("responseBody")
+                if isinstance(body, str):
+                    try:
+                        body = json.loads(body)
+                    except ValueError:
+                        body = None
+                    detail = body.get("error") if isinstance(body, dict) else None
+                    if isinstance(detail, dict):
+                        reached = reached or any(detail.get(key) in markers for key in ("code", "type"))
+            if isinstance(error, dict):
+                reached = reached or error.get("name") in ("RateLimitError", "UsageLimitError")
         if reached:
             self.reached = True
             self.summary = self.usage.limit(self.cli, self.reset_time)

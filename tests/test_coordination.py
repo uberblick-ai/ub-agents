@@ -287,6 +287,22 @@ class CoordinationTests(unittest.TestCase):
                     self.co.accept(lease, outcome)
                     self.co.release(lease, "success", "Revise requirements")
 
+    def test_opencode_provenance_recovers_tagged_model_and_enforces_independence(self):
+        local = Runtime.parse("opencode:ollama/qwen3.8:27b-mlx")
+        codex = Runtime.parse("codex:gpt-6.1-sol:high")
+        hosted = Runtime.parse("opencode:openai/gpt-6.1-sol")
+        reviewer = agent(self.root, name="checker", command=(), runtimes=(local, codex),
+                         different_from=("preparer",), kind="issue")
+        with patch("ub_agents.coordination.shutil.which", return_value="installed"):
+            lease, _ = self.accepted_runtime_outcome(local, name="preparer")
+            self.assertEqual(lease["runtime"], "opencode:ollama/qwen3.8:27b-mlx")
+            self.assertEqual(self.co.source_runtime(self.github.item(1), "preparer", self.co.history(1)), local)
+            self.assertEqual(self.plan(agent=reviewer).runtime, codex)
+            self.accepted_runtime_outcome(hosted, name="preparer")
+            plan = self.plan(agent=reviewer)
+            self.assertEqual(plan.state, "blocked")
+            self.assertIn("different CLI and model", plan.reason)
+
     def test_issue_ignores_other_items_and_agents_and_unaccepted_newer_outcomes(self):
         codex = Runtime("codex", "model-a", "high")
         claude = Runtime("claude", "model-b", "high")

@@ -73,7 +73,7 @@ class RuntimeUpdateTests(unittest.TestCase):
 
     def npm(self, cli="codex", prefix=None, version="1.0"):
         prefix = prefix or self.root / "npm"
-        package = "@openai/codex" if cli == "codex" else "@anthropic-ai/claude-code"
+        package = {"codex": "@openai/codex", "claude": "@anthropic-ai/claude-code", "opencode": "opencode-ai"}[cli]
         folder = prefix / "lib/node_modules" / package
         target = self.executable(folder / "bin" / (cli + ".js"), version)
         (folder / "package.json").write_text(json.dumps({"name": package, "version": version,
@@ -408,7 +408,8 @@ class RuntimeUpdateTests(unittest.TestCase):
         cases = [("claude", "npm", None, None), ("claude", "brew", "claude-code", "Caskroom"),
                  ("claude", "brew", "claude-code@latest", "Caskroom"),
                  ("codex", "brew", "codex", "Caskroom"), ("codex", "brew", "codex", "Cellar"),
-                 ("codex", "npm", None, None)]
+                 ("codex", "npm", None, None), ("opencode", "npm", None, None),
+                 ("opencode", "brew", "opencode", "Cellar")]
         for cli, method, token, kind in cases:
             with self.subTest(cli=cli, method=method, token=token, kind=kind):
                 self.now += COOLDOWN_SECONDS
@@ -419,11 +420,23 @@ class RuntimeUpdateTests(unittest.TestCase):
                     self.brew(cli, token, kind)
                 self.manager.boundary(self.settings(cli))
                 expected = ([str(self.bin / cli), "update"] if cli == "claude" and method == "npm" else
-                            [str(self.root / "npm/bin/npm"), "install", "-g", "@openai/codex@latest"] if method == "npm" else
+                            [str(self.root / "npm/bin/npm"), "install", "-g",
+                             "opencode-ai@latest" if cli == "opencode" else "@openai/codex@latest"] if method == "npm" else
                             [str(self.root / "brew/bin/brew"), "upgrade", "--cask" if kind == "Caskroom" else "--formula", token])
                 self.assertEqual(self.updates(), [tuple(expected)])
                 if method == "brew":
                     self.assertTrue(all(value == "1" for value in self.brew_envs[-1].values()))
+
+    def test_opencode_unknown_installs_skip_auto_but_accept_a_custom_command_and_off(self):
+        self.executable(self.bin / "opencode")
+        self.manager.boundary(self.settings("opencode"))
+        self.assertEqual(self.updates(), [])
+        self.assertIn("configure runtime-updates.opencode.command", self.lines[-1])
+        self.manager.boundary(self.settings("opencode", policy=("custom-updater", "opencode")))
+        self.assertEqual(self.calls.count(("custom-updater", "opencode")), 1)
+        self.now += COOLDOWN_SECONDS
+        self.manager.boundary(self.settings("opencode", policy="off"))
+        self.assertEqual(self.calls.count(("custom-updater", "opencode")), 1)
 
     def test_wrong_npm_prefix_prerelease_and_nonwritable_install_skipped(self):
         target = self.npm()

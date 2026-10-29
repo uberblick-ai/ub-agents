@@ -32,7 +32,7 @@ comment-only local file changes nothing.
 # ub-agents.local.yaml: keeps the shared runtime and adds a machine-only one
 agents:
   implementer:
-    runtime: [codex:gpt-6.1-sol:high, codex:machine-model:high]
+    runtime: ["codex:gpt-6.1-sol:high", "opencode:ollama/qwen3.8:27b-mlx"]
 ```
 
 Both files need unique string keys. Validation runs on the merged result, and errors
@@ -262,7 +262,7 @@ Each agent has exactly one of `runtime` or `command`.
 | `trigger` | Required label or list | Labels that select the agent, subject to [approvals](approvals.md). |
 | `outcomes` | Required mapping | See [Outcomes and transitions](#outcomes-and-transitions). |
 | `kind` | `issue`, `pr` or `either` (default) | Which items the agent takes. |
-| `runtime` | `cli:model:effort` or list | `cli` is `codex` or `claude`. A list gives alternatives in order. |
+| `runtime` | Runtime string or list | `codex:model:effort`, `claude:model:effort` or `opencode:provider/model`. A list gives alternatives in order. |
 | `instructions` | Path | Required with `runtime`. Relative to the configuration file, inside the project and readable. Reread before each run. |
 | `command` | Argv list | Runs instead of an LLM session. A relative path containing `/` resolves against the configuration's directory. |
 | `worktree` | Boolean, `false` | `true` runs in a private checkout: a same-repository PR's exact head, a fork PR's base branch tip, or a fresh branch for an issue. See [pull requests](approvals.md#pull-requests). |
@@ -373,11 +373,23 @@ The [run prompt](coordination.md#run-prompt) arrives on stdin:
 
 - `codex:MODEL:EFFORT` runs `codex exec --json --model MODEL --config model_reasoning_effort="EFFORT" --config model_reasoning_summary="detailed"`.
 - `claude:MODEL:EFFORT` runs `claude --print --output-format stream-json --verbose --model MODEL --effort EFFORT --thinking-display summarized`.
+- `opencode:PROVIDER/MODEL` runs `opencode run --format json --model PROVIDER/MODEL`.
+
+For opencode, everything after the first `:` is the model ID, including Ollama
+tags such as `opencode:ollama/qwen3.8:27b-mlx`. Both provider and model must be
+nonempty. There is no effort part; provider variants are not configurable through
+ub-agents. Every run starts a fresh session, and ub-agents adds no permission flags.
+The Log pane formats opencode messages, tool calls and reported token usage.
+`doctor` checks installation and whether `opencode models` lists the configured ID;
+it does not probe model inference or opencode MCP configuration.
+
+**Upgrading:** Upgrade every launcher of a project before any machine configures an
+opencode runtime. Older launchers cannot parse its runtime in coordination records.
 
 `process.log` records each CLI's JSON output as is. The launcher reads usage limits
 from it, but only `ub-agents report` sets an outcome.
 
-Top-level `runtime-args` maps `codex` and `claude` to argument lists. Runtime agents
+Top-level `runtime-args` maps `codex`, `claude` and `opencode` to argument lists. Runtime agents
 without their own `runtime-args` inherit it; command agents do not. Each run appends
 only the selected CLI's list. An agent's own `runtime-args` replaces the whole
 mapping: a list applies to every alternative, and a mapping's keys must name CLIs in
@@ -389,6 +401,14 @@ because the launcher may read the session file for usage limits. Codex's `-c` is
 allowed for other settings in the `codex` entry. A shared list must satisfy every
 listed CLI's rules.
 
+Opencode arguments must not set the model (`--model`, `-m`), variant (`--variant`),
+output format (`--format`), or session continuation (`--continue`, `-c`, `--session`,
+`-s`, `--resume`, `--fork`). Tagged model IDs belong in `runtime`.
+
+For `different-runtime-from`, opencode's provider prefix is ignored when comparing
+models. `opencode:openai/gpt-6.1-sol` and `codex:gpt-6.1-sol:high` share a model and
+are not independent. Two opencode runtimes share a CLI and are never independent.
+
 ### Runtime usage pauses
 
 Explained on the website: [Runtimes](https://agents.uberblick.ai/docs/configuration/runtimes.html#usage-limits).
@@ -399,6 +419,9 @@ away, pauses for 15 minutes. Pauses live in memory, per launcher; a restart clea
 them. Claude limits come from a rejected `rate_limit_event`, `error: rate_limit` or
 `api_error_status: 429`. Codex limits come from limit snapshots or
 `usage_limit_exceeded`, or the run's own session file under `$CODEX_HOME/sessions/`.
+Opencode pauses only for an explicit usage/rate-limit error marker or an API error
+with status 429; ordinary provider, connection and tool failures do not pause it.
+Ollama runtimes never cause a pause and remain eligible during a hosted opencode pause.
 A run that ends at a limit without an outcome is released as `retry`, with no attempt
 charged. Alternatives skip paused CLIs; an item with all runtimes paused stays
 `waiting`.
@@ -410,6 +433,7 @@ Explained on the website: [Runtime updates](https://agents.uberblick.ai/docs/con
 ```yaml
 runtime-updates:
   claude: auto
+  opencode: auto
   codex:
     command: [mise, upgrade, codex]
   gh: auto
@@ -419,10 +443,10 @@ runtime-updates:
 
 | Key | Type and default | Rules |
 |---|---|---|
-| `claude`, `codex`, `gh`, `ub` | `auto`, `off` (default) or `{command: [...]}` | A command runs as argv without a shell, in the launcher's environment, and resolves like `command`. It must not start with `sudo`, `su`, `doas` or `pkexec`, and should update only that CLI. |
+| `claude`, `codex`, `opencode`, `gh`, `ub` | `auto`, `off` (default) or `{command: [...]}` | A command runs as argv without a shell, in the launcher's environment, and resolves like `command`. It must not start with `sudo`, `su`, `doas` or `pkexec`, and should update only that CLI. |
 | `timeout-seconds` | Number, `300` | Positive, at most 3600. |
 
-Without `runtime-updates`, nothing runs. Claude Code and Codex are checked only when an
+Without `runtime-updates`, nothing runs. Claude Code, Codex and opencode are checked only when an
 agent's `runtime` uses them; `gh` whenever its policy is not `off`. `ub` is checked
 when it would find `.uberblick.json` in the project root or an ancestor, regardless
 of the agent runtime. Without that file, a configured `ub` policy reports an unused
@@ -434,6 +458,8 @@ skip. `auto` supports:
 | Claude Homebrew cask | `brew upgrade --cask claude-code` (or `claude-code@latest`) |
 | Codex npm global | `npm install -g @openai/codex@latest`, with the npm that owns that prefix |
 | Codex Homebrew cask or formula | `brew upgrade --cask codex` or `--formula codex` |
+| Opencode npm global | `npm install -g opencode-ai@latest`, with the npm that owns that prefix |
+| Opencode Homebrew formula | `brew upgrade --formula opencode` |
 | GitHub CLI Homebrew formula | `brew upgrade --formula gh` |
 | Uberblick Homebrew formula (`uberblick`) | `brew upgrade --formula uberblick` |
 
@@ -448,7 +474,7 @@ other formulas, casks, system packages, shims and unknown installs need
 Checks run between runs, never during one. Each completed check prints one line and
 starts a 24-hour cooldown; skips start none. npm, Homebrew and command updates wait
 until no tracked run uses the installation. Only runs started by ub-agents are
-tracked, so an update can replace files under a Claude or Codex session you started
+tracked, so an update can replace files under a Claude, Codex or opencode session you started
 yourself. Every run in an Uberblick project reserves an installed `ub` through
 execution and cleanup, even with updates off, so its MCP server finishes before
 an update and new runs start on the new binary. Missing `ub` does not hold runs
@@ -486,6 +512,14 @@ For Codex, `[--sandbox, danger-full-access]` grants full access, including commi
 pushes. Its default `workspace-write` sandbox cannot commit in private worktrees,
 whose Git metadata lives in the main checkout; [Codex sandbox options](design/codex-sandbox.md)
 records tested alternatives.
+
+For opencode, `[--auto]` approves headless permission requests while preserving
+explicit deny rules. Init offers this as its starter permission entry. Review
+opencode's own permission rules for edits, checks, commits, pushes and access to
+Git metadata, the launcher report command and scratch outside the worktree. Without
+auto approval, allow those operations in `opencode.json`; requests that would ask
+are rejected in headless mode. Use a version with `run --auto` support and see
+[opencode permissions](https://opencode.ai/en/docs/permissions/).
 
 For Claude, write report, read and retrospective rules with the placeholder, such as
 `"Bash({report_command} report *)"`. Claude matches the command text including its

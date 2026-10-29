@@ -185,6 +185,11 @@ class MCPChecks:
                 continue
             expected = self.expected(agent)
             for runtime in agent.runtimes:
+                if runtime.cli == "opencode":
+                    doctor.add("runtime-mcp", "skip", "opencode MCP configuration is not checked",
+                               "Check project MCP servers with opencode mcp list", required=False,
+                               agent=agent, runtime=runtime)
+                    continue
                 arguments = agent.runtime_args_for(runtime)
                 self.errors = set()
                 if offline:

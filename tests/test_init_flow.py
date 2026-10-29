@@ -125,6 +125,35 @@ class FlowTests(unittest.TestCase):
             code = flow.run()
         return code, flat(self.output.getvalue())
 
+    def test_opencode_detects_models_and_writes_selected_tag_and_permissions(self):
+        self.installed = {'git', 'gh', 'ps', 'opencode'}
+        self.runner.responses[('opencode', 'models')] = 'ollama/small:latest\nollama/qwen3.8:27b-mlx\n'
+        code, text = self.run_flow(Script(which_opencode='ollama/qwen3.8:27b-mlx'))
+        self.assertEqual(code, 0)
+        self.assertIn('opencode models available', text)
+        self.assertIn('Which opencode model?', self.script.asked)
+        self.assertEqual([o.value for o in self.script.options['Which opencode model?']],
+                         ['ollama/small:latest', 'ollama/qwen3.8:27b-mlx'])
+        config = load_config(self.path)
+        self.assertTrue(all(a.runtimes[0].name == 'opencode:ollama/qwen3.8:27b-mlx' for a in config.agents))
+        self.assertEqual(config.agents[0].runtime_args, {'opencode': ('--auto',)})
+        self.assertIn('explicit deny rules still apply', self.path.read_text())
+
+    def test_explicit_opencode_runtime_skips_model_question_in_unattended_init(self):
+        code, text = self.run_flow(runtime='opencode:ollama/qwen3.8:27b-mlx', unattended=True)
+        self.assertEqual(code, 0)
+        self.assertNotIn('Which opencode model?', self.script.asked)
+        self.assertIn('opencode:ollama/qwen3.8:27b-mlx', self.path.read_text())
+        self.assertIn('#   opencode: [--auto]', self.path.read_text())
+        self.assertEqual(load_config(self.path).agents[0].runtime_args, ())
+
+    def test_opencode_selection_without_models_names_a_remedy_and_writes_nothing(self):
+        self.installed = {'git', 'gh', 'ps', 'opencode'}
+        self.runner.responses[('opencode', 'models')] = ''
+        with self.assertRaisesRegex(AgentError, 'configure a provider and check opencode models'):
+            self.run_flow(Script(which_agent='opencode'))
+        self.assertFalse(self.path.exists())
+
     def test_defaults_ask_only_the_decisions_and_write_setup(self):
         code, text = self.run_flow()
         self.assertEqual(code, 0)
@@ -228,7 +257,7 @@ class FlowTests(unittest.TestCase):
         code, text = self.run_flow()
         self.assertEqual(code, 0)
         options = self.script.options['Which agent runs the loop?']
-        self.assertEqual([o.value for o in options], ['claude', 'codex'])
+        self.assertEqual([o.value for o in options], ['claude', 'codex', 'opencode'])
         self.assertIn('Claude Code · claude-opus-5-5 · high', text)
         self.assertIn('"claude:claude-opus-5-5:high"', self.path.read_text())
 
@@ -432,7 +461,7 @@ class FlowTests(unittest.TestCase):
         code, text = self.run_flow(Script(Which_agent='claude', Extras=['uberblick'], Set_up='later'))
         self.assertEqual(code, 0)
         self.assertEqual(load_config(self.path).runtime_updates.policies,
-                         {'claude': 'auto', 'codex': 'off', 'gh': 'auto', 'ub': 'auto'})
+                         {'claude': 'auto', 'codex': 'off', 'opencode': 'off', 'gh': 'auto', 'ub': 'auto'})
         self.assertIn('ub also updates once a day between runs (Homebrew only)', text)
 
     def test_uberblick_extra_leaves_declined_updates_off(self):
@@ -480,7 +509,7 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('Checks · fix these before launch; setup can continue', text)
         self.assertIn('✗ GitHub gh is not logged in Run gh auth login', text)
-        self.assertIn('Neither claude nor codex is installed', text)
+        self.assertIn('No agent CLI is installed', text)
         self.assertNotIn('secret', text)
         self.assertIn('Policy Approvals: unresolved (repository visibility is unreadable); see '
                       'https://agents.uberblick.ai/docs/configuration/approvals', text)

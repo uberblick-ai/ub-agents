@@ -23,6 +23,8 @@ def command_for(agent, runtime, scratch, report_command=None):
         command = ["codex", "exec", "--json", "--model", runtime.model,
                    "--config", f"model_reasoning_effort={json.dumps(runtime.effort)}",
                    "--config", 'model_reasoning_summary="detailed"']
+    elif runtime.cli == "opencode":
+        command = ["opencode", "run", "--format", "json", "--model", runtime.model]
     else:
         command = ["claude", "--print", "--output-format", "stream-json", "--verbose",
                    "--model", runtime.model, "--effort", runtime.effort,

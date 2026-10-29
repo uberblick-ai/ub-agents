@@ -346,7 +346,8 @@ cleanup:
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         self.assertIsNone(self.load(base).runtime_updates)
         settings = self.load(base + "runtime-updates:\n  claude: auto\n  codex: off\n  timeout-seconds: 30\n")
-        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "off", "gh": "off", "ub": "off"})
+        self.assertEqual(settings.runtime_updates.policies,
+                         {"claude": "auto", "codex": "off", "opencode": "off", "gh": "off", "ub": "off"})
         self.assertEqual(settings.runtime_updates.timeout_seconds, 30)
         settings = self.load(base + "runtime-updates: {codex: {command: [./update, codex]}}\n")
         self.assertEqual(settings.runtime_updates.policies["codex"], (str(self.root.resolve() / "update"), "codex"))
@@ -365,7 +366,8 @@ cleanup:
 
     def test_repository_opts_into_daily_runtime_updates(self):
         settings = load_config(Path(__file__).resolve().parents[1] / "ub-agents.yaml")
-        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "auto", "gh": "off", "ub": "off"})
+        self.assertEqual(settings.runtime_updates.policies,
+                         {"claude": "auto", "codex": "auto", "opencode": "off", "gh": "off", "ub": "off"})
 
     def test_launchers_and_runtime_updates_can_be_configured_together(self):
         settings = self.load('''repository: org/project
@@ -378,7 +380,8 @@ agents:
     outcomes: {done: {}}
 ''')
         self.assertEqual(settings.launchers, ("bot-a", "Alice"))
-        self.assertEqual(settings.runtime_updates.policies, {"claude": "off", "codex": "auto", "gh": "off", "ub": "off"})
+        self.assertEqual(settings.runtime_updates.policies,
+                         {"claude": "off", "codex": "auto", "opencode": "off", "gh": "off", "ub": "off"})
         self.assertEqual(settings.runtime_updates.timeout_seconds, 30)
 
     def test_gh_runtime_updates_policies_and_check(self):

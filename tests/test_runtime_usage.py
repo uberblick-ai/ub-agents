@@ -271,6 +271,50 @@ class UsageLoopTests(unittest.TestCase):
             return 1
         return run
 
+    def test_opencode_run_receives_the_prompt_and_records_the_full_runtime(self):
+        runtime = Runtime.parse("opencode:ollama/qwen3.8:27b-mlx")
+        self.loop.config = config(self.root, replace(self.role, runtimes=(runtime,)))
+
+        def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
+            self.assertEqual(command[1:], ["run", "--format", "json", "--model", "ollama/qwen3.8:27b-mlx"])
+            self.assertEqual(Path(command[0]).name, "installed")  # Reserved fake executable.
+            self.assertIn('You are the project-configured agent worker.', prompt)
+            self.assertIn('"body": "Acceptance criteria"', prompt)
+            context = json.loads((run_dir / "context.json").read_text())
+            self.assertEqual(context["assignment"], 1)
+            lease = self.loop.coordinator.history(1)[0]
+            self.assertEqual(lease["runtime"], runtime.name)
+            self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
+            return 0
+
+        with patch("ub_agents.loop.supervise", side_effect=run) as process:
+            self.assertTrue(self.loop.tick())
+        process.assert_called_once()
+        lease = self.loop.coordinator.history(1)[0]
+        self.assertEqual(lease["result"], "success", lease["summary"])
+
+    def test_opencode_limits_pause_only_hosted_runs_and_other_errors_charge_attempts(self):
+        for model, status, reached in (("openai/model", 429, True), ("ollama/model:tag", 429, False),
+                                        ("openai/model", 500, False)):
+            with self.subTest(model=model, status=status):
+                role = replace(self.role, runtimes=(Runtime("opencode", model),))
+                self.loop.config = config(self.root, role)
+                self.github.store.clear()
+                self.loop.usage.reset()
+                event = {"type": "error", "error": {"name": "APIError", "data": {"statusCode": status}}}
+                with patch("ub_agents.loop.supervise", side_effect=self.runtime(event)):
+                    self.assertTrue(self.loop.tick())
+                history = self.loop.coordinator.history(1)
+                self.assertEqual(bool(self.loop.usage.paused("opencode")), reached)
+                self.assertEqual(bool(attempts(history, role.name, self.now)), not reached)
+
+    def test_local_opencode_remains_eligible_during_a_hosted_pause(self):
+        hosted, local = Runtime("opencode", "openai/model"), Runtime("opencode", "ollama/model:tag")
+        self.loop.config = config(self.root, replace(self.role, runtimes=(hosted, local)))
+        self.loop.usage.limit("opencode")
+        plan = self.loop.plans()[0]
+        self.assertEqual((plan.state, plan.runtime), ("ready", local))
+
     def test_each_cli_limit_retries_without_attempt_or_backoff_until_margin(self):
         for cli, make in (("claude", claude), ("codex", codex)):
             with self.subTest(cli=cli):

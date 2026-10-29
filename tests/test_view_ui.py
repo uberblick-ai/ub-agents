@@ -58,6 +58,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(line.plain.endswith('q quit'), line.plain)
             app.narrow = False
             self.assertIn('claude paused for 1d 4h · codex paused for 35m', app.footer(220, '').plain)
+            app.session.data['runtime_pauses'] = {'opencode': (now + timedelta(minutes=15)).isoformat()}
+            self.assertIn('opencode paused for 15m', app.footer(220, '').plain)
 
     async def test_runtime_pause_snapshot_reopens_attached_and_counts_down_without_publication(self):
         now = datetime.now(timezone.utc).replace(microsecond=0)

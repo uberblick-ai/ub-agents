@@ -9,12 +9,13 @@ Run `ub-agents init` from the root of a clean checkout of your project. It check
 │  ✓ Machine    Python 3.13 · git · gh · ps
 │  ✓ GitHub     operator · org/project · labels writable
 │  ✓ Checkout   main · clean · in sync with origin
-│  ✓ Agents     claude logged in · codex not installed
+│  ✓ Agents     claude logged in · codex not installed · opencode not installed
 │
 ◆  Which agent runs the loop?
 │  Model and effort can be changed later in ub-agents.yaml.
 │  ● Claude Code (claude-opus-5-5 · high)
 │  ○ Codex
+│  ○ opencode
 └
 ```
 
@@ -23,6 +24,10 @@ Run `ub-agents init` from the root of a clean checkout of your project. It check
 The wizard asks which agent CLI runs the loop, whether agents may work without asking (for Codex, [full access without a sandbox](/docs/configuration/permissions.html#codex)), whether to keep the CLIs and `gh` up to date, who answers the agents' questions, and which extras you want: priority labels, [retrospective boards](/docs/best-practices/retrospectives.html), Uberblick and tailoring the loop policy (selected by default). Then it shows every change for you to confirm.
 
 With updates enabled, selecting the Uberblick extra also writes `runtime-updates.ub: auto` for Homebrew updates of `ub`.
+
+The runtime step detects Claude Code, Codex and opencode. Choosing opencode asks you to pick an ID from `opencode models`, then writes `opencode:provider/model`, preserving tags such as `ollama/qwen3.8:27b-mlx`. `--runtime opencode:ollama/qwen3.8:27b-mlx` skips the model question. Configure the provider and its models in opencode first.
+
+For opencode, the permissions question enables `[--auto]`: permission requests for edits, commits, pushes and access outside the worktree are approved, while explicit deny rules still apply. See [opencode permissions](/docs/configuration/permissions.html#opencode). The Uberblick extra does not register opencode MCP configuration; configure that in opencode yourself.
 
 ## What you get
 

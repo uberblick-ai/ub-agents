@@ -32,3 +32,4 @@ class ViewTimeTests(unittest.TestCase):
                      {'state': 'ready', 'paused_clis': ['claude']}, {'state': 'waiting', 'paused_clis': 'claude'}):
             self.assertEqual(plan_pauses(plan, pauses), {})
         self.assertEqual(runtime_pauses({'runtime_pauses': {'claude': until.isoformat()}}, until), {})
+        self.assertEqual(runtime_pauses({'runtime_pauses': {'opencode': until.isoformat()}}, now), {'opencode': until})
