@@ -326,11 +326,14 @@ class FakeGitHub:
         return milestones[0] if milestones else None
 
     def milestone_order(self):
+        return tuple(self.open_milestones())
+
+    def open_milestones(self, *, include_empty=False):
         active = [(m["title"], m["number"]) for m in self.milestones
-                  if m["state"] == "open" and any(i.state == "open" and i.milestone == m["number"]
-                                                 for i in self.items.values())]
+                  if m["state"] == "open" and (include_empty or
+                      any(i.state == "open" and i.milestone == m["number"] for i in self.items.values()))]
         ordered = sorted(active, key=lambda milestone: milestone_title_key(milestone[0]))
-        return tuple(number for _, number in ordered)
+        return {number: title for title, number in ordered}
 
     def item(self, number, kind=None):
         return self.items[number]

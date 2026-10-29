@@ -74,13 +74,14 @@ need `ub-agents retry`.
    only leave uncleared feedback out of their input.
 2. Effective priority comes from the item's own label, from its open local
    dependents, or for a PR from the open issues it closes. Priority ranks first,
-   except for new issues in milestone `gate` mode. Existing work (PR assignments,
+   except for new issues in milestone `gate` or `strict-gate` mode. Existing work (PR assignments,
    owned runs and recovery) keeps priority order, ignores milestones and precedes the
    next new issue at equal or higher priority. Dependency waits never hold it back.
 3. New issues must pass the [dependency gate](configuration.md#queue), checked
    during planning, again at claim time and before approval parking. Milestones choose among
-   eligible issues; they never make an issue ineligible.
-4. Milestone modes rank open milestones that have open items, by title. With
+   eligible issues; `strict-gate` parks otherwise-ready issues outside the current
+   milestone, preserving blocked and parked issues' own reasons.
+4. Milestone modes rank open milestones by title (`order` and `gate` count only those with open items). With
    `ignore`, milestones play no part. In `order` mode they break priority ties for
    new issues; issues without a listed milestone rank last within their priority.
    In `gate` mode the earliest milestone with an issue eligible for this launcher
@@ -88,7 +89,9 @@ need `ub-agents retry`.
    list (such as a closed one), can go ahead of that milestone's next eligible
    issue, and only at strictly higher priority. Issues in later milestones never
    jump ahead. When no listed milestone has eligible work here, the remaining issues
-   run in priority order.
+   run in priority order. `strict-gate` starts only issues whose effective milestone
+   is the earliest open one, with no priority exception, and waits until a person
+   closes it even with no eligible issues; without open milestones it uses priority order.
 5. Creation time, then item number, break remaining ties. Agents on the same item
    keep configuration order.
 

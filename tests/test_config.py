@@ -752,6 +752,7 @@ agents:
                 self.assertEqual(self.load(base + extra).queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  milestones: order\n").queue, Queue("order"))
         self.assertEqual(self.load(base + "queue:\n  milestones: gate\n").queue, Queue("gate"))
+        self.assertEqual(self.load(base + "queue:\n  milestones: strict-gate\n").queue, Queue("strict-gate"))
         self.assertEqual(self.load(base + "queue:\n  dependencies: wait\n").queue, Queue())
         self.assertEqual(self.load(base + "queue:\n  dependencies: ignore\n").queue,
                          Queue(dependencies="ignore"))
@@ -760,7 +761,7 @@ agents:
         self.assertEqual(self.load(base + extra + "    default: normal\n").queue.priority.default, "normal")
 
     def test_offline_doctor_accepts_all_milestone_modes_and_names_them_for_invalid_values(self):
-        for mode in ("gate", "order", "prefer", "ignore", "oldest"):
+        for mode in ("strict-gate", "gate", "order", "prefer", "ignore", "oldest"):
             with self.subTest(mode=mode):
                 self.path.write_text(f"repository: org/project\nqueue:\n  milestones: {mode}\nagents:\n"
                                      "  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n")
@@ -768,7 +769,7 @@ agents:
                     self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]),
                                      1 if mode in {"oldest", "prefer"} else 0)
                 if mode in {"oldest", "prefer"}:
-                    self.assertIn("milestones must be gate, order or ignore", errors.getvalue())
+                    self.assertIn("milestones must be strict-gate, gate, order or ignore", errors.getvalue())
 
     def test_queue_validation_through_offline_doctor(self):
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"

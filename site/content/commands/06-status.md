@@ -41,6 +41,8 @@ Leftover owner records do not count as running launchers.
 
 Assignments have one object per row: `number`, `kind`, `agent`, `state`, `reason`, `attempts`, `priority`, `priority_inherited_from`, `priority_from_issue`, `milestone`, `milestone_inherited_from`, `open_blockers`, `runtime`, `candidate_sha`, `result`, `lease`, `process`, `process_reason`, `outcome`, `notice_url`, `waiting_since`, `stop_labels` and `attention_reason`. Unknown values are `null`. The top level adds `milestone_skips` when `gate` passed over a milestone, and `explanation` when `status NUMBER` has no row for the item.
 
+With `strict-gate`, issues outside the current milestone are parked with `Waiting for active milestone #N`. When no issue in the current milestone can start, text status names the milestone waiting to close, and JSON adds that text as `milestone_wait`.
+
 [Queue](/docs/configuration/queue.html) explains the order and milestones, and [unstick an item](/docs/guides/stuck-items.html) what to do next.
 
 ```text

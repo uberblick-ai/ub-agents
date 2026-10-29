@@ -228,7 +228,7 @@ queue:
 |---|---|---|
 | `priority.labels` | List | Nonempty, unique labels, highest first. |
 | `priority.default` | Label, optional | Must be one of `labels`. |
-| `milestones` | `ignore` (default), `order` or `gate` | How milestones rank new issues. |
+| `milestones` | `ignore` (default), `order`, `gate` or `strict-gate` | How milestones rank new issues. |
 | `dependencies` | `wait` (default) or `ignore` | Whether issues wait for open blockers. |
 
 Without `queue`, items have equal priority, milestones are ignored and dependency waits
@@ -241,13 +241,15 @@ Each reference in its body needs a closing keyword, such as `Closes #21`. Closed
 and other repositories do not count.
 
 **Milestones.** `order` and `gate` use the open milestones with open issues or PRs,
-by title, comparing numbers as numbers. An unreadable milestone list or item stops
+by title, comparing numbers as numbers. `strict-gate` counts all open milestones,
+including those with no open items, and starts only issues from the earliest until
+a person closes it. An unreadable milestone list or item stops
 selection. With `ignore`, milestones are not read.
 
 **Dependencies.** With `wait`, a new issue start waits while any GitHub "blocked by"
 issue is open, including in other repositories, rechecked before claiming. An open
 local blocker inherits the highest priority of its open local dependents, directly or
-transitively, and in `order` and `gate` their earliest milestone. Cycles share what
+transitively, and in `order`, `gate` and `strict-gate` their earliest milestone. Cycles share what
 they reach. A failed dependency read stops selection. With `ignore`, links are not
 read. PR work, recovery and started runs never wait for blockers.
 
