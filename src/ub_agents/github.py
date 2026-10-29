@@ -620,6 +620,9 @@ class GitHub:
         return milestones[0] if milestones else None
 
     def milestone_order(self):
+        return tuple(self.open_milestones())
+
+    def open_milestones(self, *, include_empty=False):
         endpoint = f"{self.prefix}/milestones?state=open&per_page=100"
         data = self.request(endpoint, paginate=True)
         active = []
@@ -631,12 +634,12 @@ class GitHub:
                         or type(raw["open_issues"]) is not int or raw["open_issues"] < 0):
                     raise ValueError("invalid milestone fields")
                 # GitHub's milestone count includes open issues and pull requests.
-                if raw["state"] == "open" and raw["open_issues"]:
+                if raw["state"] == "open" and (include_empty or raw["open_issues"]):
                     active.append((raw["title"], raw["number"]))
             except (KeyError, TypeError, ValueError, AgentError) as exc:
                 raise GitHubError("GET", endpoint, "Unreadable GitHub milestone") from exc
         ordered = sorted(active, key=lambda milestone: milestone_title_key(milestone[0]))
-        return tuple(number for _, number in ordered)
+        return {number: title for title, number in ordered}
 
     def dependency_graph(self):
         """List open issues and their links together for cold queue ranking."""

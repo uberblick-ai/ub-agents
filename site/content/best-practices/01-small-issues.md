@@ -25,3 +25,4 @@ queue:
 ```
 
 Use `order` instead if higher priority should always win.
+When each milestone ends with a release, use `strict-gate` to wait until a person publishes the release and closes the milestone.

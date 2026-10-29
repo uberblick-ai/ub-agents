@@ -404,6 +404,8 @@ def run(args):
             result = {"assignments": rows, "launcher": launcher}
             if loop.milestone_skips:
                 result["milestone_skips"] = list(loop.milestone_skips)
+            if loop.milestone_wait:
+                result["milestone_wait"] = loop.milestone_wait
             if explanation is not None:
                 result["explanation"] = explanation
             print(json.dumps(result, indent=2))
@@ -430,7 +432,7 @@ def run(args):
                 elif row["priority_from_issue"] is not None:
                     priority += f" (from closed issue #{row['priority_from_issue']})"
                 milestone = ""
-                if config.queue.milestones in {"order", "gate"} and row["kind"] == "issue":
+                if config.queue.milestones in {"order", "gate", "strict-gate"} and row["kind"] == "issue":
                     value = f"#{row['milestone']}" if row["milestone"] is not None else "none"
                     milestone = f" · milestone {value}"
                     if row["milestone_inherited_from"] is not None:
@@ -446,6 +448,8 @@ def run(args):
             print(launcher_summary(launcher))
             for line in loop.milestone_skips:
                 print(line)
+            if loop.milestone_wait:
+                print(loop.milestone_wait)
         return
     for _, error in repository_checks(config):
         if error is not None:

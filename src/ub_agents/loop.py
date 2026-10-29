@@ -120,6 +120,7 @@ class Loop:
         self._launcher_reason = None
         self._has_trigger = None
         self.milestone_skips = ()
+        self.milestone_wait = None
         self._maintaining = False
         self._github_waiting = False
         self._github_reservation = None
@@ -438,10 +439,28 @@ class Loop:
             yield evaluate(plan)
 
     def _milestone_diagnostics(self, plans=(), milestones=()):
+        self.milestone_wait = None
         eligible = {p.milestone for p in plans if p.item.kind == "issue" and p.state == "ready"}
         first = next((rank for rank, number in enumerate(milestones) if number in eligible), len(milestones))
         self.milestone_skips = tuple(f"Milestone #{number} has no eligible issues for this launcher"
                                      for number in milestones[:first])
+
+    def _strict_milestone_plans(self, plans, milestones, *, approve=None):
+        active = next(iter(milestones), None)
+        eligible = False
+        for plan in plans:
+            if (active is not None and plan.item.kind == "issue"
+                    and plan.state not in {"owned", "recover"} and plan.milestone != active):
+                plan = replace(plan, state="parked", runtime=None,
+                               reason=f"Waiting for active milestone #{active}", approval_gate=None)
+            elif approve is not None:
+                plan = approve(plan)
+            if plan.item.kind == "issue" and plan.state == "ready":
+                eligible = True
+            yield plan
+        if active is not None and not eligible:
+            self.milestone_wait = (f"Waiting for milestone #{active} ({milestones[active]}) "
+                                   "to close: no eligible issues")
 
     def queue_agents(self):
         return tuple(a for a in self.config.agents
@@ -480,7 +499,9 @@ class Loop:
             if number not in items:
                 item = github.item(number)
                 items[item.number] = item
-        milestones = (self.github.milestone_order()
+        strict = self.config.queue.milestones == "strict-gate"
+        milestone_titles = self.github.open_milestones(include_empty=True) if strict else {}
+        milestones = (tuple(milestone_titles) if strict else self.github.milestone_order()
                       if self.config.queue.milestones in {"order", "gate"} else ())
         milestone_ranks = {number: rank for rank, number in enumerate(milestones)}
         priority = self.config.queue.priority
@@ -511,13 +532,15 @@ class Loop:
         if not candidates:
             if self.config.queue.milestones == "gate":
                 self._milestone_diagnostics(milestones=milestones)
+            elif strict:
+                yield from self._strict_milestone_plans((), milestone_titles)
             if self._launch_agent is not None:
                 self._observe("queue_idle", self.idle_message())
             return
         # Priority or milestone inheritance requires the open local graph.
         # Otherwise read only a reached item's links for dependency waits.
         inherit = (self.config.queue.dependencies == "wait" and
-                   (priority.labels or self.config.queue.milestones in {"order", "gate"}))
+                   (priority.labels or self.config.queue.milestones in {"order", "gate", "strict-gate"}))
         if inherit:
             github.prepare_dependencies(items.values())
         dependencies = Dependencies(github, items.values(), priority, milestones) if inherit else None
@@ -542,7 +565,7 @@ class Loop:
                                   priority_from_issue=from_issue, milestone=milestone,
                                   milestone_source=milestone_source,
                                   milestone_rank=milestone_ranks.get(milestone, len(milestones))))
-        milestone_plans = [] if self.config.queue.milestones == "gate" else None
+        milestone_plans = [] if self.config.queue.milestones in {"gate", "strict-gate"} else None
         lazy_approval = claiming and milestone_plans is not None
         approval_errors = {} if lazy_approval else None
         batch_input = (not lazy_approval and self.approvals == "on"
@@ -612,10 +635,15 @@ class Loop:
                                    approval_gate=approval if plan.history_read and approval.gate else None)
                 return plan
 
-            if not lazy_approval:
-                self._milestone_diagnostics(milestone_plans, milestones)
-            for observed in self._milestone_plans(milestone_plans, milestones,
-                                                  approve=approve if lazy_approval else None):
+            if strict:
+                ordered = self._strict_milestone_plans(milestone_plans, milestone_titles,
+                                                       approve=approve if lazy_approval else None)
+            else:
+                if not lazy_approval:
+                    self._milestone_diagnostics(milestone_plans, milestones)
+                ordered = self._milestone_plans(milestone_plans, milestones,
+                                                 approve=approve if lazy_approval else None)
+            for observed in ordered:
                 yield self._observe_plan(observed, github)
         if self._launch_agent is not None:
             self._observe("queue_idle", self.idle_message())

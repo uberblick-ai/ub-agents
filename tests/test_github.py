@@ -524,6 +524,12 @@ class GitHubTests(unittest.TestCase):
                             for row in first_page + examples + [closed]))
         fake.milestones = first_page + examples + [empty, closed]
         self.assertEqual(fake.milestone_order(), expected)
+        with patch.object(GitHub, "request", return_value=first_page + examples + [empty, closed]) as request:
+            milestones = GitHub("org/project").open_milestones(include_empty=True)
+        request.assert_called_once_with("repos/org/project/milestones?state=open&per_page=100", paginate=True)
+        self.assertEqual(tuple(milestones), expected[:2] + (empty["number"],) + expected[2:])
+        self.assertEqual(milestones[empty["number"]], empty["title"])
+        self.assertEqual(fake.open_milestones(include_empty=True), milestones)
 
     def test_no_incomplete_milestones_returns_empty_order(self):
         for rows in ([], [{"number": 1, "title": "v1", "created_at": iso(1), "state": "open", "open_issues": 0}],
@@ -543,8 +549,9 @@ class GitHubTests(unittest.TestCase):
                     valid | {"state": "unknown"}):
             with self.subTest(row=row):
                 github = GitHub("org/project")
-                with patch.object(github, "request", return_value=[row]), self.assertRaises(AgentError):
-                    github.milestone_order()
+                for read in (github.milestone_order, lambda: github.open_milestones(include_empty=True)):
+                    with patch.object(github, "request", return_value=[row]), self.assertRaises(AgentError):
+                        read()
 
     def test_pr_draft_state_is_required_and_preserved(self):
         raw = {"number": 2, "title": "Candidate", "body": "Closes #1", "labels": [],
