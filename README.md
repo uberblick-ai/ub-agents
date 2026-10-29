@@ -48,6 +48,7 @@ ub-agents · running assignment                                                 
 
 - [Installation](https://agents.uberblick.ai/docs/installation.html) and [upgrading](https://agents.uberblick.ai/docs/upgrading.html)
 - [How the loop works](https://agents.uberblick.ai/docs/how-the-loop-works.html)
+- [Security model](https://agents.uberblick.ai/docs/security-model.html)
 - [Commands](https://agents.uberblick.ai/docs/commands/index.html) and [configuration](https://agents.uberblick.ai/docs/configuration/index.html)
 - [Add more launchers](https://agents.uberblick.ai/docs/guides/add-a-launcher.html), [unstick an item](https://agents.uberblick.ai/docs/guides/stuck-items.html), [add a step](https://agents.uberblick.ai/docs/guides/add-a-step.html) and [run on a public repository](https://agents.uberblick.ai/docs/guides/public-repos.html)
 

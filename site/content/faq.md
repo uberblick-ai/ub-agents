@@ -18,7 +18,7 @@ No. A launcher runs on your own machine, and the queue lives on GitHub as labels
 
 ## What can agents do on my machine?
 
-Only what you grant. ub-agents adds no permission flags, so the CLIs start in their default headless modes. You give each role what it needs in [Permissions](/docs/configuration/permissions.html). Agents also act with the launcher's GitHub account, so give them [their own account](/docs/best-practices/launcher-account.html) with write access only.
+Agents run as the launcher user, with the CLI permissions you grant, the launcher's environment and its GitHub account. A worktree does not isolate them from the rest of the machine. See [Security model](/docs/security-model.html) for what agents can reach and how to limit it.
 
 ## Is it safe on a public repository?
 
