@@ -12,6 +12,7 @@ import time
 import uuid
 
 from .errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
+from .log_times import LogTimes
 from .report_command import launcher_report_command
 from .state import user_state_directory
 
@@ -343,11 +344,13 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
         except OSError as exc:
             raise RetryableExecutionError(f"Cannot start configured execution: {exc}") from exc
         deadline = time.monotonic() + timeout
+        times = LogTimes(run_dir / "process.times", log)
         try:
             (run_dir / "pid").write_text(str(process.pid))
             if process_started is not None:
                 process_started(process.pid)
             while process.poll() is None:
+                times.observe()
                 if observe_output is not None:
                     observe_output()
                 if stop_event.is_set():
@@ -366,6 +369,10 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
                 stop_event.wait(min(0.2, max(0, deadline - time.monotonic())))
             return process.returncode
         finally:
-            stop_group(process)
+            try:
+                stop_group(process)
+            finally:
+                times.observe()
+                times.close()
             if observe_output is not None:
                 observe_output(final=True)

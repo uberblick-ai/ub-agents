@@ -169,8 +169,12 @@ Formatted mode turns Claude and Codex output into a compact transcript:
  07:43:32 ✓ run finished
 ```
 
-- Times are local. `~07:42:30` marks when the view captured a line that carried
-  no time, which is always the case for Codex.
+- Times are local. `~07:42:30` marks a supervisor observation time for a record
+  without its own timestamp (including Codex), or the view's capture time for
+  live output. These times remain available when reopening a run, paging back
+  with `h` or reloading with `g`. Runs supervised before timing was recorded have
+  no historical times. Producer timestamps appear without `~`; continuation
+  lines keep a blank time column.
 - `▸` is a tool call with its main argument. Edit and Write add green `+N` and
   red `-N` line counts. `· 1m` is a Claude call's elapsed time.
 - Assistant text is italic. A dim `·` line is a thinking summary, an unfamiliar
