@@ -97,7 +97,7 @@ To change settings on one machine only, put them in `ub-agents.local.yaml` next 
 # ub-agents.local.yaml
 agents:
   implementer:
-    runtime: ["codex:gpt-6.1-sol:high", "claude:claude-opus-5-5:high"]
+    runtime: ["codex:gpt-6.1-sol:high", "opencode:ollama/qwen3.8:27b-mlx"]
 ```
 
 An agent that only exists in the local file needs a full definition. `launch` picks up changes before its next run.

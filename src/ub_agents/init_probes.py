@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 from .approvals import Roles, resolve_policy
-from .doctor import AUTH_PROBES, Doctor
+from .doctor import AUTH_PROBES, Doctor, opencode_models
 from .errors import AgentError
 from .execution import parse_process_table, repository_checks
 from .github import repository_visibility
@@ -14,7 +14,7 @@ from .refresh import control_checkout_checks
 
 ACCOUNT_GUIDANCE = "https://agents.uberblick.ai/docs/best-practices/launcher-account"
 PROBE_ERRORS = (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired)
-CLIS = ("claude", "codex")
+CLIS = ("claude", "codex", "opencode")
 
 
 @dataclass
@@ -35,6 +35,7 @@ class Probes:
         self.doctor = doctor or Doctor(github=github)
         self.groups = []
         self.clis = {}
+        self.models = ()
         self.existing_labels = None
         self.discussions = None
         self.discussions_off = False
@@ -126,14 +127,19 @@ class Probes:
                 self.clis[cli] = "not installed"
                 continue
             try:
-                d.probe(AUTH_PROBES[cli])
-                self.clis[cli] = "logged in"
+                if cli == "opencode":
+                    self.models = opencode_models(d, config.root)
+                    self.clis[cli] = "models available" if self.models else "no models configured"
+                else:
+                    d.probe(AUTH_PROBES[cli])
+                    self.clis[cli] = "logged in"
             except PROBE_ERRORS:
-                self.clis[cli] = "not logged in"
+                self.clis[cli] = "models unavailable" if cli == "opencode" else "not logged in"
         if all(state == "not installed" for state in self.clis.values()):
-            d.add("runtime", "fail", "Neither claude nor codex is installed", "Install Claude Code or Codex before launch")
-        elif "logged in" not in self.clis.values():
-            d.add("runtime-login", "warn", "No agent CLI is logged in", "Run claude auth login or codex login before launch",
+            d.add("runtime", "fail", "No agent CLI is installed", "Install Claude Code, Codex or opencode before launch")
+        elif not {"logged in", "models available"}.intersection(self.clis.values()):
+            d.add("runtime-login", "warn", "No agent CLI is ready",
+                  "Run claude auth login or codex login, or configure models in opencode before launch",
                   required=False)
         self.collect("Agents", [f"{cli} {state}" for cli, state in self.clis.items()])
         self.ub = bool(d.which("ub"))
@@ -193,6 +199,8 @@ class Probes:
         """The CLI to preselect: an explicit choice, else the logged-in one (Codex when both)."""
         if preferred:
             return preferred
-        ready = [cli for cli in ("codex", "claude") if self.clis.get(cli) == "logged in"]
-        installed = [cli for cli in ("codex", "claude") if self.clis.get(cli, "not installed") != "not installed"]
+        ready = [cli for cli in ("codex", "claude", "opencode")
+                 if self.clis.get(cli) in {"logged in", "models available"}]
+        installed = [cli for cli in ("codex", "claude", "opencode")
+                     if self.clis.get(cli, "not installed") != "not installed"]
         return (ready or installed or ["codex"])[0]

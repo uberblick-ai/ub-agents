@@ -209,7 +209,7 @@ def own_run(root, value):
 
 
 def runtime_type(value):
-    # Leases publish cli:model:effort, while the #112 adapter takes the CLI.
+    # Leases publish a full runtime specification; log adapters take the CLI.
     return text(value, 'unknown').split(':', 1)[0]
 
 

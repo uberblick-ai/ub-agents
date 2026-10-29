@@ -55,7 +55,7 @@ def parser():
                                          "ub-agents init --create-priorities",
                                          "ub-agents init --repository org/project --runtime claude:claude-opus-5-5:high"))
     init.add_argument("--repository", metavar="OWNER/REPO", help="repository owner/name (otherwise inferred through gh)")
-    init.add_argument("--runtime", help="starter cli:model:effort (default: the detected CLI)")
+    init.add_argument("--runtime", help="cli:model:effort or opencode:provider/model")
     init.add_argument("--use-defaults", action="store_true", help="unattended starters, even in a terminal")
     init.add_argument("--create-boards", action="store_true", help="add missing retrospective boards to an existing setup")
     init.add_argument("--create-priorities", action="store_true", help="add priority labels to an existing setup")

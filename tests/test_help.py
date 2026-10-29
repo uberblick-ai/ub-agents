@@ -45,7 +45,7 @@ missing entries to ub-agents.yaml.
 
 options:
   --repository OWNER/REPO  # repository owner/name (otherwise inferred through gh)
-  --runtime RUNTIME        # starter cli:model:effort (default: the detected CLI)
+  --runtime RUNTIME        # cli:model:effort or opencode:provider/model
   --use-defaults           # unattended starters, even in a terminal
   --create-boards          # add missing retrospective boards to an existing setup
   --create-priorities      # add priority labels to an existing setup

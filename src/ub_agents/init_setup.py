@@ -16,7 +16,8 @@ ROLES = ("issue-preparer", "issue-reviewer", "implementer", "reviewer", "integra
 
 
 def runtime_guidance(root, cli, *, fallback=False):
-    names = ("AGENTS.md",) if cli == "codex" else ("CLAUDE.md", ".claude/CLAUDE.md", "AGENTS.md")
+    names = (("AGENTS.md", "CLAUDE.md") if cli == "opencode" else
+             ("AGENTS.md",) if cli == "codex" else ("CLAUDE.md", ".claude/CLAUDE.md", "AGENTS.md"))
     if fallback and cli == "codex":
         names += ("CLAUDE.md", ".claude/CLAUDE.md")
     return next((root / name for name in names if (root / name).is_file()), None)
@@ -42,6 +43,8 @@ def infer_repository(root):
 
 
 def permission_args(cli, retrospectives=False):
+    if cli == "opencode":
+        return ["--auto"]
     if cli == "claude":
         return ["--permission-mode", "acceptEdits", "--permission-prompts", "none", "--allowedTools",
                 "Bash(git *)", "Bash(gh *)", "Bash({report_command} report *)",
@@ -123,6 +126,10 @@ def make_plan(path, repository, choices):
         "your-org/your-project", json.dumps(repository)).replace(
         '"codex:gpt-6.1-sol:high"', json.dumps(choices.runtime))
     cli = choices.runtime.split(":", 1)[0]
+    if cli == "opencode":
+        content = content.replace("#   codex: [--sandbox, danger-full-access]", "#   opencode: [--auto]").replace(
+            "Grants full access without the Codex sandbox",
+            "Auto-approves opencode requests (including edits, git/gh and scratch access); explicit deny rules still apply")
     if cli == "claude":
         content = content.replace("#   codex: [--sandbox, danger-full-access]",
                                   "#   claude: " + json.dumps(permission_args(
@@ -330,6 +337,8 @@ def next_steps(plan):
              "Review checks and merge authority in .agents/ub_agents.md; we set up sensible defaults you can adjust over time"]
     if cli == "claude":
         steps.append(f"Add your test command to --allowedTools in {name}")
+    if cli == "opencode":
+        steps.append("Review opencode permission rules; --auto approves requests but preserves explicit deny rules")
     steps.append("Open a PR with these files and merge it")
     return steps
 
@@ -348,6 +357,7 @@ def guidance_summary(plan):
                 messages.append(f'Warning: {cli} loads no project guidance; checks are documented in {name}. '
                                 f'Add a one-line AGENTS.md: "Read {name}".')
             else:
-                names = "AGENTS.md" if cli == "codex" else "CLAUDE.md, .claude/CLAUDE.md or AGENTS.md"
+                names = ("AGENTS.md or CLAUDE.md" if cli == "opencode" else
+                         "AGENTS.md" if cli == "codex" else "CLAUDE.md, .claude/CLAUDE.md or AGENTS.md")
                 messages.append(f"Warning: {cli} loads no project guidance; add {names} so agents know how to build and test.")
     return messages

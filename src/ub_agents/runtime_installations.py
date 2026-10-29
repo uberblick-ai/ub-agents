@@ -7,6 +7,8 @@ from pathlib import Path
 import shutil
 import sys
 
+NPM_PACKAGES = {"codex": "@openai/codex", "claude": "@anthropic-ai/claude-code", "opencode": "opencode-ai"}
+
 
 @dataclass(frozen=True)
 class Installation:
@@ -37,17 +39,17 @@ def installation(cli, which=None, home=None):
         if parent.parent.name in {"Caskroom", "Cellar"}:
             kind = "homebrew-cask" if parent.parent.name == "Caskroom" else "homebrew-formula"
             allowed = {"claude": {"claude-code", "claude-code@latest"},
-                       "codex": {"codex"}, "gh": {"gh"}, "ub": {"uberblick"}}.get(cli, set())
+                       "codex": {"codex"}, "opencode": {"opencode"},
+                       "gh": {"gh"}, "ub": {"uberblick"}}.get(cli, set())
             owns = (cli == "codex" or cli == "claude" and kind == "homebrew-cask"
-                    or cli in {"gh", "ub"} and kind == "homebrew-formula")
+                    or cli in {"gh", "ub", "opencode"} and kind == "homebrew-formula")
             if parent.name in allowed and owns:
                 return Installation(executable, str(parent), kind, parent.parent.parent,
                                     parent, parent.name)
-        if (cli in {"claude", "codex"} and parent.parent.name in {"@openai", "@anthropic-ai"}
-                and parent.parent.parent.name == "node_modules"):
-            modules = parent.parent.parent
-            expected = "@openai/codex" if cli == "codex" else "@anthropic-ai/claude-code"
-            if modules.parent.name != "lib" or f"{parent.parent.name}/{parent.name}" != expected:
+        expected = NPM_PACKAGES.get(cli)
+        if expected and (parent.parent.name == "node_modules" or parent.parent.parent.name == "node_modules"):
+            modules = parent.parent if parent.parent.name == "node_modules" else parent.parent.parent
+            if modules.parent.name != "lib" or parent.relative_to(modules).as_posix() != expected:
                 continue  # Project-local npm packages are not global installs.
             # npm may temporarily replace package.json while the executable is
             # still present. Its guard identity must not change during that gap.
@@ -135,7 +137,7 @@ def updater(cli, install, policy, run, env, which=None):
         npm = str(candidate) if candidate.is_file() else which("npm")
         if not npm or Path(run([npm, "prefix", "-g"], npm_env).strip()).resolve() != install.prefix.resolve():
             return None, env, "npm owning this global prefix not found; configure runtime-updates command"
-        return [npm, "install", "-g", "@openai/codex@latest"], npm_env, None
+        return [npm, "install", "-g", NPM_PACKAGES[cli] + "@latest"], npm_env, None
     if install.method == "system" and cli != "ub":
         return None, env, "system package installation needs elevated privileges; update it manually"
     return None, env, f"{install.method} installation; configure runtime-updates.{cli}.command argv"

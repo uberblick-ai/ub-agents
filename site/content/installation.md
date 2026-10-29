@@ -6,7 +6,7 @@ Install ub-agents with Homebrew, on macOS or Linux:
 brew install uberblick-ai/tap/ub-agents
 ```
 
-You also need `git`, `gh` logged in to an account with write access to the repository, and the agent CLI you want to run: `claude` or `codex`.
+You also need `git`, `gh` logged in to an account with write access to the repository, and the agent CLI you want to run: `claude`, `codex` or `opencode`.
 
 ## Set up your project
 

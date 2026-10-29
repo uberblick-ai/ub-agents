@@ -51,7 +51,7 @@ see [stale artifact cleanup](configuration.md#stale-artifact-cleanup).
 | `activity` | `state` is `polling`, `waiting` (with `until` and `reason`), `running assignment` or `stopping`. |
 | `queue_agent`, `queue_idle` | Only with `launch --agent`: the selected agent and its latest idle explanation. |
 | `poll_now` | `cooldown_until` and `rate_limit_until` (UTC time or `null`); `waiting: true` when a poll waiter is ready for `r`; `refreshing: true` while an `r`-forced refresh runs during an assignment. |
-| `runtime_pauses` | CLI name (`claude`, `codex`) to its usage-pause end time. Missing or empty means no pause. |
+| `runtime_pauses` | CLI name (`claude`, `codex`, `opencode`) to its usage-pause end time. Missing or empty means no pause. |
 | `assignment` | Current item, kind, title, agent, priority word, run, runtime, attempt, `claimed_at`, lease state and expiry, process state and reason, `process_log` and `context_path`. Recovery adds `recovered_run` and has no log or context. |
 | `latest_pass` | `started_at`, `state` (`partial` or `complete`), `rows` and `eligible_count`, the Eligible count before trimming. Each row is one plan: item, kind, title, agent, `priority` word or `null`, runtime, `failures`, `max_attempts`, state, reason, `paused_clis`, attention details, observation time and, for another launcher, an `owner` with actor, host and run. A partial pass keeps earlier rows until they are replanned. |
 | `outcomes` | This session's recent reports and recovered outcomes: item, kind, title, agent, run, runtime, handoff, supervisor and report results, summary, time, acceptance, transition completion and `human_blocker`. |

@@ -213,7 +213,7 @@ Each GitHub request is bounded to 20 seconds and each Git operation to 120 secon
 `agent-timeout-minutes` bounds only execution; worktree preparation comes first, and
 ownership is checked again before execution starts.
 
-Every lease names the actor, agent, run, configured CLI, model and effort, expiry,
+Every lease names the actor, agent, run, configured CLI, model (and effort for Claude/Codex), expiry,
 attempt and input candidate SHA for a PR. Branches are derived when needed. A changed head, closed item or
 vanished trigger found after setup but before execution counts as a launcher setup
 failure. A stop label found at that point parks the item without changing its count;
@@ -445,6 +445,13 @@ The setting also accepts a nonempty list, such as
 `different-runtime-from: [implementer, reviewer]`. Each identified source excludes
 runtimes that share its CLI or model. If every runtime is excluded, planning blocks
 with `No runtime has a different CLI and model from the candidate author`.
+
+Opencode provenance preserves `opencode:provider/model` exactly, including colons
+in model tags. Comparisons ignore its `provider/` prefix, so
+`opencode:openai/gpt-6.1-sol` shares a model with `codex:gpt-6.1-sol:high`.
+Two opencode runtimes always share a CLI and cannot provide independent review.
+Upgrade every project launcher before configuring opencode; older launchers cannot
+parse this runtime in coordination records.
 
 Without an accepted report from any named agent on the issue or for the current PR
 head, the agent uses only its first configured runtime. If that runtime's CLI is

@@ -1482,7 +1482,7 @@ class Loop:
             if reservation is not None and reservation.executable is not None:
                 command[0] = reservation.executable
             if plan.runtime:
-                usage_output = UsageOutput(plan.runtime.cli, run_dir, self.usage, env)
+                usage_output = UsageOutput(plan.runtime.cli, run_dir, self.usage, env, model=plan.runtime.model)
             def observe_output(final=False):
                 self._poll_updates()
                 if usage_output:

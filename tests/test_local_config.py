@@ -172,7 +172,7 @@ agents:
                 ('unknown: true', 'Unknown configuration keys: unknown'),
                 ('agents: {implementer: {unknown: true}}', 'Unknown agent implementer keys: unknown'),
                 ('queue: {priority: {unknown: true}}', 'Unknown queue priority keys: unknown'),
-                ('agents: {implementer: {runtime: opencode:machine:high}}', 'runtime cli must be one of codex, claude'),
+                ('agents: {implementer: {runtime: opencode:machine:high}}', 'runtime must be opencode:provider/model'),
                 ('agents: {implementer: {runtime: []}}', 'nonempty list'),
                 ('agents: {implementer: {kind: []}}', 'kind must be issue, pr, or either'),
                 ('agents: {implementer: {instructions: missing.md}}', 'does not exist')):
@@ -206,12 +206,13 @@ agents:
 
     def test_local_yaml_preserves_policy_spellings_and_normal_booleans(self):
         self.local.write_text('''approvals: off
-runtime-updates: {codex: off, claude: off, gh: off, ub: off}
+runtime-updates: {codex: off, claude: off, opencode: off, gh: off, ub: off}
 agents: {implementer: {worktree: true}}
 ''')
         effective = load_config(self.path)
         self.assertEqual(effective.approvals, 'off')
-        self.assertEqual(effective.runtime_updates.policies, {'codex': 'off', 'claude': 'off', 'gh': 'off', 'ub': 'off'})
+        self.assertEqual(effective.runtime_updates.policies,
+                         {'codex': 'off', 'claude': 'off', 'opencode': 'off', 'gh': 'off', 'ub': 'off'})
         self.assertIs(effective.agents[0].worktree, True)
         with redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline', '--verbose']), 0)

@@ -1,0 +1,7 @@
+{"type":"step_start","timestamp":1790856000000,"sessionID":"ses_example","part":{"type":"step-start"}}
+{"type":"text","timestamp":1790856001000,"sessionID":"ses_example","part":{"type":"text","text":"I will inspect the file.\nThen update it."}}
+{"type":"tool_use","timestamp":1790856002000,"sessionID":"ses_example","part":{"type":"tool","callID":"call_1","tool":"bash","state":{"status":"completed","input":{"command":"git status --short"},"output":"","title":"Git status"}}}
+{"type":"tool_use","timestamp":1790856003000,"sessionID":"ses_example","part":{"type":"tool","callID":"call_2","tool":"edit","state":{"status":"completed","input":{"filePath":"src/example.py"},"output":"Edit applied"}}}
+{"type":"tool_use","timestamp":1790856004000,"sessionID":"ses_example","part":{"type":"tool","callID":"call_3","tool":"bash","state":{"status":"error","input":{"command":"git push"},"error":"Permission denied"}}}
+{"type":"step_finish","timestamp":1790856005000,"sessionID":"ses_example","part":{"type":"step-finish","reason":"tool-calls","tokens":{"input":1234,"output":42,"reasoning":10,"cache":{"read":100,"write":0}}}}
+{"type":"error","timestamp":1790856006000,"sessionID":"ses_example","error":{"name":"APIError","data":{"message":"Provider unavailable","statusCode":503,"isRetryable":true}}}

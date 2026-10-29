@@ -156,7 +156,7 @@ arriving, and a pill at the bottom shows `⏸ PAUSED` with the unread count. Pre
   read everything.
 - `u` switches between formatted and raw output.
 
-Formatted mode turns Claude and Codex output into a compact transcript:
+Formatted mode turns Claude, Codex and opencode output into a compact transcript:
 
 ```text
           · earlier output skipped · h older
@@ -169,6 +169,7 @@ Formatted mode turns Claude and Codex output into a compact transcript:
  07:43:32 ✓ run finished
 ```
 
+- Opencode step-finish records show reported input, output, reasoning and cache tokens.
 - Times are local. `~07:42:30` marks when the view captured a line that carried
   no time, which is always the case for Codex.
 - `▸` is a tool call with its main argument. Edit and Write add green `+N` and

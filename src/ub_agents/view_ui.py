@@ -1480,7 +1480,7 @@ class View(App):
                 notices.append(f'Unfinished: {log.pending_bytes}B (raw preview)')
             if reading.notice:
                 notices.append(reading.notice)
-            if reading.runtime not in ('claude', 'codex'):
+            if reading.runtime not in ('claude', 'codex', 'opencode'):
                 notices.append(f'{reading.runtime}: plain/raw fallback')
         note = self.query_one('#log_note', Static)
         note.display = bool(notices)
