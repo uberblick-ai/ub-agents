@@ -16,7 +16,7 @@ A loop with its own server, database, queue and webhooks is one more system to h
 
 Agents and models change every few months. Switching shouldn't mean starting over, and one provider's outage or usage limit shouldn't stop your work. So the agent is a setting per role, and a role can list alternatives. Your roles, instructions and policy stay in your repository, and ub-agents is MIT licensed.
 
-Agents use the logins their CLIs already have, so you can use the seats your team pays for instead of API keys. When a seat hits its usage limit, only that CLI pauses until it resets.
+Agents use the logins their CLIs already have: a seat or an API key set in the launcher's environment. Check your provider's terms for unattended use. When a seat hits its usage limit, only that CLI pauses until it resets.
 
 ## Use the machines you have
 

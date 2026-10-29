@@ -10,7 +10,7 @@ When an agent is unsure, it stops with `needs-human` and asks, instead of guessi
 
 ## What does it cost?
 
-ub-agents is free and MIT licensed. Agents run with the logins your Claude Code or Codex CLI already has, so you can use the seats you pay for instead of API keys. Check your provider's terms for unattended use. When a seat reaches its usage limit, only that CLI pauses until the limit resets.
+ub-agents is free and MIT licensed. Agents run with the logins your Claude Code or Codex CLI already has: a seat or an API key set in the launcher's environment. Check your provider's terms for unattended use. When a seat reaches its usage limit, only that CLI pauses until the limit resets.
 
 ## Do I need a server?
 
