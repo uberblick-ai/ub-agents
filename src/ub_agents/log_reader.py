@@ -17,6 +17,7 @@ import stat
 from .log_format import (ClaudeFormatter, CodexFormatter, Entry, MAX_RECORD, record_notice,
                          entry, inert, raw_entry, shorten, skipped_entry, with_elapsed)
 from .log_json import BoundedJSON
+from .log_times import TimeWindow, read_times
 
 MAX_ENTRIES = 200
 READ_BUDGET = 32 * 1024
@@ -71,6 +72,7 @@ class LogReader:
         self.record_start = 0
         self.pending = bytearray()
         self.capture = None
+        self.times = TimeWindow()
         self.raw_kind = None
         self.record_json = None
         self.offset = self.initial_size = self.size = 0
@@ -100,6 +102,7 @@ class LogReader:
         self._tail_start = self.offset > 0
         self.pending.clear()
         self.capture = self.raw_kind = None
+        self.times = TimeWindow()
         self.record_json = None
         self.anchor = b""
         self.formatter.reset()
@@ -180,7 +183,7 @@ class LogReader:
         index = 0
         while index < len(chunk) and self.processed < RECORD_BUDGET:
             if not self.pending and self.raw_kind is None:
-                self.capture = capture
+                self.capture = self.times.capture(self.offset + index, capture)
             newline = chunk.find(b"\n", index)
             end = len(chunk) if newline < 0 else newline
             take = min(end - index, MAX_RECORD - len(self.pending))
@@ -253,7 +256,13 @@ class LogReader:
                     self._tail_start = False
                 stream.seek(self.offset)
                 historical = self.offset < self.initial_size
+                if self.runtime in ("claude", "codex") and self.offset < self.size:
+                    self.times = read_times(self.path.with_suffix(".times"), info, self.offset,
+                                            log_fd=stream.fileno())
+                    self.bytes_read += self.times.bytes_read
                 limit = READ_BUDGET - self.bytes_read
+                if self.times.end is not None:
+                    limit = min(limit, self.times.end - self.offset)
                 if historical:
                     limit = min(limit, self.initial_size - self.offset)
                 chunk = stream.read(limit)

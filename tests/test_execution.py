@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 from ub_agents.config import Runtime, load_config
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership
 from ub_agents.execution import Workspace, command_for, fork_head_ref, git, group_members, supervise
+from ub_agents.log_times import GROWTH, HEADER, read_times
 from tests.support import agent, config, issue, pr, FakeGitHub
 
 
@@ -140,6 +141,44 @@ agents:
         pid = int((self.root / "run" / "pid").read_text())
         self.assertEqual(group_members(pid), [])
         self.assertLess(time.monotonic() - start, 6)
+
+    def test_supervisor_records_growths_and_final_cleanup_output_without_changing_log(self):
+        process = Mock(pid=1234, returncode=0)
+        process.poll.side_effect = [None, None, None, 0]
+        event = threading.Event()
+        path = self.root / "run" / "process.log"
+        def append(raw):
+            with path.open("ab") as stream:
+                stream.write(raw)
+        def start(*args, **kwargs):
+            append(b"first\xff\n" * 10000)
+            return process
+        def wait(_delay):
+            if event.wait.call_count == 2:
+                append(b"second\n")
+        with patch("ub_agents.execution.subprocess.Popen", side_effect=start), \
+                patch("ub_agents.execution.stop_group", side_effect=lambda _process: append(b"last\n")), \
+                patch("ub_agents.log_times.time.time_ns", side_effect=[10**9, 2 * 10**9, 3 * 10**9]), \
+                patch.object(event, "wait", side_effect=wait):
+            self.assertEqual(supervise(["test"], self.root, {}, self.root / "run", 3, event), 0)
+        self.assertEqual(path.read_bytes(), b"first\xff\n" * 10000 + b"second\nlast\n")
+        self.assertEqual(path.with_suffix(".times").stat().st_size, HEADER.size + GROWTH.size * 3)
+        times = read_times(path.with_suffix(".times"), path.stat(), 0)
+        self.assertEqual(times.capture(0), "1970-01-01T00:00:01+00:00")
+        self.assertEqual(times.capture(70000), "1970-01-01T00:00:02+00:00")
+        self.assertEqual(times.capture(70007), "1970-01-01T00:00:03+00:00")
+
+    def test_fast_exit_still_records_final_output_and_unavailable_sidecar_is_optional(self):
+        raw = b"unchanged\xff\n"
+        self.assertEqual(self.run_process("import os; os.write(1, b'unchanged\\xff\\n')"), 0)
+        path = self.root / "run" / "process.log"
+        self.assertEqual(path.read_bytes(), raw)
+        times = read_times(path.with_suffix(".times"), path.stat(), 0)
+        self.assertIsNotNone(times.capture(0))
+        path.with_suffix(".times").unlink()
+        path.with_suffix(".times").mkdir()
+        self.assertEqual(self.run_process("print('still runs')"), 0)
+        self.assertEqual(path.read_bytes(), b"still runs\n")
 
     def test_wall_clock_lease_expiry_ends_the_process(self):
         with self.assertRaisesRegex(LostOwnership, "lease deadline"):

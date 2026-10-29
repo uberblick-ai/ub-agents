@@ -40,6 +40,11 @@ The Runs tab lists every run the launcher knows for the selected item, oldest
 first, including failures and runs by other launchers. It reads private local
 history files without accessing GitHub.
 
+Formatted Claude and Codex logs show local times. A `~` marks when the supervisor
+observed output without a producer timestamp, including output written before
+you opened the view. Earlier runs without recorded timing have no historical
+times; live output uses the view's capture time when needed.
+
 The footer shows usage pauses and launcher activity, such as `claude paused for 1d 4h · next poll 26s`. Outside a terminal, or with `--no-ui`, launch prints plain lines instead. See the [terminal-view reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/terminal-view.md#using-the-view).
 
 ## Before each run

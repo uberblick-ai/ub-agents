@@ -10,6 +10,7 @@ import stat
 
 from .log_format import record_notice, raw_entry, skipped_entry
 from .log_reader import ANCHOR_BYTES, EntryRef, LogReader, MAX_ENTRIES, READ_BUDGET
+from .log_times import TimeWindow, read_times
 
 PAGE_BYTES = READ_BUDGET
 
@@ -73,7 +74,10 @@ class ViewReader(LogReader):
             before = os.fstat(stream.fileno())
             self._validate(stream, before)
             end = min(end, before.st_size)
-            start = max(0, end - PAGE_BYTES)
+            times = (read_times(self.path.with_suffix('.times'), before, max(0, end - 1),
+                                backwards=True, log_fd=stream.fileno())
+                     if self.runtime in ('claude', 'codex') else TimeWindow())
+            start = max(times.start, end - (PAGE_BYTES - times.bytes_read))
             read_start = max(0, start - 1)
             stream.seek(read_start)
             original = stream.read(end - read_start)
@@ -89,6 +93,7 @@ class ViewReader(LogReader):
                 preceding = b'\n'
                 notice = 'Entry limit boundary; h recovers earlier bytes; full raw file available.'
             parser = ViewReader(self.path, self.runtime, attach=False)
+            parser.times = times
             parser.offset = parser.record_start = start
             if start and preceding != b'\n':
                 parser.raw_kind = 'partial raw record (page boundary); full record in raw file'
@@ -108,7 +113,7 @@ class ViewReader(LogReader):
                 kind = 'partial raw record (page end); full record in raw file'
                 project = (skipped_entry if self.runtime == 'claude' and parser.raw_kind and
                            'page boundary' in parser.raw_kind else raw_entry)
-                value = project(bytes(parser.pending), None, kind)
+                value = project(bytes(parser.pending), parser.capture, kind)
                 if self.runtime == 'codex':
                     value = record_notice(value, 'incomplete Codex record omitted')
                 elif (self.runtime == 'claude' and not parser.raw_kind and
