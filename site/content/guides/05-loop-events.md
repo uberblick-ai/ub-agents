@@ -1,6 +1,6 @@
 # Run a command on loop events
 
-The [events hook](/docs/configuration/events.html) runs a command of yours whenever a run starts or finishes. Use it to tell people what the loop is doing outside GitHub, for example in Slack, on a dashboard or in a log.
+The [events hook](/docs/configuration/events.html) runs a command of yours whenever a run starts or finishes. The command can do anything that should follow the loop's progress: post to chat, record run times and outcomes, update a board or dashboard, or start a job in another system. The Slack message at the end of this page is one example.
 
 ## How it works
 
