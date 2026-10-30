@@ -54,9 +54,9 @@ handoff and transition.
 ## Filtering and delivery
 
 Filter in your command: post `started` only when `agent` is `issue-preparer`, or
-`outcome` only when `labels_added` contains `needs-human`. The
-[configuration reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#loop-events-hook)
-includes a Python Slack webhook example.
+`outcome` only when `labels_added` contains `needs-human`.
+[Run a command on loop events](/docs/guides/loop-events.html) walks through a
+complete example.
 
 Hooks run asynchronously, one process at a time per launcher, in event order. A slow,
 missing or failing command only prints an `Events hook:` notice. It cannot change the

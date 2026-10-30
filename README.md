@@ -50,7 +50,7 @@ ub-agents · running assignment                                                 
 - [How the loop works](https://agents.uberblick.ai/docs/how-the-loop-works.html)
 - [Security model](https://agents.uberblick.ai/docs/security-model.html)
 - [Commands](https://agents.uberblick.ai/docs/commands/index.html) and [configuration](https://agents.uberblick.ai/docs/configuration/index.html)
-- [Add more launchers](https://agents.uberblick.ai/docs/guides/add-a-launcher.html), [unstick an item](https://agents.uberblick.ai/docs/guides/stuck-items.html), [add a step](https://agents.uberblick.ai/docs/guides/add-a-step.html) and [run on a public repository](https://agents.uberblick.ai/docs/guides/public-repos.html)
+- [Add more launchers](https://agents.uberblick.ai/docs/guides/add-a-launcher.html), [unstick an item](https://agents.uberblick.ai/docs/guides/stuck-items.html), [add a step](https://agents.uberblick.ai/docs/guides/add-a-step.html), [run on a public repository](https://agents.uberblick.ai/docs/guides/public-repos.html) and [run a command on loop events](https://agents.uberblick.ai/docs/guides/loop-events.html)
 
 ## Contributing
 
