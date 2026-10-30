@@ -17,6 +17,7 @@ class EventHooks:
         self._condition = threading.Condition()
         self._pending = deque()
         self._thread = None
+        self._finished = threading.Event()
         self._closing = False
         self._shutdown_deadline = None
         self._active_timeout = 0
@@ -70,6 +71,12 @@ class EventHooks:
             self._notice(f"cannot queue {event}: {exc}")
 
     def _run(self):
+        try:
+            self._drain()
+        finally:
+            self._finished.set()
+
+    def _drain(self):
         while True:
             with self._condition:
                 self._condition.wait_for(lambda: self._pending or self._closing)
@@ -129,9 +136,12 @@ class EventHooks:
             worker = self._thread
         if worker is not None:
             try:
-                worker.join()
+                self._finished.wait()
             finally:
                 # An interrupt during shutdown still cannot leave an owned hook.
+                # Wait for explicit completion: an interrupted Thread.join can
+                # mark a still-running thread stopped on some Python versions.
                 with self._condition:
                     self._shutdown_deadline = 0
+                self._finished.wait()
                 worker.join()

@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from time import monotonic
+from time import monotonic, sleep
 import unittest
 from unittest.mock import patch
 
@@ -368,6 +368,28 @@ class EventDeliveryTests(unittest.TestCase):
         self.assertLess(monotonic() - before, 2)
         self.assertFalse(self.events._thread.is_alive())
         self.assertTrue(any('queued event discarded' in line for line in self.lines), self.lines)
+
+    def test_interrupted_shutdown_still_waits_for_process_group_cleanup(self):
+        script = ('import os, time; from pathlib import Path; '
+                  'Path("group").write_text(str(os.getpid())); time.sleep(60)')
+        self.events.emit(self.cfg(script), self.lease, 'started')
+        marker = self.root / 'group'
+        deadline = monotonic() + 2
+        while not marker.exists() and monotonic() < deadline:
+            sleep(0.01)
+        self.assertTrue(marker.exists())
+        wait = self.events._finished.wait
+        interrupted = False
+        def interrupt(*args, **kwargs):
+            nonlocal interrupted
+            if not interrupted:
+                interrupted = True
+                raise KeyboardInterrupt
+            return wait(*args, **kwargs)
+        with patch.object(self.events._finished, 'wait', side_effect=interrupt), self.assertRaises(KeyboardInterrupt):
+            self.events.close()
+        self.assertTrue(self.events._finished.is_set())
+        self.assertEqual(group_members(int(marker.read_text())), [])
 
     def test_start_failure_and_notice_failure_never_escape_to_loop(self):
         with patch('ub_agents.events.threading.Thread.start', side_effect=RuntimeError('cannot start')):
