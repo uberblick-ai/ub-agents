@@ -4,21 +4,17 @@ ub-agents adds no permission flags. The CLIs start in their default headless mod
 
 ```yaml
 implementer:
-  runtime: "codex:gpt-6.1-sol:high"
-  runtime-args: [--sandbox, danger-full-access]
+  runtime: "claude:claude-opus-5-5:high"
+  runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
+                 --allowedTools, "Bash(git *)", "Bash(gh *)",
+                 "Bash(npm test)",
+                 "Bash({report_command} report *)", "Bash({report_command} read *)",
+                 --add-dir, "{scratch}"]
 ```
 
 ## Starter permissions
 
 `ub-agents init` writes a commented top-level `runtime-args` entry for the selected CLI. When [init](/docs/commands/init.html) asks whether agents may work without asking, Yes (the default) uncomments it for all starter agents; `--use-defaults` and runs without a terminal leave it commented. Review it before you launch. The retrospectives extra also adds Claude's `retrospective` rule.
-
-## Codex
-
-Full access, including commits in private worktrees. Codex's `workspace-write` sandbox cannot commit there, because their Git metadata lives in the main checkout.
-
-```yaml
-runtime-args: [--sandbox, danger-full-access]
-```
 
 ## Claude Code
 
@@ -30,6 +26,14 @@ runtime-args: [--permission-mode, acceptEdits, --permission-prompts, none,
                "Bash(npm test)",
                "Bash({report_command} report *)", "Bash({report_command} read *)",
                --add-dir, "{scratch}"]
+```
+
+## Codex
+
+`danger-full-access` gives the agent everything the launcher user can do. It is needed today because default `workspace-write` cannot commit in private worktrees, whose Git metadata lives in the main checkout (see [#617](https://github.com/uberblick-ai/ub-agents/issues/617) and the [sandbox findings](https://github.com/uberblick-ai/ub-agents/blob/main/docs/design/codex-sandbox.md)). Run such launchers on a dedicated machine, VM or container.
+
+```yaml
+runtime-args: [--sandbox, danger-full-access]
 ```
 
 ## Report command
