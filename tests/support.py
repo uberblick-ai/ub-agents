@@ -57,6 +57,23 @@ class RecordingAwakeProcess:
         self.returncode = -9
 
 
+class RecordingEventProcess:
+    """An event hook that can hold stdin delivery while launcher work continues."""
+    def __init__(self, ready, gate):
+        self.ready, self.gate = ready, gate
+        self.returncode = None
+        self.inputs = []
+
+    def communicate(self, input=None, timeout=None):
+        if input is not None:
+            self.inputs.append(json.loads(input))
+        self.ready.set()
+        if not self.gate.wait(timeout):
+            raise subprocess.TimeoutExpired('notify', timeout)
+        self.returncode = 0
+        return None, None
+
+
 class RecordingMCPProbe:
     """Private server startup metadata; never launch a configured real server."""
     def __init__(self, result=(3, None)):

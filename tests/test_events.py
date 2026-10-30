@@ -18,7 +18,7 @@ from ub_agents.events import EventHooks
 from ub_agents.execution import Workspace, group_members
 from ub_agents.loop import Loop
 from ub_agents.records import body, payload, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import FakeGitHub, RecordingEventProcess, agent, config, issue, pr, stub_refresh
 
 
 class EventTests(unittest.TestCase):
@@ -212,6 +212,86 @@ class EventTests(unittest.TestCase):
                 self.run_agent(loop)
                 loop.events.close()
                 self.assertEqual([e['event'] for e in delivered], list(dict.fromkeys(subscribed)))
+
+    def test_blocked_hook_allows_next_claim_transitions_and_worktree_cleanup(self):
+        self.github.items[3] = issue(3)
+        cfg = replace(config(self.root, replace(self.worker, worktree=True)),
+                      events=EventsHook(('notify',), ('started', 'outcome'), 3))
+        loop = Loop(cfg, self.github, 'operator', output=lambda line: None)
+        self.addCleanup(loop.events.close)
+        ready, gate = threading.Event(), threading.Event()
+        # Even an assertion failure must release the fake before joining its worker.
+        self.addCleanup(gate.set)
+        processes, removed = [], []
+        def popen(*args, **kwargs):
+            self.assertTrue(all(p.returncode == 0 for p in processes))
+            process = RecordingEventProcess(ready, gate)
+            processes.append(process)
+            return process
+        def prepare(workspace):
+            workspace.private.mkdir(parents=True)
+            workspace.created = True
+            return workspace.private
+        def git(root, *args, **kwargs):
+            if args[:2] == ('worktree', 'remove'):
+                removed.append(args[-1])
+            return ''
+        with patch('ub_agents.events.subprocess.Popen', side_effect=popen), \
+                patch('ub_agents.events.stop_group'), \
+                patch.object(Workspace, 'prepare', prepare), \
+                patch('ub_agents.execution.git', side_effect=git):
+            try:
+                self.assertTrue(self.run_agent(loop))
+                self.assertTrue(ready.wait(2))
+                self.assertTrue(self.run_agent(loop))
+                self.assertEqual(len(processes), 1, 'Only one hook may run while delivery is blocked')
+                self.assertEqual(len(removed), 2)
+                for number in (1, 3):
+                    lease, report = loop.coordinator.history(number)
+                    self.assertEqual((lease['state'], lease['result']), ('released', 'success'))
+                    self.assertTrue(report['accepted'])
+                    self.assertEqual(self.github.item(number).labels, {'needs-review'})
+                    self.assertNotIn('cleanup', lease)
+                    self.assertNotIn('cleanup_hook_error', lease)
+            finally:
+                gate.set()
+                loop.events.close()
+        delivered = [event for process in processes for event in process.inputs]
+        self.assertEqual([(e['assignment'], e['event']) for e in delivered],
+                         [(1, 'started'), (1, 'outcome'), (3, 'started'), (3, 'outcome')])
+
+    def test_real_hook_failures_leave_verdict_transition_and_cleanup_unchanged(self):
+        for command, timeout, notice in (
+                (('./missing-command',), 1, 'missing-command'),
+                ((sys.executable, '-c', 'raise SystemExit(7)'), 1, 'exited 7'),
+                ((sys.executable, '-c', 'import time; time.sleep(60)'), 0.5, 'timed out')):
+            with self.subTest(notice=notice):
+                self.github = FakeGitHub(issue())
+                cfg = replace(config(self.root, replace(self.worker, worktree=True)),
+                              events=EventsHook(command, ('started', 'outcome'), timeout))
+                lines, removed = [], []
+                loop = Loop(cfg, self.github, 'operator', output=lines.append)
+                self.addCleanup(loop.events.close)
+                def prepare(workspace):
+                    workspace.private.mkdir(parents=True)
+                    workspace.created = True
+                    return workspace.private
+                def git(root, *args, **kwargs):
+                    if args[:2] == ('worktree', 'remove'):
+                        removed.append(args[-1])
+                    return ''
+                with patch.object(Workspace, 'prepare', prepare), \
+                        patch('ub_agents.execution.git', side_effect=git):
+                    self.assertTrue(self.run_agent(loop))
+                loop.events.close()
+                lease, report = loop.coordinator.history(1)
+                self.assertEqual((lease['state'], lease['result']), ('released', 'success'))
+                self.assertTrue(report['accepted'])
+                self.assertEqual(self.github.item(1).labels, {'needs-review'})
+                self.assertEqual(len(removed), 1)
+                self.assertNotIn('cleanup', lease)
+                self.assertNotIn('cleanup_hook_error', lease)
+                self.assertTrue(any('Events hook:' in line and notice in line for line in lines), lines)
 
 
 class EventDeliveryTests(unittest.TestCase):
