@@ -34,6 +34,9 @@ def _mapping(loader, node, deep=False):
     path = getattr(loader, "mapping_path", ())
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
+        # YAML 1.1 treats unquoted `on` as a boolean, including mapping keys.
+        if path == ("events",) and key_node.value == "on":
+            key = "on"
         if not isinstance(key, str) or key in result:
             if path == ("runtime-args",):
                 raise AgentError(f"runtime-args {key!r}: YAML keys must be unique strings")
@@ -188,6 +191,13 @@ class CleanupHook:
 
 
 @dataclass(frozen=True)
+class EventsHook:
+    command: tuple[str, ...]
+    on: tuple[str, ...]
+    timeout_seconds: float = 10
+
+
+@dataclass(frozen=True)
 class CheckoutSetup:
     command: tuple[str, ...]
     when_changed: tuple[str, ...] | None = None
@@ -218,6 +228,7 @@ class Config:
     lease_seconds: float = LEASE_SECONDS
     lease_renew_seconds: float = LEASE_RENEW_SECONDS
     trusted_pr_authors: tuple[str, ...] = ()
+    events: EventsHook | None = None
 
     @property
     def sub_issue_labels(self):
@@ -302,7 +313,7 @@ def preview_config(content, path, planned):
 def _parse_config(data, root, *, planned=()):
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
                           "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots",
-                          "trusted-pr-authors", "shared-instructions"},
+                          "trusted-pr-authors", "shared-instructions", "events"},
                    "configuration")
     runtime_defaults = runtime_arguments(
         mapping(data.get("runtime-args", {}), set(CLIS), "runtime-args"), set(CLIS))
@@ -350,6 +361,17 @@ def _parse_config(data, root, *, planned=()):
                               number(hook.get("timeout-seconds", 60), "cleanup timeout-seconds"))
         if cleanup.timeout_seconds > 3600:
             raise AgentError("cleanup timeout-seconds must be at most 3600")
+    events = None
+    if "events" in data:
+        hook = mapping(data["events"], {"command", "on", "timeout-seconds"}, "events")
+        subscribed = argv(hook.get("on"), "events on")
+        for event in subscribed:
+            if event not in {"started", "outcome"}:
+                raise AgentError(f"Unknown events on event: {event!r}; expected started or outcome")
+        timeout = number(hook.get("timeout-seconds", 10), "events timeout-seconds")
+        if timeout > 60:
+            raise AgentError("events timeout-seconds must be at most 60")
+        events = EventsHook(argv(hook.get("command"), "events command"), subscribed, timeout)
     checkout_setup = None
     if "checkout-setup" in data:
         setup = mapping(data["checkout-setup"], {"command", "when-changed", "timeout-seconds"}, "checkout-setup")
@@ -511,7 +533,7 @@ def _parse_config(data, root, *, planned=()):
     return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
                   runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup,
                   lease_seconds=lease_seconds, lease_renew_seconds=renew_seconds,
-                  trusted_pr_authors=trusted_pr_authors)
+                  trusted_pr_authors=trusted_pr_authors, events=events)
 
 
 def bot_logins(value, where="trusted-bots"):

@@ -31,6 +31,44 @@ class ConfigTests(unittest.TestCase):
                    if entry.group == "console_scripts"}
         self.assertEqual(scripts, {"ub-agents": "ub_agents.cli:main"})
 
+    def test_events_hook_and_offline_doctor_validation(self):
+        base = '''repository: org/project
+agents:
+  worker:
+    command: [echo]
+    trigger: ready
+    outcomes: {done: {}}
+'''
+        self.assertIsNone(self.load(base).events)
+        for key in ('on', '"on"'):
+            configured = self.load(base + f'events:\n  command: [mise, run, notify-slack]\n  {key}: [started, outcome]\n')
+            self.assertEqual(configured.events.command, ('mise', 'run', 'notify-slack'))
+            self.assertEqual(configured.events.on, ('started', 'outcome'))
+            self.assertEqual(configured.events.timeout_seconds, 10)
+        for timeout in ('0.25', '60'):
+            self.assertEqual(self.load(base + 'events: {command: [echo], on: [started], '
+                                      f'timeout-seconds: {timeout}' + '}\n').events.timeout_seconds, float(timeout))
+        for settings, error in (
+                ('null', 'events must be a mapping'),
+                ('{command: [echo], on: [finished]}', "finished"),
+                ('{command: [echo], on: [started], extra: 1}', 'Unknown events keys: extra'),
+                ('{on: [started]}', 'events command'),
+                ('{command: echo, on: [started]}', 'events command'),
+                ('{command: [], on: [started]}', 'events command'),
+                ('{command: [1], on: [started]}', 'events command'),
+                ('{command: [echo]}', 'events on'),
+                ('{command: [echo], on: []}', 'events on'),
+                ('{command: [echo], on: started}', 'events on'),
+                ('{command: [echo], on: [true]}', 'events on'),
+                ('{command: [echo], on: [started], "on": [outcome]}', 'unique strings'),
+                *((f'{{command: [echo], on: [started], timeout-seconds: {value}}}', 'events timeout-seconds')
+                  for value in ('0', '-1', '60.1', 'true', 'null', '"10"', '.inf', '.nan'))):
+            with self.subTest(settings=settings):
+                self.path.write_text(base + f'events: {settings}\n')
+                with redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 1)
+                self.assertIn(error, output.getvalue())
+
     def test_runtime_independence_accepts_a_name_or_unique_nonempty_list(self):
         (self.root / 'instructions.md').write_text('Task')
         base = '''repository: org/project
