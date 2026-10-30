@@ -24,6 +24,7 @@ from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import ScratchDirectory, Workspace, command_for, fork_head_ref, repository_checks, supervise
+from .events import EventHooks
 from .finalization import FinalizationReads
 from .report_command import launcher_report_command
 from .launcher_code import descriptors as code_descriptors
@@ -78,10 +79,12 @@ class Loop:
         self._update_texts = set()
         self._observation_warning = False
         self.config = config
+        self.events = EventHooks(output)
         self.approvals = config.approvals or "on"
         self.github = FinalizationReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
                                        on_claim=self.claimed, launchers=config.launchers, trusted_bots=config.trusted_bots,
+                                       on_release=lambda lease, report: self.events.emit(self.config, lease, "outcome", report),
                                        trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors,
                                                                               self.approvals, self.github),
                                        on_record=lambda record: self._observe("record", record),
@@ -1455,6 +1458,7 @@ class Loop:
             self.coordinator.assert_owned(lease)
             self.coordinator.update(lease, state="running", started=True,
                                     attempt_effect="pending", host=socket.gethostname())
+            self.events.emit(self.config, lease, "started")
             scratch.prepare()
             cwd = workspace.prepare()
             if workspace.created and not workspace.fork and self.config.checkout_setup is not None:
@@ -1627,6 +1631,7 @@ class Loop:
         self.coordinator.assert_owned(lease)
         self.coordinator.update(lease, state="running", started=True,
                                 attempt_effect="pending", host=socket.gethostname())
+        self.events.emit(self.config, lease, "started")
         self.github.begin_finalization()
         self._finalizing = True
         summary = (f"GitHub reports #{current.number} as conflicting with its base at {current.head[:7]}. "
@@ -1917,6 +1922,7 @@ class Loop:
                 self._poll_updates()
                 self._observe("close")
             finally:
+                self.events.close()
                 self._launch_number = None
                 self._launch_agent = None
 

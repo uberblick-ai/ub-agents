@@ -75,6 +75,7 @@ All optional:
 | `trusted-pr-authors` | [Trusted PR authors](/docs/configuration/approvals.html#trusted-pr-authors) |
 | `launchers` | [Launcher accounts](/docs/configuration/launchers.html) |
 | `cleanup` | [Cleanup hook](/docs/configuration/cleanup.html) |
+| `events` | [Loop events](/docs/configuration/events.html) |
 | `checkout-setup` | [Checkout setup](/docs/configuration/checkout-setup.html) |
 | `runtime-updates` | [Runtime updates](/docs/configuration/runtime-updates.html) |
 | `runtime-args` | [Per-CLI argument defaults](/docs/configuration/permissions.html#arguments-for-alternatives) |

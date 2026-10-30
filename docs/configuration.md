@@ -58,6 +58,7 @@ Explained on the website: [Configuration](https://agents.uberblick.ai/docs/confi
 | `launchers` | List, optional | See [Launcher accounts](#launcher-accounts). |
 | `queue` | Mapping | See [Queue](#queue). |
 | `cleanup` | Mapping, optional | See [Project cleanup hook](#project-cleanup-hook). |
+| `events` | Mapping, optional | See [Loop events hook](#loop-events-hook). |
 | `checkout-setup` | Mapping, optional | See [Checkout setup](#checkout-setup). |
 | `runtime-updates` | Mapping, optional | See [Daily runtime maintenance](#daily-runtime-maintenance). |
 | `runtime-args` | Mapping, optional | Arguments per CLI. See [Built-in runtimes](#built-in-runtimes). |
@@ -175,6 +176,112 @@ and branch and logs `cleanup-hook-failed` in the run's `events.jsonl`. The outco
 labels stand, and a later sweep retries. Make the hook safe to run twice. Put
 operator-only recovery steps in a project operations document linked from `AGENTS.md`,
 not in agent instructions.
+
+## Loop events hook
+
+Explained on the website: [Loop events](https://agents.uberblick.ai/docs/configuration/events.html).
+
+Use a project command to notify people about loop activity, for example through Slack:
+
+```yaml
+events:
+  command: [mise, run, notify-slack]
+  on: [started, outcome]
+  timeout-seconds: 10
+```
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `command` | Required argv list | Runs without a shell in the control checkout, like `cleanup.command`. |
+| `on` | Required nonempty list | Each entry is `started` or `outcome`. |
+| `timeout-seconds` | Number, `10` | Positive and finite, at most 60. |
+
+Each invocation receives one JSON object on stdin. The command inherits the launcher's
+environment with all `UB_AGENTS_*` variables removed. Keep credentials out of the YAML:
+the command reads its own webhook URL or other credentials from the project's secret
+store.
+
+Each launcher emits only for runs it owns. `started` is queued once the claim has won
+and the run is recorded as started, before worktree setup. This includes a PR routed
+to its `on-conflict` outcome. Withdrawn claims send nothing, including election losers,
+approval parking and failed outside-input label writes. Recovery claims send no
+`started` event.
+
+`outcome` is queued once the launcher releases a run with its verdict, after applying
+any transition. It includes agent reports, launcher verdicts such as timeouts or rejected
+reports, and recovery runs. Its status and summary describe the released verdict even
+when supervision superseded an earlier agent report.
+
+Every event carries:
+
+| Field | Value |
+|---|---|
+| `event` | `started` or `outcome` |
+| `repository` | GitHub `owner/name` |
+| `run` | Run id |
+| `agent` | Agent name |
+| `assignment` | Issue or PR number |
+| `kind` | `issue` or `pr` |
+| `url` | Assignment's GitHub URL |
+| `attempt` | Run's attempt number |
+| `mode` | `recovery` for recovery runs, otherwise `null` |
+
+`outcome` also carries:
+
+| Field | Value |
+|---|---|
+| `status` | Released result: `success`, `retry` or `blocked` |
+| `outcome` | Declared outcome whose transition was applied, otherwise `null` |
+| `summary` | Released summary |
+| `actions`, `options` | Report's asks, each an array, `[]` when absent |
+| `handoff` | Handoff PR number, otherwise `null` |
+| `labels_added`, `labels_removed` | Applied transition's resolved labels, including automatic trigger removal and any stop label substituted by `max-rounds`; `[]` when no transition was applied |
+
+A recovery event uses the recovery run's identity and released summary, with the
+source report's asks, handoff and applied transition.
+
+Delivery is advisory and asynchronous: the launcher continues execution and claims
+without waiting for the hook. A missing command, start failure, nonzero exit or timeout
+prints an `Events hook:` notice and changes no verdict, labels, claim, lease or cleanup.
+A timeout stops the hook's process group. Each launcher runs one hook process at a
+time in event order, so a run's `started` reaches the command before its `outcome`.
+On exit, it drains queued and running hooks within one timeout budget (the largest
+timeout among those hooks, at most 60 seconds), then stops remaining hook processes
+and discards undelivered events. Background children are stopped even after a successful
+hook. No hook process is left running when shutdown completes.
+
+Make the command tolerate missing and repeated events: a crash between recording a
+step and sending its event can lose or repeat delivery. The queue is local to the
+launcher and is not a durable delivery log. Filtering belongs in the project command.
+
+For example, a `notify-slack` task can run the following Python script with an incoming
+webhook URL supplied by the secret store as `SLACK_WEBHOOK_URL`:
+
+```python
+import json
+import os
+import sys
+from urllib.request import Request, urlopen
+
+event = json.load(sys.stdin)
+notify = (
+    event["event"] == "started" and event["agent"] == "issue-preparer"
+    or event["event"] == "outcome" and "needs-human" in event["labels_added"]
+)
+if notify:
+    detail = event.get("summary", "Work started")
+    text = f'{event["agent"]}: {detail}\n{event["url"]}'
+    request = Request(
+        os.environ["SLACK_WEBHOOK_URL"],
+        data=json.dumps({"text": text}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urlopen(request, timeout=5) as response:
+        response.read()
+```
+
+Projects can use `(repository, run, event)` as a duplicate key in their own delivery
+store if repeated notifications are undesirable. ub-agents does not contact Slack itself.
 
 ## Stale artifact cleanup
 

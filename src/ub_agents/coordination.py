@@ -50,7 +50,8 @@ class Coordinator:
     def __init__(self, github, actor, clock=timestamp, queue=Queue(), output=print, on_claim=None,
                  runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None,
                  on_author=None, on_action=None, trusted_bots=(), on_decline=None,
-                 lease_seconds=LEASE_SECONDS, lease_renew_seconds=LEASE_RENEW_SECONDS, trusted_pr_authors=()):
+                 lease_seconds=LEASE_SECONDS, lease_renew_seconds=LEASE_RENEW_SECONDS, trusted_pr_authors=(),
+                 on_release=None):
         self.github = github
         self.actor = actor
         self.trust = LauncherTrust(github, launchers, role, on_author, trusted_bots=trusted_bots,
@@ -61,6 +62,7 @@ class Coordinator:
         self.lease_seconds = lease_seconds
         self.lease_renew_seconds = lease_renew_seconds
         self.on_claim = on_claim
+        self.on_release = on_release
         self.cleanup_control = None
         self.on_decline = on_decline
         self.on_record = on_record
@@ -607,6 +609,8 @@ class Coordinator:
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect,
                     **({"unreported": True} if unreported else {}))
+        if self.on_release is not None:
+            self.on_release(lease, parking_outcome or reported)
         _, claimed_stops, claimed_triggers = self._report_context.pop(lease["id"], ({}, (), ()))
         self.notices.advisory("released run comments", lambda:
                               self.notices.released(lease, reported, summary, parking_outcome, max_attempts,
