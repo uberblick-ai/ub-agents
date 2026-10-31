@@ -1632,8 +1632,8 @@ class Loop:
             # unaccepted and persist the supervisor's actual verdict on the lease.
             outcome = self.coordinator.outcome(lease)
         if stopped:
-            if outcome is not None and diagnostics:
-                self.coordinator.update_outcome(lease, outcome, **diagnostics)
+            if outcome is not None and usage_fields(diagnostics):
+                self.coordinator.update_outcome(lease, outcome, **usage_fields(diagnostics))
             self.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True,
                                      **usage_fields(diagnostics))
         else:
