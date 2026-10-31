@@ -21,6 +21,7 @@
   </div>
   </div>
   <div class="tcap" id="tcap" aria-hidden="true"></div>
+  <button type="button" class="tagain" id="tagain" hidden>↻ Watch again</button>
   <kbd class="tkey" id="tkey" aria-hidden="true"></kbd>
 </div>
 <script type="module">
@@ -272,7 +273,7 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
 
   async function play() {
     const id = ++gen; runId = id;
-    S = fresh(); seen = new Set(); logs = { 589: buildLog(589) }; view('ub');
+    S = fresh(); seen = new Set(); logs = { 589: buildLog(589) }; view('ub'); $('tagain').hidden = true;
     for (const li of logs[589].children) li.classList.add('on');
     logs[589].querySelectorAll('.r').forEach(r => r.classList.add('on'));
     render();
@@ -316,11 +317,11 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
       await sleep(3500, id); cap(9, 'Decide on GitHub, or let the ub-agents-unblock skill walk you through it');
       await sleep(7000, id); await press('↑', 'Select', id); S.sel = 632; S.tab = 'agent'; render();
       if (!await review) return;
-      await sleep(5000, id); play();
+      await sleep(4000, id); $('tagain').hidden = false; // replays only when asked
     } catch (e) { if (e !== 'stale') throw e; }
   }
 
-  $('treplay').addEventListener('click', play);
+  $('treplay').addEventListener('click', play); $('tagain').addEventListener('click', play);
   const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { io.disconnect(); play(); } }, { threshold: 0.25 });
   S = fresh(); render(); io.observe(tui);
 })();

@@ -189,12 +189,17 @@ pre code { font: inherit; background: none; padding: 0 }
 .tui .tcap.on { animation: tui-cap 2.2s ease-out both }
 .tui .tcap .n { flex: none; width: 1.7em; height: 1.7em; display: inline-grid; place-items: center; border-radius: 50%; background: var(--term-acc); color: var(--term-bg); font: 700 13px/1 var(--term) }
 .tui .tcap.on .n { animation: tui-pop .6s ease-out both }
+.tui .tagain { position: absolute; z-index: 3; left: 50%; top: 45%; transform: translate(-50%, -50%); font: 700 16px/1 var(--mono); color: var(--term-bg); background: var(--term-acc); border: 0; border-radius: 6px; padding: 14px 22px; box-shadow: 0 0 0 6px rgb(0 0 0 / 45%), 0 10px 30px rgb(0 0 0 / 50%); cursor: pointer; animation: tui-fade .4s ease-out both }
+.tui .tagain:hover { background: #fff }
+.tui .tagain[hidden] { display: none }
+.tui:has(.tagain:not([hidden])) .tviews > * { opacity: .45; transition: opacity .4s }
 .tui .tkey { position: absolute; z-index: 2; right: 18px; bottom: 82px; display: flex; align-items: center; gap: 8px; font: 600 13px/1 var(--term); color: var(--term-bg); background: var(--term-acc); border-radius: 5px; padding: 6px 9px; box-shadow: 0 0 0 3px rgb(0 0 0 / 35%); opacity: 0; pointer-events: none }
 .tui .tkey span { font-weight: 400; font-size: 11px }
 .tui .tkey.on { animation: tui-key 1.6s ease-out both }
 @keyframes tui-in { from { opacity: 0; transform: translateY(3px) } to { opacity: 1; transform: none } }
 @keyframes tui-cap { 0% { opacity: 0; transform: translateY(6px); background: rgb(172 148 255 / 45%) } 15% { opacity: 1; transform: none; background: rgb(172 148 255 / 45%) } 100% { background: rgb(172 148 255 / 0%) } }
 @keyframes tui-pop { 0% { transform: scale(.4) } 60% { transform: scale(1.25) } 100% { transform: none } }
+@keyframes tui-fade { from { opacity: 0 } }
 @keyframes tui-blink { 50% { opacity: 0 } }
 @keyframes tui-key { 0% { opacity: 0; transform: translateY(4px) } 12%, 70% { opacity: 1; transform: none } 100% { opacity: 0 } }
 @media (max-width: 760px) {
