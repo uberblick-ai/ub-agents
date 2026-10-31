@@ -1,13 +1,63 @@
 # ub-agents
 
-**An autonomous coding loop for GitHub.** Any agent, no server.
+ub-agents runs an implementation and review loop for your GitHub issues in the
+background, on your own machine or server.
 
-ub-agents runs coding agents on GitHub issues and pull requests and passes the work
-between roles with labels. To use it, start at
-**[agents.uberblick.ai](https://agents.uberblick.ai)**. This README is for working
-on ub-agents itself.
+Keep working in Claude Code or Codex. When a piece of work is clear, hand it to
+the loop instead of managing every implementation, review and revision yourself.
+The loop stops and asks when it needs a person.
 
-`ub-agents launch` running this repository's own loop:
+Under the hood it is small: a launcher polls your repository for labels, runs
+Claude Code or Codex for the matching role, and writes the result back as a
+comment and a new label. GitHub holds the workflow state, the roles and their
+instructions live in your repository, and there is no separate orchestration
+server.
+
+## How we use it
+
+1. **Work with your coding agent as usual.** Discuss a feature or a bug in
+   Claude Code or Codex, read the code together and settle the approach.
+2. **Agree on what done means.** Scope and acceptance criteria, in a few
+   lines. Small issues work best.
+3. **Ask it to file the work for the loop.** There is no special command or
+   integration. Your agent opens a GitHub issue with `gh` and adds the
+   `needs-preparation` label, or `ready` when the issue is already clear
+   enough to build. The label is the handoff, so it needs nothing beyond a
+   `gh` login with write access. In a public repository, by default only a
+   label from someone with the maintain or admin role starts work.
+4. **A launcher picks it up.** Every launcher watches the same labels, takes
+   the next eligible item by priority and milestone, and claims it with a
+   comment so no other launcher runs it.
+5. **The roles hand it on.** In the starter workflow a preparer checks the
+   issue against the code, an implementer opens a pull request, a reviewer
+   (ideally on another model) approves it or sends it back, and an integrator
+   merges when your checks and merge policy allow. When an agent needs a decision, or
+   your policy reserves the merge for a maintainer, the item gets
+   `needs-human` and a comment saying what to decide.
+6. **You keep working.** Come back to read the merged pull request, or answer
+   the question on GitHub and hand the item back, which your own agent can do
+   for you. See [unstick an item](https://agents.uberblick.ai/docs/guides/stuck-items.html).
+
+```text
+You, in Claude Code or Codex
+  discuss → agree on scope and criteria → file the issue with needs-preparation
+                                    │
+The loop, on your machine or server ▼
+  issue-preparer  checks the issue against the code ─┐
+  implementer     opens a pull request               │   a decision is needed,
+  reviewer        approves, or sends it back ↺       ├─► or a person must merge:
+  integrator      merges if checks and policy allow ─┘   needs-human, you decide
+                                    │                    and hand it back
+                                    ▼
+                          merged, issue closed
+```
+
+Labels, roles and outcomes are lines in `ub-agents.yaml`, so you can drop a
+role, add one or change where a person steps in. See
+[how the loop works](https://agents.uberblick.ai/docs/how-the-loop-works.html).
+
+`ub-agents launch` shows what the loop is doing. This is our own loop on this
+repository:
 
 ```text
 ╭─ Work · pass complete ─────────────────────╮ ╭─ Agent ───────────────────────────────────────────────────────╮
@@ -44,8 +94,97 @@ on ub-agents itself.
 ub-agents · running assignment                                                            1-3 tabs ? keys q quit
 ```
 
-## Guides
 
+## Try it
+
+On macOS or Linux, with `git`, `gh` logged in to an account with write access,
+and `claude` or `codex` installed and signed in:
+
+```sh
+brew install uberblick-ai/tap/ub-agents
+cd your-project              # a clean checkout of your default branch
+ub-agents init
+```
+
+`init` asks a few questions, shows every change and opens a setup pull request
+with `ub-agents.yaml` and the role instructions in `.agents/`. Review it before
+you merge: check the agent permissions and the merge policy, which decides what
+the loop may merge on its own. Init's
+[next steps](https://agents.uberblick.ai/docs/commands/init.html#next-steps)
+list what to look at. Then merge it, pull and start the launcher:
+
+```sh
+git pull
+ub-agents launch
+```
+
+If you also work in this checkout yourself, clone a separate one for the
+launcher. Label an issue `needs-preparation` to start. The
+[installation guide](https://agents.uberblick.ai/docs/installation.html) has the
+full steps.
+
+## Three examples
+
+**A feature, shaped first and then handed off.** We wanted the loop to be able
+to notify Slack. Before filing
+[#664](https://github.com/uberblick-ai/ub-agents/issues/664) we settled the
+config, the event fields and what a failing hook must never break, so the issue
+holds those decisions. The loop prepared it, implemented it in
+[#666](https://github.com/uberblick-ai/ub-agents/pull/666), reviewed it and
+merged it, with nothing left to ask.
+
+**A bug, through preparation, review and a person's answer.**
+[#630](https://github.com/uberblick-ai/ub-agents/issues/630) was a sorting bug
+(`v0.5.10` came before `v0.5.9`), filed from a Claude Code session. The preparer
+checked it and marked it ready, and the implementer opened
+[#632](https://github.com/uberblick-ai/ub-agents/pull/632). The reviewer
+[sent it back](https://github.com/uberblick-ai/ub-agents/pull/632#pullrequestreview-5638139759):
+the code was fine, but three pages in our Uberblick workspace named in the
+acceptance criteria were still unchanged. The implementer updated two. The third
+was an approved decision that only a maintainer may change, so it stopped with
+`needs-human` and asked. The PR waited three days until a maintainer
+[answered](https://github.com/uberblick-ai/ub-agents/pull/632#issuecomment-6439953422)
+from a Codex session and handed it back; then the reviewer approved and the
+integrator merged.
+
+**Dependency updates from Dependabot.** These arrive as pull requests, not
+issues, and take a shorter path. In the repository that builds
+[Uberblick](https://uberblick.ai), Dependabot is a trusted pull request author
+and its `dependencies` label sends the pull request straight to the integrator. That project's merge
+policy lets the integrator merge minor and patch updates that touch only
+manifests and lockfiles once CI is green, gives a failing build one repair
+attempt, and sends major
+versions, pinned packages and changes to sensitive areas to a person. The
+starter workflow does none of this; it is three settings and a few lines of
+policy. See
+[Letting agents auto-merge Dependabot pull requests](https://uberblick.ai/blog/2026/agents-auto-merge-dependabot).
+
+## Controls and boundaries
+
+- **People decide.** Add `needs-human` to any issue or pull request and the loop
+  leaves it alone until you remove it. Your merge policy in
+  `.agents/ub_agents.md` says what waits for a maintainer, and without an
+  integrator every merge is yours.
+- **Outside input waits for a maintainer.** On public repositories, outside
+  issues and pull requests reach an agent only after a maintainer starts them,
+  and fork pull requests are reviewed as a diff without running their code. See
+  [approvals](https://agents.uberblick.ai/docs/configuration/approvals.html).
+- **The models are still hosted and paid.** ub-agents is free, but agents run
+  on your Claude Code or Codex seat or API key, and every run counts against it.
+  Check your provider's terms for unattended use.
+- **A worktree is not a sandbox.** Each run gets its own worktree and branch, but
+  the agent runs as the launcher user with the permissions you grant its CLI.
+  Use a dedicated GitHub account and machine for launchers; see the
+  [security model](https://agents.uberblick.ai/docs/security-model.html).
+- **Uberblick is optional.** We use our [Uberblick](https://uberblick.ai)
+  workspace for product pages the agents read; ub-agents doesn't need it.
+- **Rough edges.** GitHub only, and launchers run on macOS or Linux. Agents run
+  through Claude Code, Codex or a command you configure. Runs fail and get
+  retried, and an item waits as long as nobody answers it.
+
+## Docs
+
+- [Motivation](https://agents.uberblick.ai/docs/motivation.html) and the [FAQ](https://agents.uberblick.ai/docs/faq.html)
 - [Installation](https://agents.uberblick.ai/docs/installation.html) and [upgrading](https://agents.uberblick.ai/docs/upgrading.html)
 - [How the loop works](https://agents.uberblick.ai/docs/how-the-loop-works.html)
 - [Security model](https://agents.uberblick.ai/docs/security-model.html)
