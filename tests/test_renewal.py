@@ -14,6 +14,7 @@ from ub_agents.errors import ExecutionStopped, GitHubError, LostOwnership
 from ub_agents.execution import ScratchDirectory, Workspace, group_members, supervise
 from ub_agents.launch_log import launch_output
 from ub_agents.loop import Loop
+from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import attempts, body, iso, payload, seconds
 from ub_agents.renewal import LeaseRenewal
 from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
@@ -80,12 +81,15 @@ class RenewalTests(unittest.TestCase):
                    (issue, {"state": "closed"}, "Issue closed"),
                    (pr, {"state": "closed"}, "Pull request closed"),
                    (pr, {"state": "closed", "merged": True}, "Pull request merged"))
-        for (factory, change, reason), early_report in ((case, early) for case in changes for early in (False, True)):
+        for (factory, change, reason), early_report in ((case, early) for case in changes
+                                                       for early in (None, "success", "blocked")):
             with self.subTest(kind=factory.__name__, change=change, early_report=early_report):
                 self.setUp()
                 self.github.items[1] = factory(1)
                 lines = []
                 self.loop.output = lines.append
+                actions = []
+                self.co.notices.on_action = lambda number, comment: actions.append(comment) if comment else None
                 self.loop.config = replace(self.loop.config, agents=(replace(
                     self.role, command=(sys.executable, "-c", "import time; time.sleep(30)")),))
                 if "state" in change:
@@ -96,7 +100,9 @@ class RenewalTests(unittest.TestCase):
                     self.scratch = Path(env["UB_AGENTS_SCRATCH"])
                     self.assertTrue(self.scratch.is_dir())
                     if early_report:
-                        self.finish()
+                        self.co.report(self.loop._renewal.lease, early_report, "Early report",
+                                       outcome="done" if early_report == "success" else None,
+                                       action="Maintainer: decide the next step." if early_report == "blocked" else None)
 
                     def stop(final=False):
                         if not final:
@@ -118,7 +124,23 @@ class RenewalTests(unittest.TestCase):
                 self.assertEqual(len(history), 2 if early_report else 1)
                 if early_report:
                     self.assertFalse(history[1]["accepted"])
-                    self.assertFalse(history[1]["transition"]["started"])
+                    if early_report == "success":
+                        self.assertFalse(history[1]["transition"]["started"])
+                notices = [c for c in self.github.comments(1) if c["body"].startswith(ACTION_MARKER)]
+                if "state" in change:
+                    self.assertEqual(notices, [])
+                    self.assertEqual(actions, [])
+                    restarted = Loop(self.loop.config, self.github, "operator", output=lambda *_: None)
+                    restarted.coordinator.clock = lambda: self.now
+                    with patch("ub_agents.loop.supervise") as execution:
+                        self.assertFalse(restarted.tick())
+                        self.assertFalse(restarted.tick())
+                    execution.assert_not_called()
+                    self.assertFalse(any(c["body"].startswith(ACTION_MARKER) for c in self.github.comments(1)))
+                else:
+                    self.assertEqual(len(notices), 1)
+                    self.assertIn("ub-agents retry 1 --agent worker", notices[0]["body"])
+                    self.assertEqual(len(actions), 1)
                 self.assertEqual(attempts(history, self.role.name, self.now), [])
                 self.assertIsNone(self.co.pending_completion(history, self.role.name, self.now))
                 self.assertEqual(self.github.items[1].labels, labels)

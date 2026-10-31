@@ -9,6 +9,7 @@ from unittest.mock import patch
 from ub_agents.cli import main, status_rows
 from ub_agents.errors import AgentError, CleanupError, RetryableExecutionError
 from ub_agents.loop import Loop
+from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import attempts, body, iso, payload, seconds
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
@@ -355,6 +356,8 @@ class FailureCountTests(unittest.TestCase):
         self.assertNotIn('retry_after', lease)
         self.assertEqual(self.count(), 1)
         self.assertEqual(self.github.items[1].labels, labels)
+        notices = [c for c in self.github.comments(1) if c['body'].startswith(ACTION_MARKER)]
+        self.assertEqual(len(notices), 0 if 'state' in change else 1)
         self.github.change(1, state='open', merged=False, labels=frozenset({'ready'}))
         self.now += 10000
         self.loop = self.restart()
@@ -381,6 +384,26 @@ class FailureCountTests(unittest.TestCase):
         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
             self.assertFalse(self.loop.tick())
         self.assertFalse(self.loop.coordinator.history(1)[1]['accepted'])
+
+    def test_closure_stop_with_unconfirmed_cleanup_still_needs_action(self):
+        def close(*args, **kwargs):
+            lease = self.loop.coordinator.history(1)[0]
+            self.github.change(1, state='closed')
+            self.loop.coordinator.renew(lease, self.github)
+            kwargs['expires']()
+
+        with patch('ub_agents.loop.supervise', side_effect=close), \
+                patch('ub_agents.loop.Workspace.cleanup', side_effect=CleanupError('Termination unknown')):
+            with self.assertRaisesRegex(CleanupError, 'Termination unknown'):
+                self.loop.tick()
+        lease, = self.loop.coordinator.history(1)
+        self.assertEqual(lease['cleanup'], 'unconfirmed')
+        self.assertEqual(self.count(), 1)
+        self.now = seconds(lease['expires']) + 1
+        self.loop = self.restart()
+        self.assertFalse(self.loop.tick())
+        notice, = [c for c in self.github.comments(1) if c['body'].startswith(ACTION_MARKER)]
+        self.assertIn('Termination unknown', notice['body'])
 
     def test_crash_before_release_preserves_supervised_verdict_over_early_report(self):
         for ending, count, state in (('interrupt', 0, 'ready'), ('stop', 0, 'blocked'),
@@ -412,6 +435,8 @@ class FailureCountTests(unittest.TestCase):
                         with self.assertRaisesRegex(AgentError, 'Release failed'):
                             self.loop.tick()
                     if ending in {'stop', 'closed'}:
+                        lease = self.loop.coordinator.history(1)[0]
+                        self.assertEqual(lease.get('action_needed', True), ending != 'closed')
                         self.github.change(1, state='open', labels=frozenset({'ready'}))
                     self.now = seconds(self.loop.coordinator.history(1)[0]['expires']) + 1
                     self.loop = self.restart()
@@ -422,6 +447,8 @@ class FailureCountTests(unittest.TestCase):
                     if state == 'blocked':
                         with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
                             self.assertFalse(self.loop.tick())
+                    if ending == 'closed':
+                        self.assertFalse(any(c['body'].startswith(ACTION_MARKER) for c in self.github.comments(1)))
 
     def test_unknown_recovery_failure_stops_without_inventing_a_blocked_verdict(self):
         source = self.start()

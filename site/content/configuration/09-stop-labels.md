@@ -53,7 +53,7 @@ migration, report needs-human with one --action per decision.
 Answer the asks on GitHub, remove the stop label and add the trigger label you want. A blocked run adds no label; once the blocker is fixed, run [`ub-agents retry`](/docs/commands/retry.html) or push a new commit to the pull request.
 
 Use `ub-agents retry` to resume an item stopped during execution; it removes the stop label and restores the selected agent's trigger.
-Closed items need no further action. To resume work on one, reopen it before retrying.
+Closed items need no further action, so stopping for closure posts no **Action needed** notice. To resume work on one, reopen it before retrying.
 
 ```sh
 ub-agents retry 214 --reason "Chose local storage"

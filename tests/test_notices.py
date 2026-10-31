@@ -141,6 +141,17 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual([w for w in self.github.writes if w[0] == "minimize"],
                          [("minimize", lease["id"], "OUTDATED")])
 
+    def test_release_without_action_notice_still_minimizes_superseded_records(self):
+        first = self.start()
+        earlier = self.co.report(first, "retry", "Transient failure")
+        self.co.release(first, "retry", "Transient failure")
+        latest = self.start()
+        self.co.report(latest, "blocked", "Early report", action="Maintainer: decide the next step.")
+        self.co.update(latest, action_needed=False)
+        self.co.release(latest, "blocked", "Issue closed", attempt_effect="unchanged", unreported=True)
+        self.assertEqual(self.github.minimized_ids, {first["id"], earlier["id"]})
+        self.assertEqual(self.notices(), [])
+
     def test_unreported_release_keeps_its_claim_expanded(self):
         lease = self.start()
         self.co.release(lease, "retry", "No report", unreported=True)

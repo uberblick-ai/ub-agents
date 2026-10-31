@@ -1019,7 +1019,7 @@ class Loop:
     def reconcile_blocked_notices(self, history, coordinator):
         """Retry a blocked run's advisory notice from existing coordination records."""
         for lease in latest_leases(history).values():
-            if lease.get("result") != "blocked":
+            if lease.get("result") != "blocked" or lease.get("action_needed") is False:
                 continue
             if lease["state"] != "released" and seconds(lease["expires"]) > self.coordinator.clock():
                 continue
@@ -1368,7 +1368,7 @@ class Loop:
                 cause = cause.__context__
             try:
                 self.coordinator.assert_owned(lease)
-                self.coordinator.update(lease, cleanup="unconfirmed", summary=str(exc))
+                self.coordinator.update(lease, cleanup="unconfirmed", summary=str(exc), action_needed=True)
             except (AgentError, KeyboardInterrupt) as failure:
                 if isinstance(failure, KeyboardInterrupt):
                     self.interrupt_event.set()
@@ -1588,10 +1588,12 @@ class Loop:
             self.coordinator.execution_finished(lease)
             # Persist the supervision verdict before cleanup so an early report
             # cannot become recoverable if cleanup or release is interrupted.
+            # Closure needs no action notice, including after a launcher restart.
             try:
                 self.coordinator.assert_owned(lease)
                 self.coordinator.update(lease, result=result, summary=summary,
-                                        attempt_effect=effect, unreported=True)
+                                        attempt_effect=effect, unreported=True,
+                                        **({"action_needed": False} if exc.item_closed else {}))
             except (LostOwnership, GitHubError):
                 self._renewal.close()
                 cleanup_workspace(record=False)

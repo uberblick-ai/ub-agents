@@ -556,15 +556,16 @@ class Coordinator:
                 reason = f"Stop label {sorted(stops)[0]} added"
             else:
                 return
-            self._execution_stops.setdefault(lease["id"], reason)
+            self._execution_stops.setdefault(lease["id"], (reason, item.state != "open"))
 
     def execution_deadline(self, lease):
         """Check cancellation while keeping ownership available for cleanup and release."""
         with self._lease_lock:
             expiry = self.deadline(lease)
-            reason = self._execution_stops.get(lease["id"])
-            if reason is not None:
-                raise ExecutionStopped(f"{reason}; attributable execution terminated")
+            stop = self._execution_stops.get(lease["id"])
+            if stop is not None:
+                reason, item_closed = stop
+                raise ExecutionStopped(f"{reason}; attributable execution terminated", item_closed=item_closed)
             return expiry
 
     def execution_finished(self, lease):

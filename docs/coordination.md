@@ -177,6 +177,11 @@ run exhausts `max-attempts` and parks. When a transition parks a handoff PR, the
 notice goes on that PR. [Approval gates](approvals.md#with-approvals-on) post their
 own notice, once per gate.
 
+A run cancelled because its issue closed or its PR closed or merged posts no action
+notice. The lease records that no action is needed before cleanup, so later passes
+and restarted launchers do not recreate the notice. Superseded records are still
+minimized. Unconfirmed process cleanup still requires action and gets a notice.
+
 A notice leads with the agent's asks, or with the summary's first sentence (one
 line, at most 300 characters) and numbered options. Resume steps follow. The full
 summary, the candidate's review decision and CI rollup, links and diagnostics are
@@ -316,9 +321,9 @@ present at claim time). A PR lease also stores `assignment_sha`. A running lease
 and issue branches are derived from the run identity; PR branches come from the PR.
 Neither absolute local paths nor these derived fields are published in the record.
 Optional lease fields record outcome rounds, cleanup diagnostics, recovery identity,
-result, summary, unreported execution and retry timing. The comment author supplies
-the actor. Reset records contain only `kind`, `agent`, `assignment`, `created` and
-`summary`.
+result, summary, unreported execution, action notice suppression and retry timing.
+The comment author supplies the actor. Reset records contain only `kind`, `agent`,
+`assignment`, `created` and `summary`.
 
 The running agent's outcome declarations are held in local `run.json` for `report`
 and listed in its prompt. They are not copied into the lease. Removing the agent's
