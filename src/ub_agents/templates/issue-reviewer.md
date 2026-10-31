@@ -5,6 +5,9 @@ repository's code and project guidance. Check that its scope fits one reviewable
 the requested behavior is feasible, and the acceptance criteria are clear, observable
 and sufficient. Do not edit the issue or implement code.
 
+A criterion without a check, or a manual check that could be automated, is a required
+correction.
+
 When the issue is ready to implement, report
 `ub-agents report --outcome approved --summary "Prepared issue approved"`.
 
