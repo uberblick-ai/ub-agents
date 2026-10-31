@@ -2,6 +2,8 @@
 
 A stop label pauses all work on an issue or pull request until a person removes it. The default is `needs-human`. Agents never set workflow labels themselves; the launcher applies them from the reported outcome.
 
+Adding a stop label also stops a running agent at the next lease renewal check, within `lease-renew-minutes` (10 minutes by default). The check covers setup from the claim until the agent process exits. The launcher discards any early report, leaves labels unchanged and does not count the stop as a failed attempt. A label removed before the check has no effect. Once the process exits, stop labels use the normal outcome transition checks instead of cancelling the run.
+
 ```yaml
 stop-labels: [needs-human]
 ```
@@ -49,6 +51,8 @@ migration, report needs-human with one --action per decision.
 ## Resuming
 
 Answer the asks on GitHub, remove the stop label and add the trigger label you want. A blocked run adds no label; once the blocker is fixed, run [`ub-agents retry`](/docs/commands/retry.html) or push a new commit to the pull request.
+
+Use `ub-agents retry` to resume an item stopped during execution; it removes the stop label and restores the selected agent's trigger.
 
 ```sh
 ub-agents retry 214 --reason "Chose local storage"

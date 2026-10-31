@@ -20,6 +20,7 @@ from ub_agents.records import iso, timestamp
 from ub_agents.worktree_setup import confirm_worktree_setup_stopped
 from tests.support import FakeGitHub, agent, config, edit_lease, issue, pr, stub_refresh
 from tests import test_refresh
+from tests.test_renewal import ManualRenewal
 
 
 class WorktreeSetupTests(unittest.TestCase):
@@ -259,6 +260,34 @@ class WorktreeSetupTests(unittest.TestCase):
         self.assertEqual(self.github.writes, self.writes)
         self.assertEqual(lease["state"], "running")
         self.assertEqual(group_members(int((directory / "checkout-setup/pid").read_text())), [])
+        self.assertFalse(worktree.exists())
+
+    def test_stop_label_terminates_worktree_setup_and_releases_without_outcome(self):
+        self.role = replace(self.role, lease_seconds=1800)
+        loop = self.loop("import time; time.sleep(30)")
+        self.now = timestamp()
+        loop.coordinator.clock = lambda: self.now
+
+        def setup(*args, **kwargs):
+            def stop(final=False):
+                if not final:
+                    self.github.change(1, labels=frozenset({"ready", "needs-human"}))
+                    self.now += 600
+                    loop._renewal.tick()
+            return supervise(*args, **(kwargs | {"observe_output": stop}))
+
+        with patch("ub_agents.loop.LeaseRenewal", ManualRenewal), \
+                patch("ub_agents.worktree_setup.supervise", side_effect=setup), \
+                patch("ub_agents.loop.supervise") as execution:
+            self.assertTrue(loop.tick())
+        execution.assert_not_called()
+        lease, = loop.coordinator.history(1)
+        self.assertEqual((lease["state"], lease["result"], lease["attempt_effect"]),
+                         ("released", "blocked", "unchanged"))
+        self.assertIn("Stop label needs-human", lease["summary"])
+        _, directory, worktree = self.artifacts()
+        self.assertEqual(group_members(int((directory / "checkout-setup/pid").read_text())), [])
+        self.assertEqual((directory / "checkout-setup/stopped").read_text(), "confirmed\n")
         self.assertFalse(worktree.exists())
 
     def test_local_process_record_failure_stops_setup_child(self):

@@ -337,7 +337,9 @@ class FailureCountTests(unittest.TestCase):
             self.assertTrue(self.loop.execute(self.plan()))
         supervise.assert_not_called()
         cleanup.assert_called_once()
-        lease = self.loop.coordinator.history(1)[-2]
+        history = self.loop.coordinator.history(1)
+        lease = history[-1]
+        self.assertEqual(lease['kind'], 'lease')  # Cancellation creates no outcome.
         self.assertEqual((lease['state'], lease['result'], lease['attempt_effect']),
                          ('released', 'blocked', 'unchanged'))
         self.assertNotIn('retry_after', lease)
@@ -349,6 +351,13 @@ class FailureCountTests(unittest.TestCase):
         with patch('ub_agents.loop.supervise') as supervise:
             self.assertFalse(self.loop.tick())
         supervise.assert_not_called()
+        with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
+                patch('ub_agents.cli.GitHub', return_value=self.github), \
+                patch('ub_agents.cli.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
+            self.assertEqual(main(['retry', '1', '--agent', self.agent.name,
+                                   '--reason', 'Resume after stop label']), 0)
+        self.loop = self.restart()
+        self.assertEqual((self.plan().state, self.count()), ('ready', 0))
 
     def test_unconfirmed_cleanup_counts_even_with_success_report_and_never_recovers(self):
         with patch('ub_agents.loop.Workspace.cleanup', side_effect=CleanupError('Termination unknown')):
@@ -363,7 +372,7 @@ class FailureCountTests(unittest.TestCase):
         self.assertFalse(self.loop.coordinator.history(1)[1]['accepted'])
 
     def test_crash_before_release_preserves_supervised_verdict_over_early_report(self):
-        for ending, count, state in (('interrupt', 0, 'ready'), ('timeout', 1, 'ready'),
+        for ending, count, state in (('interrupt', 0, 'ready'), ('stop', 0, 'blocked'), ('timeout', 1, 'ready'),
                                      ('unsafe', 1, 'blocked')):
             for reported in (None, 'success', 'blocked'):
                 with self.subTest(ending=ending, reported=reported):
@@ -379,12 +388,18 @@ class FailureCountTests(unittest.TestCase):
                             raise KeyboardInterrupt
                         if ending == 'timeout':
                             raise RetryableExecutionError('Timeout')
+                        if ending == 'stop':
+                            self.github.change(1, labels=frozenset({'ready', 'needs-human'}))
+                            self.loop.coordinator.renew(lease, self.github)
+                            kwargs['expires']()
                         raise AgentError('Unclassified supervision error')
                     with patch('ub_agents.loop.supervise', side_effect=execute), \
                             patch.object(self.loop.coordinator, 'release', side_effect=AgentError('Release failed')):
                         with self.assertRaisesRegex(AgentError, 'Release failed'):
                             self.loop.tick()
-                    self.now += 61
+                    if ending == 'stop':
+                        self.github.change(1, labels=frozenset({'ready'}))
+                    self.now = seconds(self.loop.coordinator.history(1)[0]['expires']) + 1
                     self.loop = self.restart()
                     self.assertEqual((self.count(), self.plan().state), (count, state))
                     history = self.loop.coordinator.history(1)

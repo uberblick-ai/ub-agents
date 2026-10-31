@@ -52,6 +52,10 @@ class LostOwnership(AgentError):
     """The launcher must terminate its execution before doing anything else."""
 
 
+class ExecutionStopped(AgentError):
+    """A configured stop label cancels execution without charging an attempt."""
+
+
 class CleanupError(AgentError):
     """Termination is inconclusive: preserve artifacts and stop the loop."""
 

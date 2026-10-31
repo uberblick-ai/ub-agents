@@ -10,13 +10,13 @@ from unittest.mock import patch
 
 from ub_agents.config import CleanupHook, LEASE_RENEW_SECONDS, LEASE_SECONDS, load_config
 from ub_agents.coordination import Coordinator
-from ub_agents.errors import GitHubError, LostOwnership
-from ub_agents.execution import Workspace, group_members, supervise
+from ub_agents.errors import ExecutionStopped, GitHubError, LostOwnership
+from ub_agents.execution import ScratchDirectory, Workspace, group_members, supervise
 from ub_agents.launch_log import launch_output
 from ub_agents.loop import Loop
-from ub_agents.records import body, iso, payload, seconds
+from ub_agents.records import attempts, body, iso, payload, seconds
 from ub_agents.renewal import LeaseRenewal
-from tests.support import PollGitHub, agent, config, issue, stub_refresh
+from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
 
 
 class ManualRenewal(LeaseRenewal):
@@ -73,6 +73,147 @@ class RenewalTests(unittest.TestCase):
                 self.assertEqual(kwargs["expires"](), self.now + 1800)
             return self.finish()
         self.execute(run)
+
+    def test_stop_label_terminates_process_and_discards_an_early_report(self):
+        for factory, early_report in ((issue, False), (issue, True), (pr, False), (pr, True)):
+            with self.subTest(kind=factory.__name__, early_report=early_report):
+                self.setUp()
+                self.github.items[1] = factory(1)
+                lines = []
+                self.loop.output = lines.append
+                self.loop.config = replace(self.loop.config, agents=(replace(
+                    self.role, command=(sys.executable, "-c", "import time; time.sleep(30)")),))
+                labels = frozenset({"needs-human", "unrelated"})
+
+                def run(command, cwd, env, directory, *args, **kwargs):
+                    self.scratch = Path(env["UB_AGENTS_SCRATCH"])
+                    self.assertTrue(self.scratch.is_dir())
+                    if early_report:
+                        self.finish()
+
+                    def stop(final=False):
+                        if not final:
+                            self.github.change(1, labels=labels)
+                            self.advance()
+
+                    return supervise(command, cwd, env, directory, *args,
+                                     **(kwargs | {"observe_output": stop}))
+
+                with patch("ub_agents.loop.supervise", side_effect=run):
+                    self.assertTrue(self.loop.tick())
+                self.assertIsNone(self.loop._renewal)
+                history = self.co.history(1)
+                lease = history[0]
+                self.assertEqual((lease["state"], lease["result"], lease["attempt_effect"]),
+                                 ("released", "blocked", "unchanged"))
+                self.assertIn("Stop label needs-human", lease["summary"])
+                self.assertTrue(any("Stop label needs-human" in line for line in lines))
+                self.assertEqual(len(history), 2 if early_report else 1)
+                if early_report:
+                    self.assertFalse(history[1]["accepted"])
+                    self.assertFalse(history[1]["transition"]["started"])
+                self.assertEqual(attempts(history, self.role.name, self.now), [])
+                self.assertIsNone(self.co.pending_completion(history, self.role.name, self.now))
+                self.assertEqual(self.github.items[1].labels, labels)
+                self.assertFalse(any(write[0] in {"add-labels", "remove-label"} for write in self.github.writes))
+                self.assertFalse(self.scratch.parent.exists())
+                directory = self.root / ".ub-agents/runs" / lease["run"]
+                self.assertEqual(group_members(int((directory / "pid").read_text())), [])
+                self.assertTrue((directory / "process.log").is_file())
+
+    def test_stop_label_during_workspace_preparation_prevents_execution_and_cleans_worktree(self):
+        def prepare(workspace):
+            workspace.private.mkdir(parents=True)
+            workspace.created = True
+            self.worktree = workspace.private
+            self.github.change(1, labels=frozenset({"ready", "needs-human"}))
+            self.advance()
+            return workspace.private
+
+        def remove(root, *args):
+            if args[:2] == ("worktree", "remove"):
+                Path(args[-1]).rmdir()
+            return ""
+
+        with patch.object(Workspace, "prepare", prepare), patch("ub_agents.execution.git", side_effect=remove), \
+                patch("ub_agents.loop.supervise") as execution:
+            self.assertTrue(self.loop.tick())
+        execution.assert_not_called()
+        lease, = self.co.history(1)
+        self.assertEqual((lease["result"], lease["attempt_effect"]), ("blocked", "unchanged"))
+        self.assertFalse(self.worktree.exists())
+        self.assertFalse(ScratchDirectory(self.root, self.loop.config.repository, lease["run"]).path.parent.exists())
+
+    def test_label_removed_before_renewal_does_not_stop_execution(self):
+        def run(*args, **kwargs):
+            self.github.change(1, labels=frozenset({"ready", "needs-human"}))
+            self.advance(599)
+            self.github.change(1, labels=frozenset({"ready"}))
+            self.advance(1)
+            self.assertEqual(kwargs["expires"](), self.now + LEASE_SECONDS)
+            return self.finish()
+        self.execute(run)
+
+    def test_any_configured_stop_label_is_detected_on_an_item_with_an_early_report(self):
+        self.loop.config = replace(self.loop.config, stop_labels=("needs-human", "paused"))
+
+        def run(*args, **kwargs):
+            self.finish()
+            self.github.change(1, labels=frozenset({"ready", "paused"}))
+            self.advance()
+            # Supervision also checks the latched stop after a fast process exits.
+            return 0
+
+        with patch("ub_agents.loop.supervise", side_effect=run):
+            self.assertTrue(self.loop.tick())
+        lease, report = self.co.history(1)
+        self.assertIn("Stop label paused", lease["summary"])
+        self.assertFalse(report["accepted"])
+
+    def test_no_configured_stop_labels_adds_no_renewal_item_read(self):
+        lease = self.claim()
+        with patch.object(self.github, "item", side_effect=AssertionError("no stop labels configured")):
+            self.assertTrue(self.co.renew(lease, self.github))
+
+    def test_stop_label_read_failure_retries_without_cancelling_or_losing_ownership(self):
+        lease = self.co.claim(self.co.plan(issue(), self.role, self.loop.config.stop_labels),
+                              self.loop.config.stop_labels)
+        with patch.object(self.github, "item", side_effect=GitHubError("GET", "issue", "unavailable")):
+            self.assertFalse(self.co.renew(lease, self.github))
+        self.assertEqual(self.co.execution_deadline(lease), 2800)
+        self.github.change(1, labels=frozenset({"ready", "needs-human"}))
+        self.assertTrue(self.co.renew(lease, self.github))
+        with self.assertRaisesRegex(ExecutionStopped, "Stop label needs-human"):
+            self.co.execution_deadline(lease)
+
+    def test_label_read_finishing_after_execution_exit_cannot_cancel_completion(self):
+        lease = self.co.claim(self.co.plan(issue(), self.role, self.loop.config.stop_labels),
+                              self.loop.config.stop_labels)
+        read = self.github.item
+
+        def finish(number, kind=None):
+            self.co.execution_finished(lease)
+            return replace(read(number, kind), labels=frozenset({"ready", "needs-human"}))
+
+        with patch.object(self.github, "item", side_effect=finish):
+            self.assertTrue(self.co.renew(lease, self.github))
+        self.assertEqual(self.co.execution_deadline(lease), 2800)
+
+    def test_stop_checks_end_at_process_exit_before_supervision_final_output(self):
+        def run(*args, **kwargs):
+            def output(final=False):
+                if final:
+                    read = self.github.item
+                    with patch.object(self.github, "item", side_effect=lambda number, kind=None:
+                                      replace(read(number, kind), labels=frozenset({"needs-human"}))):
+                        self.advance()
+            code = supervise(*args, **(kwargs | {"observe_output": output}))
+            self.finish()
+            return code
+
+        # Use the controlled clock in the real process supervisor as well.
+        with patch("ub_agents.execution.time.time", side_effect=lambda: self.now):
+            self.execute(run)
 
     def test_configured_claim_and_renewal_timing(self):
         path = self.root / 'ub-agents.yaml'

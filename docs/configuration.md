@@ -51,7 +51,7 @@ Explained on the website: [Configuration](https://agents.uberblick.ai/docs/confi
 | `shared-instructions` | Path, optional | Policy read before every role's instructions. Relative to the configuration file, inside the project (including symlink targets) and readable UTF-8. |
 | `limits` | Mapping | See [Limits](#limits). |
 | `poll-seconds` | Positive number, `30` | Minimum gap between discovery-pass starts. See [polling](polling.md). |
-| `stop-labels` | Label or list, `[needs-human]` | Labels that park an item. `[]` configures none. |
+| `stop-labels` | Label or list, `[needs-human]` | Labels that park an item and stop a running agent at its next lease renewal check. `[]` configures none. |
 | `approvals` | `on` or `off` | When unset, resolved each pass from visibility: `on` for public, `off` for private and internal. See [approvals](approvals.md). |
 | `trusted-bots` | List, `[]` | Bot logins trusted for feedback only, unique ignoring case. See [trusted bots](approvals.md#trusted-bots). |
 | `trusted-pr-authors` | List, `[]` | Bot logins trusted as same-repository PR authors with approvals on; bodies stay withheld. Unique ignoring case. See [trusted PR authors](approvals.md#trusted-pr-authors). |

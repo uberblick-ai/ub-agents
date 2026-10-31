@@ -23,6 +23,13 @@ reason, for example `#400 implementer: declined — Head moved before claim`.
 
 ## Stopping and restarting
 
+To stop one active agent from GitHub, add a configured stop label such as
+`needs-human` to its issue or PR. The launcher terminates execution at the next
+lease renewal check (10 minutes by default), discards any early report and leaves
+the labels unchanged. No failed attempt is charged. Resume with
+`ub-agents retry NUMBER --agent ROLE --reason "Ready to resume"`. See
+[stop labels](https://agents.uberblick.ai/docs/configuration/stop-labels.html).
+
 Every launch mode holds one exclusive lock for its resolved control checkout.
 A second launch exits before startup and names the running launcher's pid, host
 and start time. Stop that launcher first, or use
