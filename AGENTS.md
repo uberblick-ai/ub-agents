@@ -83,6 +83,9 @@ the issue or PR number.
   required upgrade information, dates the version's section (folding in any
   `Unreleased` entries) and bumps `pyproject.toml`. It stays a loop issue and ends
   with a merged release-prep PR.
+- A patch release contains only fixes. Anything under Added, Changed or Removed, a
+  new config key or value, or an upgrade step beyond restarting launchers one at a
+  time makes it a minor release. Milestones are numbered the same way.
 
 ## Publishing releases
 

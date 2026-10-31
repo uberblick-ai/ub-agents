@@ -245,8 +245,11 @@ option first. Its resume steps sit in a collapsed fold:
 - on an issue, a **To resume AGENT** fold.
 
 Approval-gate notices keep their resume steps visible. Supporting detail sits in
-a collapsed **Reasoning and evidence** fold. A dim last line gives the notice's
-time and whether it came from the snapshot or GitHub.
+a collapsed **Reasoning and evidence** fold. A dim source line gives the notice's
+time and whether it came from the snapshot or GitHub. Below it, a dim hint reads
+"Or decide in Claude Code or Codex with the ub-agents-unblock skill", with
+[`ub-agents-unblock`](https://skills.uberblick.ai/skills/ub-agents-unblock) as a
+terminal hyperlink. The hint also appears in fallback, loading and error states.
 
 Without a notice, Unblock marks its content
 **Fallback: action-needed comment unavailable.** It shows the plan reason and the

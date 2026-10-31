@@ -10,11 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 CONTENT, OUT = ROOT / 'content', ROOT / 'out'
 VERSION = re.search(r'^version = "([^"]+)"', (ROOT.parent / 'pyproject.toml').read_text(), re.M).group(1)
-sys.path.insert(0, str(ROOT))
-import tui  # noqa: E402
 REPO = 'https://github.com/uberblick-ai/ub-agents'
 SITE = 'https://agents.uberblick.ai'
-TAGLINE = 'An autonomous coding loop for GitHub. Any agent, no server.'
+TAGLINE = 'Decide in the session, deliver in the loop. A coding loop for GitHub: any agent, no server.'
 SECTIONS = [  # (title, content entry, kind)
     ('Motivation', 'motivation.md', 'page'),
     ('Installation', 'installation.md', 'page'),
@@ -343,7 +341,7 @@ def main():
         dest.write_text(doc_page(pages, i))
     landing = (ROOT / 'index.html').read_text()
     landing = landing.replace('{{header}}', header('index.html')).replace('{{footer}}', footer('index.html'))
-    landing = landing.replace('{{tui}}', tui.render())
+    landing = landing.replace('{{demo}}', (ROOT / 'demo.html').read_text().rstrip())
     top = head('index.html', title='ub-agents', description=TAGLINE, canonical=f'{SITE}/')
     if '--artifact' in sys.argv:  # the artifact host adds its own document skeleton
         landing = top[top.index('<title>'):top.index('</head>')] + landing

@@ -1193,8 +1193,13 @@ class View(App):
         if self.descriptions.clock() < self.descriptions.cooldown:
             reset = datetime.fromtimestamp(self.descriptions.cooldown, timezone.utc).isoformat()
             extra += f'GitHub cooldown until {reset}; no loads or retries before then.\n'
-        details = extra + comment.details(self.descriptions.clock(), pending=pending)
-        self.update_static(self.query_one('#unblock_note', Static), Text(details))
+        details = Text(extra + comment.details(self.descriptions.clock(), pending=pending))
+        if details:
+            details.append('\n')
+        details.append('Or decide in Claude Code or Codex with the ')
+        details.append('ub-agents-unblock', style=Style(link='https://skills.uberblick.ai/skills/ub-agents-unblock'))
+        details.append(' skill')
+        self.update_static(self.query_one('#unblock_note', Static), details)
 
     def raw_details(self):
         row = self.rows.get(self.selected)

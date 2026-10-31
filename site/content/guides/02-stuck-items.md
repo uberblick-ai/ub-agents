@@ -9,7 +9,7 @@ ub-agents status 214
 
 ## In the terminal view
 
-Stopped items are listed under **Needs attention** in `ub-agents launch`. Select one and press `4` for the Unblock tab: the item's **Action needed** comment, with each decision, the options and how to resume. Expand **To resume AGENT** for the retry steps, or **Reasoning and evidence** for the details.
+Stopped items are listed under **Needs attention** in `ub-agents launch`. Select one and press `4` for the Unblock tab: the item's **Action needed** comment, with each decision, the options and how to resume. Expand **To resume AGENT** for the retry steps, or **Reasoning and evidence** for the details. A dim hint below the source note links to the [ub-agents-unblock skill](https://skills.uberblick.ai/skills/ub-agents-unblock) to decide interactively in Claude Code or Codex.
 
 ## GitHub failed after a completed run
 

@@ -600,7 +600,7 @@ shared instructions and runtime arguments, plus project MCP registrations. It
 reports whether each runtime would load them in a fresh worktree and probes only
 loaded stdio servers, listing their tool counts. These checks are optional warnings
 and are skipped with `--offline`. See [doctor's MCP checks](https://agents.uberblick.ai/docs/commands/doctor.html#mcp-servers)
-and [runtime setup for Uberblick](https://agents.uberblick.ai/docs/guides/with-uberblick.html).
+and [Agents over MCP](https://next.uberblick.ai/docs/agents) for Uberblick.
 
 For Codex, `[--sandbox, danger-full-access]` grants full access, including commits and
 pushes. Its default `workspace-write` sandbox cannot commit in private worktrees,
