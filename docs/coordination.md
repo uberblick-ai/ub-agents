@@ -42,6 +42,7 @@ NAME` starts a fresh set of rounds.
 | Approval fails at pickup or after claiming | Unchanged | Parked until approved, without `retry` |
 | Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
 | Stop label detected before the agent process exits | Unchanged | No outcome or label changes; parked by the stop label until resumed with `retry` |
+| Closed issue or closed or merged PR detected before the agent process exits | Unchanged | No outcome or label changes; the closed item needs no further action |
 | Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves or an operator uses `retry`; issues need `retry` |
 | Transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
@@ -214,22 +215,25 @@ GitHub failures prevent renewal until expiry, continuous launch stops the owned
 process and returns to polling without further writes for that lease.
 
 From claim until the agent process exits, each renewal also rereads the assignment's
-labels. A configured stop label cancels execution, discards any early report and
-releases the run without an outcome or a failed attempt. The launcher preserves the
-item's labels and cleans up its worktree and scratch as after a timeout. The lease
-summary and launcher output name the stop label. A label removed before the check
-does not cancel the run. Outcome application after process exit uses the normal
-transition checks; renewal no longer cancels execution during completion or recovery.
+labels and state, even when no stop labels are configured. A configured stop label,
+a closed issue or a closed or merged PR cancels execution, discards any early report
+and releases the run without an outcome or a failed attempt. The launcher preserves
+the item's labels and cleans up its worktree and scratch as after a timeout. The
+lease summary and launcher output name the stop label or say the item was closed or
+merged. A label removed or an item reopened before the check does not cancel the run.
+Outcome application after process exit uses the normal transition checks; renewal
+no longer cancels execution during completion or recovery.
 
 Each GitHub request is bounded to 20 seconds and each Git operation to 120 seconds.
 `agent-timeout-minutes` bounds only execution; worktree preparation comes first, and
 ownership is checked again before execution starts.
 
 Every lease names the actor, agent, run, configured CLI, model and effort, expiry,
-attempt and input candidate SHA for a PR. Branches are derived when needed. A changed head, closed item or
-vanished trigger found after setup but before execution counts as a launcher setup
-failure. A stop label found at that point cancels the run without changing its count;
-`ub-agents retry` resumes it. Run branches and worktrees are removed as
+attempt and input candidate SHA for a PR. Branches are derived when needed. A changed
+head or vanished trigger found after setup but before execution counts as a launcher
+setup failure. A stop label or closed or merged item found at that point cancels the
+run without changing its count. `ub-agents retry` resumes a stopped open item; a closed
+item needs no further action. Run branches and worktrees are removed as
 [stale artifact cleanup](configuration.md#stale-artifact-cleanup) describes.
 
 GitHub comment writes are not compare-and-swap. The election does **not** give

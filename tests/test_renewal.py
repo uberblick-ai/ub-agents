@@ -74,16 +74,23 @@ class RenewalTests(unittest.TestCase):
             return self.finish()
         self.execute(run)
 
-    def test_stop_label_terminates_process_and_discards_an_early_report(self):
-        for factory, early_report in ((issue, False), (issue, True), (pr, False), (pr, True)):
-            with self.subTest(kind=factory.__name__, early_report=early_report):
+    def test_execution_stop_terminates_process_and_discards_an_early_report(self):
+        changes = ((issue, {"labels": frozenset({"needs-human", "unrelated"})}, "Stop label needs-human"),
+                   (pr, {"labels": frozenset({"needs-human", "unrelated"})}, "Stop label needs-human"),
+                   (issue, {"state": "closed"}, "Issue closed"),
+                   (pr, {"state": "closed"}, "Pull request closed"),
+                   (pr, {"state": "closed", "merged": True}, "Pull request merged"))
+        for (factory, change, reason), early_report in ((case, early) for case in changes for early in (False, True)):
+            with self.subTest(kind=factory.__name__, change=change, early_report=early_report):
                 self.setUp()
                 self.github.items[1] = factory(1)
                 lines = []
                 self.loop.output = lines.append
                 self.loop.config = replace(self.loop.config, agents=(replace(
                     self.role, command=(sys.executable, "-c", "import time; time.sleep(30)")),))
-                labels = frozenset({"needs-human", "unrelated"})
+                if "state" in change:
+                    self.loop.config = replace(self.loop.config, stop_labels=())
+                labels = change.get("labels", self.github.items[1].labels)
 
                 def run(command, cwd, env, directory, *args, **kwargs):
                     self.scratch = Path(env["UB_AGENTS_SCRATCH"])
@@ -93,7 +100,7 @@ class RenewalTests(unittest.TestCase):
 
                     def stop(final=False):
                         if not final:
-                            self.github.change(1, labels=labels)
+                            self.github.change(1, **change)
                             self.advance()
 
                     return supervise(command, cwd, env, directory, *args,
@@ -106,8 +113,8 @@ class RenewalTests(unittest.TestCase):
                 lease = history[0]
                 self.assertEqual((lease["state"], lease["result"], lease["attempt_effect"]),
                                  ("released", "blocked", "unchanged"))
-                self.assertIn("Stop label needs-human", lease["summary"])
-                self.assertTrue(any("Stop label needs-human" in line for line in lines))
+                self.assertIn(reason, lease["summary"])
+                self.assertTrue(any(reason in line for line in lines))
                 self.assertEqual(len(history), 2 if early_report else 1)
                 if early_report:
                     self.assertFalse(history[1]["accepted"])
@@ -120,6 +127,7 @@ class RenewalTests(unittest.TestCase):
                 directory = self.root / ".ub-agents/runs" / lease["run"]
                 self.assertEqual(group_members(int((directory / "pid").read_text())), [])
                 self.assertTrue((directory / "process.log").is_file())
+                self.assertEqual(self.co._execution_stops, {})
 
     def test_stop_label_during_workspace_preparation_prevents_execution_and_cleans_worktree(self):
         def prepare(workspace):
@@ -154,6 +162,21 @@ class RenewalTests(unittest.TestCase):
             return self.finish()
         self.execute(run)
 
+    def test_item_reopened_before_renewal_does_not_stop_execution(self):
+        for factory in (issue, pr):
+            with self.subTest(kind=factory.__name__):
+                self.setUp()
+                self.github.items[1] = factory(1)
+
+                def run(*args, **kwargs):
+                    self.github.change(1, state="closed")
+                    self.advance(599)
+                    self.github.change(1, state="open")
+                    self.advance(1)
+                    self.assertEqual(kwargs["expires"](), self.now + LEASE_SECONDS)
+                    return self.finish()
+                self.execute(run)
+
     def test_any_configured_stop_label_is_detected_on_an_item_with_an_early_report(self):
         self.loop.config = replace(self.loop.config, stop_labels=("needs-human", "paused"))
 
@@ -170,10 +193,16 @@ class RenewalTests(unittest.TestCase):
         self.assertIn("Stop label paused", lease["summary"])
         self.assertFalse(report["accepted"])
 
-    def test_no_configured_stop_labels_adds_no_renewal_item_read(self):
+    def test_no_configured_stop_labels_still_reads_item_and_detects_closure(self):
         lease = self.claim()
-        with patch.object(self.github, "item", side_effect=AssertionError("no stop labels configured")):
+        with patch.object(self.github, "item", wraps=self.github.item) as read:
             self.assertTrue(self.co.renew(lease, self.github))
+        read.assert_called_once_with(1)
+        self.assertEqual(self.co.execution_deadline(lease), 2800)
+        self.github.change(1, state="closed")
+        self.assertTrue(self.co.renew(lease, self.github))
+        with self.assertRaisesRegex(ExecutionStopped, "Issue closed"):
+            self.co.execution_deadline(lease)
 
     def test_stop_label_read_failure_retries_without_cancelling_or_losing_ownership(self):
         lease = self.co.claim(self.co.plan(issue(), self.role, self.loop.config.stop_labels),
@@ -186,26 +215,28 @@ class RenewalTests(unittest.TestCase):
         with self.assertRaisesRegex(ExecutionStopped, "Stop label needs-human"):
             self.co.execution_deadline(lease)
 
-    def test_label_read_finishing_after_execution_exit_cannot_cancel_completion(self):
-        lease = self.co.claim(self.co.plan(issue(), self.role, self.loop.config.stop_labels),
-                              self.loop.config.stop_labels)
-        read = self.github.item
+    def test_item_read_finishing_after_execution_exit_cannot_cancel_completion(self):
+        for change in ({"labels": frozenset({"ready", "needs-human"})}, {"state": "closed"}):
+            with self.subTest(change=change):
+                self.setUp()
+                lease = self.co.claim(self.co.plan(issue(), self.role, self.loop.config.stop_labels),
+                                      self.loop.config.stop_labels)
+                read = self.github.item
 
-        def finish(number, kind=None):
-            self.co.execution_finished(lease)
-            return replace(read(number, kind), labels=frozenset({"ready", "needs-human"}))
+                def finish(number, kind=None):
+                    self.co.execution_finished(lease)
+                    return replace(read(number, kind), **change)
 
-        with patch.object(self.github, "item", side_effect=finish):
-            self.assertTrue(self.co.renew(lease, self.github))
-        self.assertEqual(self.co.execution_deadline(lease), 2800)
+                with patch.object(self.github, "item", side_effect=finish):
+                    self.assertTrue(self.co.renew(lease, self.github))
+                self.assertEqual(self.co.execution_deadline(lease), 2800)
 
     def test_stop_checks_end_at_process_exit_before_supervision_final_output(self):
         def run(*args, **kwargs):
             def output(final=False):
                 if final:
-                    read = self.github.item
-                    with patch.object(self.github, "item", side_effect=lambda number, kind=None:
-                                      replace(read(number, kind), labels=frozenset({"needs-human"}))):
+                    self.github.change(1, state="closed")
+                    with patch.object(self.github, "item", side_effect=AssertionError("execution has ended")):
                         self.advance()
             code = supervise(*args, **(kwargs | {"observe_output": output}))
             self.finish()
@@ -491,8 +522,9 @@ class RenewalTests(unittest.TestCase):
         finalize = self.loop.finalize
         def complete(recovery, *args):
             self.assertEqual(recovery["mode"], "recovery")
-            for _ in range(4):
-                self.advance()
+            with patch.object(self.github, "item", side_effect=AssertionError("recovery does not check for stops")):
+                for _ in range(4):
+                    self.advance()
             return finalize(recovery, *args)
         with patch.object(self.loop, "finalize", side_effect=complete):
             self.assertTrue(self.loop.tick())

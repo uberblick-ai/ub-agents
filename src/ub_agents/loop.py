@@ -1472,7 +1472,7 @@ class Loop:
                 self._observe("process", "exited", "Supervision confirmed worktree setup has ended")
                 self._observe("activity", "running assignment")
             current = self.github.item(plan.item.number, plan.item.kind)
-            self.coordinator.observe_stop_labels(lease, current.labels)
+            self.coordinator.observe_execution_item(lease, current)
             self.coordinator.execution_deadline(lease)
             if current.state != "open" or not current.labels.intersection(plan.agent.triggers):
                 raise AgentError("State or trigger changed before execution")

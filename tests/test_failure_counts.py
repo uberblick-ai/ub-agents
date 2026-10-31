@@ -287,16 +287,15 @@ class FailureCountTests(unittest.TestCase):
         self.execute('success')
         self.assertEqual(self.count(), 0)
 
-    def test_pre_execution_head_trigger_and_state_changes_retry_with_backoff(self):
-        for changed in ('head', 'trigger', 'state'):
+    def test_pre_execution_head_and_trigger_changes_retry_with_backoff(self):
+        for changed in ('head', 'trigger'):
             with self.subTest(changed=changed):
                 self.setUp()
                 self.github.items[1] = pr(1)
                 self.execute()
                 self.finish_backoff()
                 changes = {'head': {'head': 'b' * 40},
-                           'trigger': {'labels': frozenset()},
-                           'state': {'state': 'closed'}}[changed]
+                           'trigger': {'labels': frozenset()}}[changed]
 
                 def prepare():
                     self.github.change(1, **changes)
@@ -323,12 +322,23 @@ class FailureCountTests(unittest.TestCase):
                 self.assertEqual(self.count(), 0)
 
     def test_pre_execution_stop_label_preserves_count_and_parks_until_reset(self):
+        # A stop takes precedence even if the trigger also disappears.
+        self.assert_pre_execution_stop_preserves_count({'labels': frozenset({'needs-human'})})
+
+    def test_pre_execution_closed_item_preserves_count_and_parks_until_reset(self):
+        for factory, merged in ((issue, False), (pr, False), (pr, True)):
+            with self.subTest(kind=factory.__name__, merged=merged):
+                self.setUp()
+                self.github.items[1] = factory(1)
+                self.assert_pre_execution_stop_preserves_count({'state': 'closed', 'merged': merged})
+
+    def assert_pre_execution_stop_preserves_count(self, change):
         self.execute()
         self.finish_backoff()
+        labels = change.get('labels', self.github.items[1].labels)
 
         def prepare():
-            # A stop takes precedence even if the trigger also disappears.
-            self.github.change(1, labels=frozenset({'needs-human'}))
+            self.github.change(1, **change)
             return self.root
 
         with patch('ub_agents.loop.Workspace.prepare', side_effect=prepare), \
@@ -344,7 +354,8 @@ class FailureCountTests(unittest.TestCase):
                          ('released', 'blocked', 'unchanged'))
         self.assertNotIn('retry_after', lease)
         self.assertEqual(self.count(), 1)
-        self.github.change(1, labels=frozenset({'ready'}))
+        self.assertEqual(self.github.items[1].labels, labels)
+        self.github.change(1, state='open', merged=False, labels=frozenset({'ready'}))
         self.now += 10000
         self.loop = self.restart()
         self.assertEqual(self.plan().state, 'blocked')
@@ -355,7 +366,7 @@ class FailureCountTests(unittest.TestCase):
                 patch('ub_agents.cli.GitHub', return_value=self.github), \
                 patch('ub_agents.cli.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
             self.assertEqual(main(['retry', '1', '--agent', self.agent.name,
-                                   '--reason', 'Resume after stop label']), 0)
+                                   '--reason', 'Resume after cancellation']), 0)
         self.loop = self.restart()
         self.assertEqual((self.plan().state, self.count()), ('ready', 0))
 
@@ -372,7 +383,8 @@ class FailureCountTests(unittest.TestCase):
         self.assertFalse(self.loop.coordinator.history(1)[1]['accepted'])
 
     def test_crash_before_release_preserves_supervised_verdict_over_early_report(self):
-        for ending, count, state in (('interrupt', 0, 'ready'), ('stop', 0, 'blocked'), ('timeout', 1, 'ready'),
+        for ending, count, state in (('interrupt', 0, 'ready'), ('stop', 0, 'blocked'),
+                                     ('closed', 0, 'blocked'), ('timeout', 1, 'ready'),
                                      ('unsafe', 1, 'blocked')):
             for reported in (None, 'success', 'blocked'):
                 with self.subTest(ending=ending, reported=reported):
@@ -388,8 +400,10 @@ class FailureCountTests(unittest.TestCase):
                             raise KeyboardInterrupt
                         if ending == 'timeout':
                             raise RetryableExecutionError('Timeout')
-                        if ending == 'stop':
-                            self.github.change(1, labels=frozenset({'ready', 'needs-human'}))
+                        if ending in {'stop', 'closed'}:
+                            change = ({'labels': frozenset({'ready', 'needs-human'})} if ending == 'stop'
+                                      else {'state': 'closed'})
+                            self.github.change(1, **change)
                             self.loop.coordinator.renew(lease, self.github)
                             kwargs['expires']()
                         raise AgentError('Unclassified supervision error')
@@ -397,8 +411,8 @@ class FailureCountTests(unittest.TestCase):
                             patch.object(self.loop.coordinator, 'release', side_effect=AgentError('Release failed')):
                         with self.assertRaisesRegex(AgentError, 'Release failed'):
                             self.loop.tick()
-                    if ending == 'stop':
-                        self.github.change(1, labels=frozenset({'ready'}))
+                    if ending in {'stop', 'closed'}:
+                        self.github.change(1, state='open', labels=frozenset({'ready'}))
                     self.now = seconds(self.loop.coordinator.history(1)[0]['expires']) + 1
                     self.loop = self.restart()
                     self.assertEqual((self.count(), self.plan().state), (count, state))
