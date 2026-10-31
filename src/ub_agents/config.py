@@ -119,7 +119,7 @@ def instruction_text(root, path, where):
 
 
 CLIS = ("codex", "claude")
-UPDATE_CLIS = (*CLIS, "gh", "ub")
+UPDATE_CLIS = (*CLIS, "gh", "ub", "ub-agents")
 
 
 @dataclass(frozen=True)
@@ -343,6 +343,8 @@ def _parse_config(data, root, *, planned=()):
             if isinstance(policy, str) and policy in {"auto", "off"}:
                 policies[cli] = policy
             else:
+                if cli == "ub-agents":
+                    raise AgentError("runtime-updates ub-agents must be auto or off")
                 command = mapping(policy, {"command"}, f"runtime-updates {cli}")
                 args = argv(command.get("command"), f"runtime-updates {cli} command")
                 if Path(args[0]).name in {"sudo", "su", "doas", "pkexec"}:

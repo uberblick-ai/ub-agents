@@ -576,6 +576,25 @@ def launch_error_message(exc, root):
 
 
 def main(argv=None):
+    from .self_updates import RestartLauncher
+
+    try:
+        return _main(argv)
+    except RestartLauncher as restart:
+        # All runs, observers, the terminal view, log and checkout lock have
+        # unwound. exec keeps the PID supervised by systemd/launchd and reuses
+        # the exact arguments in either UI mode.
+        if restart.stop_event is not None and restart.stop_event.is_set():
+            return 0
+        try:
+            os.execv(restart.executable, [restart.executable, *(sys.argv[1:] if argv is None else argv)])
+        except OSError as exc:
+            with launch_output(restart.root):
+                print(f"ub-agents: automatic restart failed: {exc}", file=sys.stderr)
+            return 1
+
+
+def _main(argv=None):
     with ExitStack() as stack:
         args = None
         try:

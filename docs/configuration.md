@@ -529,6 +529,7 @@ runtime-updates:
 | Key | Type and default | Rules |
 |---|---|---|
 | `claude`, `codex`, `gh`, `ub` | `auto`, `off` (default) or `{command: [...]}` | A command runs as argv without a shell, in the launcher's environment, and resolves like `command`. It must not start with `sudo`, `su`, `doas` or `pkexec`, and should update only that CLI. |
+| `ub-agents` | `auto` or `off` (default) | Only continuous launches of the `uberblick-ai/tap/ub-agents` Homebrew formula qualify; no custom command. Older launchers reject this key. |
 | `timeout-seconds` | Number, `300` | Positive, at most 3600. |
 
 Without `runtime-updates`, nothing runs. Claude Code and Codex are checked only when an
@@ -574,6 +575,16 @@ until a health check passes; other projects can still run.
 
 `ub-agents init` writes `ub: auto` only when updates are enabled and the Uberblick
 extra is selected.
+
+`ub-agents: auto` uses the launcher's daily release check and the same timeout.
+It upgrades only when no run, recovery, checkout refresh or setup is active and
+restarts only on a newer installed version, including after an external upgrade.
+All intervening releases must explicitly permit independent upgrades; coordinated
+or unreadable markers block automatic action. Failures retry at the next daily
+check. Process replacement retains the PID and arguments, and `SIGTERM` during an
+upgrade finishes the command and exits without restarting. See
+[automatic launcher upgrades](operations.md#stopping-and-restarting) for service
+behavior, logs and installation protection.
 
 ### Runtime permissions
 

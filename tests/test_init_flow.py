@@ -432,7 +432,7 @@ class FlowTests(unittest.TestCase):
         code, text = self.run_flow(Script(Which_agent='claude', Extras=['uberblick'], Set_up='later'))
         self.assertEqual(code, 0)
         self.assertEqual(load_config(self.path).runtime_updates.policies,
-                         {'claude': 'auto', 'codex': 'off', 'gh': 'auto', 'ub': 'auto'})
+                         {'claude': 'auto', 'codex': 'off', 'gh': 'auto', 'ub': 'auto', 'ub-agents': 'off'})
         self.assertIn('ub also updates once a day between runs (Homebrew only)', text)
 
     def test_uberblick_extra_leaves_declined_updates_off(self):

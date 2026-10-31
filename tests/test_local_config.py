@@ -211,7 +211,7 @@ agents: {implementer: {worktree: true}}
 ''')
         effective = load_config(self.path)
         self.assertEqual(effective.approvals, 'off')
-        self.assertEqual(effective.runtime_updates.policies, {'codex': 'off', 'claude': 'off', 'gh': 'off', 'ub': 'off'})
+        self.assertEqual(effective.runtime_updates.policies, {'codex': 'off', 'claude': 'off', 'gh': 'off', 'ub': 'off', 'ub-agents': 'off'})
         self.assertIs(effective.agents[0].worktree, True)
         with redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline', '--verbose']), 0)

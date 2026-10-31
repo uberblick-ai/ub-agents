@@ -48,10 +48,45 @@ An idle launcher, including one waiting for a rate limit outside a run, exits pr
 error keeps its nonzero exit even during a drain. The
 [terminal view](terminal-view.md) describes the shutdown screens.
 
-The launcher does not reload its own code. Restart it after an upgrade, or when the
-update banner says a checkout refresh pulled newer code. To upgrade, follow
-[Upgrading](https://agents.uberblick.ai/docs/upgrading.html). Stop every launcher of
-the project first only when the release notes say launchers must upgrade together.
+The launcher keeps a startup copy of its code and, for Homebrew installs, its Python
+dependencies. Its helpers use that copy too, even if an upgrade or cleanup removes
+the old ub-agents keg. This protection also applies with automatic updates off.
+Homebrew's separate Python installation must remain available.
+
+To let a continuous queue upgrade and restart itself, opt in:
+
+```yaml
+runtime-updates:
+  ub-agents: auto
+  timeout-seconds: 300
+```
+
+Only the `uberblick-ai/tap/ub-agents` Homebrew formula qualifies; `doctor` reports
+the installation or skip reason. The setting accepts `auto` or `off` (the default),
+with no command form. `launch NUMBER` and `--once` only show the update banner.
+Continuous queues with `--agent` also support automatic updates.
+
+At the daily release check, an opted-in launcher waits until no run, recovery,
+checkout refresh or setup is active, then updates its owning Homebrew and upgrades
+the formula. It claims nothing during maintenance. The shared `timeout-seconds`
+limits the entire check and upgrade. A failed upgrade is logged in `launch.log`
+and retried at the next daily check. A tap that still installs the running version
+causes no restart.
+
+When the installed version is newer, including after another launcher or a person
+upgrades it, the launcher checks every release between its running and installed
+versions before restarting. It also checks the intended formula version before
+upgrading. A coordinated release or any missing/unreadable release marker blocks
+automatic action, keeps the banner and logs the reason. Follow
+[Upgrading](https://agents.uberblick.ai/docs/upgrading.html) to stop and upgrade all
+launchers together in that case. Source checkouts still need a manual restart.
+
+Automatic restart replaces the process with the new executable, retaining its PID
+and arguments in both UI modes. Service managers need no special restart status;
+they continue supervising the same process. Configure their normal restart policy
+for actual exits. A failed exec exits 1. A `q` or `SIGTERM` during an upgrade lets
+the command finish, then exits 0 without restarting. No automatic update or restart
+claims an assignment or consumes an attempt.
 
 ## When things go wrong
 

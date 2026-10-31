@@ -1,9 +1,11 @@
 """Keep a launcher, its runs and Python helpers on one startup package copy."""
 
 from contextlib import contextmanager, ExitStack
+from importlib.util import spec_from_file_location
 import os
 from pathlib import Path
 import shutil
+import site
 import sys
 import tempfile
 
@@ -27,11 +29,41 @@ def descriptors():
 
 
 def helper_command(module):
-    # Keep a virtualenv's interpreter symlink, and ignore cwd and PYTHONPATH.
+    # Use the saved Homebrew runtime, and ignore cwd and PYTHONPATH.
     # The bootstrap inserts the copied package ahead of editable-install finders.
     descriptor = descriptors()[0] if _active else -1
-    return [os.path.abspath(sys.executable), "-I", str(package_directory() / "helper_command.py"),
+    return [interpreter(), "-I", str(package_directory() / "helper_command.py"),
             str(descriptor), module]
+
+
+def interpreter():
+    runtime = package_directory().parent / "python"
+    return str(runtime) if runtime.is_file() else os.path.abspath(sys.executable)
+
+
+def _copy_runtime(path):
+    """Detach Homebrew's venv and dependencies from the removable ub-agents keg.
+
+    Python itself belongs to the separate python formula. Resolve the venv link
+    before cleanup can delete it, and bootstrap helpers with copied site packages.
+    Source and pip launchers retain their normal interpreter/environment.
+    """
+    keg = next((parent for parent in source_directory().parents
+                if parent.parent.name == "ub-agents" and parent.parent.parent.name == "Cellar"), None)
+    if keg is None:
+        return []
+    python = Path(getattr(sys, "_base_executable", sys.executable)).resolve(strict=True)
+    if python.is_relative_to(keg):
+        raise OSError("Homebrew Python is inside the removable ub-agents keg")
+    (path / "python").symlink_to(python)
+    locations = []
+    for index, directory in enumerate(site.getsitepackages()):
+        directory = Path(directory).resolve()
+        if directory.is_relative_to(keg) and directory.is_dir():
+            target = path / f"dependencies-{index}"
+            shutil.copytree(directory, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            locations.append((str(directory), str(target)))
+    return locations
 
 
 def _remove_unused(path):
@@ -46,17 +78,40 @@ def _cleanup(path):
 
 
 @contextmanager
-def _activate(path, stream):
+def _activate(path, stream, locations=()):
     global _active
     package = sys.modules["ub_agents"]
-    previous, previous_path = _active, package.__path__
+    previous = _active
     _active = path, stream
-    # Launcher modules imported lazily after refresh must use the copy too.
-    package.__path__ = [str(path / "ub_agents")]
+    previous_sys_path = sys.path[:]
+    packages = []
+
+    def relocate(module, paths):
+        # Resource readers use the package spec/loader rather than __path__.
+        packages.append((module, module.__path__, module.__file__, module.__spec__, module.__loader__))
+        module.__path__ = paths
+        module.__file__ = str(Path(paths[0]) / "__init__.py")
+        module.__spec__ = spec_from_file_location(module.__name__, module.__file__, submodule_search_locations=paths)
+        module.__loader__ = module.__spec__.loader
+
+    # Launcher imports and package resources must both use the startup copy.
+    relocate(package, [str(path / "ub_agents")])
+    for source, target in locations:
+        sys.path[:] = [target if Path(entry).resolve() == Path(source) else entry for entry in sys.path]
+        for module in tuple(sys.modules.values()):
+            paths = getattr(module, "__path__", None)
+            if paths is not None and module is not package:
+                replacement = [str(Path(target) / Path(entry).resolve().relative_to(source))
+                               if Path(entry).resolve().is_relative_to(source) else entry for entry in paths]
+                if replacement != list(paths):
+                    relocate(module, replacement)
     try:
         yield path
     finally:
-        _active, package.__path__ = previous, previous_path
+        sys.path[:] = previous_sys_path
+        for module, paths, filename, spec, loader in reversed(packages):
+            module.__path__, module.__file__, module.__spec__, module.__loader__ = paths, filename, spec, loader
+        _active = previous
 
 
 @contextmanager
@@ -75,7 +130,8 @@ def startup_copy():
                 stream = stack.enter_context(lock(path / "users.lock", shared=True))
                 shutil.copytree(package_directory(), path / "ub_agents",
                                 ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-            with _activate(path, stream):
+                locations = _copy_runtime(path)
+            with _activate(path, stream, locations):
                 yield path
         finally:
             stack.close()
@@ -94,6 +150,9 @@ def use_copy(descriptor=-1):
         with ExitStack() as stack:
             stream = (stack.enter_context(os.fdopen(descriptor, "rb")) if descriptor >= 0 else
                       stack.enter_context(lock(path / "users.lock", shared=True)))
+            # The base Python intentionally has no access to the old venv.
+            for dependencies in sorted(path.glob("dependencies-*")):
+                sys.path.insert(1, str(dependencies))
             with _activate(path, stream):
                 yield
     finally:
