@@ -2,7 +2,7 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ub_agents.approvals import filter_input
 from ub_agents.errors import AgentError, LostOwnership, RecordError, ValidationError
@@ -109,6 +109,53 @@ class SubIssueTests(unittest.TestCase):
         with patch.object(self.github, 'add_labels', side_effect=self.label):
             self.loop.apply_transition(lease, outcome)
         self.assertEqual([w[1] for w in self.github.writes if w[0] == 'add-labels'], [2])
+
+    def test_report_checks_ownership_around_sub_issue_resolution_before_writing_and_observing(self):
+        calls = Mock()
+
+        def trace(lease):
+            coordinator = self.loop.coordinator
+            for target, name in ((coordinator, 'assert_owned'), (self.github, 'sub_issues'),
+                                 (self.github, 'create_comment'), (coordinator, 'observed')):
+                wrapped = self.enterContext(patch.object(target, name, wraps=getattr(target, name)))
+                calls.attach_mock(wrapped, name)
+
+        lease, outcome = self.claim_and_report(trace)
+        self.assertEqual([call[0] for call in calls.mock_calls],
+                         ['assert_owned', 'sub_issues', 'assert_owned', 'create_comment', 'observed'])
+        self.assertEqual(calls.assert_owned.call_args_list[0].args, (lease,))
+        self.assertEqual(calls.assert_owned.call_args_list[1].args, (lease,))
+        self.assertEqual(calls.observed.call_args.args, (outcome,))
+        written = records([{'id': outcome['id'], 'user': {'login': 'operator'},
+                            'body': calls.create_comment.call_args.args[1]}])[0]
+        self.assertEqual(written['sub_issues'], [2])
+
+    def test_sub_issue_read_failure_or_expiry_prevents_outcome_write_and_observation(self):
+        for failure in ('read', 'expiry'):
+            with self.subTest(failure=failure):
+                self.reset()
+                coordinator = self.loop.coordinator
+                sub_issues = self.github.sub_issues
+
+                def resolve(number):
+                    if failure == 'read':
+                        raise AgentError('Sub-issue read failed')
+                    self.now += 61
+                    return sub_issues(number)
+
+                def interrupt(lease):
+                    self.enterContext(patch.object(self.github, 'sub_issues', side_effect=resolve))
+                    self.write = self.enterContext(patch.object(self.github, 'create_comment',
+                                                               wraps=self.github.create_comment))
+                    self.observe = self.enterContext(patch.object(coordinator, 'observed', wraps=coordinator.observed))
+
+                error = AgentError if failure == 'read' else LostOwnership
+                message = 'Sub-issue read failed' if failure == 'read' else 'expired'
+                with self.assertRaisesRegex(error, message):
+                    self.claim_and_report(interrupt)
+                self.write.assert_not_called()
+                self.observe.assert_not_called()
+                self.assertEqual([record['kind'] for record in coordinator.history(1)], ['lease'])
 
     def test_outside_input_copies_to_children_only_with_approvals_on(self):
         for approvals in ('on', 'off'):

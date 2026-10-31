@@ -210,7 +210,80 @@ class Applied:
         return self.error is None
 
 
-def apply_plan(plan, github, remote_labels=()):  # noqa: C901, PLR0912, PLR0915
+def apply_boards(plan, boards, result, pending):
+    repo = boards.setup()
+    for number in {a.retrospectives for a in plan.config.agents if a.retrospectives}:
+        boards.verify(number)
+    for role, request in plan.choices.board_requests.items():
+        # Re-discover the explicitly requested title immediately before creating.
+        # This also makes manual recovery after a partial failure avoid duplicates.
+        board = boards.find(request.title)
+        if board is None:
+            current = boards.request(request.title, request.category, repo)
+            if current != request:
+                raise AgentError("Discussion category or repository changed; review the request again before creating")
+            result.incomplete.append(f"Board creation may have completed: {request.title!r}; inspect GitHub before retrying")
+            board = boards.create(request)
+            result.incomplete.pop()
+            result.completed.append(f"Created public board {board['url']} for {role}")
+        else:
+            result.completed.append(f"Reused public board {board['url']} for {role}")
+        verified = boards.verify(board["number"])
+        result.board_numbers[role] = verified["number"]
+        pending.pop(0)
+    # No unverified or placeholder destination is ever written, even if only
+    # some public creations succeeded. Keep their actual effects in the result.
+    plan.choices.retrospectives.update(result.board_numbers)
+    plan.choices.board_requests.clear()
+    rebuilt = make_plan(plan.path, plan.repository, plan.choices)
+    for number in {a.retrospectives for a in rebuilt.config.agents if a.retrospectives}:
+        boards.verify(number)
+    plan.targets, plan.config = rebuilt.targets, rebuilt.config
+    plan.protect()
+
+
+def apply_files(plan, result, pending, change_ignore):
+    for target, content in plan.targets.items():
+        directories = []
+        parent = target.parent
+        while not parent.exists():
+            directories.append(parent)
+            parent = parent.parent
+        target.parent.mkdir(parents=True, exist_ok=True)
+        result.completed.extend(f"Created directory {p}" for p in reversed(directories))
+        with target.open("x", encoding="utf-8") as stream:
+            try:
+                stream.write(content)
+                stream.flush()
+            except (OSError, UnicodeError, KeyboardInterrupt):
+                result.incomplete.append(f"Incomplete file: {target}; inspect it before recovery")
+                raise
+        result.completed.append(pending.pop(0))
+    if change_ignore:
+        ignore = plan.path.parent / ".gitignore"
+        if ignore.is_symlink() or (ignore.read_bytes() if ignore.exists() else None) != plan.ignore_before:
+            raise AgentError(".gitignore changed during apply; preserve the newer entries and finish manually")
+        ignore.write_bytes(plan.ignore_after)
+        result.completed.append(pending.pop(0))
+    plan.protect_local()
+    load_config(plan.path)
+    result.completed.append(pending.pop(0))
+
+
+def apply_labels(plan, github, remote_labels, result, pending):
+    for label in remote_labels:
+        # Recheck to preserve labels another operator created during init.
+        existing = {name.casefold() for name in github.labels()}
+        if label.name.casefold() in existing:
+            result.completed.append(f"Kept existing label {label.name} on {plan.config.repository}")
+        else:
+            github.create_label(label.name, label.description, label.color)
+            result.completed.append(pending[0])
+        result.label_names.append(label.name)
+        pending.pop(0)
+
+
+def apply_plan(plan, github, remote_labels=()):
     """Stop on partial failure; retain and describe successful effects, never roll back."""
     from .doctor import Doctor, public
     result = Applied()
@@ -230,72 +303,11 @@ def apply_plan(plan, github, remote_labels=()):  # noqa: C901, PLR0912, PLR0915
             from .init_boards import Boards
             boards = Boards(github, plan.config.repository)
             phase = "boards"
-            repo = boards.setup()
-            for number in {a.retrospectives for a in plan.config.agents if a.retrospectives}:
-                boards.verify(number)
-            for role, request in plan.choices.board_requests.items():
-                # Re-discover the explicitly requested title immediately before creating.
-                # This also makes manual recovery after a partial failure avoid duplicates.
-                board = boards.find(request.title)
-                if board is None:
-                    current = boards.request(request.title, request.category, repo)
-                    if current != request:
-                        raise AgentError("Discussion category or repository changed; review the request again before creating")
-                    result.incomplete.append(f"Board creation may have completed: {request.title!r}; inspect GitHub before retrying")
-                    board = boards.create(request)
-                    result.incomplete.pop()
-                    result.completed.append(f"Created public board {board['url']} for {role}")
-                else:
-                    result.completed.append(f"Reused public board {board['url']} for {role}")
-                verified = boards.verify(board["number"])
-                result.board_numbers[role] = verified["number"]
-                pending.pop(0)
-            # No unverified or placeholder destination is ever written, even if only
-            # some public creations succeeded. Keep their actual effects in the result.
-            plan.choices.retrospectives.update(result.board_numbers)
-            plan.choices.board_requests.clear()
-            rebuilt = make_plan(plan.path, plan.repository, plan.choices)
-            for number in {a.retrospectives for a in rebuilt.config.agents if a.retrospectives}:
-                boards.verify(number)
-            plan.targets, plan.config = rebuilt.targets, rebuilt.config
-            plan.protect()
+            apply_boards(plan, boards, result, pending)
         phase = "local"
-        for target, content in plan.targets.items():
-            directories = []
-            parent = target.parent
-            while not parent.exists():
-                directories.append(parent)
-                parent = parent.parent
-            target.parent.mkdir(parents=True, exist_ok=True)
-            result.completed.extend(f"Created directory {p}" for p in reversed(directories))
-            with target.open("x", encoding="utf-8") as stream:
-                try:
-                    stream.write(content)
-                    stream.flush()
-                except (OSError, UnicodeError, KeyboardInterrupt):
-                    result.incomplete.append(f"Incomplete file: {target}; inspect it before recovery")
-                    raise
-            result.completed.append(pending.pop(0))
-        if change_ignore:
-            ignore = plan.path.parent / ".gitignore"
-            if ignore.is_symlink() or (ignore.read_bytes() if ignore.exists() else None) != plan.ignore_before:
-                raise AgentError(".gitignore changed during apply; preserve the newer entries and finish manually")
-            ignore.write_bytes(plan.ignore_after)
-            result.completed.append(pending.pop(0))
-        plan.protect_local()
-        load_config(plan.path)
-        result.completed.append(pending.pop(0))
+        apply_files(plan, result, pending, change_ignore)
         phase = "labels"
-        for label in remote_labels:
-            # Recheck to preserve labels another operator created during init.
-            existing = {name.casefold() for name in github.labels()}
-            if label.name.casefold() in existing:
-                result.completed.append(f"Kept existing label {label.name} on {plan.config.repository}")
-            else:
-                github.create_label(label.name, label.description, label.color)
-                result.completed.append(pending[0])
-            result.label_names.append(label.name)
-            pending.pop(0)
+        apply_labels(plan, github, remote_labels, result, pending)
     except KeyboardInterrupt:
         result.error = "Apply interrupted; completed effects remain and remaining steps need manual recovery"
         result.remaining = pending

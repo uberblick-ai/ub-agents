@@ -72,60 +72,69 @@ class BoundedJSON:
         else:
             self.tail.append(char)
 
-    def feed(self, raw):  # noqa: C901, PLR0912, PLR0915
+    def _structure_character(self, char):
+        if char == '"':
+            self.string = True
+        else:
+            if char in '{[':
+                self.depth += 1
+                if self.depth > 64:
+                    raise ValueError("JSON nesting exceeds bound")
+            elif char in '}]':
+                self.depth -= 1
+            self._append(char.encode('utf-8'))
+
+    def _finish_string(self):
+        if self.surrogate is not None:
+            self._retain(self.surrogate)
+            self.surrogate = None
+        cut = self.length > MAX_TEXT * 2
+        value = ''.join(self.head) + (SHORTENED if cut else '') + ''.join(self.tail)
+        self._append(json.dumps(value, ensure_ascii=True).encode())
+        if cut:
+            self.cuts[self.strings] = self.newlines + (self.last != '\n')
+        self.strings += 1
+        self.head.clear()
+        self.tail.clear()
+        self.length = 0
+        self.newlines = 0
+        self.last = ''
+        self.string = False
+
+    def _string_character(self, char):
+        if self.unicode is not None:
+            if char not in '0123456789abcdefABCDEF':
+                raise ValueError("Invalid Unicode escape")
+            self.unicode += char
+            if len(self.unicode) == 4:
+                self._character(chr(int(self.unicode, 16)))
+                self.unicode = None
+        elif self.escape:
+            self.escape = False
+            if char == 'u':
+                self.unicode = ''
+            else:
+                escapes = {'"': '"', '\\': '\\', '/': '/', 'b': '\b',
+                           'f': '\f', 'n': '\n', 'r': '\r', 't': '\t'}
+                self._character(escapes[char])
+        elif char == '\\':
+            self.escape = True
+        elif char == '"':
+            self._finish_string()
+        elif ord(char) < 32:
+            raise ValueError("Unescaped JSON control")
+        else:
+            self._character(char)
+
+    def feed(self, raw):
         if self.invalid:
             return
         try:
             for char in self.decoder.decode(raw):
                 if not self.string:
-                    if char == '"':
-                        self.string = True
-                    else:
-                        if char in '{[':
-                            self.depth += 1
-                            if self.depth > 64:
-                                raise ValueError("JSON nesting exceeds bound")
-                        elif char in '}]':
-                            self.depth -= 1
-                        self._append(char.encode('utf-8'))
+                    self._structure_character(char)
                     continue
-                if self.unicode is not None:
-                    if char not in '0123456789abcdefABCDEF':
-                        raise ValueError("Invalid Unicode escape")
-                    self.unicode += char
-                    if len(self.unicode) == 4:
-                        self._character(chr(int(self.unicode, 16)))
-                        self.unicode = None
-                elif self.escape:
-                    self.escape = False
-                    if char == 'u':
-                        self.unicode = ''
-                    else:
-                        escapes = {'"': '"', '\\': '\\', '/': '/', 'b': '\b',
-                                   'f': '\f', 'n': '\n', 'r': '\r', 't': '\t'}
-                        self._character(escapes[char])
-                elif char == '\\':
-                    self.escape = True
-                elif char == '"':
-                    if self.surrogate is not None:
-                        self._retain(self.surrogate)
-                        self.surrogate = None
-                    cut = self.length > MAX_TEXT * 2
-                    value = ''.join(self.head) + (SHORTENED if cut else '') + ''.join(self.tail)
-                    self._append(json.dumps(value, ensure_ascii=True).encode())
-                    if cut:
-                        self.cuts[self.strings] = self.newlines + (self.last != '\n')
-                    self.strings += 1
-                    self.head.clear()
-                    self.tail.clear()
-                    self.length = 0
-                    self.newlines = 0
-                    self.last = ''
-                    self.string = False
-                elif ord(char) < 32:
-                    raise ValueError("Unescaped JSON control")
-                else:
-                    self._character(char)
+                self._string_character(char)
         except (ValueError, UnicodeError, KeyError):
             self.invalid = True
             self.buffer.clear()
