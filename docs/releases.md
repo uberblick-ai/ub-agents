@@ -44,7 +44,7 @@ starts using that older launchers reject:
 
 For `coordinated`, also include a visible **Upgrading** note with the required
 operator steps. The marker supplements that note. Automatic launcher maintenance
-reads all stable releases newer than its running version through its target,
+reads all published releases newer than its running version through its target,
 including intermediate releases across skipped versions. Any coordinated,
 missing or unreadable marker prevents automatic upgrading and restarting. Keep
 the marker when finishing partial publication or editing release notes. Older

@@ -193,6 +193,18 @@ class SelfUpdateTests(unittest.TestCase):
             self.assertIn("automatic update skipped", self.updates.banner["text"])
         self.assertFalse(any("upgrade" in call for call in self.calls))
 
+    def test_intervening_prerelease_markers_are_checked_too(self):
+        for marker in ("coordinated", "unknown"):
+            self.manager.checked = None
+            self.pages = [[release("99.0.2-rc.1", marker, prerelease=True), release(self.target)]]
+            self.boundary()
+            self.assertFalse(any("upgrade" in call for call in self.calls))
+            self.assertIn("99.0.2-rc.1", self.updates.banner["text"])
+        release_range([[release("0.0.1-rc.1", "coordinated", prerelease=True),
+                        release("100.0.0-rc.1", "coordinated", prerelease=True),
+                        release("99.0.2-rc.1", prerelease=True), release(self.target)]],
+                      __version__, self.target)
+
     def test_failed_upgrade_is_logged_and_only_retried_next_update_check(self):
         def fail():
             raise MaintenanceFailure("command exited 1")

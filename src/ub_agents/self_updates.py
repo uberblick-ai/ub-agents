@@ -69,27 +69,38 @@ def release_range(pages, running, target):
     if not isinstance(pages, list) or not pages or any(not isinstance(page, list) for page in pages):
         raise ValueError("release markers could not be read")
     found = set()
+    found_target = False
     for page in pages:
         for release in page:
             if not isinstance(release, dict):
                 raise ValueError("release markers could not be read")
-            if release.get("draft") is True or release.get("prerelease") is True:
+            if release.get("draft") is True:
                 continue
-            if release.get("draft") is not False or release.get("prerelease") is not False:
+            if release.get("draft") is not False or not isinstance(release.get("prerelease"), bool):
                 raise ValueError("release markers could not be read")
-            candidate = version(release.get("tag_name"))
+            tag = release.get("tag_name")
+            match = (re.fullmatch(r"v?(\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", tag)
+                     if isinstance(tag, str) else None)
+            if match is None:
+                raise ValueError("release version could not be read")
+            candidate = version(match[1])
+            # Both endpoints are stable versions. A prerelease with the same
+            # core as running is older; one with the target's core precedes it.
             if not version(running) < candidate <= version(target):
                 continue
-            if candidate in found:
+            identity = candidate, match[2]
+            if identity in found:
                 raise ValueError("duplicate release versions; release markers are ambiguous")
-            found.add(candidate)
+            found.add(identity)
+            if candidate == version(target) and match[2] is None:
+                found_target = True
             body = release.get("body")
             markers = re.findall(MARKER, body) if isinstance(body, str) else []
             if markers == ["coordinated"]:
                 raise ValueError(f"{release['tag_name']} requires every launcher to upgrade together")
             if markers != ["independent"]:
                 raise ValueError(f"{release['tag_name']} has a missing or unreadable launcher-upgrade marker")
-    if version(target) not in found:
+    if not found_target:
         raise ValueError(f"release markers through {target} could not be read")
 
 
