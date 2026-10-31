@@ -27,8 +27,9 @@ from ub_agents.view_data import POINTERS_LIMIT
 from textual import events, messages
 from textual.geometry import Size
 from textual.widgets import Collapsible, Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
-from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
-                               RawAccess, UpdateBanner, View, pane_line)
+from ub_agents.view_log_pane import LogPane, MAX_RENDER_LINES
+from ub_agents.view_ui import RecentActivity, View
+from ub_agents.view_widgets import HealthBanner, ItemTabs, KeyHelp, RawAccess, UpdateBanner, pane_line
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_data import Session, item_history, work_pane
 from ub_agents.view_theme import theme_style

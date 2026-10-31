@@ -1,7 +1,7 @@
-"""Optional responsive Textual UI. Imported only by the view process."""
+# Optional responsive Textual UI. Imported only by the view process.
 
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from math import ceil
 from pathlib import Path
@@ -11,371 +11,32 @@ import time
 from weakref import WeakKeyDictionary
 
 from rich.control import Control
-from rich.segment import Segment
 from rich.style import Style
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.geometry import Size
-from textual.scroll_view import ScrollView
-from textual.strip import Strip
-from textual.screen import ModalScreen
-from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tabs, Tree
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tree
 
 from .view_clipboard import copy_with_pbcopy, local_pbcopy
 from .view_data import (context_header, context_text, item_handoff, item_header, item_history, mapping,
                         related_assignment, related_plan, run_status, text, work_pane)
 from .view_github import DescriptionLoads
+from .view_log_pane import LogPane, MAX_RENDER_LINES, Reading
 from .view_markdown import description_parser
 from .view_unblock import (ActionComment, comment_sections, local_action, needs_attention,
                            resume_section, trust_reason, unblock_body, unblock_metadata)
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS, spinner_frame
 from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
+from .view_widgets import (HealthBanner, ItemHeader, ItemTabs, KeyHelp, RawAccess, SIZE_WARNING,
+                           UpdateBanner, pane_line)
 from .view_worker import LocalWorker, Request
 from .view_work import RecentActivity, WorkTree, assignment_elapsed, work_lines
-from .view_theme import VIEW_THEME, item_reference, log_style, theme_style, variable_defaults
-from .updates import release_age
+from .view_theme import VIEW_THEME, item_reference, theme_style, variable_defaults
 from .poll_now import COOLDOWN_SECONDS
 from .log_format import inert
 from .view_time import deadline as poll_deadline, pause_status, plan_pauses, remaining_time, runtime_pauses
-
-MAX_RENDER_LINES = 400
-SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
-
-
-class UpdateBanner(Static):
-    """A single inert row; Rich measures truncation in terminal cells."""
-    def __init__(self, *, id='update'):
-        super().__init__('', id=id, markup=False)
-        self.banner = {}
-
-    def set_banner(self, banner):
-        banner = mapping(banner)
-        self.display = (not self.app.too_small and self.app.shutdown is None and bool(banner.get('text'))
-                        and isinstance(banner.get('text'), str))
-        if self.banner != banner:
-            self.banner = banner
-            self.refresh()
-
-    def render(self):
-        width = max(0, self.content_size.width)
-        line = Text(text(self.banner.get('text'), ''), no_wrap=True)
-        age = release_age(self.banner.get('released_at')) if width >= 60 else ''
-        room = max(0, width - len(age) - 2) if age else width
-        line.truncate(room, overflow='ellipsis')
-        if age:
-            line.append(' ' * max(2, width - line.cell_len - len(age)) + age)
-        return line
-
-
-class HealthBanner(UpdateBanner):
-    """The latest project health transition, including recovery, in one row."""
-    def __init__(self):
-        super().__init__(id='health_notice')
-
-
-def pane_line(value, width, style=''):
-    line = value.copy() if isinstance(value, Text) else Text(text(value, ''))
-    line.stylize_before(style)
-    line.truncate(max(0, width), overflow='ellipsis')
-    return line
-
-
-class ItemHeader(Static):
-    @property
-    def link_style(self):
-        # Decorate links without replacing the title and PR marker colors.
-        style = self.styles.link_style
-        # Textual gives the accent marker and number separate hover IDs.
-        if '@click' in self.hover_style.meta:
-            style += self.link_style_hover
-        return style
-
-
-class ItemTabs(TabbedContent):
-    """One header below the tab bar, shared even by subsequently added tabs."""
-
-    def compose(self):
-        for widget in super().compose():
-            yield widget
-            if isinstance(widget, Tabs):
-                yield Static('', id='log_mode', markup=False)
-                yield Static('', id='tab_rule', markup=False)
-                yield ItemHeader('', id='item_header', markup=False)
-
-
-class RawAccess(ModalScreen):
-    BINDINGS = [Binding('escape', 'dismiss', 'Close', priority=True)]
-    DEFAULT_CSS = '''
-    RawAccess { padding: 2 4; }
-    RawAccess VerticalScroll { background: $panel; padding: 1 2; }
-    #raw_status { height: 1; background: $panel; }
-    #raw_size_warning { height: 1fr; content-align: center middle; text-wrap: nowrap; text-overflow: ellipsis; display: none; }
-    RawAccess.floor { padding: 0; }
-    '''
-    footer_keys = 'Esc close ? keys q quit'
-
-    def __init__(self, message=None):
-        super().__init__()
-        self.message = message
-
-    def compose(self):
-        # Read the view's state now: updates that land between the push and
-        # this compose find no widgets to update.
-        yield Static(Text(SIZE_WARNING, no_wrap=True, overflow='ellipsis'), id='raw_size_warning')
-        with PaneScroll(id='raw_content'):
-            yield Static(Text(self.message if self.message is not None else self.app.raw_details()), id='raw_details')
-        yield Static(self.app.footer(self.app.size.width - self.styles.padding.width, self.footer_keys),
-                     id='raw_status', markup=False)
-
-    def set_floor(self, too_small):
-        self.set_class(too_small, 'floor')
-        self.query_one('#raw_size_warning').display = too_small
-        self.query_one('#raw_content').display = not too_small
-        self.query_one('#raw_status').display = not too_small
-
-    def on_mount(self):
-        self.set_floor(self.app.too_small)
-
-    def action_dismiss(self):
-        self.dismiss()
-
-
-class KeyHelp(RawAccess, inherit_bindings=False):
-    BINDINGS = [Binding('escape,question_mark', 'dismiss', 'Close', priority=True)]
-    footer_keys = 'Esc/? close q quit'
-
-    def __init__(self, unblock=False, attached=False, awake_supported=False):
-        unblock_keys = ('4 on Needs attention   Unblock\n'
-                        'g on Unblock   Load the action-needed comment or retry a failed read\n') if unblock else ''
-        poll_key = 'r   Poll GitHub now (attached launcher only; 10s cooldown)\n' if attached else ''
-        awake_key = ('c   Toggle keeping the launcher machine awake (macOS only'
-                     + (')\n' if awake_supported else '; unavailable on this platform)\n')) if attached else ''
-        super().__init__(
-            'Keys\n\n'
-            'Tab / arrows / Enter   Focus a pane and select a work row\n'
-            'Enter below 110×32   Open the selected item at full width\n'
-            'Esc below 110×32   Return to Work; close an overlay first\n'
-            '1 / 2 / 3   Agent / Issue / Runs\n'
-            + unblock_keys +
-            'g on Agent   Reload the selected local log at the end and follow it\n'
-            'g on Issue   Load a missing description or retry a failed read\n'
-            'f   Toggle follow/pause; resuming loads the latest generation\n'
-            'h   Read an older bounded page toward byte zero\n'
-            'u   Toggle formatted/raw projection of the same page\n'
-            'p   Show the full raw path and log diagnostics; Escape closes it\n'
-            + poll_key + awake_key +
-            'Page Up / Page Down / Home / End   Scroll; scrolling up pauses follow\n'
-            'Mouse drag   Copy selected text on release (OSC 52)\n'
-            'y   Copy the current selection again\n'
-            '?   Open or close this help; Escape also closes it\n'
-            'q   Stop after run; close a standalone view\n'
-            'Ctrl-C   Stop now; close a standalone view\n\n'
-            'Local macOS also uses pbcopy when available.\n'
-            'In iTerm2, enable "Applications in terminal may access clipboard" for OSC 52.\n'
-            'Terminal.app does not support OSC 52; local macOS uses pbcopy instead.\n'
-            "Option-drag selects with the terminal's own selection.")
-
-
-@dataclass
-class Reading:
-    page: object = None
-    follow: bool = True
-    raw: bool = False
-    anchor: tuple | None = None
-    seen: int = 0
-    notice: str = ''
-    latest: object = None
-    log: object = None
-    runtime: str = 'unknown'
-    empty_message: str = 'No local log cached for this row.'
-
-
-class LogPane(ScrollbarVisibility, ScrollView):
-    """A fixed retained page, with a logical entry anchor instead of RichLog redraw.
-
-    At most 400 wrapped lines are rendered. Accounting and older paging include
-    every entry inside that budget, even when its projection has no lines.
-    """
-    can_focus = True
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.reading = None
-        self.lines = []
-        self.positions = []
-        self.visible_refs = ()
-        self.hidden = 0
-        self.render_width = 0
-        self.held_anchor = None
-        self.held_y = None
-
-    def anchor(self):
-        y = int(self.scroll_y)
-        if self.held_anchor is not None and y == self.held_y:
-            return self.held_anchor
-        if self.positions and y < len(self.positions):
-            return self.positions[y]
-        return None
-
-    def _wrap_entry(self, ref, raw, width):
-        value = ref.value
-        rich = Text(value.display(raw), style=self.rich_style)
-        if raw or not value.compact:
-            return rich.wrap(self.app.console, width, overflow='fold')
-        for start, end, style in value.styles:
-            rich.stylize(log_style(self.app, style), start, end)
-        lines = []
-        for line in rich.split('\n') if rich.plain else ():
-            if any(span.style.italic for span in line.spans):
-                # Wrapped assistant continuations share the explicit LF indent.
-                column, body = line[:10], line[10:]
-                for index, part in enumerate(body.wrap(self.app.console, width - 10, overflow='fold')):
-                    lines.append((column if index == 0 else Text(' ' * 10, style=self.rich_style)) + part)
-            else:
-                suffixes = [span.start for span in line.spans
-                            if (line.plain[span.start:span.end][:1] in ('+', '-')
-                                and line.plain[span.start:span.end][1:].isdigit())
-                            or line.plain[span.start:span.end].startswith(' · ')]
-                if suffixes:
-                    start = min(suffixes)
-                    if line.plain[start:start + 3] != ' · ':
-                        start -= 1
-                    suffix = line[start:]
-                    line = line[:start]
-                    line.truncate(width - suffix.cell_len, overflow='ellipsis')
-                    line += suffix
-                else:
-                    line.truncate(width, overflow='ellipsis')
-                lines.append(line)
-        return lines
-
-    def set_reading(self, reading):
-        if self.reading is not None and self.app.query_one(TabbedContent).active == 'log':
-            self.reading.anchor = self.anchor()
-        self.reading = reading
-        self.reflow()
-
-    def reflow(self):  # noqa: C901
-        reading = self.reading
-        width = max(20, self.scrollable_content_region.width)
-        self.render_width = width
-        anchor = reading.anchor if reading else None
-        wrapped = []
-        if reading and reading.page:
-            for ref in reversed(reading.page.refs):
-                lines = self._wrap_entry(ref, reading.raw, width)
-                if sum(len(part[1]) for part in wrapped) + len(lines) > MAX_RENDER_LINES:
-                    break
-                wrapped.append((ref, lines))
-        wrapped.reverse()
-        target = anchor[0] if anchor else None
-        if reading and reading.page and anchor:
-            visible = [ref for ref in reading.page.refs if ref.value.display(reading.raw)]
-            if not any(ref.start == target for ref in visible) and visible:
-                # Keep the logical hidden anchor; display its next visible
-                # neighbor, or the last visible entry at the end of the page.
-                target = next((ref.start for ref in visible if ref.start > target), visible[-1].start)
-        if reading and reading.page and not reading.follow and anchor and not any(ref.start == target for ref, _ in wrapped):
-            # Raw text can wrap to more rows than its formatted projection. Keep
-            # the anchored entry even when it falls outside the tail line budget.
-            start = next((i for i, ref in enumerate(reading.page.refs) if ref.start == target), None)
-            if start is not None:
-                wrapped = []
-                count = 0
-                for ref in reading.page.refs[start:]:
-                    lines = self._wrap_entry(ref, reading.raw, width)
-                    if count + len(lines) > MAX_RENDER_LINES:
-                        break
-                    count += len(lines)
-                    wrapped.append((ref, lines))
-        self.visible_refs = tuple(ref for ref, _ in wrapped)
-        self.hidden = len(reading.page.refs) - len(self.visible_refs) if reading and reading.page else 0
-        self.lines, self.positions = [], []
-        for ref, lines in wrapped:
-            for index, line in enumerate(lines):
-                self.lines.append(Strip(Segment.apply_style(line.render(self.app.console), self.rich_style), line.cell_len))
-                self.positions.append((ref.start, index / max(1, len(lines))))
-        self.virtual_size = Size(width, len(self.lines))
-        self.call_after_refresh(self.restore, reading, anchor, target, reading.follow if reading else False)
-
-    def restore(self, reading, anchor, target, was_following):
-        if self.reading is not reading:
-            return
-        if reading and was_following and not reading.follow:
-            # A later pause or scroll owns the position, even while its anchor
-            # save is pending in the app's or pane's after-refresh queue.
-            return
-        self.held_anchor = self.held_y = None
-        # After a reflow, max_scroll_y can be current while the scrollbar
-        # flags still prohibit scrolling. Force the restore; bounds still clamp.
-        if reading and reading.follow:
-            self.scroll_end(animate=False, immediate=True, force=True)
-        elif anchor and self.positions:
-            candidates = [(index, position) for index, position in enumerate(self.positions) if position[0] == target]
-            if candidates:
-                y = min(candidates, key=lambda item: abs(item[1][1] - anchor[1]))[0]
-                self.scroll_to(y=y, animate=False, immediate=True, force=True)
-        elif not anchor:
-            self.scroll_home(animate=False, immediate=True, force=True)
-        if reading and not reading.follow and anchor and (target != anchor[0] or not self.positions):
-            self.held_anchor, self.held_y = anchor, int(self.scroll_y)
-        self.refresh()
-
-    def render_line(self, y):
-        index = y + int(self.scroll_y)
-        width = self.size.width
-        if not self.lines and y == 0 and self.reading:
-            value = pane_line(self.reading.empty_message, width)
-            return Strip([Segment(value.plain, self.rich_style)], value.cell_len).crop_extend(0, width, self.rich_style)
-        return (self.lines[index].crop_extend(0, width, self.rich_style) if index < len(self.lines)
-                else Strip.blank(width, self.rich_style))
-
-    def on_resize(self):
-        if self.reading and self.app.query_one(TabbedContent).active == 'log':
-            width = self.scrollable_content_region.width
-            if width > 0 and max(20, width) != self.render_width:
-                self.call_after_refresh(self.reflow_for_resize)
-            elif width > 0 and self.reading.follow:
-                self.scroll_end(animate=False, immediate=True)
-
-    def reflow_for_resize(self):
-        width = self.scrollable_content_region.width
-        if width <= 0 or max(20, width) == self.render_width:
-            return
-        # Height changes from notices and the pill do not change wrapping. For
-        # a width change, use the displayed position, including a pending scroll.
-        self.save_anchor()
-        self.reflow()
-
-    def watch_scroll_y(self, old, value):
-        super().watch_scroll_y(old, value)
-        if self.held_anchor is not None and int(value) != self.held_y:
-            self.held_anchor = self.held_y = None
-
-    def save_anchor(self):
-        if self.reading:
-            self.reading.anchor = self.anchor()
-
-    def on_mouse_scroll_up(self):
-        if self.reading and self.reading.follow:
-            self.app.action_follow()
-        self.call_after_refresh(self.save_anchor)
-
-    def on_mouse_scroll_down(self):
-        self.call_after_refresh(self.save_anchor)
-
-    def action_scroll_up(self):
-        if self.reading and self.reading.follow:
-            self.app.action_follow()
-        self.scroll_up(animate=False)
-        self.call_after_refresh(self.save_anchor)
-
-    def action_scroll_down(self):
-        self.scroll_down(animate=False)
-        self.call_after_refresh(self.save_anchor)
 
 
 class View(App):
