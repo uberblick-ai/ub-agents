@@ -557,7 +557,7 @@ agents:
                         patch("ub_agents.cli.GitHub", return_value=self.github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         patch.object(Loop, "tick", autospec=True, side_effect=tick), \
-                        patch.object(Loop, "_wait", side_effect=wait), \
+                        patch.object(Loop, "wait", side_effect=wait), \
                         redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
                     self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]),
                                      0 if sig == signal.SIGTERM else 130)

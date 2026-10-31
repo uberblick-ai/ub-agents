@@ -100,14 +100,14 @@ class RunPlanning:
         with self.lock:
             if not self.stop.is_set():
                 self.refreshing = True
-                self.loop._observe("poll_refresh", True)
+                self.loop.observe("poll_refresh", True)
 
     def _finish_refresh(self):
         # Called under the worker lock, including cancellation while a read is
         # still blocked. Its eventual return must not clear a newer poll's state.
         if self.refreshing:
             self.refreshing = False
-            self.loop._observe("poll_refresh", False)
+            self.loop.observe("poll_refresh", False)
 
     def _wait(self, delay, rate_until):
         control = self.loop.poll_now
@@ -158,7 +158,7 @@ class RunPlanning:
                             return
                 with self.lock:
                     if not self.stop.is_set():
-                        self.loop._observe("observation_pass", observed_at, events.events)
+                        self.loop.observe("observation_pass", observed_at, events.events)
             except _Cancelled:
                 return
             except KeyboardInterrupt:

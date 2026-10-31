@@ -230,7 +230,7 @@ class LaunchTests(unittest.TestCase):
                 with patch("ub_agents.cli.load_config", return_value=self.config), \
                         patch("ub_agents.cli.GitHub", return_value=github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
-                        patch.object(Loop, "_wait") as wait, \
+                        patch.object(Loop, "wait") as wait, \
                         redirect_stdout(stdout), redirect_stderr(stderr):
                     self.assertEqual(main(self.argv + ["--once"]), 0)
                 self.assertRegex(stdout.getvalue().splitlines()[0], r'^Discovery pass empty: .*candidates reached=0$')
@@ -265,7 +265,7 @@ class LaunchTests(unittest.TestCase):
                             patch("ub_agents.cli.repository_checks", return_value=[]), \
                             patch("ub_agents.observations.Publisher", return_value=publisher), \
                             patch.object(Loop, "execute", autospec=True, side_effect=execute_later) as execute, \
-                            patch.object(Loop, "_wait", autospec=True, side_effect=stop_waiting), \
+                            patch.object(Loop, "wait", autospec=True, side_effect=stop_waiting), \
                             redirect_stdout(io.StringIO()) as output:
                         args = ["--once"] if once else []
                         self.assertEqual(main(self.argv + args + ["--no-ui"]), 0)
@@ -399,7 +399,7 @@ class LaunchTests(unittest.TestCase):
         with patch("ub_agents.cli.load_config", return_value=self.config), \
                 patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch.object(Loop, "_wait", side_effect=wait), \
+                patch.object(Loop, "wait", side_effect=wait), \
                 patch("ub_agents.loop.monotonic", return_value=0), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 130)
@@ -459,7 +459,7 @@ class LaunchTests(unittest.TestCase):
                             patch.object(github, "actor", return_value="operator"), \
                             patch("ub_agents.cli.repository_checks", return_value=[]), \
                             patch.object(Loop, "tick", side_effect=lambda: github.request(endpoint, array=True)), \
-                            patch.object(Loop, "_wait") as wait, redirect_stderr(stderr):
+                            patch.object(Loop, "wait") as wait, redirect_stderr(stderr):
                         self.assertEqual(main(self.argv + (["--once"] if once else [])), 130)
                     self.assertEqual(signal.getsignal(signal.SIGINT), original_handler)
                     wait.assert_not_called()

@@ -765,7 +765,7 @@ class ObservationTests(unittest.TestCase):
                         return 0
                     with patch('ub_agents.loop.supervise', side_effect=finish), \
                             patch.object(loop.coordinator, 'release', side_effect=released), \
-                            patch.object(loop.github, 'wait') as wait, patch.object(loop, '_wait') as delay:
+                            patch.object(loop.github, 'wait') as wait, patch.object(loop, 'wait') as delay:
                         self.assertTrue(loop.tick())
                         github.change(2, labels=frozenset({'needs-changes'}))
                         github.timelines.pop(2, None)
@@ -1007,7 +1007,7 @@ class ObservationTests(unittest.TestCase):
     def test_wait_deadlines_and_rate_limit_use_existing_clock_only(self):
         loop = self.loop(PollGitHub())
         with patch.object(loop.stop_event, "wait"):
-            loop._wait(loop.stop_event, 15, "runtime pause")
+            loop.wait(loop.stop_event, 15, "runtime pause")
             loop.wait_rate_limit(GitHubError("GET", "user", "limit", rate_limited=True,
                                             reset_at=loop.coordinator.clock() + 60))
         waits = [s["activity"] for s in self.memory.snapshots if s["activity"]["state"] == "waiting"]
