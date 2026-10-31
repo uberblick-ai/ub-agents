@@ -106,7 +106,8 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
 <p class="dim src">Source: action-needed comment · 08:16 · snapshot</p>`;
 
   let S, gen = 0, spin = 0, frame = 0, logs = {}, logDone;
-  const sleep = (ms, id) => new Promise((ok, no) => setTimeout(() => id === gen ? ok() : no('stale'), ms));
+  const PACE = 1.35; // one knob for the speed of the whole animation
+  const sleep = (ms, id) => new Promise((ok, no) => setTimeout(() => id === gen ? ok() : no('stale'), ms * PACE));
 
   function fresh() {
     return {
@@ -255,7 +256,7 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
     ask.hidden = true; ccin.hidden = false; line('o pick', '⎿  Compare numbers as numbers'); await sleep(1200, id);
     await say('Then the scope is one sort key shared by the client and the fake, digit runs compared as numbers, the exact title breaking ties, and a line in the queue docs. Waiting until a milestone is closed is a separate issue: a strict gate.', id);
     await sleep(1400, id);
-    cap(2, 'Once the shape is settled, have Claude create the issues'); await sleep(1600, id);
+    cap(2, 'Once the shape is settled, have Claude create the issues'); await sleep(2600, id);
     await type('file issues for the loop', id, 'key');
     await tool('Bash', 'gh issue create --label ready --title "Order milestone titles with numbers compared as numbers" …', 'https://github.com/uberblick-ai/ub-agents/issues/630', id, 'hi');
     await tool('Bash', 'gh issue create --label ready --title "Add milestones: strict-gate, which waits for the current milestone to close" …', 'https://github.com/uberblick-ai/ub-agents/issues/636', id, 'hi');
@@ -287,16 +288,16 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
       await claude(id);
       await press('⌘2', 'ub-agents launch', id); view('ub');
       cap(3, 'The loop keeps checking GitHub for eligible issues');
-      await sleep(1800, id); S.act = 'polling'; render();
-      await sleep(700, id); S.eligible.push({ id: 630, glyph: '●', gcls: 'green', right: 'next', rcls: 'green', sub: 'implementer' }); S.act = 'idle'; S.sel = 630; render();
-      cap(4, 'You decide what makes an issue eligible, in ub-agents.yaml');
+      await sleep(3200, id); S.act = 'polling'; render();
+      await sleep(1600, id); S.eligible.push({ id: 630, glyph: '●', gcls: 'green', right: 'next', rcls: 'green', sub: 'implementer' }); S.act = 'idle'; S.sel = 630; render();
+      cap(4, 'You decide what makes an issue eligible, in ub-agents.yaml'); await sleep(1200, id);
       await sleep(1400, id); S.eligible.push({ id: 636, glyph: '●', gcls: 'green', right: 'ready', sub: 'implementer' }); render();
-      await sleep(2400, id); S.act = 'picking next item'; render();
-      cap(5, 'The loop claims an issue and starts working'); await sleep(1500, id);
+      await sleep(3000, id); S.act = 'picking next item'; render();
+      cap(5, 'The loop claims an issue and starts working'); await sleep(2500, id);
       S.eligible.shift(); S.running = [{ id: 630, glyph: FRAMES[0], gcls: 'blue', right: '00:00', sub: 'implementer · this launcher · attempt 1' }];
       S.act = 'running assignment'; logs[630] = buildLog(630); render();
       const run = stream(630, logs[630]).then(() => true, () => false);
-      await sleep(10500, id); cap(6, 'Follow each run in the terminal view'); await press('2', 'Issue', id); S.tab = 'issue'; renderSide();
+      await sleep(10500, id); cap(6, 'Follow each run in the terminal view'); await sleep(2500, id); await press('2', 'Issue', id); S.tab = 'issue'; renderSide();
       await sleep(5500, id); await press('3', 'Runs', id); S.tab = 'runs'; renderSide();
       await sleep(4500, id); await press('1', 'Agent', id); S.tab = 'agent'; renderSide();
       if (!await run) return;
@@ -309,7 +310,7 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
       S.eligible.shift(); S.running = [{ id: 632, glyph: FRAMES[0], gcls: 'blue', right: '00:00', sub: 'reviewer · this launcher · attempt 1' }];
       S.act = 'running assignment'; S.sel = 632; logs[632] = buildLog(632); render();
       const review = stream(632, logs[632]).then(() => true, () => false);
-      await sleep(6000, id); cap(8, 'When an agent needs a decision, it stops and asks you'); await press('↓', 'Select', id); S.sel = 589; render();
+      await sleep(6000, id); cap(8, 'When an agent needs a decision, it stops and asks you'); await sleep(2500, id); await press('↓', 'Select', id); S.sel = 589; render();
       await sleep(3200, id); await press('4', 'Unblock', id); S.tab = 'unblock'; renderSide();
       await sleep(5500, id); await press('⏎', 'Expand', id); S.open = true; $('tresume').classList.add('open');
       await sleep(3500, id); cap(9, 'Decide on GitHub, or let the ub-agents-unblock skill walk you through it');
