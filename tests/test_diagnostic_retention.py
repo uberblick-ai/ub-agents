@@ -7,12 +7,12 @@ import socket
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ub_agents.cleanup import Artifact, Cleaner
 from ub_agents.cleanup_control import CleanupControl
 from ub_agents.coordination import Coordinator
-from ub_agents.diagnostic_retention import RETENTION_SECONDS, prune
+from ub_agents.diagnostic_retention import RETENTION_SECONDS, _remove_session_file, prune
 from ub_agents.errors import AgentError, CleanupError
 from ub_agents.records import iso, timestamp
 from ub_agents.startup_cleanup import sweep
@@ -325,6 +325,33 @@ class DiagnosticRetentionTests(unittest.TestCase):
         self.assertEqual(sum("session denied" in line for line in self.lines), 1)
         self.assertEqual(sum("run denied" in line for line in self.lines), 1)
         self.assertIn("pruned 1 run directories", self.lines[-1])
+
+    def test_session_removal_helper_preserves_a_file_replaced_during_inspection(self):
+        path = self.file(self.sessions / 'old.tmp', 'old')
+        replacement = self.file(self.sessions / 'replacement', 'replacement contents')
+        original_stat = os.stat
+        inspected = 0
+
+        def inspect(name, *args, **kwargs):
+            nonlocal inspected
+            if name == 'old.tmp':
+                inspected += 1
+                if inspected == 2:
+                    os.replace(replacement, path)
+            return original_stat(name, *args, **kwargs)
+
+        removed, failed = Mock(), Mock()
+        parent = os.open(self.sessions, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with patch('ub_agents.diagnostic_retention.os.stat', side_effect=inspect):
+                self.assertFalse(_remove_session_file(
+                    self.cleaner, parent, 'old.tmp', self.now - RETENTION_SECONDS,
+                    removed, failed, self.lines.append))
+        finally:
+            os.close(parent)
+        self.assertEqual(path.read_text(), 'replacement contents')
+        removed.assert_not_called()
+        failed.assert_not_called()
 
     def test_startup_failure_preserves_runs_but_can_still_prune_sessions(self):
         self.make_run()

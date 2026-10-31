@@ -314,7 +314,7 @@ class ClaudeFormatter(StructuredFormatter):
         # Unfamiliar valid shapes use the same labels as smaller Claude records.
         return self.project(data, raw, capture)
 
-    def _project(self, data):  # noqa: C901, PLR0912, PLR0915
+    def _project(self, data):
         kind = data.get("type")
         if kind == "tool_progress":
             # Preserve the previous raw projection's generic record label.
@@ -322,100 +322,124 @@ class ClaudeFormatter(StructuredFormatter):
         if kind in ("system", "rate_limit_event"):
             return kind, [], [], self.last_call
         if kind in ("assistant", "user"):
-            message = data.get("message")
-            if not isinstance(message, dict) or message.get("role", kind) != kind:
-                raise ValueError("Unfamiliar message")
-            content = message.get("content")
-            if not isinstance(content, list) or not content:
-                raise ValueError("Unfamiliar content")
-            parts, kinds, calls = [], [], []
-            names = dict(self.tools)
-            last_call = self.last_call
-            for block in content:
-                if not isinstance(block, dict):
-                    raise ValueError("Unfamiliar block")
-                block_type = block.get("type")
-                if block_type == "text" and isinstance(block.get("text"), str):
-                    kinds.append(kind)
-                    parts.extend(Line(value, "assistant" if kind == "assistant" else "italic",
-                                      continuation=index > 0)
-                                 for index, value in enumerate(block['text'].split("\n")))
-                    last_call = None
-                elif block_type == "tool_use" and kind == "assistant":
-                    tool_id, name, inputs = block.get("id"), block.get("name"), block.get("input")
-                    if not _identifier(tool_id) or not _identifier(name) or not isinstance(inputs, dict):
-                        raise ValueError("Unfamiliar tool call")
-                    calls.append((tool_id, name))
-                    names[tool_id] = name
-                    kinds.append("tool call")
-                    key = {"Read": "file_path", "Edit": "file_path", "Write": "file_path",
-                           "Bash": "command", "Grep": "pattern", "Glob": "pattern"}.get(name)
-                    argument = inputs.get(key) if key else next(
-                        (value for value in inputs.values() if isinstance(value, str)), None)
-                    text = "▸ " + _one_line(name)
-                    if isinstance(argument, str):
-                        text += " " + _one_line(argument)
-                    spans = []
-                    fields = (("new_string", "+", "diff-add"), ("old_string", "-", "diff-remove")) if name == "Edit" else (
-                        (("content", "+", "diff-add"),) if name == "Write" else ())
-                    for field, sign, style in fields:
-                        if isinstance(inputs.get(field), str):
-                            start = len(text) + 1
-                            text += f" {sign}{_line_count(inputs[field])}"
-                            spans.append((start, len(text), style))
-                    parts.append(Line(text, spans=tuple(spans), tool_id=tool_id))
-                    last_call = tool_id
-                elif block_type == "tool_result" and kind == "user":
-                    tool_id = block.get("tool_use_id")
-                    failed = block.get("is_error", False)
-                    if not _identifier(tool_id) or type(failed) is not bool:
-                        raise ValueError("Unfamiliar tool result")
-                    label = "tool ERROR" if failed else "tool result"
-                    name = names.get(tool_id, "tool")
-                    kinds.append(label)
-                    if failed:
-                        error = _result_text(block.get('content'))
-                        name = _one_line(name) + ": " if last_call != tool_id else ""
-                        parts.append(Line("  ✗ " + name + _one_line(error.split("\n", 1)[0]), "error"))
-                        last_call = None
-                elif block_type == "thinking":
-                    kinds.append("thinking")
-                    thinking = block.get("thinking")
-                    lines = [value for value in thinking.split("\n") if value.strip()] if isinstance(thinking, str) else []
-                    if lines:
-                        parts.extend(Line(("· " if index == 0 else "") + value, "dim italic",
-                                          continuation=index > 0)
-                                     for index, value in enumerate(lines))
-                    else:
-                        parts.append(Line("· thinking", "dim"))
-                    last_call = None
-                else:
-                    kinds.append("other block")
-                    label = _one_line(block_type) if isinstance(block_type, str) else "unknown block"
-                    parts.append(Line("· " + label, "dim"))
-                    last_call = None
-            return ", ".join(dict.fromkeys(kinds)), parts, calls, last_call
+            return self._message(data, kind)
         if kind == "result":
-            subtype = data.get("subtype")
-            failed = data.get("is_error", False)
-            if not _identifier(subtype) or type(failed) is not bool:
-                raise ValueError("Unfamiliar runtime result")
-            errors = data.get("errors", [])
-            if not isinstance(errors, list) or not all(isinstance(error, str) for error in errors):
-                raise ValueError("Unfamiliar runtime errors")
-            label = "runtime ERROR" if failed or subtype.startswith("error") else "runtime result"
-            if label == "runtime result":
-                return label, [Line("✓ run finished")], [], None
-            detail = _one_line(errors[0].split("\n", 1)[0]) if errors else ""
-            return label, [Line("✗ " + _one_line(subtype) + (": " + detail if detail else ""), "error")], [], None
+            return self._runtime_result(data)
         if kind == "error":
-            value = data.get("error", data.get("message"))
-            if isinstance(value, dict):
-                value = value.get("message")
-            if not isinstance(value, str):
-                raise ValueError("Unfamiliar runtime error")
-            return "runtime ERROR", [Line("✗ " + _one_line(value.split("\n", 1)[0]), "error")], [], None
+            return self._runtime_error(data)
         return "other", [self._label(data)], [], None
+
+    def _message(self, data, kind):
+        message = data.get("message")
+        if not isinstance(message, dict) or message.get("role", kind) != kind:
+            raise ValueError("Unfamiliar message")
+        content = message.get("content")
+        if not isinstance(content, list) or not content:
+            raise ValueError("Unfamiliar content")
+        parts, kinds, calls = [], [], []
+        names = dict(self.tools)
+        last_call = self.last_call
+        for block in content:
+            if not isinstance(block, dict):
+                raise ValueError("Unfamiliar block")
+            block_type = block.get("type")
+            if block_type == "text" and isinstance(block.get("text"), str):
+                kinds.append(kind)
+                parts.extend(Line(value, "assistant" if kind == "assistant" else "italic",
+                                  continuation=index > 0)
+                             for index, value in enumerate(block['text'].split("\n")))
+                last_call = None
+            elif block_type == "tool_use" and kind == "assistant":
+                tool_id, name, line = self._tool_call(block)
+                calls.append((tool_id, name))
+                names[tool_id] = name
+                kinds.append("tool call")
+                parts.append(line)
+                last_call = tool_id
+            elif block_type == "tool_result" and kind == "user":
+                label, lines, last_call = self._tool_result(block, names, last_call)
+                kinds.append(label)
+                parts.extend(lines)
+            elif block_type == "thinking":
+                kinds.append("thinking")
+                parts.extend(self._thinking(block))
+                last_call = None
+            else:
+                kinds.append("other block")
+                label = _one_line(block_type) if isinstance(block_type, str) else "unknown block"
+                parts.append(Line("· " + label, "dim"))
+                last_call = None
+        return ", ".join(dict.fromkeys(kinds)), parts, calls, last_call
+
+    def _runtime_result(self, data):
+        subtype = data.get("subtype")
+        failed = data.get("is_error", False)
+        if not _identifier(subtype) or type(failed) is not bool:
+            raise ValueError("Unfamiliar runtime result")
+        errors = data.get("errors", [])
+        if not isinstance(errors, list) or not all(isinstance(error, str) for error in errors):
+            raise ValueError("Unfamiliar runtime errors")
+        label = "runtime ERROR" if failed or subtype.startswith("error") else "runtime result"
+        if label == "runtime result":
+            return label, [Line("✓ run finished")], [], None
+        detail = _one_line(errors[0].split("\n", 1)[0]) if errors else ""
+        return label, [Line("✗ " + _one_line(subtype) + (": " + detail if detail else ""), "error")], [], None
+
+    def _runtime_error(self, data):
+        value = data.get("error", data.get("message"))
+        if isinstance(value, dict):
+            value = value.get("message")
+        if not isinstance(value, str):
+            raise ValueError("Unfamiliar runtime error")
+        return "runtime ERROR", [Line("✗ " + _one_line(value.split("\n", 1)[0]), "error")], [], None
+
+    def _tool_call(self, block):
+        tool_id, name, inputs = block.get("id"), block.get("name"), block.get("input")
+        if not _identifier(tool_id) or not _identifier(name) or not isinstance(inputs, dict):
+            raise ValueError("Unfamiliar tool call")
+        key = {"Read": "file_path", "Edit": "file_path", "Write": "file_path",
+               "Bash": "command", "Grep": "pattern", "Glob": "pattern"}.get(name)
+        argument = inputs.get(key) if key else next(
+            (value for value in inputs.values() if isinstance(value, str)), None)
+        text = "▸ " + _one_line(name)
+        if isinstance(argument, str):
+            text += " " + _one_line(argument)
+        spans = []
+        fields = (("new_string", "+", "diff-add"), ("old_string", "-", "diff-remove")) if name == "Edit" else (
+            (("content", "+", "diff-add"),) if name == "Write" else ())
+        for field, sign, style in fields:
+            if isinstance(inputs.get(field), str):
+                start = len(text) + 1
+                text += f" {sign}{_line_count(inputs[field])}"
+                spans.append((start, len(text), style))
+        return tool_id, name, Line(text, spans=tuple(spans), tool_id=tool_id)
+
+    def _tool_result(self, block, names, last_call):
+        tool_id = block.get("tool_use_id")
+        failed = block.get("is_error", False)
+        if not _identifier(tool_id) or type(failed) is not bool:
+            raise ValueError("Unfamiliar tool result")
+        label = "tool ERROR" if failed else "tool result"
+        name = names.get(tool_id, "tool")
+        parts = []
+        if failed:
+            error = _result_text(block.get('content'))
+            name = _one_line(name) + ": " if last_call != tool_id else ""
+            parts.append(Line("  ✗ " + name + _one_line(error.split("\n", 1)[0]), "error"))
+            last_call = None
+        return label, parts, last_call
+
+    def _thinking(self, block):
+        parts = []
+        thinking = block.get("thinking")
+        lines = [value for value in thinking.split("\n") if value.strip()] if isinstance(thinking, str) else []
+        if lines:
+            parts.extend(Line(("· " if index == 0 else "") + value, "dim italic",
+                              continuation=index > 0)
+                         for index, value in enumerate(lines))
+        else:
+            parts.append(Line("· thinking", "dim"))
+        return parts
 
 
 class CodexFormatter(StructuredFormatter):
@@ -458,7 +482,7 @@ class CodexFormatter(StructuredFormatter):
             return Line(line.text + " · " + _one_line(item["type"]), "dim")
         return line
 
-    def _project(self, data):  # noqa: C901, PLR0912, PLR0915
+    def _project(self, data):
         kind = data.get("type")
         if kind in ("thread.started", "turn.started"):
             if kind == "thread.started" and not _identifier(data.get("thread_id")):
@@ -478,6 +502,9 @@ class CodexFormatter(StructuredFormatter):
             return "runtime ERROR", [Line("✗ " + _one_line(error.split("\n", 1)[0]), "error")], [], None
         if kind not in ("item.started", "item.updated", "item.completed"):
             return "other", [self._label(data)], [], None
+        return self._project_item(data, kind)
+
+    def _project_item(self, data, kind):
         item = data.get("item")
         if not isinstance(item, dict) or not _identifier(item.get("id")):
             raise ValueError("Unfamiliar item")
@@ -502,47 +529,20 @@ class CodexFormatter(StructuredFormatter):
             return "reasoning", parts, [], None
         if item_type not in ("command_execution", "mcp_tool_call", "file_change"):
             return "other", [self._label(data)], [], None
+        return self._activity(item, item_type, item_id, kind)
+
+    def _activity(self, item, item_type, item_id, kind):
         completed = kind == "item.completed"
         status = item.get("status")
         if status not in (("completed", "failed") if completed else ("in_progress",)):
             raise ValueError("Unfamiliar activity status")
         failed, detail = status == "failed", ""
         if item_type == "command_execution":
-            command, output, code = item.get("command"), item.get("aggregated_output"), item.get("exit_code")
-            if not isinstance(command, str) or not isinstance(output, str) or (
-                    code is not None and type(code) is not int):
-                raise ValueError("Unfamiliar command")
-            name = "Bash"
-            calls = [Line("▸ Bash " + _one_line(command))]
-            failed = failed or (completed and code is not None and code != 0)
-            detail = f"Exit code {code}" if code is not None else "command failed"
-            if output:
-                detail += ": " + output.split("\n", 1)[0]
+            name, calls, failed, detail = self._command(item, completed, failed)
         elif item_type == "mcp_tool_call":
-            server, tool = item.get("server"), item.get("tool")
-            if not _identifier(server) or not _identifier(tool) or not isinstance(item.get("arguments"), dict):
-                raise ValueError("Unfamiliar MCP call")
-            error = item.get("error")
-            if error is not None and (not isinstance(error, dict) or not isinstance(error.get("message"), str)):
-                raise ValueError("Unfamiliar MCP error")
-            name = _one_line(server) + "." + _one_line(tool)
-            calls = [Line("▸ " + name)]
-            failed = failed or error is not None
-            result = item.get("result")
-            if result is not None and not isinstance(result, dict):
-                raise ValueError("Unfamiliar MCP result")
-            detail = error["message"] if error else (
-                _result_text(result.get("content")) if failed and result is not None else "tool failed")
+            name, calls, failed, detail = self._mcp_call(item, failed)
         else:
-            changes = item.get("changes")
-            if not isinstance(changes, list) or not changes or not all(
-                    isinstance(change, dict) and isinstance(change.get("path"), str) and
-                    change.get("kind") in ("add", "update", "delete") for change in changes):
-                raise ValueError("Unfamiliar file changes")
-            name = "file change"
-            # The record has paths and operations, but no diff or line counts.
-            calls = [Line("▸ file " + change["kind"] + " " + _one_line(change["path"])) for change in changes]
-            detail = "file change failed"
+            name, calls, detail = self._file_changes(item)
         # Keep a fixed-size fingerprint rather than retaining command/output
         # payloads. An update that changes visible activity must still appear.
         signature = (name, hash(tuple(line.text for line in calls)))
@@ -555,6 +555,48 @@ class CodexFormatter(StructuredFormatter):
             last_call = None
         label = "tool ERROR" if failed and completed else "tool result" if completed else "tool call"
         return label, lines, [(item_id, signature)], last_call
+
+    def _command(self, item, completed, failed):
+        command, output, code = item.get("command"), item.get("aggregated_output"), item.get("exit_code")
+        if not isinstance(command, str) or not isinstance(output, str) or (
+                code is not None and type(code) is not int):
+            raise ValueError("Unfamiliar command")
+        name = "Bash"
+        calls = [Line("▸ Bash " + _one_line(command))]
+        failed = failed or (completed and code is not None and code != 0)
+        detail = f"Exit code {code}" if code is not None else "command failed"
+        if output:
+            detail += ": " + output.split("\n", 1)[0]
+        return name, calls, failed, detail
+
+    def _mcp_call(self, item, failed):
+        server, tool = item.get("server"), item.get("tool")
+        if not _identifier(server) or not _identifier(tool) or not isinstance(item.get("arguments"), dict):
+            raise ValueError("Unfamiliar MCP call")
+        error = item.get("error")
+        if error is not None and (not isinstance(error, dict) or not isinstance(error.get("message"), str)):
+            raise ValueError("Unfamiliar MCP error")
+        name = _one_line(server) + "." + _one_line(tool)
+        calls = [Line("▸ " + name)]
+        failed = failed or error is not None
+        result = item.get("result")
+        if result is not None and not isinstance(result, dict):
+            raise ValueError("Unfamiliar MCP result")
+        detail = error["message"] if error else (
+            _result_text(result.get("content")) if failed and result is not None else "tool failed")
+        return name, calls, failed, detail
+
+    def _file_changes(self, item):
+        changes = item.get("changes")
+        if not isinstance(changes, list) or not changes or not all(
+                isinstance(change, dict) and isinstance(change.get("path"), str) and
+                change.get("kind") in ("add", "update", "delete") for change in changes):
+            raise ValueError("Unfamiliar file changes")
+        name = "file change"
+        # The record has paths and operations, but no diff or line counts.
+        calls = [Line("▸ file " + change["kind"] + " " + _one_line(change["path"])) for change in changes]
+        detail = "file change failed"
+        return name, calls, detail
 
 
 def _invalid_constant(value):

@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 
 from ub_agents.cli import main
 from ub_agents.errors import AgentError, GitHubError
-from ub_agents.loop import Loop
+from ub_agents.loop import Loop, _GracefulStop
 from tests.support import FakeGitHub, MemoryPublisher, config, isolate_runtime_state
 
 
@@ -61,6 +61,26 @@ class LaunchSetupTests(unittest.TestCase):
         self.poll.assert_not_called()
         self.item_poll.assert_not_called()
         self.assertEqual(self.github.writes, [])
+
+    def test_final_cleanup_keeps_publisher_when_observation_start_is_interrupted(self):
+        with patch('ub_agents.observations.Observations', side_effect=_GracefulStop), \
+                patch.object(self.publisher, 'close') as close:
+            self.assertEqual(main(self.argv), 0)
+        close.assert_called_once()
+        self.open_view.assert_not_called()
+        self.checks.assert_not_called()
+        self.assert_no_work()
+
+    def test_open_view_is_closed_when_enabling_poll_now_fails(self):
+        with patch.object(Loop, 'enable_poll_now', side_effect=AgentError('poll setup failed')), \
+                patch.object(self.publisher, 'close') as close:
+            self.assertEqual(main(self.argv), 1)
+        self.view.close.assert_called_once()
+        # Closing observations and final publisher cleanup each close the publisher.
+        self.assertEqual(close.call_count, 2)
+        self.assertIn('poll setup failed', self.stderr.getvalue())
+        self.checks.assert_not_called()
+        self.assert_no_work()
 
     def test_view_checks_sweep_poll_order_in_every_launch_form(self):
         for arguments in ([], ["--once"], ["--agent", "worker"], ["42"],
