@@ -83,16 +83,15 @@ class Loop:
         self.events = EventHooks(output)
         self.approvals = config.approvals or "on"
         self.github = FinalizationReads(github, self.wait_rate_limit)
-        self.coordinator = Coordinator(self.github, actor, queue=config.queue, output=output,
-                                       on_claim=self.claimed, launchers=config.launchers, trusted_bots=config.trusted_bots,
+        self.coordinator = Coordinator(self.github, actor, output=output,
+                                       on_claim=self.claimed,
                                        on_release=lambda lease, report: self.events.emit(self.config, lease, "outcome", report),
-                                       trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors,
-                                                                              self.approvals, self.github),
                                        on_record=lambda record: self._observe("record", record),
                                        on_author=lambda *args: self._observe("coordination_author", *args),
                                        on_action=lambda *args: self._observe("action_needed", *args),
-                                       on_decline=self.declined, lease_seconds=config.lease_seconds,
-                                       lease_renew_seconds=config.lease_renew_seconds)
+                                       on_decline=self.declined)
+        self.coordinator.reconfigure(config, pr_author_exclusions(
+            config.trusted_pr_authors, self.approvals, self.github))
         self._renewal = None
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
@@ -1209,14 +1208,8 @@ class Loop:
                 self.github.repository = config.repository
             self.config = config
             self._observe("configure", config, self.coordinator.actor, path)
-            self.coordinator.queue = config.queue
-            self.coordinator.lease_seconds = config.lease_seconds
-            self.coordinator.lease_renew_seconds = config.lease_renew_seconds
-            self.coordinator.trust.trusted_bots = {login.casefold() for login in config.trusted_bots}
-            self.coordinator.trust.trusted_pr_authors = set(pr_author_exclusions(
+            self.coordinator.reconfigure(config, pr_author_exclusions(
                 config.trusted_pr_authors, self.approvals, self.github))
-            self.coordinator.trust.launchers = (None if config.launchers is None else
-                                               {login.casefold() for login in config.launchers})
         self._refreshing_checkout = True
         try:
             if self.config_path is not None and self.config.checkout_setup is None:

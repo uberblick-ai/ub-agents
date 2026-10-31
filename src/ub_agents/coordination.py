@@ -86,6 +86,15 @@ class Coordinator:
         # Display callbacks join provenance from reads already needed for coordination.
         self._observed_leases = {}
 
+    def reconfigure(self, config, trusted_pr_authors):
+        self.queue = config.queue
+        self.lease_seconds = config.lease_seconds
+        self.lease_renew_seconds = config.lease_renew_seconds
+        self.trust.trusted_bots = {login.casefold() for login in config.trusted_bots}
+        self.trust.trusted_pr_authors = {login.casefold() for login in trusted_pr_authors}
+        self.trust.launchers = (None if config.launchers is None else
+                               {login.casefold() for login in config.launchers})
+
     def observed(self, record):
         if self.on_record is not None:
             if record["kind"] == "lease":

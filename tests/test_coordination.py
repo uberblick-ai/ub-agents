@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import status_rows
-from ub_agents.config import Runtime
+from ub_agents.config import Queue, Runtime
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, GitHubError, LostOwnership
 from ub_agents.loop import Loop
@@ -105,6 +105,43 @@ class CoordinationTests(unittest.TestCase):
         self.co.release(lease, "success", "Source completed")
         self.assertNotIn("runtime", self.co.history(lease["assignment"])[-1])
         return lease, outcome
+
+    def test_reconfigure_normalizes_logins_and_clears_old_trust_settings(self):
+        trust = self.co.trust
+        configured = replace(config(self.root), launchers=("Operator", "OPERATOR"),
+                             trusted_bots=("FeedbackBot[bot]", "FEEDBACKBOT[bot]"),
+                             trusted_pr_authors=("OtherBot[bot]",))
+        self.co.reconfigure(configured, ("AuthorBot[bot]", "AUTHORBOT[bot]"))
+        self.assertIs(self.co.trust, trust)
+        self.assertIs(self.co.notices.trusted, trust)
+        self.assertEqual(trust.launchers, {"operator"})
+        self.assertEqual(trust.trusted_bots, {"feedbackbot[bot]"})
+        self.assertEqual(trust.trusted_pr_authors, {"authorbot[bot]"})
+
+        self.co.reconfigure(config(self.root), ())
+        self.assertIs(self.co.trust, trust)
+        self.assertIs(self.co.notices.trusted, trust)
+        self.assertIsNone(trust.launchers)
+        self.assertEqual(trust.trusted_bots, set())
+        self.assertEqual(trust.trusted_pr_authors, set())
+
+    def test_loop_initialization_uses_unresolved_approvals_and_normalized_configuration(self):
+        configured = replace(config(self.root), queue=Queue(dependencies="ignore"),
+                             lease_seconds=300, lease_renew_seconds=120,
+                             launchers=("OPERATOR",), trusted_bots=("FeedbackBot[bot]",),
+                             trusted_pr_authors=("AuthorBot[bot]",))
+        self.github.repository_visibility = "private"
+        for approvals, authors in ((None, {"authorbot[bot]"}), ("off", set())):
+            with self.subTest(approvals=approvals), \
+                    patch.object(self.github, "visibility", side_effect=AssertionError("unexpected read")):
+                loop = Loop(replace(configured, approvals=approvals), self.github, "operator",
+                            output=lambda *_: None)
+            self.assertIs(loop.coordinator.queue, configured.queue)
+            self.assertEqual(loop.coordinator.lease_seconds, 300)
+            self.assertEqual(loop.coordinator.lease_renew_seconds, 120)
+            self.assertEqual(loop.coordinator.trust.launchers, {"operator"})
+            self.assertEqual(loop.coordinator.trust.trusted_bots, {"feedbackbot[bot]"})
+            self.assertEqual(loop.coordinator.trust.trusted_pr_authors, authors)
 
     def test_cooperative_claim_race_only_earliest_record_wins(self):
         plan = self.plan()

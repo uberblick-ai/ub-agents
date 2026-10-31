@@ -438,6 +438,35 @@ class RefreshTests(unittest.TestCase):
             self.assertEqual(renewal.next_renewal - seconds(lease['created']), 120)
         self.execute(inspect)
 
+    def test_reload_reconfigures_all_fields_on_the_existing_coordinator_and_trust(self):
+        self.enable_reload()
+        coordinator = self.loop.coordinator
+        trust = coordinator.trust
+        notices = coordinator.notices
+        queue = coordinator.queue
+        (self.root / 'ub-agents.local.yaml').write_text(
+            'queue: {dependencies: ignore}\n'
+            'limits: {lease-minutes: 5, lease-renew-minutes: 2}\n'
+            'launchers: [OPERATOR]\n'
+            'trusted-bots: ["FeedbackBot[bot]"]\n'
+            'trusted-pr-authors: ["authorbot[bot]"]\n')
+
+        def inspect(cwd, prompt):
+            self.assertIs(self.loop.coordinator, coordinator)
+            self.assertIs(coordinator.trust, trust)
+            self.assertIs(coordinator.notices, notices)
+            self.assertIs(notices.trusted, trust)
+            self.assertIs(self.loop._renewal.coordinator, coordinator)
+            self.assertIs(coordinator.queue, self.loop.config.queue)
+            self.assertNotEqual(coordinator.queue, queue)
+            self.assertEqual(coordinator.queue.dependencies, 'ignore')
+            self.assertEqual(coordinator.lease_seconds, 300)
+            self.assertEqual(coordinator.lease_renew_seconds, 120)
+            self.assertEqual(trust.trusted_bots, {'feedbackbot[bot]'})
+            self.assertEqual(trust.trusted_pr_authors, {'authorbot[bot]'})
+            self.assertEqual(trust.launchers, {'operator'})
+        self.execute(inspect)
+
     def test_invalid_local_reload_stops_before_claim_with_the_same_error_as_offline_doctor(self):
         self.enable_reload()
         local = self.root / 'ub-agents.local.yaml'
