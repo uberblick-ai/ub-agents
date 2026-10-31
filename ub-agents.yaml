@@ -79,7 +79,7 @@ agents:
     trigger: needs-review
     outcomes:
       approved: {add: [ready-to-merge]}
-      changes-requested: {add: [needs-changes]}
+      changes-requested: {add: [needs-changes], max-rounds: 3}
     different-runtime-from: implementer
     instructions: .agents/reviewer.md
     worktree: true
