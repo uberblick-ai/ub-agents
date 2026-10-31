@@ -32,6 +32,7 @@ from .launcher_code import descriptors as code_descriptors
 from .github import (APPROVAL_BATCH_SIZE, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS,
                      closing_issues)
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
+from .pass_messages import PassMessages
 from .poll_now import PollNow
 from .hooks import run_hook
 from .notices import ACTION_MARKER
@@ -68,7 +69,7 @@ class _InvalidReload(AgentError):
 
 
 class Loop:
-    def __init__(self, config, github, actor, stop_event=None, output=print,  # noqa: PLR0915
+    def __init__(self, config, github, actor, stop_event=None, output=print,
                  config_path=None, interrupt_event=None,
                  default_config=False, observer=None):
         self.observer = observer
@@ -102,21 +103,16 @@ class Loop:
         self.default_config = default_config
         self.output = output
         self.pass_output = PassOutput(output)
+        self.pass_messages = PassMessages(lambda line: self.output(line))
         self.discovery_budget = DiscoveryBudget(clock=lambda: monotonic())
         self._pass_stats = None
         self._targeted_pass = False
-        self._declines = {}
-        self._pass_declines = None
-        self._item_refusals = None
-        self.refusal_output = None
         self._discovery_requests = None
         self.usage = RuntimeUsage(clock=lambda: self.coordinator.clock(), output=output,
                                   on_change=lambda pauses: self.observe("runtime_pauses", pauses))
         self.health = AgentHealth(output=self._health_notice)
         self.coordinator.runtime_paused = self.usage.paused
         self.discovery = Discovery(self.github)
-        self._shown = {}
-        self._released_blockers = {}
         self._poll_complete = False
         self._finalizing = False
         self._refreshing_checkout = False
@@ -146,7 +142,7 @@ class Loop:
         self._pass_stats = DiscoveryPass(self.github, output or self.pass_output, kind,
                                          debit=self.discovery_budget.debit)
         self._targeted_pass = targeted
-        self._pass_declines = {}
+        self.pass_messages.begin_pass()
         self._discovery_requests = None
         try:
             yield
@@ -154,8 +150,7 @@ class Loop:
             self._pass_stats.finish()
             self._pass_stats = None
             self._targeted_pass = False
-            self._declines = self._pass_declines
-            self._pass_declines = None
+            self.pass_messages.end_pass()
 
     def declined(self, plan, reason, state="declined"):
         if self._launch_agent is not None and self._launch_number is None:
@@ -164,32 +159,9 @@ class Loop:
             if plan.state not in {"ready", "recover"}:
                 self._refuse_plan(plan)
             else:
-                self._item_refusal(f"#{plan.item.number} {plan.agent.name}: {state} — {reason}", plan.agent.name)
+                self.pass_messages.item_refusal(f"#{plan.item.number} {plan.agent.name}: {state} — {reason}", plan.agent.name)
             return
-        key = (plan.item.number, plan.agent.name)
-        current = self._pass_declines if self._pass_declines is not None else self._declines
-        value = (state, reason)
-        if current.get(key, self._declines.get(key)) != value:
-            self.output(f"#{plan.item.number} {plan.agent.name}: {state} — {reason}")
-        current[key] = value
-
-    def _item_refusal(self, line, agent_name=None, *, on_success=True):
-        line = " ".join(line.split())
-        if self._item_refusals is None:
-            self.output(line)
-        else:
-            self._item_refusals[agent_name] = (line, on_success)
-
-    def _flush_item_refusals(self, *, final=False):
-        if not self._item_refusals:
-            return
-        lines = tuple(line for line, on_success in self._item_refusals.values() if final or on_success)
-        self._item_refusals.clear()
-        if final and self.refusal_output is not None:
-            self.refusal_output(lines)
-        else:
-            for line in lines:
-                self.output(line)
+        self.pass_messages.declined(plan, reason, state)
 
     @staticmethod
     def _stop_explanation(reason):
@@ -205,8 +177,8 @@ class Loop:
             reason = self.item_explanation(plan.item, plan.agent.name)
         elif state == "parked" and start.stop_reason and reason.startswith(start.stop_reason):
             reason = self._stop_explanation(start.stop_reason)
-        self._item_refusal(f"#{plan.item.number} {plan.agent.name}: {state} — {reason}", plan.agent.name,
-                           on_success=not plan.health_wait)
+        self.pass_messages.item_refusal(f"#{plan.item.number} {plan.agent.name}: {state} — {reason}", plan.agent.name,
+                                        on_success=not plan.health_wait)
 
     def _claim_boundary(self):
         if self._pass_stats is None:
@@ -827,15 +799,14 @@ class Loop:
         if number is not None:
             self.discovery.invalidate(number)
 
-    def _tick(self):  # noqa: C901
+    def _tick(self):
         config = self.config
         present = set()
         for plan in self.iter_plans(reconcile_notices=True, claiming=True):
             self._pass_stats.candidates.add(plan.item.number)
             present.add((plan.item.number, plan.agent.name))
             self.before_claim()
-            if plan.state in {"ready", "recover"}:
-                self._shown.pop((plan.item.number, plan.agent.name), None)
+            self.pass_messages.reached(plan)
             if plan.state == "ready":
                 if self.execute(plan):
                     return True
@@ -849,14 +820,8 @@ class Loop:
                 if plan.approval_gate:
                     self.coordinator.notices.advisory(f"approval parking on #{plan.item.number}",
                                                       lambda: self.park_approval(plan))
-                key, value = (plan.item.number, plan.agent.name), (plan.state, plan.reason)
-                released = self._released_blockers.pop(key, None)
-                announced = plan.state == "blocked" and released is not None and released in plan.reason
-                if not plan.health_wait and not announced and self._shown.get(key) != value:
-                    self.output(f"#{plan.item.number} {plan.agent.name}: {plan.state} — {plan.reason}")
-                self._shown[key] = value
-        self._shown = {key: value for key, value in self._shown.items() if key in present}
-        self._released_blockers = {key: value for key, value in self._released_blockers.items() if key in present}
+                self.pass_messages.waiting(plan)
+        self.pass_messages.prune(present)
         # Even an empty or already-owned queue must explain why this account
         # cannot claim. Reuse the discovery pass's permission observation.
         if self.coordinator.actor is not None:
@@ -872,15 +837,15 @@ class Loop:
         return False
 
     def tick_item(self, number, agent_name=None):
-        self._item_refusals = {}
+        self.pass_messages.begin_item()
         try:
             with self.discovery_pass(targeted=True):
                 worked = self._discovery_tick_item(number, agent_name)
             # Discovery counters precede the result, including in plain output.
-            self._flush_item_refusals(final=not worked)
+            self.pass_messages.flush_item_refusals(final=not worked)
             return worked
         finally:
-            self._item_refusals = None
+            self.pass_messages.end_item()
 
     def _discovery_tick_item(self, number, agent_name=None):
         self.observe("begin_pass")
@@ -918,11 +883,11 @@ class Loop:
                 start = check_start(item, agent, AgentMatches.for_item(item, self.config.agents),
                                     self.config.stop_labels, self.config.queue)
                 if start.stop_reason:
-                    self._item_refusal(f"#{number} {agent.name}: parked — "
-                                       f"{self._stop_explanation(start.stop_reason)}", agent.name)
+                    self.pass_messages.item_refusal(f"#{number} {agent.name}: parked — "
+                                                    f"{self._stop_explanation(start.stop_reason)}", agent.name)
                     shown.add(agent.name)
         if not shown:
-            self._item_refusal(f"#{number}: {self.item_explanation(item, agent_name)}")
+            self.pass_messages.item_refusal(f"#{number}: {self.item_explanation(item, agent_name)}")
         self.observe("complete_pass")
         return False
 
@@ -1039,7 +1004,7 @@ class Loop:
             self._has_trigger = None
             reason = "GitHub CLI gh is unavailable or under maintenance; waiting for the next runtime boundary"
             if self._targeted_pass:
-                self._item_refusal(reason)
+                self.pass_messages.item_refusal(reason)
             elif not self._github_waiting:
                 self.output(reason)
         self._github_waiting = not ready
@@ -1161,8 +1126,9 @@ class Loop:
                         self._refuse_plan(plan)
                     else:
                         reason = self.item_explanation(refreshed_item, previous_plan.agent.name)
-                        self._item_refusal(f"#{previous_plan.item.number} {previous_plan.agent.name}: declined — {reason}",
-                                           previous_plan.agent.name)
+                        self.pass_messages.item_refusal(
+                            f"#{previous_plan.item.number} {previous_plan.agent.name}: declined — {reason}",
+                            previous_plan.agent.name)
                 elif plan is None or not plan.health_wait:
                     detail = f": {plan.state} — {plan.reason}" if plan is not None else ""
                     self.declined(previous_plan, f"Re-plan after refresh is no longer ready{detail}")
@@ -1232,7 +1198,7 @@ class Loop:
         if lease is None:
             self.discovery.invalidate(plan.item.number)
             return False
-        self._flush_item_refusals()
+        self.pass_messages.flush_item_refusals()
         self._claimed_pass(boundary)
         try:
             fresh = self.github.item(plan.item.number, plan.item.kind)
@@ -1548,7 +1514,7 @@ class Loop:
         self._replan_finished_item(plan)
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
         if result == "blocked":
-            self._released_blockers[(plan.item.number, plan.agent.name)] = summary
+            self.pass_messages.released_blocker(plan, summary)
         if interrupted or self.interrupt_event.is_set():
             raise KeyboardInterrupt
         return True
@@ -1584,7 +1550,7 @@ class Loop:
         self._replan_finished_item(plan)
         self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
         if result == "blocked":
-            self._released_blockers[(plan.item.number, plan.agent.name)] = summary
+            self.pass_messages.released_blocker(plan, summary)
         return True
 
     def prompt_for(self, plan, lease, context, instructions, *, shared_instructions=""):
@@ -1622,7 +1588,7 @@ class Loop:
         if recovery is None:
             self._finalizing = False
             return False
-        self._flush_item_refusals()
+        self.pass_messages.flush_item_refusals()
         self._claimed_pass(boundary)
         self.github.begin_finalization()
         # The claim reread may have observed a supervisor's newer outcome flags.

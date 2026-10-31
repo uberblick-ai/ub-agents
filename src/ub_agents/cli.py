@@ -586,7 +586,7 @@ def _start_updates(config, loop):
 
 def _launch_queue(args, loop):
     if args.number is not None:
-        loop.refusal_output = args.launch_output.refusals
+        loop.pass_messages.refusal_output = args.launch_output.refusals
         return loop.launch(once=True, number=args.number, agent_name=args.agent)
     if args.agent is not None:
         return loop.launch(once=args.once, agent_name=args.agent)
