@@ -315,12 +315,12 @@ class ApprovalBatchTests(unittest.TestCase):
                     now += 61
                 pending(first)
                 now += 61
-                coordinator = loop._planning_coordinator(loop.discovery)
+                coordinator = loop.queue_planner.planning_coordinator(loop.discovery)
                 self.assertEqual(coordinator.plan(github.item(1), later, ()).state, later_state)
                 github.reads.clear()
                 github.writes.clear()
                 with patch.object(github, "approval_inputs", return_value={}, create=True) as batch, \
-                        patch.object(loop, "_planning_coordinator", return_value=coordinator), \
+                        patch.object(loop.queue_planner, "planning_coordinator", return_value=coordinator), \
                         patch.object(coordinator, "plan", wraps=coordinator.plan) as planned, \
                         patch.object(loop, "reconcile_blocked_notices") as reconcile, \
                         patch.object(loop, "recover", return_value=True) as recover, \

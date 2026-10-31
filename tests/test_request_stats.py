@@ -73,7 +73,7 @@ class RequestStatsTests(unittest.TestCase):
         self.assertIn('candidates reached=1', self.lines[-1])
 
     def test_reached_candidate_counts_even_when_its_evaluation_fails(self):
-        with patch.object(self.loop, '_item_plans', side_effect=ValueError('Cannot evaluate')):
+        with patch.object(self.loop.queue_planner, 'item_plans', side_effect=ValueError('Cannot evaluate')):
             with self.assertRaisesRegex(ValueError, 'Cannot evaluate'):
                 self.loop.tick()
         self.assertIn('candidates reached=1', self.lines[-1])
