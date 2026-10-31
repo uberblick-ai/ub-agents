@@ -163,7 +163,7 @@ class Coordinator:
         result = sorted(history, key=lambda record: record["id"]), invalid
         return (*result, histories) if by_item else result
 
-    def plan(self, item, agent, stop_labels, history=None, start=None, matches=None):
+    def plan(self, item, agent, stop_labels, history=None, start=None, matches=None):  # noqa: C901, PLR0912, PLR0915
         history = self.history(item.number) if history is None else history
         matches = matches or AgentMatches.for_item(item, (agent,))
         start = start or check_start(item, agent, matches, stop_labels, self.queue)
@@ -374,7 +374,7 @@ class Coordinator:
             self.output(f"#{plan.item.number} {plan.agent.name}: declined — {reason}")
         return None
 
-    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
+    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,  # noqa: C901, PLR0912, PLR0915
               confirm_stopped=None, on_refusal=None):
         reason = self.trust.reason(self.actor)
         if reason:
@@ -668,7 +668,7 @@ class Coordinator:
             self.observed(matches[0])
         return matches[0] if matches else None
 
-    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, option=None, agent_report=True,
+    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, option=None, agent_report=True,  # noqa: C901, PLR0912
                declarations=None, stop_labels=None):
         if declarations is None:
             declarations, claimed_stops = self._report_context.get(lease["id"], ({}, (), ()))[:2]

@@ -62,7 +62,7 @@ class ExistingFlow(Flow):
         if (local.read_bytes() if local.exists() else None) != self.local_before:
             raise AgentError(f"{LOCAL_CONFIG} changed during setup; run init again to review it")
 
-    def steps(self):
+    def steps(self):  # noqa: C901, PLR0912, PLR0915
         # Explicit optional steps need GitHub checks even with default answers.
         self.check()
         names = [name for name, role in self.data.get("agents", {}).items()

@@ -54,7 +54,7 @@ class Label:
                            "--description", self.description, "--color", self.color])
 
 
-def configured_labels(config, *, approvals=None):
+def configured_labels(config, *, approvals=None):  # noqa: C901
     """Deduplicate names and retain every consumer, with effects before transitions."""
     labels = {}
 

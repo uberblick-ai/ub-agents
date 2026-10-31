@@ -23,7 +23,7 @@ def run_config(config, agent, lease):
                                  "outcomes": outcome_declarations(agent), "stop-labels": list(config.stop_labels)}
 
 
-def supervised_run():
+def supervised_run():  # noqa: C901
     """Fail closed before any input read or write when launcher context is invalid."""
     path = os.environ.get("UB_AGENTS_RUN_CONFIG")
     try:

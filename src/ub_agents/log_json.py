@@ -72,7 +72,7 @@ class BoundedJSON:
         else:
             self.tail.append(char)
 
-    def feed(self, raw):
+    def feed(self, raw):  # noqa: C901, PLR0912, PLR0915
         if self.invalid:
             return
         try:

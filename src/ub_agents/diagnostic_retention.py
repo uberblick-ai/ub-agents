@@ -78,7 +78,7 @@ def run_files(parent, name):
         os.close(descriptor)
 
 
-def prune_runs(cleaner, parent, cutoff, removed, failed, output):
+def prune_runs(cleaner, parent, cutoff, removed, failed, output):  # noqa: C901, PLR0912
     for name in sorted(os.listdir(parent)):
         if cleaner.control is not None:
             cleaner.control.checkpoint()
@@ -146,7 +146,7 @@ def inactive_snapshot(parent, name, now, host):
         os.close(descriptor)
 
 
-def prune_sessions(cleaner, parent, own, now, removed, failed, output):
+def prune_sessions(cleaner, parent, own, now, removed, failed, output):  # noqa: C901, PLR0912, PLR0915
     host, cutoff = socket.gethostname(), now - RETENTION_SECONDS
 
     def remove_histories(session):

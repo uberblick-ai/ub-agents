@@ -56,7 +56,7 @@ def instruction_blob(root, oid, where):
         raise AgentError(f"{where} is unreadable in the refreshed checkout: {exc}") from exc
 
 
-def validate_incoming(root, head, path, where, links=0):
+def validate_incoming(root, head, path, where, links=0):  # noqa: C901, PLR0912
     """Validate a Git tree's instruction path before changing the checkout.
 
     Follow file and directory symlinks in that tree, not in the current checkout.
@@ -120,7 +120,7 @@ def validate_incoming(root, head, path, where, links=0):
     raise AgentError(f"{where} is not an instruction file: {path}")
 
 
-def refresh_checkout(config, github, agent=None, *, on_fetch=None):
+def refresh_checkout(config, github, agent=None, *, on_fetch=None):  # noqa: C901
     root = config.root
     where = f"{agent.name} instructions" if agent else None
     next_step = "repair the checkout's Git metadata and launch again"

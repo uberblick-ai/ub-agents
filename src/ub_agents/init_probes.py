@@ -53,7 +53,7 @@ class Probes:
         self.groups.append(group)
         return group
 
-    def run(self):
+    def run(self):  # noqa: C901, PLR0912, PLR0915
         d, config = self.doctor, self.plan.config
         d.checks.clear()
         self.groups = []

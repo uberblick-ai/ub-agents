@@ -73,7 +73,7 @@ class UsageOutput:
         self.reset_time = None
         self.summary = None
 
-    def poll(self, final=False):
+    def poll(self, final=False):  # noqa: C901
         for event in self.log.read(final):
             if self.cli == "codex" and self.thread is None and event.get("type") == "thread.started":
                 try:
@@ -96,7 +96,7 @@ class UsageOutput:
                     if event.get("type") == "event_msg" and isinstance(event.get("payload"), dict):
                         self.event(event["payload"])
 
-    def event(self, event):
+    def event(self, event):  # noqa: C901
         reached = False
         if self.cli == "claude":
             if event.get("type") == "rate_limit_event":

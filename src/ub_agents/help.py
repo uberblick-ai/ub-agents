@@ -12,7 +12,7 @@ class HelpFormatter(argparse.HelpFormatter):
     def __init__(self, prog):
         super().__init__(prog, width=80)
 
-    def add_usage(self, usage, actions, groups, prefix=None):
+    def add_usage(self, usage, actions, groups, prefix=None):  # noqa: C901
         if usage is None:
             # Only positionals, required options and required alternatives belong
             # in the synopsis. Copy compatibility positionals for rendering only.

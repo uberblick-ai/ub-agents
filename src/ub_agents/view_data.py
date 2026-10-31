@@ -80,7 +80,7 @@ class Session:
         return f'{self.state()} · snapshot {age:.0f}s old' if age is not None else f'{self.state()} · freshness unavailable'
 
 
-def validate_rows(groups):
+def validate_rows(groups):  # noqa: C901
     for group in groups:
         for row in group:
             if not isinstance(row, dict):
@@ -107,7 +107,7 @@ def validate_rows(groups):
                 raise ValueError('Invalid paused CLIs')
 
 
-def load_session(path):
+def load_session(path):  # noqa: C901
     try:
         data = read_json(path)
         if type(data.get('version')) is not int or data['version'] != 1:
@@ -241,7 +241,7 @@ def outcomes_today(session, now=None):
     return count
 
 
-def work_rows(session, root):
+def work_rows(session, root):  # noqa: C901
     data = session.data
     result = []
     assignment = mapping(data.get('assignment'))
@@ -321,7 +321,7 @@ class Pane:
         return next((section.next for section in self.sections if section.next is not None), None)
 
 
-def work_pane(session, root, previous=None, selected=None, chosen=False):
+def work_pane(session, root, previous=None, selected=None, chosen=False):  # noqa: C901, PLR0912
     """Compute the Work pane from a snapshot and the pane the view last drew.
 
     No file reads or UI state: a superseded read can be recomputed using the

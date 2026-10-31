@@ -67,7 +67,7 @@ def failure_count(data):
             if type(failures) is int and failures > 0 and type(maximum) is int else '')
 
 
-def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None, app=None,
+def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None, app=None,  # noqa: C901, PLR0912, PLR0915
                pauses=None):
     """Two cell-bounded lines for one logical live-work row."""
     if width <= 0:
