@@ -17,7 +17,7 @@ from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER, action_body, notice_reason
 from ub_agents.records import attempts, body, display_provenance, iso, payload, records, seconds
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import settlement, FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class NoticeTests(unittest.TestCase):
@@ -814,7 +814,7 @@ class NoticeTests(unittest.TestCase):
         self.assertTrue(copied["accepted"])
         self.assertTrue(copied["transition_complete"])
         self.assertEqual(copied["assignment"], 1)
-        self.assertEqual(restarted.validate_report(copied)["triggers"], ["ready", "different"])
+        self.assertEqual(settlement(restarted).validate_report(copied)["triggers"], ["ready", "different"])
         recovery = next(r for r in restarted.coordinator.history(1)
                         if r["kind"] == "lease" and r.get("mode") == "recovery")
         self.assertNotIn("outcomes", recovery)

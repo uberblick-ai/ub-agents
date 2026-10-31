@@ -14,6 +14,7 @@ from ub_agents.errors import ExecutionStopped, GitHubError, LostOwnership
 from ub_agents.execution import ScratchDirectory, Workspace, group_members, supervise
 from ub_agents.launch_log import launch_output
 from ub_agents.loop import Loop
+from ub_agents.settlement import Settlement
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import attempts, body, iso, payload, seconds
 from ub_agents.renewal import LeaseRenewal
@@ -479,7 +480,7 @@ class RenewalTests(unittest.TestCase):
 
     def test_renewal_during_setup_and_completion(self):
         prepare = Workspace.prepare
-        finalize = self.loop.finalize
+        finalize = Settlement.finalize
         def setup(workspace):
             for _ in range(4):
                 self.advance()
@@ -488,7 +489,7 @@ class RenewalTests(unittest.TestCase):
             for _ in range(4):
                 self.advance()
             return finalize(*args)
-        with patch.object(Workspace, "prepare", setup), patch.object(self.loop, "finalize", side_effect=complete):
+        with patch.object(Workspace, "prepare", setup), patch.object(Settlement, "finalize", autospec=True, side_effect=complete):
             self.execute(lambda *args, **kwargs: self.finish())
 
     def test_renewal_reads_fresh_ownership_without_ending_finalization_read_sharing(self):
@@ -541,14 +542,14 @@ class RenewalTests(unittest.TestCase):
         source = self.claim()
         self.co.report(source, "success", "Durable outcome", outcome="done")
         self.now += 1800
-        finalize = self.loop.finalize
-        def complete(recovery, *args):
+        finalize = Settlement.finalize
+        def complete(settlement, recovery, *args):
             self.assertEqual(recovery["mode"], "recovery")
             with patch.object(self.github, "item", side_effect=AssertionError("recovery does not check for stops")):
                 for _ in range(4):
                     self.advance()
-            return finalize(recovery, *args)
-        with patch.object(self.loop, "finalize", side_effect=complete):
+            return finalize(settlement, recovery, *args)
+        with patch.object(Settlement, "finalize", autospec=True, side_effect=complete):
             self.assertTrue(self.loop.tick())
         self.assertEqual(self.co.history(1)[2]["state"], "released")
 

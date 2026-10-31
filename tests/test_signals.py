@@ -17,6 +17,7 @@ from ub_agents.config import CleanupHook
 from ub_agents.errors import CleanupError
 from ub_agents.execution import group_members, supervise
 from ub_agents.loop import Loop
+from ub_agents.settlement import Settlement
 from ub_agents.observations import Observations, Publisher as ActualPublisher
 from ub_agents.records import timestamp
 from tests.support import FakeGitHub, agent, config, issue, observation_writer_command, stub_refresh
@@ -251,13 +252,13 @@ class SignalTests(unittest.TestCase):
         self.loop.coordinator.update(lease, state="running", started=True)
         self.loop.coordinator.report(lease, "success", "Finished", outcome="done")
         now += 61
-        finalize = self.loop.finalize
+        finalize = Settlement.finalize
 
         def finish(*args):
             signal.raise_signal(signal.SIGTERM)
             return finalize(*args)
 
-        with patch.object(self.loop, "finalize", side_effect=finish), \
+        with patch.object(Settlement, "finalize", autospec=True, side_effect=finish), \
                 patch("ub_agents.loop.supervise") as execution:
             self.assertEqual(self.launch(), 0)
         execution.assert_not_called()

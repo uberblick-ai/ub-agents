@@ -12,6 +12,11 @@ import threading
 from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item, SubIssue, milestone_title_key
 from ub_agents.records import MARKER, body, payload, records
+from ub_agents.settlement import Settlement
+
+
+def settlement(loop):
+    return Settlement(loop.config, loop.github, loop.coordinator, loop.approvals)
 
 
 class RecordingCITools:

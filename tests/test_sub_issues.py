@@ -10,7 +10,7 @@ from ub_agents.github import Dependency, GitHub, SubIssue
 from ub_agents.loop import Loop
 from ub_agents.read_input import read_item, read_policy
 from ub_agents.records import body, iso, payload, records, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import settlement, FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class SubIssueTests(unittest.TestCase):
@@ -107,7 +107,7 @@ class SubIssueTests(unittest.TestCase):
         for reference in ('#3', '#4', '#5', 'org/elsewhere#6', '#8'):
             self.assertIn(reference, outcome['summary'])
         with patch.object(self.github, 'add_labels', side_effect=self.label):
-            self.loop.apply_transition(lease, outcome)
+            settlement(self.loop).apply_transition(lease, outcome)
         self.assertEqual([w[1] for w in self.github.writes if w[0] == 'add-labels'], [2])
 
     def test_report_checks_ownership_around_sub_issue_resolution_before_writing_and_observing(self):
@@ -175,7 +175,7 @@ class SubIssueTests(unittest.TestCase):
             self.label(number, labels)
         with patch.object(self.github, 'add_labels', side_effect=interrupt), \
                 self.assertRaisesRegex(AgentError, 'Label write failed'):
-            self.loop.apply_transition(lease, outcome)
+            settlement(self.loop).apply_transition(lease, outcome)
         self.assertIn('outside-input', self.github.item(2).labels)
         self.assertNotIn('outside-input', self.github.item(3).labels)
         self.now += 61
@@ -192,7 +192,7 @@ class SubIssueTests(unittest.TestCase):
             self.label(number, labels)
             self.github.update_comment(lease['id'], body(payload(lease) | {'state': 'withdrawn'}))
         with patch.object(self.github, 'add_labels', side_effect=lose_lease), self.assertRaises(LostOwnership):
-            self.loop.apply_transition(lease, outcome)
+            settlement(self.loop).apply_transition(lease, outcome)
         self.assertIn('needs-preparation', self.github.item(2).labels)
         self.assertNotIn('needs-preparation', self.github.item(3).labels)
 
@@ -222,7 +222,7 @@ class SubIssueTests(unittest.TestCase):
         unresolved = outcome.copy()
         del unresolved['sub_issues']
         with self.assertRaisesRegex(ValidationError, 'not resolved'):
-            self.loop.apply_transition(lease, unresolved)
+            settlement(self.loop).apply_transition(lease, unresolved)
         self.assertFalse(any(w[0] in {'add-labels', 'remove-label'} for w in self.github.writes))
 
     def test_record_before_transition_recovers_same_targets_after_native_links_change(self):
@@ -260,7 +260,7 @@ class SubIssueTests(unittest.TestCase):
     def test_pending_parent_does_not_park_child_before_acceptance_or_release(self):
         lease, outcome = self.claim_and_report()
         with patch.object(self.github, 'add_labels', side_effect=self.label):
-            self.loop.apply_transition(lease, outcome)
+            settlement(self.loop).apply_transition(lease, outcome)
         for accepted in (False, True):
             if accepted:
                 self.loop.coordinator.accept(lease, outcome)

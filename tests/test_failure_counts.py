@@ -9,9 +9,10 @@ from unittest.mock import patch
 from ub_agents.cli import main, status_rows
 from ub_agents.errors import AgentError, CleanupError, RetryableExecutionError
 from ub_agents.loop import Loop
+from ub_agents.settlement import Settlement
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import attempts, body, iso, payload, seconds
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import settlement, FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class FailureCountTests(unittest.TestCase):
@@ -190,7 +191,7 @@ class FailureCountTests(unittest.TestCase):
             self.loop.coordinator.release(lease, 'retry', 'Failed')
         source = self.start()
         report = self.loop.coordinator.report(source, 'success', 'Handoff', handoff=2, outcome='done')
-        self.loop.finalize(source, self.plan(), report, 'completion')
+        settlement(self.loop).finalize(source, self.plan(), report, 'completion')
         self.loop.coordinator.release(source, 'success', 'Handoff')
         self.assertEqual((self.count(1), self.count(2), self.count(1, other)), (0, 1, 1))
         # The copied issue provenance is not a PR run and cannot reset its count.
@@ -454,7 +455,7 @@ class FailureCountTests(unittest.TestCase):
         source = self.start()
         self.loop.coordinator.report(source, 'success', 'Reported before crash', outcome='done')
         self.now += 61
-        with patch.object(self.loop, 'validate_success', side_effect=RuntimeError('Unexpected failure')):
+        with patch.object(Settlement, 'validate_success', side_effect=RuntimeError('Unexpected failure')):
             with self.assertRaisesRegex(RuntimeError, 'Unexpected failure'):
                 self.loop.tick()
         self.assertNotIn('result', self.loop.coordinator.history(1)[-1])
@@ -531,7 +532,7 @@ class FailureCountTests(unittest.TestCase):
         self.finish_backoff()
         source = self.start()
         report = self.loop.coordinator.report(source, 'success', 'Completed', outcome='done')
-        self.loop.finalize(source, self.plan(), report, 'completion')
+        settlement(self.loop).finalize(source, self.plan(), report, 'completion')
         self.assertEqual(self.count(), 0)
         self.now += 61
         self.loop = self.restart()
