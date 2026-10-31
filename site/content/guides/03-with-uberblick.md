@@ -1,47 +1,32 @@
 # How it works with Uberblick
 
-ub-agents runs delivery: issues, pull requests, reviews and merges, all on GitHub. It doesn't hold what the product should do. Agents still need that, and a run that can't find it guesses or stops to ask. We keep it in [Uberblick](https://next.uberblick.ai), a shared workspace of pages and decisions that people edit in the browser and agents read over MCP. This is how Uberblick itself is built.
+ub-agents runs delivery: issues, pull requests, reviews and merges, all on GitHub. It doesn't hold what the product should do. We keep that in [Uberblick](https://next.uberblick.ai), a shared workspace of pages and decisions that people edit in the browser and agents read over MCP. Both come out of the same work, building our own software with coding agents, and both stayed separate tools. The [Uberblick motivation](https://next.uberblick.ai/docs/motivation/) tells the whole story; this page covers the part where the two meet.
 
-The two are separate tools. Each works without the other, and neither depends on the other's code.
+## What hurt
 
-## Why not Markdown files in the repository
+We started where everyone starts: Markdown files in the repository. Once the loop was merging pull requests without us, it got worse fast.
 
-How your agents work belongs in the repository: roles, instructions and policy change with the code, are reviewed in pull requests, and the checkout that runs is the version that applies. See [Your process is code](/docs/motivation.html#your-process-is-code).
+- **The files went stale.** Pull requests changed the code, and nothing in the loop changed the docs with it.
+- **Agents read too much or the wrong thing.** As the folder grew, files filled every agent's context window, or the agent searched and missed the page that mattered. We caught ourselves writing index pages, a list of files with a line on each, only so an agent could decide what to open. We were building a wiki by hand, for machines.
+- **Settled questions came back.** An agent that doesn't know a question was decided reopens it in code, with a fresh plan and good arguments. The rationale lived in a chat log on somebody's laptop, so we had the same discussion again every few weeks.
+- **The people who decide don't work in pull requests.** A product or design change to a rule had to go through a branch and a review, and the discussion was out of sight once it merged.
 
-What the product should do is different, and files in the repository fit it badly:
+Markdown in the repository is still right for how agents work: roles, instructions and policy change with the code and are reviewed with it. See [Your process is code](/docs/motivation.html#your-process-is-code). It's what the product should do that didn't fit. If your product fits in a README, keep it there.
 
-- **Intent changes before the code does.** A decision made today should reach every agent today, including the ones working on a branch cut last week. A file reaches a branch only when someone merges or rebases it in. Uberblick has one current copy, and every run reads it.
-- **The people who decide don't all open pull requests.** A product person or a designer should be able to change a rule and discuss a sentence where it stands, without a branch and a review. The discussion of a docs pull request is out of sight once it merges.
-- **A decision is more than a paragraph.** It needs the question, the answer, who decided and when, and the issue it came from, or the next session reopens it. In a file that's a convention people forget. In Uberblick a decision record has those fields, and an agent finds the records linked to an issue in one call.
-- **Agents shouldn't read the whole folder.** As a docs folder grows, an agent either loads too much or searches and misses the page that matters. Uberblick names a few starting pages when an agent connects, and search finds the rest.
+## What we do now
 
-If your product fits in a README, keep it there. The case for Uberblick grows with the number of people, agents and branches that need the same answer.
+The index pages are gone. Every Uberblick page has tags and a short description written for the model. An agent searches its local copy of the workspace by tag, reads the descriptions and decides by itself what to read and what to skip. The search runs on the agent's machine, so a dozen lookups are a dozen local calls. Decisions are records with the question, the answer, who decided and when, linked to the issue, so an agent finds them in one call instead of reopening them.
 
-## An example
+In the loop, each role uses the workspace because its instructions say so:
 
-A team member labels an issue: "Let users retry a failed export". Here is what the loop does with the workspace:
-
-```text
-issue-preparer  Finds "Exports: rules" and the decision "Retry limit on exports"
-                (two retries, decided 14 May). Links both in the issue
-                instead of restating them.
-
-implementer     Reads both pages, adds the retry button and hides it after
-                two retries. The rules page doesn't say what users see then,
-                so the pull request proposes the text under "Page updates":
-                "After two failed retries, the export shows Contact support."
-
-reviewer        Checks the code against the rule and reviews the page text
-                with it.
-
-integrator      Merges, then applies the page update.
-```
-
-Nobody reopened the retry limit, and the page now describes what shipped.
+- **Prepare.** The issue-preparer links the pages and decisions the issue touches instead of restating them.
+- **Implement.** The implementer reads those pages first. When the change makes a page wrong or adds something new, it proposes the new text in the pull request.
+- **Review.** The reviewer checks the code against the pages and reviews the proposed page text with it.
+- **Merge.** After the merge, the integrator applies the page changes, so the workspace describes what shipped.
 
 ## Why they're separate
 
-ub-agents knows nothing about Uberblick. The connection is two things in your repository: an MCP server entry and a short rule in your [shared policy](/docs/configuration/instructions.html#shared-policy). Your agents use the workspace because their instructions say so.
+ub-agents knows nothing about Uberblick. The connection is an MCP server entry and a short rule in your [shared policy](/docs/configuration/instructions.html#shared-policy).
 
 - **The loop stays small.** No server, account or database: the queue and history stay in GitHub labels and comments, with or without Uberblick.
 - **Use either alone.** You can run the loop with product intent in a docs folder, in another tool with an MCP server, or nowhere. Uberblick is just as useful in an interactive session with no loop at all.
@@ -51,57 +36,8 @@ ub-agents knows nothing about Uberblick. The connection is two things in your re
 
 ## What each gets from the other
 
-- **The loop gets a spec.** Issues stay short because they point to pages. The implementer builds against written rules instead of guessing, the reviewer has something to check the code against, and a question that was settled doesn't become another stop for a person.
+- **The loop gets a spec.** Issues stay short because they point to pages. The implementer builds against written rules instead of guessing, the reviewer has something to check the code against, and a settled question doesn't become another stop for a person.
 - **The pages stay true.** Docs go stale because updating them is nobody's step. In the loop it is a step: a pull request that changes behavior carries its page updates, and the integrator applies them after the merge.
 - **Retros improve both.** A [retro](/docs/best-practices/retrospectives.html) can propose a change to the loop's instructions or to a page, and a person decides each one.
 
-## Set it up
-
-Install Uberblick on each launcher machine:
-
-```sh
-brew install uberblick-ai/tap/uberblick
-```
-
-Agent worktrees start at new paths, so the server has to be configured in files the loop's agents read, not only in your interactive setup.
-
-For **Claude Code**, run `ub mcp install claude` to add the server to `.mcp.json`, and commit it with a `.claude/settings.json` that approves it for headless runs:
-
-```json
-{
-  "enabledMcpjsonServers": ["uberblick"]
-}
-```
-
-For **Codex**, define the server in `runtime-args`, since a new worktree doesn't read a project `.codex/config.toml`. Merge these entries into the arguments your roles already use:
-
-```yaml
-runtime-args:
-  codex:
-    - -c
-    - 'mcp_servers.uberblick.command="ub"'
-    - -c
-    - 'mcp_servers.uberblick.args=["mcp", "serve"]'
-    - -c
-    - 'mcp_servers.uberblick.default_tools_approval_mode="approve"'
-```
-
-Loop runs can't answer permission prompts. For Claude Code, add `"mcp__uberblick__*"` to `--allowedTools` for each role that reads the workspace, next to its [other permissions](/docs/configuration/permissions.html). The Codex entries above already approve the tools.
-
-Then add the rule to your shared policy:
-
-```text
-## Product pages
-
-What the product should do lives in our Uberblick workspace. Before you change
-behavior, search it for the pages the change touches and read them. Point to
-pages by title in issues instead of restating them. When a pull request makes a
-page wrong, put the new text under "Page updates" in its description. The
-integrator applies it after the merge.
-```
-
-Run `ub-agents doctor` on each launcher. It checks that every configured runtime loads the server and lists its tools. [Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the rest of the configuration.
-
-## More than one launcher
-
-A local workspace lives on one computer. When the loop runs on [more launchers](/docs/guides/add-a-launcher.html), share the workspace through a [hub](https://next.uberblick.ai/docs/hub), commit `.uberblick.json`, and sign in on each launcher machine with `ub auth login`. To make a launcher wait while the workspace is down instead of working without it, add a [health check](/docs/configuration/agents.html#health-check).
+To connect them, [init](/docs/commands/init.html) can register the server, and [Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the rest.
