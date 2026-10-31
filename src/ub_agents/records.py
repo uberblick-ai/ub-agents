@@ -194,12 +194,16 @@ def validate_transition(transition, started=False):
     required = {"add"}
     if started:
         required.add("started")
-    allowed = required | {"remove", "sub-issues"}
+    allowed = required | {"remove", "sub-issues", "merge"}
     if (not isinstance(transition, dict) or not required <= set(transition)
             or not set(transition) <= allowed):
         raise ValueError("invalid transition")
     if started and type(transition["started"]) is not bool:
         raise ValueError("invalid transition start flag")
+    if "merge" in transition:
+        method = transition["merge"]
+        if not isinstance(method, str) or method not in {"squash", "merge", "rebase"} or "sub-issues" in transition:
+            raise ValueError("invalid merge transition")
     for key in ("add", "remove"):
         if key in transition:
             validate_labels(transition[key])
@@ -217,7 +221,8 @@ def outcome_declarations(agent):
     return {name: ({"add": list(changes["add"])} |
                    ({"remove": list(changes["remove"])} if changes["remove"] else {}) |
                    ({"sub-issues": {"add": list(changes["sub-issues"]["add"])}}
-                    if "sub-issues" in changes else {}))
+                    if "sub-issues" in changes else {}) |
+                   ({"merge": changes["merge"]} if "merge" in changes else {}))
             for name, changes in agent.outcomes.items()}
 
 
@@ -306,7 +311,7 @@ def validate(record):
             raise ValueError(f"missing {field}")
     if not positive_int(record.get("assignment")):
         raise ValueError("invalid assignment")
-    for field in ("assignment_sha", "candidate_sha"):
+    for field in ("assignment_sha", "candidate_sha", "merge_commit_sha"):
         value = record.get(field)
         if value is not None and (not isinstance(value, str) or not value):
             raise ValueError(f"invalid {field}")

@@ -453,6 +453,30 @@ class FakeGitHub:
     def candidate_evidence(self, number, sha):
         return "APPROVED", "SUCCESS"
 
+    def commit_checks(self, sha):
+        return [("Test result", "pass")]
+
+    def commit_parents(self, sha):
+        return []
+
+    def commit_on_base(self, sha, branch):
+        return True
+
+    def closing_issue_references(self, number):
+        from ub_agents.github import closing_issues
+        return [Dependency(self.repository, n, self.items[n].state)
+                for n in sorted(closing_issues(self.items[number], self.repository)) if n in self.items]
+
+    def close_issue(self, number, repository):
+        assert repository == self.repository
+        self.writes.append(("close-issue", number))
+        self.change(number, state="closed")
+
+    def merge_pr(self, number, method, sha):
+        assert self.items[number].head == sha
+        self.writes.append(("merge", number, method, sha))
+        self.change(number, state="closed", merged=True, merge_commit_sha="f" * 40)
+
 
 class AccountGitHub:
     """A separate authenticated client of the same recording durable store."""

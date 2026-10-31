@@ -486,9 +486,16 @@ def _parse_config(data, root, *, planned=()):
         outcomes = {}
         for outcome, transition in declared.items():
             string(outcome, f"{name} outcome")
-            mapping(transition, {"add", "remove", "sub-issues", "max-rounds"}, f"{name} outcome {outcome}")
+            mapping(transition, {"add", "remove", "sub-issues", "max-rounds", "merge"}, f"{name} outcome {outcome}")
             labels = {key: argv(transition.get(key, []), f"{name} {outcome} {key}", empty=True)
                       for key in ("add", "remove")}
+            if "merge" in transition:
+                method = transition["merge"]
+                if not isinstance(method, str) or method not in {"squash", "merge", "rebase"}:
+                    raise AgentError(f"{name} {outcome} merge must be squash, merge or rebase")
+                if kind != "pr" or "sub-issues" in transition or set(labels["add"]).intersection(stop):
+                    raise AgentError(f"{name} {outcome}: merge requires a pr agent, no sub-issues and no added stop label")
+                labels["merge"] = method
             if "max-rounds" in transition:
                 limit = transition["max-rounds"]
                 if type(limit) is not int or limit <= 0:
@@ -509,9 +516,10 @@ def _parse_config(data, root, *, planned=()):
             outcomes[outcome] = labels
         on_conflict = string(item["on-conflict"], f"{name} on-conflict") if "on-conflict" in item else None
         if on_conflict is not None and (kind != "pr" or on_conflict not in outcomes
-                                        or set(outcomes[on_conflict]["add"]).intersection(stop)):
+                                        or set(outcomes[on_conflict]["add"]).intersection(stop)
+                                        or "merge" in outcomes[on_conflict]):
             raise AgentError(f"{name}: on-conflict must name a declared outcome of a pr agent "
-                             "that adds no stop label")
+                             "that adds no stop label and does not merge")
         agents.append(Agent(name, triggers, instruction,
             tuple(runtimes), command, runtime_args, different, kind, worktree,
             lease_seconds,

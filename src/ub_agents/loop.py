@@ -26,6 +26,7 @@ from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, GitHubE
 from .execution import ScratchDirectory, Workspace, command_for, fork_head_ref, repository_checks, supervise
 from .events import EventHooks
 from .finalization import FinalizationReads
+from .merging import LauncherMerge, MergeNotRecovered
 from .report_command import launcher_report_command
 from .launcher_code import descriptors as code_descriptors
 from .github import (APPROVAL_BATCH_SIZE, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS,
@@ -1520,6 +1521,7 @@ class Loop:
                 if usage_output:
                     usage_output.poll(final=final)
             try:
+                agent_deadline = self.coordinator.clock() + plan.agent.timeout_seconds
                 code = supervise(command, cwd, env, run_dir,
                                  plan.agent.timeout_seconds, self.interrupt_event,
                                  self.prompt_for(plan, lease, context, instructions,
@@ -1546,7 +1548,8 @@ class Loop:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
             else:
-                result, summary, effect = self.reported_verdict(lease, plan, outcome, lease, "completion")
+                result, summary, effect = self.reported_verdict(lease, plan, outcome, lease, "completion",
+                                                               deadline=agent_deadline)
         except CleanupError as exc:
             self._observe("process", "unknown", str(exc))
             preserve_scratch = True
@@ -1695,12 +1698,12 @@ class Loop:
                                  retrospective=retrospective, context=json.dumps(context, indent=2),
                                  shared_instructions=shared, instructions=instructions)
 
-    def reported_verdict(self, lease, plan, outcome, source, what):
+    def reported_verdict(self, lease, plan, outcome, source, what, *, deadline=None):
         """A recorded report's (result, summary, attempt effect); raises ValidationError if rejected."""
         if outcome["status"] != "success":
             self.validate_failure_report(lease, outcome, source)
             return outcome["status"], outcome["summary"], "unchanged" if outcome["status"] == "blocked" else "failure"
-        self.finalize(lease, plan, outcome, what)
+        self.finalize(lease, plan, outcome, what, deadline=deadline)
         return "success", outcome["summary"], "reset"
 
     def settle(self, plan, lease, attempt, result, summary, effect, outcome=None, denials=None,
@@ -1729,14 +1732,18 @@ class Loop:
                                  parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts,
                                  unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers)
 
-    def finalize(self, lease, plan, outcome, what):
+    def finalize(self, lease, plan, outcome, what, *, deadline=None):
         """Validate a success report, apply its transition and accept it.
 
         A rejected report is recorded on the outcome and raised as ValidationError.
         GitHub errors retain their retry classification and leave expiry recovery
         to finish the job."""
+        merger = LauncherMerge(self) if "merge" in outcome.get("transition", {}) else None
         try:
-            if outcome.get("transition", {}).get("started"):
+            if merger:
+                self.validate_report(outcome)
+                merger.prepare(lease, plan, outcome, deadline)
+            elif outcome.get("transition", {}).get("started"):
                 # Start is durable proof that success validation passed. A later
                 # head or link edit cannot strand already-applied changes.
                 self.validate_report(outcome)
@@ -1748,6 +1755,8 @@ class Loop:
                                             attempt_effect="unchanged" if isinstance(exc, TransitionPaused) else "failure")
             raise
         self.coordinator.accept(lease, outcome)
+        if merger and outcome.get("merge_commit_sha"):
+            merger.close_issues(lease, plan.item.number)
 
     def validate_success(self, plan, outcome):
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -1887,6 +1896,8 @@ class Loop:
         try:
             result, summary, effect = self.reported_verdict(recovery, original, outcome, source,
                                                             "recovered completion")
+        except MergeNotRecovered as exc:
+            result, summary, effect = "retry", str(exc), "unchanged"
         except ValidationError as exc:
             result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
             effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"

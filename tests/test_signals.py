@@ -253,9 +253,9 @@ class SignalTests(unittest.TestCase):
         now += 61
         finalize = self.loop.finalize
 
-        def finish(*args):
+        def finish(*args, **kwargs):
             signal.raise_signal(signal.SIGTERM)
-            return finalize(*args)
+            return finalize(*args, **kwargs)
 
         with patch.object(self.loop, "finalize", side_effect=finish), \
                 patch("ub_agents.loop.supervise") as execution:

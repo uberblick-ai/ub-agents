@@ -153,9 +153,9 @@ class RunRateLimitTests(unittest.TestCase):
         plan = self.loop.plans()[0]
         finalize = self.loop.finalize
 
-        def recover(*args):
+        def recover(*args, **kwargs):
             self.github.read_results["item"] = [self.limit()]
-            return finalize(*args)
+            return finalize(*args, **kwargs)
 
         with patch.object(self.loop, "finalize", side_effect=recover), \
                 patch.object(self.interrupt, "wait") as wait:

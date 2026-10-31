@@ -190,6 +190,7 @@ class Item:
     merged: bool = False
     head_repository: str | None = None
     base_branch: str | None = None
+    merge_commit_sha: str | None = None
 
     def is_fork(self, repository):
         return self.kind == "pr" and is_fork(self.head_repository, repository)
@@ -276,7 +277,9 @@ def parse_item(data, kind, endpoint=None):
                     and isinstance(data["user"].get("login"), str) else None,
                     data["comments"] if type(data.get("comments")) is int and data["comments"] >= 0 else None,
                     data.get("mergeable") if kind == "pr" and type(data.get("mergeable")) is bool else None,
-                    head_repository=head_repository, base_branch=base_branch)
+                    merged=kind == "pr" and data.get("merged") is True,
+                    head_repository=head_repository, base_branch=base_branch,
+                    merge_commit_sha=data.get("merge_commit_sha") if kind == "pr" else None)
     except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
         if endpoint is not None:
             raise GitHubError("GET", endpoint, "Unreadable GitHub work item") from exc
@@ -917,6 +920,114 @@ class GitHub:
         if not isinstance(raw.get("default_branch"), str):
             raise GitHubError("GET", self.prefix, "GitHub returned no default branch")
         return raw["default_branch"]
+
+    def commit_parents(self, sha):
+        endpoint = f"{self.prefix}/commits/{sha}"
+        raw = self.request(endpoint)
+        try:
+            parents = [parent["sha"] for parent in raw["parents"]]
+            if raw["sha"] != sha or any(not isinstance(p, str) or not p for p in parents):
+                raise ValueError("invalid commit parents")
+            return parents
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GitHubError("GET", endpoint, "Unreadable commit parents") from exc
+
+    def commit_on_base(self, sha, branch):
+        endpoint = f"{self.prefix}/compare/{sha}...{quote(branch, safe='')}"
+        raw = self.request(endpoint)
+        ancestor = raw.get("merge_base_commit")
+        return (raw.get("status") in {"ahead", "identical"}
+                and isinstance(ancestor, dict) and ancestor.get("sha") == sha)
+
+    def commit_checks(self, sha):
+        """Every current check run and latest status context, across all pages."""
+        results = []
+        for resource, field in (("check-runs?filter=latest&", "check_runs"), ("status?", "statuses")):
+            page, count, total = 1, 0, None
+            while total is None or count < total:
+                endpoint = f"{self.prefix}/commits/{sha}/{resource}per_page=100&page={page}"
+                raw = self.request(endpoint)
+                try:
+                    rows = raw[field]
+                    if (not isinstance(rows, list) or type(raw["total_count"]) is not int
+                            or raw["total_count"] < 0 or (total is not None and raw["total_count"] != total)
+                            or (field == "statuses" and raw["sha"] != sha)):
+                        raise ValueError("incomplete checks page")
+                    total = raw["total_count"]
+                    if count + len(rows) > total or not rows and count < total:
+                        raise ValueError("incomplete checks page")
+                    for row in rows:
+                        if field == "check_runs":
+                            name, state = row["name"], row["status"]
+                            if row["head_sha"] != sha:
+                                raise ValueError("check names another head")
+                            if state == "completed":
+                                state = "pass" if row["conclusion"] in {"success", "skipped", "neutral"} else "fail"
+                            elif state in {"queued", "in_progress", "waiting", "requested", "pending"}:
+                                state = "pending"
+                            else:
+                                raise ValueError("unknown check state")
+                        else:
+                            name, state = row["context"], row["state"]
+                            state = {"success": "pass", "pending": "pending", "failure": "fail", "error": "fail"}[state]
+                        if not isinstance(name, str) or not name:
+                            raise ValueError("missing check name")
+                        results.append((name, state))
+                    count += len(rows)
+                    page += 1
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise GitHubError("GET", endpoint, "Unreadable candidate checks") from exc
+        return results
+
+    def merge_pr(self, number, method, sha):
+        if method not in {"squash", "merge", "rebase"}:
+            raise AgentError("Invalid merge method")
+        command = ["gh", "pr", "merge", str(number), "--repo", self.repository,
+                   f"--{method}", "--match-head-commit", sha]
+        self.gh_calls += 1
+        try:
+            result = (self.runner or subprocess.run)(command, capture_output=True, text=True,
+                                                     timeout=REQUEST_TIMEOUT_SECONDS, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise GitHubError("merge", str(number), str(exc)) from exc
+        if result.returncode in (-signal.SIGINT, 128 + signal.SIGINT):
+            raise KeyboardInterrupt
+        if result.returncode:
+            raise GitHubError("merge", str(number), result.stderr.strip() or result.stdout.strip())
+
+    def closing_issue_references(self, number):
+        owner, name = self.repository.split("/", 1)
+        query = """query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
+          repository(owner:$owner, name:$name) { pullRequest(number:$number) {
+            closingIssuesReferences(first:100, after:$cursor) {
+              nodes { number state repository { nameWithOwner } }
+              pageInfo { hasNextPage endCursor }
+            }
+          } }
+        }"""
+        result, cursor, seen = [], None, set()
+        while True:
+            raw = self.graphql(query, {"owner": owner, "name": name, "number": number, "cursor": cursor})
+            try:
+                connection = raw["repository"]["pullRequest"]["closingIssuesReferences"]
+                for node in connection["nodes"]:
+                    repository = node["repository"]["nameWithOwner"]
+                    if (not positive_int(node["number"]) or node["state"] not in {"OPEN", "CLOSED"}
+                            or not isinstance(repository, str) or not re.fullmatch(REPOSITORY, repository)):
+                        raise ValueError("invalid closing issue")
+                    result.append(Dependency(repository, node["number"], node["state"].lower()))
+                page = connection["pageInfo"]
+                if page["hasNextPage"] is False:
+                    return result
+                cursor = page["endCursor"]
+                if page["hasNextPage"] is not True or not isinstance(cursor, str) or not cursor or cursor in seen:
+                    raise ValueError("invalid closing issues pagination")
+                seen.add(cursor)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise GitHubError("POST", "graphql", "Unreadable closing issues") from exc
+
+    def close_issue(self, number, repository):
+        self.request(f"repos/{repository}/issues/{number}", "PATCH", {"state": "closed"})
 
     def prs_for_branch(self, branch, state="open"):
         owner = self.repository.split("/", 1)[0]

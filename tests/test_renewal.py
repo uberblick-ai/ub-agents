@@ -290,10 +290,10 @@ class RenewalTests(unittest.TestCase):
             for _ in range(4):
                 self.advance()
             return prepare(workspace)
-        def complete(*args):
+        def complete(*args, **kwargs):
             for _ in range(4):
                 self.advance()
-            return finalize(*args)
+            return finalize(*args, **kwargs)
         with patch.object(Workspace, "prepare", setup), patch.object(self.loop, "finalize", side_effect=complete):
             self.execute(lambda *args, **kwargs: self.finish())
 
@@ -348,11 +348,11 @@ class RenewalTests(unittest.TestCase):
         self.co.report(source, "success", "Durable outcome", outcome="done")
         self.now += 1800
         finalize = self.loop.finalize
-        def complete(recovery, *args):
+        def complete(recovery, *args, **kwargs):
             self.assertEqual(recovery["mode"], "recovery")
             for _ in range(4):
                 self.advance()
-            return finalize(recovery, *args)
+            return finalize(recovery, *args, **kwargs)
         with patch.object(self.loop, "finalize", side_effect=complete):
             self.assertTrue(self.loop.tick())
         self.assertEqual(self.co.history(1)[2]["state"], "released")

@@ -377,7 +377,7 @@ Each agent has exactly one of `runtime` or `command`.
 | `worktree` | Boolean, `false` | `true` runs in a private checkout: a same-repository PR's exact head, a fork PR's base branch tip, or a fresh branch for an issue. See [pull requests](approvals.md#pull-requests). |
 | `runtime-args` | List or mapping | Replaces all top-level `runtime-args`; `[]` or `{}` disables them. |
 | `different-runtime-from` | Agent name or nonempty list | Use a different CLI and model from each named runtime agent's accepted outcome: the latest on an issue, or for the current PR head. `null` clears the setting. See [runtime independence](coordination.md#runtime-independence-and-candidate-provenance). |
-| `on-conflict` | Outcome name | `pr` agents only; an outcome that adds no stop label. Recorded instead of starting the agent when GitHub reports the PR as conflicting. |
+| `on-conflict` | Outcome name | `pr` agents only; an outcome that adds no stop label and does not declare `merge`. Recorded instead of starting the agent when GitHub reports the PR as conflicting, or when a launcher merge finds failed checks or a conflict. |
 | `health-check` | Argv list | See [Project health checks](#project-health-checks). |
 | `retrospectives` | Positive integer | See [Retrospectives](#retrospectives). |
 | Limit keys | | Override the timeout and retry [`limits`](#limits). The lease keys are top level only. |
@@ -425,6 +425,36 @@ outcomes:
 | `remove` | List, `[]` | Must not include a stop label, and no trigger of the agent may be one. |
 | `max-rounds` | Positive integer | Needs a configured stop label, and the outcome must not add one. |
 | `sub-issues` | Mapping with only `add` | Nonempty list of `issue` or `either` agent triggers, no stop labels. Agents that take issues only. |
+| `merge` | `squash`, `merge` or `rebase` | `pr` agents only; no added stop labels or `sub-issues`, and cannot be the agent's `on-conflict` outcome. |
+
+**Launcher merges.** An outcome with `merge` asks the launcher to merge the PR after
+the agent exits. The agent still decides whether project policy permits the merge,
+checks review and changelog requirements, and performs any base merge. It reports
+the outcome instead of running `gh pr merge` or waiting for CI:
+
+```yaml
+integrator:
+  kind: pr
+  # Other required agent settings omitted.
+  on-conflict: changes-requested
+  outcomes:
+    merged: {merge: squash}
+    changes-requested: {add: [needs-changes]}
+```
+
+The reported `candidate_sha` is the merge target; no new report option is needed.
+The launcher verifies the assigned candidate or its base merge, stop labels, every
+check run and commit status on that exact head, and mergeability. Pending or absent
+checks wait without a model until the original `agent-timeout-minutes` deadline,
+while the lease renews. Failures and conflicts use `on-conflict`; other refusals
+block. Acceptance requires a confirmed merge on the base branch, recorded as
+`candidate_sha` and `merge_commit_sha`. Issue closure follows acceptance and is
+best effort. [Coordination](coordination.md#launcher-merges) describes the gates and
+recovery, which never performs a merge. Outcomes without `merge` keep their existing
+behavior.
+
+**Upgrading:** every launcher of a project must run a release supporting `merge`
+before its `ub-agents.yaml` uses the key.
 
 **Transitions.** After validating ownership, the candidate SHA and issue links, the
 launcher removes all the agent's triggers and the `remove` labels from the assignment.
