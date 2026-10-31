@@ -38,7 +38,12 @@ In a terminal, launch opens a live view of what is running, what needs a person,
 
 The Runs tab lists every run the launcher knows for the selected item, oldest
 first, including failures and runs by other launchers. It reads private local
-history files without accessing GitHub.
+history files without accessing GitHub. Its tokens column shows an exact count
+below 1,000, rounded `Nk` below 1M and `N.NM` from 1M, with a blank cell when no
+usage was recorded. Counts come from GitHub coordination records, including for
+other launchers. GitHub result lines also show a dollar figure when the CLI
+reports a cost. On a Claude subscription, this is what the run would have cost
+at API prices, not a charge. Codex reports no cost.
 
 Formatted Claude and Codex logs show local times. A `~` marks when the supervisor
 observed output without a producer timestamp, including output written before

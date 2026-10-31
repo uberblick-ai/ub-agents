@@ -221,6 +221,41 @@ class RunsTests(unittest.TestCase):
                 self.assertNotIn('denied', value)
                 self.assertEqual(len(list(view.renderables)[1].rows), 1)
 
+    def test_tokens_from_all_launchers_survive_snapshot_with_blank_unknown_usage(self):
+        self.plan(history=(claim(state='released', usage={'tokens': 412000, 'total_cost_usd': 1.84}),
+                           outcome(denials=[{'tool': 'Bash', 'command': 'not shown'}] * 2),
+                           claim('other', 1200, actor='other-launcher', agent='reviewer'),
+                           outcome('other', 1300, agent='reviewer', usage={'tokens': 1200000}),
+                           claim('unknown', 1400),
+                           outcome('bad', 1500, usage={'tokens': 'bad'})))
+        published = self.memory.histories[-1]['1']['runs']
+        self.assertEqual(published[0]['usage'], {'tokens': 412000, 'total_cost_usd': 1.84})
+        self.assertEqual(published[1]['usage'], {'tokens': 1200000})
+        self.assertNotIn('usage', published[2])
+        self.assertNotIn('usage', published[3])
+        for width in (54, 60, 110):
+            with self.subTest(width=width):
+                value, view = self.display(width=width)
+                table = list(view.renderables)[1]
+                self.assertEqual(table.columns[5].header, 'tokens')
+                self.assertEqual(table.columns[5]._cells, ['412k', '1.2M', '', ''])
+                self.assertIn('412k', value)
+                self.assertIn('1.2M', value)
+                self.assertIn('2 denied', value)
+                self.assertNotIn('$', value)
+                self.assertEqual(len(value.splitlines()), 6)
+                self.assertTrue(all(len(line) <= width for line in value.splitlines()))
+
+    def test_usage_updates_ignore_malformed_values_and_keep_valid_lease_or_outcome(self):
+        runs = []
+        merge_record(runs, claim(usage={'tokens': 100}), ())
+        merge_record(runs, outcome(usage={'tokens': 'bad'}), ())
+        self.assertEqual(runs[0]['usage'], {'tokens': 100})
+        merge_record(runs, claim(usage=None), ())
+        self.assertNotIn('usage', runs[0])
+        merge_record(runs, outcome(usage={'tokens': 200}), ())
+        self.assertEqual(runs[0]['usage'], {'tokens': 200})
+
     def test_every_run_survives_run_count_and_shared_byte_pressure(self):
         all_runs = [outcome(str(n), 1000 + n, summary='😀' * (MAX_TEXT + 20))
                     for n in range(MAX_OUTCOMES + 7)]

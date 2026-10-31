@@ -18,6 +18,7 @@ from .records import (MARKER, attempt_effect, attempts, backoff, body, display_p
                       outcome_declarations, outcome_rounds, payload, records, recovers, report_asks,
                       same_handoff, same_run, seconds, stop_report, timestamp)
 from .trust import LauncherTrust
+from .run_usage import usage_fields
 
 
 @dataclass(frozen=True)
@@ -634,7 +635,7 @@ class Coordinator:
             return False
 
     def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
-                max_attempts=None, *, unreported=False, stop_labels=None, triggers=None):
+                max_attempts=None, *, unreported=False, stop_labels=None, triggers=None, usage=None):
         self.assert_owned(lease)
         reported = self.outcome(lease)
         now = self.clock()
@@ -645,6 +646,7 @@ class Coordinator:
         # A released lease expires now; retry_after is only needed for a backoff.
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect,
+                    **usage_fields({"usage": usage}),
                     **({"unreported": True} if unreported else {}))
         with self._lease_lock:
             self.execution_finished(lease)
