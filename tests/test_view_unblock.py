@@ -525,6 +525,23 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
                 return
         self.fail('View did not become ready')
 
+    def assert_skill_hint(self, preceding):
+        widget = self.app.query_one('#unblock_note', Static)
+        note = widget.render()
+        hint = 'Or decide in Claude Code or Codex with the ub-agents-unblock skill'
+        self.assertEqual(note.plain.splitlines()[-1], hint)
+        self.assertIn(preceding, note.plain.splitlines()[-2])
+        self.assertEqual(note.plain.count(hint), 1)
+        start = note.plain.index('ub-agents-unblock')
+        end = start + len('ub-agents-unblock')
+        for offset, character in enumerate(note.plain):
+            style = widget.visual_style + note.get_style_at_offset(offset)
+            self.assertEqual(style.link, 'https://skills.uberblick.ai/skills/ub-agents-unblock'
+                             if start <= offset < end else None)
+            if not character.isspace():
+                self.assertTrue(style.dim)
+                self.assertEqual(style.foreground.hex.lower(), self.app.theme_variables['view-muted'].lower())
+
     async def test_merged_item_keeps_actions_and_selection_when_an_agent_leaves(self):
         first = self.state['latest_pass']['rows'][-2]
         first.update(state='blocked', reason='Earlier review defer', attention_reason='Sonner conflicts',
@@ -745,6 +762,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(resume.collapsed)
                 self.assertEqual(resume.title, 'To resume worker')
                 self.assertIn('Fallback', app.query_one('#unblock_body', Markdown).source)
+                self.assert_skill_hint('No action-needed comment is cached')
                 app.select('plan:178:attention')
                 self.assertTrue(resume.collapsed)
             self.state['action_needed'] = {}
@@ -864,6 +882,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             markdown = app.query_one('#unblock_body', Markdown)
             self.assertIn('**Needs:**', markdown.source)
             self.assertIn('snapshot', app.query_one('#unblock_note', Static).render().plain)
+            self.assert_skill_hint('Source: action-needed comment')
             self.now += 60
             await self.ready(pilot, lambda: 'waiting 25m' in app.query_one('#item_header', Static).render().plain)
             await pilot.press('?')
@@ -902,11 +921,14 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.3)
             self.assertEqual(len(self.transport.calls), 1)
             self.assertIn('Loading action-needed comments', app.query_one('#unblock_note', Static).render().plain)
+            self.assert_skill_hint('No action-needed comment is cached')
             await pilot.press('g', 'g', '2', 'g')
             self.assertEqual(len(self.transport.calls), 1)
             self.assertEqual(self.transport.calls[0][:3], ('example/repo', 179, 'unblock'))
             self.transport.response = Response(error='rate limit', reset=self.now + 60)
             await self.ready(pilot, lambda: app.descriptions.pending is None)
+            self.assertIn('rate limit', app.query_one('#unblock_note', Static).render().plain)
+            self.assert_skill_hint('Source: action-needed comment')
             await pilot.press('g', '4', 'g')
             self.assertEqual(len(self.transport.calls), 1)
             self.now += 60
@@ -916,6 +938,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.transport.response = parse_response(comments_reply(comment()), b'', 0, self.now, 'unblock', AUTHORS)
             await self.ready(pilot, lambda: app.current_action().available)
             self.assertIn('GitHub · loaded 0s ago', app.query_one('#unblock_note', Static).render().plain)
+            self.assert_skill_hint('Source: action-needed comment')
             await pilot.press('1', '4', 'g')
             self.assertEqual(len(self.transport.calls), 2)
             self.state['coordination_authors'] = {}
@@ -947,11 +970,13 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.transport.calls[0][:3], ('example/repo', 178, 'unblock'))
             self.assertIn('Comment left out of the snapshot to save space; loading from GitHub…',
                           app.query_one('#unblock_note', Static).render().plain)
+            self.assert_skill_hint('loading from GitHub…')
             self.transport.response = Response(error='Read failed.')
             await self.ready(pilot, lambda: app.descriptions.pending is None)
             note = app.query_one('#unblock_note', Static).render().plain
             self.assertIn('Comment left out of the snapshot to save space; press g to load from GitHub.', note)
             self.assertIn('Read failed. Press g to retry.', note)
+            self.assert_skill_hint('Source: action-needed comment')
             await pilot.press('2', '4', '4')
             await pilot.click(app.query_one(ItemTabs).get_tab('unblock'))
             self.assertEqual(len(self.transport.calls), 1)
