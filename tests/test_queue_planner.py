@@ -1,8 +1,10 @@
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
+from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError
 from ub_agents.loop import Loop
 from tests.support import FakeGitHub, agent, config, issue
@@ -19,6 +21,42 @@ class QueuePlannerTests(unittest.TestCase):
         self.loop = Loop(config(self.root, self.first, self.second), self.github,
                          "operator", output=lambda _: None)
         self.loop.coordinator.clock = lambda: 1000
+
+    def test_swapped_coordinator_clock_controls_lease_expiry(self):
+        self.loop.coordinator.clock = lambda: 2000
+        now = 1000
+        coordinator = Coordinator(self.loop.github, "operator", clock=lambda: now)
+        self.loop.coordinator = coordinator
+        lease = coordinator.claim(coordinator.plan(self.github.items[1], self.first, ()))
+        coordinator.update(lease, state="running", started=True)
+        self.github.change(1, labels=frozenset())
+
+        plans = self.loop.plans()
+        self.assertEqual([(plan.agent, plan.state) for plan in plans], [(self.first, "owned")])
+        now += 61
+        plans = self.loop.plans()
+        self.assertEqual([(plan.agent, plan.state) for plan in plans], [(self.first, "blocked")])
+        self.assertIn("no outcome", plans[0].reason)
+
+    def test_approval_resolution_updates_swapped_coordinator_trust(self):
+        original = self.loop.coordinator
+        self.loop.config = replace(self.loop.config, trusted_pr_authors=("authorbot[bot]",))
+        self.loop.coordinator = Coordinator(self.loop.github, "operator", clock=lambda: 1000)
+
+        self.loop.plans()
+
+        self.assertEqual(self.loop.coordinator.trust.trusted_pr_authors, {"authorbot[bot]"})
+        self.assertEqual(original.trust.trusted_pr_authors, set())
+
+    def test_approval_resolution_reads_swapped_github_visibility(self):
+        self.loop.config = replace(self.loop.config, approvals=None)
+        github = FakeGitHub(issue())
+        github.repository_visibility = "private"
+        self.loop.github = github
+
+        self.loop.plans()
+
+        self.assertEqual(self.loop.approvals, "off")
 
     def test_input_errors_follow_live_target_and_claim_state(self):
         error = GitHubError("GET", "issue content", "Forbidden")

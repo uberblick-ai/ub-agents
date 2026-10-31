@@ -16,11 +16,12 @@ class QueuePlanner:
                  output, observe, before_claim, reconcile_blocked_notices, targeted, claiming,
                  notice_agent):
         self._config = config
-        self.github = github
-        self.coordinator = coordinator
+        self._github = github
+        self._coordinator = coordinator
         self.approvals = approvals
         # The observation worker replaces its runtime helpers with the launcher's
-        # shared objects after construction. Keep those and reloadable config live.
+        # shared objects after construction. Tests can replace the coordinator or
+        # GitHub client too. Keep those and reloadable config live.
         self.health = health
         self.usage = usage
         self.maintenance = maintenance
@@ -36,6 +37,14 @@ class QueuePlanner:
     @property
     def config(self):
         return self._config()
+
+    @property
+    def github(self):
+        return self._github()
+
+    @property
+    def coordinator(self):
+        return self._coordinator()
 
     def input_check(self, item, github=None, matches=None):
         github = github or self.github

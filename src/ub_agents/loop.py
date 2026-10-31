@@ -129,7 +129,7 @@ class Loop:
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
         self.queue_planner = QueuePlanner(
-            lambda: self.config, self.github, self.coordinator, approvals,
+            lambda: self.config, lambda: self.github, lambda: self.coordinator, approvals,
             health=lambda: self.health, usage=lambda: self.usage,
             maintenance=lambda: self.maintenance,
             output=lambda line: self.output(line), observe=lambda *args: self.observe(*args),
