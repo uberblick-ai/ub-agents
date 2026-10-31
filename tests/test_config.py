@@ -13,6 +13,37 @@ from tests.support import DoctorGitHub, RecordingRunner
 
 
 class ConfigTests(unittest.TestCase):
+    def test_merge_outcomes_and_offline_doctor(self):
+        base = '''repository: org/project
+agents:
+  integrator:
+    command: [echo]
+    trigger: ready-to-merge
+    kind: pr
+    outcomes:
+      merged: {merge: squash}
+      changes-requested: {add: [needs-changes]}
+    on-conflict: changes-requested
+'''
+        for method in ("squash", "merge", "rebase"):
+            with self.subTest(method=method):
+                configured = self.load(base.replace("merge: squash", f"merge: {method}"))
+                self.assertEqual(configured.agents[0].outcomes["merged"]["merge"], method)
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 0)
+        invalid = [base.replace("merge: squash", f"merge: {value}")
+                   for value in ("true", "null", "[]", "{}", "fast-forward", "1")]
+        invalid += [base.replace("kind: pr", f"kind: {kind}") for kind in ("issue", "either")]
+        invalid += [base.replace("merge: squash", "merge: squash, add: [needs-human]"),
+                    base.replace("merge: squash", "merge: squash, sub-issues: {add: [ready]}"),
+                    base.replace("on-conflict: changes-requested", "on-conflict: merged")]
+        for content in invalid:
+            with self.subTest(content=content):
+                with self.assertRaises(AgentError):
+                    self.load(content)
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["--config", str(self.path), "doctor", "--offline"]), 1)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

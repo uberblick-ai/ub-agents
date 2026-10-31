@@ -686,12 +686,12 @@ class Coordinator:
         self.observed(reported)
         return reported
 
-    def update_outcome(self, lease, outcome, **changes):
+    def update_outcome(self, lease, record, **changes):
         self.assert_owned(lease)
-        updated = records([self.github.update_comment(outcome["id"], body(payload(outcome) | changes))])[0]
-        outcome.clear()
-        outcome.update(updated)
-        self.observed(outcome)
+        updated = records([self.github.update_comment(record["id"], body(payload(record) | changes))])[0]
+        record.clear()
+        record.update(updated)
+        self.observed(record)
 
     def accept(self, lease, outcome):
         self.assert_owned(lease)

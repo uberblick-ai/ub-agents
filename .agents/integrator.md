@@ -21,10 +21,18 @@ Immediately before merging or publishing a handoff, check the head with
 `candidate_sha` or the SHA of the base merge you pushed yourself; any other change
 reports blocked.
 
-If the project's merge policy authorizes this merge and its gates pass, merge exactly
-the verified head with the project's merge method (for example `gh pr merge N
---squash --match-head-commit SHA`) and close the linked issue when
-completion is satisfied. Then record `ub-agents report --outcome merged --summary
+If the project's merge policy authorizes this merge, check the declared outcomes in
+the run prompt. When `merged` declares `merge`, report `ub-agents report --outcome
+merged --summary "Policy allows merging SHA"` after your policy judgment and local
+checks. Do not run `gh pr merge` or wait for CI yourself: after you exit, the launcher
+checks the exact reported head, stop labels, all checks and statuses, and mergeability,
+then merges and closes the PR's closing issues. The report records the current PR
+head, including your own base merge, without another report option.
+
+When the outcome has no `merge` key, keep the project's existing procedure: once its
+gates pass, merge exactly the verified head with its merge method (for example
+`gh pr merge N --squash --match-head-commit SHA`), close the linked issue when
+completion is satisfied, and report `ub-agents report --outcome merged --summary
 "Merged SHA under project policy"`.
 
 If the policy leaves this merge to a maintainer, leave a concrete report that names
