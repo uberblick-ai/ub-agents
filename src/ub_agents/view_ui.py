@@ -28,7 +28,7 @@ from .view_unblock import (ActionComment, comment_sections, local_action, needs_
 from .view_runs import run_status as history_status, runs_view
 from .view_spinner import SPINNER_FPS
 from .view_status import (StatusStyles, empty_log_message, footer, header, key_hints, log_mode,
-                          log_notices, paused_pill, run_status_line)
+                          log_notices, pane_line, paused_pill, run_status_line)
 from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
 from .view_widgets import (HealthBanner, ItemHeader, ItemTabs, KeyHelp, RawAccess, SIZE_WARNING,
                            UpdateBanner)
