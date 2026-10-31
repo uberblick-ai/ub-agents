@@ -56,6 +56,8 @@ set -as terminal-features ",*:RGB"    # full theme colors
 
 Hold Shift (Option in iTerm2) while dragging to use the terminal's own selection.
 
+For a box that runs the loop around the clock, see [Run launchers on a server](/docs/best-practices/launchers-on-a-server.html).
+
 ## Run it as a service
 
-To start the launcher on its own and restart it when it exits, run `ub-agents launch --no-ui` in the launcher checkout as a user service: launchd on macOS, systemd on Linux. Your agent can set it up for you. {{discuss launcher-service}}
+To start the launcher on its own and restart it when it exits, run `ub-agents launch --no-ui` in the launcher checkout as a service: launchd on macOS, systemd on Linux, or a container. [Run launchers on a server](/docs/best-practices/launchers-on-a-server.html#run-it-as-a-service) says what the service has to get right. Your agent can set it up for you. {{discuss launcher-service}}
