@@ -83,6 +83,7 @@ class LauncherMerge:
                                         "a new integrator run must evaluate the candidate")
         else:
             deadline = deadline if deadline is not None else seconds(lease["created"]) + plan.agent.timeout_seconds
+            unknown_reads = 0
             while True:
                 self.open_candidate(current, plan)
                 checks = self.github.commit_checks(sha)
@@ -91,19 +92,22 @@ class LauncherMerge:
                     self.route_failure(lease, plan, outcome, "failing checks: " + ", ".join(failed))
                     return
                 pending = [name for name, state in checks if state == "pending"]
-                if checks and not pending:
-                    break
-                reason = "pending checks: " + ", ".join(pending) if pending else "checks to be reported"
-                self.wait(lease, CHECK_POLL_SECONDS, deadline, reason)
-                current = self.current(lease, plan, outcome)
-            for attempt in range(MERGEABILITY_READS):
+                if not checks or pending:
+                    reason = "pending checks: " + ", ".join(pending) if pending else "checks to be reported"
+                    self.wait(lease, CHECK_POLL_SECONDS, deadline, reason)
+                    current = self.current(lease, plan, outcome)
+                    continue
                 current = self.current(lease, plan, outcome)
                 self.open_candidate(current, plan)
                 if current.mergeable is not None:
                     break
-                if attempt + 1 == MERGEABILITY_READS:
+                unknown_reads += 1
+                if unknown_reads == MERGEABILITY_READS:
                     raise TransitionPaused("Merge refused: mergeability is still unknown")
                 self.wait(lease, MERGEABILITY_POLL_SECONDS, deadline, "mergeability")
+                # CI can be rerun while GitHub computes mergeability. Every
+                # wait returns through the check gate before authorizing merge.
+                current = self.current(lease, plan, outcome)
             if current.mergeable is False:
                 self.route_failure(lease, plan, outcome, "PR conflicts with its base branch")
                 return
@@ -121,10 +125,14 @@ class LauncherMerge:
             if not self.confirm(current, sha):
                 raise TransitionPaused(f"Merge refused: merge was not confirmed from {sha} on the base branch"
                                        + (f"; {error}" if error else ""))
-        if outcome.get("merge_commit_sha") != current.merge_commit_sha:
+        if outcome.get("merge_commit_sha") != current.merge_commit_sha or not transition["started"]:
+            summary = outcome["summary"]
+            if outcome.get("merge_commit_sha") != current.merge_commit_sha:
+                summary += f"\n\nMerged head {sha}; merge commit {current.merge_commit_sha}."
+            # The merge is irreversible and confirmed. Mark validation complete
+            # in the same write as its receipt, before replayable label changes.
             self.coordinator.update_outcome(lease, outcome, merge_commit_sha=current.merge_commit_sha,
-                                            summary=outcome["summary"] +
-                                            f"\n\nMerged head {sha}; merge commit {current.merge_commit_sha}.")
+                                            transition=transition | {"started": True}, summary=summary)
 
     def close_issues(self, lease, number):
         # Issue closure follows acceptance and cannot change its verdict.

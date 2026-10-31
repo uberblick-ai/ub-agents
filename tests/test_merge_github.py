@@ -86,6 +86,18 @@ class MergeGitHubTests(unittest.TestCase):
                 self.assertEqual(self.github.commit_on_base(self.sha, "release/next"), expected)
                 request.assert_called_once_with(f"repos/org/project/compare/{self.sha}...release%2Fnext")
 
+    def test_pr_read_retains_confirmed_merge_head_commit_and_base(self):
+        raw = {"number": 23, "title": "Candidate", "body": "Closes #1", "labels": [], "state": "closed",
+               "created_at": "2026-01-01T00:00:00Z", "draft": False, "merged": True,
+               "head": {"sha": self.sha, "ref": "feature", "repo": {"full_name": "org/project"}},
+               "base": {"ref": "main"}, "merge_commit_sha": "b" * 40}
+        with patch.object(self.github, "request", return_value=raw):
+            current = self.github.item(23, "pr")
+        self.assertTrue(current.merged)
+        self.assertEqual(current.head, self.sha)
+        self.assertEqual(current.merge_commit_sha, "b" * 40)
+        self.assertEqual(current.base_branch, "main")
+
     def test_closing_issues_are_paginated_and_close_uses_own_repository(self):
         def page(number, repository, more, cursor):
             return {"repository": {"pullRequest": {"closingIssuesReferences": {

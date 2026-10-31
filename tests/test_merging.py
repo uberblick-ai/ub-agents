@@ -84,7 +84,7 @@ class MergeTests(unittest.TestCase):
                 self.assertEqual(self.github.item(1).state, "closed")
 
     def test_pending_then_passing_checks_and_unknown_then_known_mergeability(self):
-        checks = [[], [("build", "pending")], [("build", "pass"), ("lint", "pass")]]
+        checks = [[], [("build", "pending")], [("build", "pass"), ("lint", "pass")], [("build", "pass")]]
         original = self.github.item
         def item(number, kind=None):
             current = original(number, kind)
@@ -103,7 +103,7 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(lease["result"], "success")
         self.assertTrue(outcome["accepted"])
         self.assertEqual(self.waits, [10, 10, 2])
-        self.assertEqual([call.args for call in read.call_args_list], [("a" * 40,)] * 3)
+        self.assertEqual([call.args for call in read.call_args_list], [("a" * 40,)] * 4)
 
     def test_absent_or_pending_checks_block_at_original_execution_deadline(self):
         for checks, text in (([], "checks to be reported"), ([("build", "pending")], "pending checks: build")):
@@ -174,6 +174,17 @@ class MergeTests(unittest.TestCase):
             self.assert_blocked("mergeability is still unknown", unknown)
         self.assertEqual(self.waits, [2, 2, 2])
 
+    def test_checks_rerun_while_mergeability_is_unknown_are_checked_again(self):
+        def unknown(outcome):
+            self.github.change(2, mergeable=None)
+        with patch.object(self.github, "commit_checks", side_effect=[[("build", "pass")], [("rerun", "fail")]]), \
+                patch.object(self.loop.interrupt_event, "wait", side_effect=self.wait):
+            lease, outcome = self.run_agent(unknown)
+        self.assertEqual(lease["result"], "success")
+        self.assertEqual(outcome["outcome"], "changes-requested")
+        self.assertIn("rerun", outcome["summary"])
+        self.assertEqual(self.merge_calls(), [])
+
     def test_stop_or_head_change_during_wait_prevents_merge(self):
         for change, reason in (({"labels": frozenset({"needs-human"})}, "stop label"),
                                ({"head": "b" * 40}, "head moved")):
@@ -196,6 +207,17 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(merge.call_count, 1)
         self.assertEqual(lease["result"], "success")
         self.assertTrue(outcome["accepted"])
+
+    def test_stop_label_after_merge_stays_and_does_not_strand_confirmation(self):
+        original = self.github.merge_pr
+        def landed(number, method, sha):
+            original(number, method, sha)
+            self.github.change(number, labels=frozenset({"needs-human"}))
+        with patch.object(self.github, "merge_pr", side_effect=landed):
+            lease, outcome = self.run_agent()
+        self.assertEqual(lease["result"], "success")
+        self.assertTrue(outcome["accepted"])
+        self.assertEqual(self.github.item(2).labels, {"needs-human"})
 
     def test_unconfirmed_merge_error_or_success_blocks(self):
         for error in (None, GitHubError("merge", "2", "permission denied")):
@@ -235,6 +257,7 @@ class MergeTests(unittest.TestCase):
                         {"transition": report["transition"] | {"started": True}}))
                 if merged:
                     self.github.merge_pr(2, "squash", "a" * 40)
+                    self.github.change(2, labels=frozenset({"needs-human"}))
                 self.now += 61
                 self.loop = self.new_loop()
                 with patch.object(self.github, "merge_pr", side_effect=AssertionError("recovery never merges")), \

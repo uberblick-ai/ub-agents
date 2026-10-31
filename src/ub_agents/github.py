@@ -935,7 +935,9 @@ class GitHub:
     def commit_on_base(self, sha, branch):
         endpoint = f"{self.prefix}/compare/{sha}...{quote(branch, safe='')}"
         raw = self.request(endpoint)
-        return raw.get("status") in {"ahead", "identical"} and raw.get("merge_base_commit", {}).get("sha") == sha
+        ancestor = raw.get("merge_base_commit")
+        return (raw.get("status") in {"ahead", "identical"}
+                and isinstance(ancestor, dict) and ancestor.get("sha") == sha)
 
     def commit_checks(self, sha):
         """Every current check run and latest status context, across all pages."""
