@@ -69,6 +69,8 @@ class SelfUpdateTests(unittest.TestCase):
         self.calls.append(args)
         if args[-1] == "--version":
             return "ub-agents " + self.current
+        if args[-1] == "--prefix":
+            return str(self.install.prefix)
         if args[0] == "gh":
             self.assertIn("--paginate", args)
             self.assertIn("--slurp", args)
@@ -123,6 +125,17 @@ class SelfUpdateTests(unittest.TestCase):
         before = len(self.calls)
         self.boundary()
         self.assertEqual(len(self.calls), before)
+
+    def test_a_brew_binary_owning_another_prefix_cannot_upgrade(self):
+        original = self.manager.runner
+        def wrong_prefix(args, *positional, **keywords):
+            if args[-1] == "--prefix":
+                return str(self.root / "different-homebrew")
+            return original(args, *positional, **keywords)
+        self.manager.runner = wrong_prefix
+        self.boundary()
+        self.assertFalse(any("update" in call or "upgrade" in call for call in self.calls))
+        self.assertIn("owning Homebrew prefix", self.updates.banner["text"])
 
     def test_newer_install_from_peer_restarts_without_upgrading_even_when_latest_read_failed(self):
         self.put_keg(self.target)
@@ -201,6 +214,7 @@ class SelfUpdateTests(unittest.TestCase):
         self.stop.clear()
         self.put_keg(__version__)
         self.manager.checked = None
+        self.calls.clear()
         original = self.manager.runner
         def slow(*args, **kwargs):
             result = original(*args, **kwargs)
@@ -209,7 +223,7 @@ class SelfUpdateTests(unittest.TestCase):
         self.manager.runner = slow
         self.boundary()
         self.assertIn("timed out after 17s", "\n".join(self.lines))
-        self.assertFalse(any("upgrade" in call for call in self.calls[5:]))
+        self.assertFalse(any("upgrade" in call for call in self.calls))
 
     def test_both_queue_scopes_restart_before_claim_but_once_and_number_do_not(self):
         for agent_name in (None, "worker"):

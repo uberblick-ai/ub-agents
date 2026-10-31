@@ -184,6 +184,8 @@ class SelfUpdates:
             return
         if latest is None or version(latest) <= version(__version__) or self.stopped():
             return
+        if Path(run([install.brew, "--prefix"])).resolve() != install.prefix:
+            raise ValueError("owning Homebrew prefix does not match the running installation")
         self.output(f"Launcher maintenance ub-agents: checking {FORMULA}")
         run([install.brew, "update"])
         data = json.loads(run([install.brew, "info", "--json=v2", "--formula", FORMULA]))
