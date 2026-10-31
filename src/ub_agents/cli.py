@@ -290,21 +290,21 @@ def check_launch_setup(config, github, loop, *, interrupt, once=False):
     delay = POLL_RETRY_BASE_SECONDS
     try:
         while True:
-            loop._before_claim()
-            loop._observe("activity", "checking setup")
+            loop.before_claim()
+            loop.observe("activity", "checking setup")
             try:
                 launch_checks(config, github)
             except GitHubError as exc:
-                loop._before_claim()
+                loop.before_claim()
                 if once or not exc.retryable:
                     raise
                 detail = " ".join(str(exc).split())
                 loop.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
-                loop._wait(loop.stop_event, delay, "setup retry")
+                loop.wait(loop.stop_event, delay, "setup retry")
                 delay = min(POLL_RETRY_MAX_SECONDS, delay * 2)
             else:
-                loop._before_claim()
-                loop._observe("activity", "polling")
+                loop.before_claim()
+                loop.observe("activity", "polling")
                 return
     except _GracefulStop:
         if loop.interrupt_event.is_set():
@@ -501,7 +501,7 @@ def launch_run(args, config, github, actor, loop, stop, interrupt):
         signal.signal(signal.SIGTERM, stop_gracefully)
         try:
             publisher = Publisher(config.root, output=loop.output)
-            loop._before_claim()
+            loop.before_claim()
             loop.observer = Observations(config, actor, loop.config_path, publisher,
                                          clock=loop.coordinator.clock)
         except _GracefulStop:
@@ -511,20 +511,20 @@ def launch_run(args, config, github, actor, loop, stop, interrupt):
                 publisher.warning(str(exc))
             else:
                 loop.output(f"Cannot publish launcher observations: {exc}")
-        loop._before_claim()
+        loop.before_claim()
         session = loop.observer.state['session'] if loop.observer is not None else None
-        loop._observe("activity", "checking setup")
+        loop.observe("activity", "checking setup")
         view = _open_launch_view(args, config, loop, stop, session)
         if view is not None:
             loop.enable_poll_now()
         check_launch_setup(config, github, loop, once=args.once or args.number is not None,
                            interrupt=stop_now)
         _start_updates(config, loop)
-        loop._before_claim()
+        loop.before_claim()
         cleanup = StartupCleanup(config, github, loop.coordinator.actor, stop, session=session)
         loop.coordinator.cleanup_control = cleanup.control
         cleanup.start()
-        loop._before_claim()
+        loop.before_claim()
         return _launch_queue(args, loop)
     except _GracefulStop:
         return
@@ -550,7 +550,7 @@ def _launch_signal_callbacks(loop, stop, interrupt):
 
     def wake_stop():
         stop.set()
-        loop._observe("activity", "stopping")
+        loop.observe("activity", "stopping")
 
     relay = SignalRelay({"interrupt": wake_interrupt, "stop": wake_stop})
 
@@ -560,7 +560,7 @@ def _launch_signal_callbacks(loop, stop, interrupt):
         relay.request("interrupt")
 
     def stop_gracefully(*_):
-        unwind = loop._request_graceful_stop()
+        unwind = loop.request_graceful_stop()
         stop.request()
         relay.request("stop")
         if unwind:
@@ -606,7 +606,7 @@ def _finish_launch(handlers, relay, loop, publisher):
     for sig, handler in handlers.items():
         signal.signal(sig, handler)
     relay.close()
-    loop._observe("close")
+    loop.observe("close")
     if publisher is not None:
         publisher.close()
 

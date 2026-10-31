@@ -141,7 +141,7 @@ class LaunchSetupTests(unittest.TestCase):
 
                 self.view.close.side_effect = closed
                 self.checks.side_effect = error
-                with patch.object(Loop, "_wait") as wait:
+                with patch.object(Loop, "wait") as wait:
                     self.assertEqual(main(self.argv), 1)
                 wait.assert_not_called()
                 self.view.close.assert_called_once()
@@ -190,7 +190,7 @@ class LaunchSetupTests(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 self.checks.reset_mock()
                 self.checks.side_effect = failure
-                with patch.object(Loop, "_wait") as wait:
+                with patch.object(Loop, "wait") as wait:
                     self.assertEqual(main(self.argv + arguments), 1)
                 self.checks.assert_called_once()
                 wait.assert_not_called()

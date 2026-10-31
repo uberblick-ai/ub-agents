@@ -857,7 +857,7 @@ class RunPlanningTests(unittest.TestCase):
 
         with patch('ub_agents.loop.monotonic', side_effect=lambda: self.now), \
                 patch.object(self.loop, 'tick', side_effect=tick), \
-                patch.object(self.loop, '_wait', side_effect=wait):
+                patch.object(self.loop, 'wait', side_effect=wait):
             self.loop.launch()
         self.assertEqual(ticks, [1000, 1149, 1269])
         self.assertEqual(waits, [115])
@@ -936,7 +936,7 @@ class RunPlanningTests(unittest.TestCase):
 
         with patch('ub_agents.loop.monotonic', side_effect=lambda: self.now), \
                 patch.object(self.loop, 'tick', side_effect=tick), \
-                patch.object(self.loop, '_wait', side_effect=wait):
+                patch.object(self.loop, 'wait', side_effect=wait):
             self.loop.launch()
         self.assertEqual(ticks, [1000, 1200])
         self.assertEqual(waits, [(165, 'rate-limit reset')])
