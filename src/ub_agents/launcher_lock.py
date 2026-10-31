@@ -5,12 +5,13 @@ import fcntl
 import json
 import os
 import socket
+from typing import BinaryIO
 
 from .errors import AgentError
 from .records import iso, timestamp
 
 
-_streams = set()
+_streams: set[BinaryIO] = set()
 
 
 def _close_in_child():

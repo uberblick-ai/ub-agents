@@ -52,6 +52,20 @@ class CompactClaudeTests(unittest.TestCase):
         self.assertNotIn('id=<', output)
         self.assertNotIn('producer=', output)
 
+    def test_message_helper_returns_pairing_changes_without_committing_partial_messages(self):
+        self.decode(record(content=[tool('old', 'Read')]))
+        data = json.loads(record(content=[tool('new', 'Bash')]))
+        kind, lines, calls, last_call = self.formatter._message(data, 'assistant')
+        self.assertEqual(kind, 'tool call')
+        self.assertEqual([line.text for line in lines], ['▸ Bash printf hello'])
+        self.assertEqual(calls, [('new', 'Bash')])
+        self.assertEqual(last_call, 'new')
+        data['message']['content'].append(None)
+        with self.assertRaisesRegex(ValueError, 'Unfamiliar block'):
+            self.formatter._message(data, 'assistant')
+        self.assertEqual(dict(self.formatter.tools), {'old': 'Read'})
+        self.assertEqual(self.formatter.last_call, 'old')
+
     def test_producer_time_local_capture_marked_and_placeholder_aligned(self):
         # Synthetic timezone exercises conversion rather than assuming host UTC.
         prior = os.environ.get('TZ')

@@ -258,7 +258,7 @@ class LogPane(ScrollbarVisibility, ScrollView):
         self.reading = reading
         self.reflow()
 
-    def reflow(self):
+    def reflow(self):  # noqa: C901
         reading = self.reading
         width = max(20, self.scrollable_content_region.width)
         self.render_width = width
@@ -563,7 +563,7 @@ class View(App):
     def on_resize(self, event):
         self.update_layout(event.size)
 
-    def update_layout(self, size):
+    def update_layout(self, size):  # noqa: C901
         pane = self.query_one_optional('#work_pane')
         if pane is None:
             return
@@ -764,7 +764,7 @@ class View(App):
     def reading(self):
         return self.readings.setdefault(self.selected, Reading())
 
-    def tick(self):
+    def tick(self):  # noqa: C901, PLR0912
         # Textual clears is_running before removing screen widgets, while
         # refresh timers may still fire until teardown closes the message pump.
         if not self.is_running:
@@ -821,7 +821,7 @@ class View(App):
         else:
             tree.refresh_spinners()
 
-    def idle_label(self, pane, width=None):
+    def idle_label(self, pane, width=None):  # noqa: C901
         complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
         reason = 'nothing eligible for this launcher' if complete and pane.next is None else 'polling'
         if self.session.data.get('queue_agent'):
@@ -851,7 +851,7 @@ class View(App):
                 label = Text(f'Idle · {reason}', style='dim')
         return label
 
-    def populate(self, pane):
+    def populate(self, pane):  # noqa: C901, PLR0912, PLR0915
         tree = self.query_one('#work', Tree)
         recent = self.query_one(RecentActivity)
         recent.populate(pane.recent)
@@ -1056,7 +1056,7 @@ class View(App):
         if url is not None:
             self.open_url(url)
 
-    def update_issue(self):
+    def update_issue(self):  # noqa: C901, PLR0912, PLR0915
         if self.local_description is None:
             return
         key = self.description_key()
@@ -1146,7 +1146,7 @@ class View(App):
         self.descriptions.request(key, 'unblock', mapping(self.session.data.get('coordination_authors')))
         self.update_unblock()
 
-    def update_unblock(self):
+    def update_unblock(self):  # noqa: C901, PLR0915
         visible = needs_attention(self.rows.get(self.selected))
         tabs = self.query_one(ItemTabs)
         if visible != self.unblock_visible:
@@ -1259,7 +1259,7 @@ class View(App):
             lag += max(0, reading.latest.end - (refs[-1].end if refs else page.end))
         return unread, lag
 
-    def footer(self, width, keys):
+    def footer(self, width, keys):  # noqa: C901, PLR0912, PLR0915
         now = time.monotonic()
         if now < max(self.copy_notice_until, self.awake_notice_until):
             value = self.awake_notice if self.awake_notice_until > self.copy_notice_until else self.copy_notice
@@ -1385,7 +1385,7 @@ class View(App):
         left.append_text(right)
         return left
 
-    def update_status(self):
+    def update_status(self):  # noqa: C901, PLR0912, PLR0915
         if not self.is_mounted:
             return
         if self.shutdown is not None:

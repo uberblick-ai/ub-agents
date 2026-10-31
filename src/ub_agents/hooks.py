@@ -26,7 +26,7 @@ def diagnostic(config, run, event, **details):
         stream.write(json.dumps({"time": iso(timestamp()), "event": event, **details}) + "\n")
 
 
-def confirm_hook_groups_stopped(config, run):
+def confirm_hook_groups_stopped(config, run):  # noqa: C901
     """A crashed supervisor's hook must not overlap retries or artifact removal."""
     parent = run_directory(config.root, run) / "cleanup"
     try:

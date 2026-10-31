@@ -54,9 +54,26 @@ class Probes:
         return group
 
     def run(self):
-        d, config = self.doctor, self.plan.config
-        d.checks.clear()
+        self.doctor.checks.clear()
         self.groups = []
+        git_ready, gh_ready = self._machine()
+        actor, metadata = self._github(gh_ready)
+        self._checkout(git_ready, metadata)
+        self._agents()
+        self._account(actor)
+
+        if metadata:
+            try:
+                self.existing_labels = {name.casefold() for name in self.github.labels()}
+            except PROBE_ERRORS:
+                pass
+            self.check_discussions()
+        else:
+            self.discussions_note = "GitHub is unavailable"
+        return self
+
+    def _machine(self):
+        d, config = self.doctor, self.plan.config
         python = f"Python {sys.version_info.major}.{sys.version_info.minor}"
         d.add("platform", "ok" if sys.platform in {"darwin", "linux"} else "fail", sys.platform, "Use macOS or Linux")
         git_ready = d.tool("git", "Install Git and put git on PATH")
@@ -73,7 +90,10 @@ class Probes:
         if not os.access(parent, os.W_OK | os.X_OK):
             d.add("local-state", "fail", "The setup directory is not writable", "Run init in a writable checkout")
         self.collect("Machine", [python, "git" if git_ready else "", "gh" if gh_ready else "", "ps"])
+        return git_ready, gh_ready
 
+    def _github(self, gh_ready):
+        d, config = self.doctor, self.plan.config
         actor = metadata = None
         if gh_ready:
             try:
@@ -94,7 +114,10 @@ class Probes:
             self.approvals = f"Approvals: {value} ({source})"
         except AgentError:
             self.approvals = "Approvals: unresolved (repository visibility is unreadable)"
+        return actor, metadata
 
+    def _checkout(self, git_ready, metadata):
+        d, config = self.doctor, self.plan.config
         if git_ready:
             read_git = lambda root, *args: d.probe(["git", "-C", str(root), *args]).strip()
             branch, clean = None, None
@@ -121,6 +144,8 @@ class Probes:
             self.collect("Checkout", [branch, "clean" if clean else "local changes" if clean is False else "",
                                       "in sync with origin" if synced else ""])
 
+    def _agents(self):
+        d = self.doctor
         for cli in CLIS:
             if not d.which(cli):
                 self.clis[cli] = "not installed"
@@ -138,6 +163,8 @@ class Probes:
         self.collect("Agents", [f"{cli} {state}" for cli, state in self.clis.items()])
         self.ub = bool(d.which("ub"))
 
+    def _account(self, actor):
+        d, config = self.doctor, self.plan.config
         if actor:
             try:
                 role = Roles(self.github)({"login": actor})
@@ -161,16 +188,6 @@ class Probes:
             account = self.collect("Account")
             if not account.problems:
                 self.groups.remove(account)
-
-        if metadata:
-            try:
-                self.existing_labels = {name.casefold() for name in self.github.labels()}
-            except PROBE_ERRORS:
-                pass
-            self.check_discussions()
-        else:
-            self.discussions_note = "GitHub is unavailable"
-        return self
 
     def check_discussions(self):
         from .init_boards import Boards

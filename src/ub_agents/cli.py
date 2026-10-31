@@ -322,163 +322,173 @@ def run(args):
         report_run(args)
         return
     if args.command == "retrospective":
-        from .retrospective import read_body
-        policy = supervised_run()
-        if policy["retrospectives"] is None:
-            raise AgentError(f"No retrospective board configured for agent {policy['agent']}; nothing posted")
-        content = read_body(args.body_file)
-        print(GitHub(policy["repository"]).create_discussion_comment(policy["retrospectives"], content))
-        return
+        return retrospective_run(args)
     if args.command == "read":
-        from .read_input import read_item, read_policy
-        policy = (supervised_run() if "UB_AGENTS_RUN" in os.environ else
-                  read_policy(load_config(args.config)))
-        print(json.dumps(read_item(GitHub(policy["repository"]), args.number, policy), indent=2))
-        return
+        return read_run(args)
     if args.command == "doctor":
-        from .doctor import Doctor, render, render_check, render_counts
-        doctor = Doctor()
-        result = doctor.run(args.config, offline=args.offline)
-        render(result, json_output=args.json, verbose=args.verbose)
-        if not args.offline and not args.json and doctor.create_missing_labels():
-            previous = result["checks"]
-            result = doctor.result()
-            for check in result["checks"]:
-                if check["status"] in {"fail", "warn"} and check not in previous:
-                    render_check(check)
-            render_counts(result)
-        return 0 if result["ok"] else 1
+        return doctor_run(args)
     config = load_config(args.config)
-    if args.command == "launch" and args.agent is not None:
-        if not any(agent.name == args.agent for agent in config.agents):
-            names = ', '.join(agent.name for agent in config.agents)
-            parser().commands()["launch"].error(f"Unknown configured agent: {args.agent}; configured agents: {names}")
+    _validate_launch_agent(args, config)
     github = GitHub(config.repository)
     actor = None if args.command == "launch" else github.actor()
     coordinator = Coordinator(github, actor, launchers=config.launchers, trusted_bots=config.trusted_bots,
                               trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors,
                                                                      config.approvals, github))
-    if args.command == "retry" and args.agent is None:
-        item = github.item(args.number)
-        agent = next((agent for agent in config.agents if agent.kind in {item.kind, "either"}), None)
-        if agent is None:
-            raise AgentError(f"No configured agent applies to {item.kind} #{item.number}")
-        args.agent = agent.name
-        print(f"Using agent {agent.name} for {item.kind} #{item.number}.")
     if args.command == "retry":
-        agent = next((agent for agent in config.agents if agent.name == args.agent), None)
-        if agent is None:
-            raise AgentError("Unknown configured agent")
-        if not args.reason.strip() or args.number < 1:
-            raise AgentError("retry requires a positive item number and a reason")
-        history = coordinator.history(args.number)
-        if live_leases(history, timestamp()):
-            raise AgentError("Cannot reset attempts while an assignment is owned")
-        item = github.item(args.number)
-        record = {"kind": "reset", "agent": args.agent, "actor": actor,
-                  "assignment": item.number, "created": iso(timestamp()), "summary": args.reason}
-        created = records([github.create_comment(item.number, body(record))])[0]
-        coordinator.notices.resumed(item.number)
-        print(f"Reset {args.agent} attempts on #{item.number}: {created['url']}")
-        print(retry_labels(github, item, agent, config.stop_labels))
-        return
+        return retry_run(args, config, github, actor, coordinator)
     stop = SignalEvent()
     interrupt = SignalEvent()
     loop = Loop(config, github, actor, stop,
                 config_path=config.root / DEFAULT_CONFIG if args.default_config else args.config,
                 default_config=args.default_config, interrupt_event=interrupt)
     if args.command == "status":
-        launcher = running_launcher(config.root)
-        now = timestamp()
-        explanation = None
-        if args.number is None:
-            rows = status_rows(loop, now)
-        else:
-            item, plans = loop.item_plans(args.number)
-            scoped = (replace(plan, priority=config.queue.priority.effective(item.labels),
-                              milestone=item.milestone) for plan in plans)
-            rows = status_rows(loop, now, plans=scoped)
-            if not rows:
-                explanation = loop.item_explanation(item)
-        if args.json:
-            result = {"assignments": rows, "launcher": launcher}
-            if loop.milestone_skips:
-                result["milestone_skips"] = list(loop.milestone_skips)
-            if loop.milestone_wait:
-                result["milestone_wait"] = loop.milestone_wait
-            if explanation is not None:
-                result["explanation"] = explanation
-            print(json.dumps(result, indent=2))
-        elif explanation is not None:
-            print(f"#{args.number}: {explanation}")
-        elif not rows:
-            print("No configured triggers match open GitHub work")
-        else:
-            for row in rows:
-                owner = (f" · {lease_summary(row['lease'], now)}"
-                         if row["lease"] else "")
-                outcome = ""
-                if row["outcome"]:
-                    reported = row["outcome"]
-                    acceptance = " (unaccepted)" if reported["status"] == "success" and not reported["accepted"] else ""
-                    outcome = f" · reported: {reported['status']}{acceptance}"
-                    count = denial_count(reported)
-                    if count:
-                        outcome += f" · {count} denied"
-                verdict = f" · last result: {row['result']}" if row["result"] else ""
-                priority = row["priority"] or "none"
-                if row["priority_inherited_from"] is not None:
-                    priority += f" (inherited from #{row['priority_inherited_from']})"
-                elif row["priority_from_issue"] is not None:
-                    priority += f" (from closed issue #{row['priority_from_issue']})"
-                milestone = ""
-                if config.queue.milestones in {"order", "gate", "strict-gate"} and row["kind"] == "issue":
-                    value = f"#{row['milestone']}" if row["milestone"] is not None else "none"
-                    milestone = f" · milestone {value}"
-                    if row["milestone_inherited_from"] is not None:
-                        milestone += f" (inherited from #{row['milestone_inherited_from']})"
-                state = "running" if row["state"] == "owned" and row["process"] == "running" else row["state"]
-                print(f"#{row['number']} {row['agent']}: {state} · priority {priority}{milestone} · attempts {row['attempts']}{owner}{verdict}{outcome}")
-                print(f"  {row['process_reason'] or row['reason']}")
-                if row["notice_url"]:
-                    waiting = waiting_time(row["waiting_since"], now)
-                    suffix = f" · waiting {waiting}" if waiting else ""
-                    print(f"  Action needed: {row['notice_url']}{suffix}")
-        if not args.json:
-            print(launcher_summary(launcher))
-            for line in loop.milestone_skips:
-                print(line)
-            if loop.milestone_wait:
-                print(loop.milestone_wait)
-        return
-    for _, error in repository_checks(config):
-        if error is not None:
-            raise error
-    local = config.root / ".ub-agents"
-    local.mkdir(mode=0o700, exist_ok=True)
+        return status_run(args, config, loop)
+    return launch_run(args, config, github, actor, loop, stop, interrupt)
 
-    def wake_interrupt():
-        interrupt.set()
-        stop.set()
 
-    def wake_stop():
-        stop.set()
-        loop._observe("activity", "stopping")
+def retrospective_run(args):
+    from .retrospective import read_body
+    policy = supervised_run()
+    if policy["retrospectives"] is None:
+        raise AgentError(f"No retrospective board configured for agent {policy['agent']}; nothing posted")
+    content = read_body(args.body_file)
+    print(GitHub(policy["repository"]).create_discussion_comment(policy["retrospectives"], content))
+    return
 
-    relay = SignalRelay({"interrupt": wake_interrupt, "stop": wake_stop})
 
-    def stop_now(*_):
-        interrupt.request()
-        stop.request()
-        relay.request("interrupt")
+def read_run(args):
+    from .read_input import read_item, read_policy
+    policy = (supervised_run() if "UB_AGENTS_RUN" in os.environ else
+              read_policy(load_config(args.config)))
+    print(json.dumps(read_item(GitHub(policy["repository"]), args.number, policy), indent=2))
+    return
 
-    def stop_gracefully(*_):
-        unwind = loop._request_graceful_stop()
-        stop.request()
-        relay.request("stop")
-        if unwind:
-            raise _GracefulStop
 
+def doctor_run(args):
+    from .doctor import Doctor, render, render_check, render_counts
+    doctor = Doctor()
+    result = doctor.run(args.config, offline=args.offline)
+    render(result, json_output=args.json, verbose=args.verbose)
+    if not args.offline and not args.json and doctor.create_missing_labels():
+        previous = result["checks"]
+        result = doctor.result()
+        for check in result["checks"]:
+            if check["status"] in {"fail", "warn"} and check not in previous:
+                render_check(check)
+        render_counts(result)
+    return 0 if result["ok"] else 1
+
+
+def _validate_launch_agent(args, config):
+    if args.command == "launch" and args.agent is not None:
+        if not any(agent.name == args.agent for agent in config.agents):
+            names = ', '.join(agent.name for agent in config.agents)
+            parser().commands()["launch"].error(f"Unknown configured agent: {args.agent}; configured agents: {names}")
+
+
+def retry_run(args, config, github, actor, coordinator):
+    if args.agent is None:
+        item = github.item(args.number)
+        agent = next((agent for agent in config.agents if agent.kind in {item.kind, "either"}), None)
+        if agent is None:
+            raise AgentError(f"No configured agent applies to {item.kind} #{item.number}")
+        args.agent = agent.name
+        print(f"Using agent {agent.name} for {item.kind} #{item.number}.")
+    agent = next((agent for agent in config.agents if agent.name == args.agent), None)
+    if agent is None:
+        raise AgentError("Unknown configured agent")
+    if not args.reason.strip() or args.number < 1:
+        raise AgentError("retry requires a positive item number and a reason")
+    history = coordinator.history(args.number)
+    if live_leases(history, timestamp()):
+        raise AgentError("Cannot reset attempts while an assignment is owned")
+    item = github.item(args.number)
+    record = {"kind": "reset", "agent": args.agent, "actor": actor,
+              "assignment": item.number, "created": iso(timestamp()), "summary": args.reason}
+    created = records([github.create_comment(item.number, body(record))])[0]
+    coordinator.notices.resumed(item.number)
+    print(f"Reset {args.agent} attempts on #{item.number}: {created['url']}")
+    print(retry_labels(github, item, agent, config.stop_labels))
+    return
+
+
+def status_run(args, config, loop):
+    launcher = running_launcher(config.root)
+    now = timestamp()
+    explanation = None
+    if args.number is None:
+        rows = status_rows(loop, now)
+    else:
+        item, plans = loop.item_plans(args.number)
+        scoped = (replace(plan, priority=config.queue.priority.effective(item.labels),
+                          milestone=item.milestone) for plan in plans)
+        rows = status_rows(loop, now, plans=scoped)
+        if not rows:
+            explanation = loop.item_explanation(item)
+    if args.json:
+        _print_status_json(rows, launcher, loop, explanation)
+    elif explanation is not None:
+        print(f"#{args.number}: {explanation}")
+    elif not rows:
+        print("No configured triggers match open GitHub work")
+    else:
+        for row in rows:
+            _print_status_row(row, config, now)
+    if not args.json:
+        print(launcher_summary(launcher))
+        for line in loop.milestone_skips:
+            print(line)
+        if loop.milestone_wait:
+            print(loop.milestone_wait)
+    return
+
+
+def _print_status_json(rows, launcher, loop, explanation):
+    result = {"assignments": rows, "launcher": launcher}
+    if loop.milestone_skips:
+        result["milestone_skips"] = list(loop.milestone_skips)
+    if loop.milestone_wait:
+        result["milestone_wait"] = loop.milestone_wait
+    if explanation is not None:
+        result["explanation"] = explanation
+    print(json.dumps(result, indent=2))
+
+
+def _print_status_row(row, config, now):
+    owner = (f" · {lease_summary(row['lease'], now)}"
+             if row["lease"] else "")
+    outcome = ""
+    if row["outcome"]:
+        reported = row["outcome"]
+        acceptance = " (unaccepted)" if reported["status"] == "success" and not reported["accepted"] else ""
+        outcome = f" · reported: {reported['status']}{acceptance}"
+        count = denial_count(reported)
+        if count:
+            outcome += f" · {count} denied"
+    verdict = f" · last result: {row['result']}" if row["result"] else ""
+    priority = row["priority"] or "none"
+    if row["priority_inherited_from"] is not None:
+        priority += f" (inherited from #{row['priority_inherited_from']})"
+    elif row["priority_from_issue"] is not None:
+        priority += f" (from closed issue #{row['priority_from_issue']})"
+    milestone = ""
+    if config.queue.milestones in {"order", "gate", "strict-gate"} and row["kind"] == "issue":
+        value = f"#{row['milestone']}" if row["milestone"] is not None else "none"
+        milestone = f" · milestone {value}"
+        if row["milestone_inherited_from"] is not None:
+            milestone += f" (inherited from #{row['milestone_inherited_from']})"
+    state = "running" if row["state"] == "owned" and row["process"] == "running" else row["state"]
+    print(f"#{row['number']} {row['agent']}: {state} · priority {priority}{milestone} · attempts {row['attempts']}{owner}{verdict}{outcome}")
+    print(f"  {row['process_reason'] or row['reason']}")
+    if row["notice_url"]:
+        waiting = waiting_time(row["waiting_since"], now)
+        suffix = f" · waiting {waiting}" if waiting else ""
+        print(f"  Action needed: {row['notice_url']}{suffix}")
+
+
+def launch_run(args, config, github, actor, loop, stop, interrupt):
+    _prepare_launch(config)
+    relay, stop_now, stop_gracefully = _launch_signal_callbacks(loop, stop, interrupt)
     from .observations import Observations, Publisher
     publisher = None
     view = None
@@ -504,46 +514,101 @@ def run(args):
         loop._before_claim()
         session = loop.observer.state['session'] if loop.observer is not None else None
         loop._observe("activity", "checking setup")
-        if not stop.is_set():
-            from .launch_ui import open_view
-            view = open_view(config.root, session, args.launch_output, stop,
-                             no_ui=args.no_ui, poll=loop.request_poll)
-            if view is not None:
-                loop.enable_poll_now()
+        view = _open_launch_view(args, config, loop, stop, session)
+        if view is not None:
+            loop.enable_poll_now()
         check_launch_setup(config, github, loop, once=args.once or args.number is not None,
                            interrupt=stop_now)
-        from .updates import Updates
-        loop.updates = Updates(config.root)
-        if loop.updates is not None:
-            loop.updates.start()
+        _start_updates(config, loop)
         loop._before_claim()
         cleanup = StartupCleanup(config, github, loop.coordinator.actor, stop, session=session)
         loop.coordinator.cleanup_control = cleanup.control
         cleanup.start()
         loop._before_claim()
-        if args.number is not None:
-            loop.refusal_output = args.launch_output.refusals
-            return loop.launch(once=True, number=args.number, agent_name=args.agent)
-        if args.agent is not None:
-            return loop.launch(once=args.once, agent_name=args.agent)
-        loop.launch(once=args.once)
+        return _launch_queue(args, loop)
     except _GracefulStop:
         return
     finally:
         try:
-            if cleanup is not None:
-                cleanup.close()
-            if loop.updates is not None:
-                loop.updates.close()
-            if view is not None:
-                view.close()
+            _close_launch_resources(cleanup, loop, view)
         finally:
-            for sig, handler in handlers.items():
-                signal.signal(sig, handler)
-            relay.close()
-            loop._observe("close")
-            if publisher is not None:
-                publisher.close()
+            _finish_launch(handlers, relay, loop, publisher)
+
+
+def _prepare_launch(config):
+    for _, error in repository_checks(config):
+        if error is not None:
+            raise error
+    local = config.root / ".ub-agents"
+    local.mkdir(mode=0o700, exist_ok=True)
+
+
+def _launch_signal_callbacks(loop, stop, interrupt):
+    def wake_interrupt():
+        interrupt.set()
+        stop.set()
+
+    def wake_stop():
+        stop.set()
+        loop._observe("activity", "stopping")
+
+    relay = SignalRelay({"interrupt": wake_interrupt, "stop": wake_stop})
+
+    def stop_now(*_):
+        interrupt.request()
+        stop.request()
+        relay.request("interrupt")
+
+    def stop_gracefully(*_):
+        unwind = loop._request_graceful_stop()
+        stop.request()
+        relay.request("stop")
+        if unwind:
+            raise _GracefulStop
+
+    return relay, stop_now, stop_gracefully
+
+
+def _open_launch_view(args, config, loop, stop, session):
+    if not stop.is_set():
+        from .launch_ui import open_view
+        return open_view(config.root, session, args.launch_output, stop,
+                         no_ui=args.no_ui, poll=loop.request_poll)
+    return None
+
+
+def _start_updates(config, loop):
+    from .updates import Updates
+    loop.updates = Updates(config.root)
+    if loop.updates is not None:
+        loop.updates.start()
+
+
+def _launch_queue(args, loop):
+    if args.number is not None:
+        loop.refusal_output = args.launch_output.refusals
+        return loop.launch(once=True, number=args.number, agent_name=args.agent)
+    if args.agent is not None:
+        return loop.launch(once=args.once, agent_name=args.agent)
+    loop.launch(once=args.once)
+
+
+def _close_launch_resources(cleanup, loop, view):
+    if cleanup is not None:
+        cleanup.close()
+    if loop.updates is not None:
+        loop.updates.close()
+    if view is not None:
+        view.close()
+
+
+def _finish_launch(handlers, relay, loop, publisher):
+    for sig, handler in handlers.items():
+        signal.signal(sig, handler)
+    relay.close()
+    loop._observe("close")
+    if publisher is not None:
+        publisher.close()
 
 
 def launch_error_message(exc, root):
@@ -575,7 +640,7 @@ def launch_error_message(exc, root):
     return " ".join(detail.split())
 
 
-def main(argv=None):
+def main(argv=None):  # noqa: C901, PLR0912, PLR0915
     with ExitStack() as stack:
         args = None
         try:

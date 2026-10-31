@@ -189,6 +189,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]),
             state['base_version'] = '0.1.11'
             state['histories']['114']['runs'][0]['denials'] = [
                 {'tool': 'Bash', 'command': 'pytest'}, {'tool': 'Write', 'command': 'report.md'}]
+            state['histories']['114']['runs'][0]['usage'] = {'tokens': 412000, 'total_cost_usd': 1.84}
             state['activity'] = {'state': 'waiting', 'until':
                                  (datetime.now(timezone.utc) + timedelta(seconds=90)).isoformat()}
             publish_snapshot(path, state)
@@ -282,6 +283,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                     history_rows = runs['visible'][header + 1:header + 4]
                     self.assertIn('filed', history_rows[0])
                     self.assertIn('2 denied', history_rows[1])
+                    self.assertIn('412k', history_rows[1])
                     self.assertTrue(any(glyph in history_rows[2] for glyph in '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'))
                     self.assertNotIn('finalized', '\n'.join(history_rows))
                 check_resize(80, 24)

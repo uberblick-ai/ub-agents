@@ -229,7 +229,7 @@ class Observations:
         result["shortened"] = shortened if shortened["fields"] else row.get("shortened", shortened)
         return result
 
-    def emit(self):
+    def emit(self):  # noqa: C901, PLR0912
         if self._batching:
             return
         shortened = {"fields": 0, "characters": 0}
@@ -569,7 +569,7 @@ class Observations:
         observed_blockers(history, plan.item, self.stop_labels)
         return self.bounded(history)
 
-    def plan(self, plan, filing=None, comments=None, authors=None):
+    def plan(self, plan, filing=None, comments=None, authors=None):  # noqa: C901, PLR0912, PLR0915
         if comments is not None:
             for comment in comments:
                 login = (comment.get("user") or {}).get("login")
@@ -654,7 +654,7 @@ class Observations:
         self.source_run = None
         self.activity("running assignment")
 
-    def record(self, record):
+    def record(self, record):  # noqa: C901, PLR0912
         if record["kind"] == "reset" or (record["kind"] == "lease" and record["state"] == "claiming"):
             self.state["action_needed"].pop(str(record["assignment"]), None)
         history = self.state["histories"].get(str(record["assignment"]))

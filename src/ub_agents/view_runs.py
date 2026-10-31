@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .denials import denial_count
+from .run_usage import short_tokens, usage_fields
 from .view_data import item_history, mapping, text
 from .view_spinner import spinner_frame
 from .view_theme import theme_style
@@ -63,11 +64,11 @@ def run_host(value, local_host=None, *, muted='dim'):
     local_host = local_host or socket.gethostname()
     if isinstance(value, str) and value:
         if value.rstrip('.').casefold() == local_host.rstrip('.').casefold():
-            return Text('this machine')
+            return Text('this machine', no_wrap=True, overflow='ellipsis')
         name = text(value).split('.', 1)[0]
     else:
         name = 'unknown'
-    host = Text(name, style=muted)
+    host = Text(name, style=muted, no_wrap=True, overflow='ellipsis')
     host.truncate(14, overflow='ellipsis')
     return host
 
@@ -89,7 +90,7 @@ def run_status(row, now):
     return 'running', text(row.get('state'), 'running')
 
 
-def runs_view(row, session, now=None, *, app=None, history=None):
+def runs_view(row, session, now=None, *, app=None, history=None):  # noqa: C901
     # The plain projection remains usable without a running Textual app.
     muted = theme_style(app, 'view-muted', dim=True)
     success = theme_style(app, 'view-success')
@@ -116,15 +117,17 @@ def runs_view(row, session, now=None, *, app=None, history=None):
         return Group(subtitle, Text('No item history cached.'))
     table = Table(box=None, padding=(0, 1), pad_edge=False, expand=True, header_style=muted)
     table.add_column('when', width=11, no_wrap=True, overflow='ellipsis')
-    table.add_column('result', width=6, no_wrap=True, overflow='ellipsis')
-    # A flexible width hint can shrink; min_width would re-expand after Rich's
-    # narrow-table calculation and crop the outcome at the pane's right edge.
-    table.add_column('agent · summary', ratio=1, width=6, no_wrap=True, overflow='ellipsis')
-    table.add_column('where', min_width=4, max_width=14, no_wrap=True, overflow='ellipsis')
-    table.add_column('outcome', min_width=9, max_width=24, no_wrap=True, overflow='ellipsis')
+    table.add_column('', min_width=1, max_width=1, no_wrap=True)
+    # Let Rich shrink text columns first, while their cells remain single-line.
+    # Keep the status glyph and token count visible in a narrow pane.
+    table.add_column(Text('agent · summary', no_wrap=True, overflow='ellipsis'), ratio=1)
+    table.add_column(Text('where', no_wrap=True, overflow='ellipsis'), min_width=4, max_width=14)
+    table.add_column(Text('outcome', no_wrap=True, overflow='ellipsis'), min_width=9, max_width=24)
+    table.add_column('tokens', min_width=6, justify='right', no_wrap=True, overflow='ellipsis')
     if filed:
         table.add_row(relative_time(filing['time'], relative_now), Text('✓', style=success),
-                      Text('filed by ' + text(filing['author'])), 'GitHub', 'filed')
+                      Text('filed by ' + text(filing['author']), no_wrap=True, overflow='ellipsis'),
+                      Text('GitHub', no_wrap=True, overflow='ellipsis'), 'filed', '')
     frame = spinner_frame(now.timestamp())
     for run in runs:
         status, label = run_status(run, now)
@@ -136,6 +139,9 @@ def runs_view(row, session, now=None, *, app=None, history=None):
         blockers = run.get('human_blocker')
         if isinstance(blockers, list) and blockers:
             outcome += ' · BLOCKED: ' + ', '.join(text(b) for b in blockers[:10])
-        table.add_row(relative_time(run.get('time'), relative_now), glyph, Text(summary),
-                      run_host(run.get('host'), muted=muted), RunOutcome(outcome, denial_count(run)))
+        usage = usage_fields(run).get('usage')
+        table.add_row(relative_time(run.get('time'), relative_now), glyph,
+                      Text(summary, no_wrap=True, overflow='ellipsis'),
+                      run_host(run.get('host'), muted=muted), RunOutcome(outcome, denial_count(run)),
+                      short_tokens(usage['tokens']) if usage is not None else '')
     return Group(subtitle, table)

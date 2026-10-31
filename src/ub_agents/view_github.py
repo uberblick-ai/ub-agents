@@ -54,7 +54,7 @@ class Response:
             object.__setattr__(self, field, getattr(description, field))
 
 
-def parse_response(stdout, stderr, code, now, kind='issue', authors=None):
+def parse_response(stdout, stderr, code, now, kind='issue', authors=None):  # noqa: C901, PLR0912, PLR0915
     raw = stdout.decode('utf-8', errors='replace').replace('\r\n', '\n')
     headers = {}
     status = ''

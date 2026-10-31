@@ -43,7 +43,8 @@ from .renewal import LeaseRenewal
 from .request_stats import DiscoveryPass, PassOutput, request_counts, request_delta
 from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
-from .usage_output import UsageOutput
+from .usage_output import UsageOutput, collect_usage
+from .run_usage import usage_fields
 from .uberblick import workspace_binding
 from .trust import LauncherTrust
 from .run_planning import ObservationReads, RunPlanning
@@ -64,7 +65,7 @@ class _InvalidReload(AgentError):
 
 
 class Loop:
-    def __init__(self, config, github, actor, stop_event=None, output=print,
+    def __init__(self, config, github, actor, stop_event=None, output=print,  # noqa: PLR0915
                  config_path=None, interrupt_event=None,
                  default_config=False, observer=None):
         self.observer = observer
@@ -393,7 +394,7 @@ class Loop:
         return sorted(plans,
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
-    def _milestone_plans(self, plans, milestones, *, approve=None):
+    def _milestone_plans(self, plans, milestones, *, approve=None):  # noqa: C901
         # Eligibility must be known before choosing a milestone. Merge the
         # milestone-first queue with unlisted issues one choice at a time: the
         # exception compares against the next eligible milestone issue, not a
@@ -469,7 +470,7 @@ class Loop:
         return tuple(a for a in self.config.agents
                      if self._launch_agent is None or a.name == self._launch_agent)
 
-    def iter_plans(self, cached=True, *, reconcile_notices=False, health_notices=False, claiming=False):
+    def iter_plans(self, cached=True, *, reconcile_notices=False, health_notices=False, claiming=False):  # noqa: C901, PLR0912, PLR0915
         agents = self.queue_agents()
         selected = {a.name for a in agents}
         self._queue_waits = {}
@@ -760,7 +761,7 @@ class Loop:
             return  # Discard incomplete observations; the normal pass retries.
         self._observe("replanned_item", item.number, events)
 
-    def _item_plans(self, item, now, github, coordinator, matches, blockers, agents=None,
+    def _item_plans(self, item, now, github, coordinator, matches, blockers, agents=None,  # noqa: C901
                     *, reconcile_notices=False, checked=None, health_notices=False, approval_errors=None,
                     defer_input=False):
         agents = self.config.agents if agents is None else agents
@@ -830,7 +831,7 @@ class Loop:
                 return replace(plan, state="waiting", runtime=None, reason=reason, health_wait=True)
         return plan
 
-    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,
+    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,  # noqa: C901, PLR0912
                             history, matched, approval, *, check_input=True, defer_input=False):
         latest = latest_leases(history)
         for agent in agents:
@@ -900,7 +901,7 @@ class Loop:
         if number is not None:
             self.discovery.invalidate(number)
 
-    def _tick(self):
+    def _tick(self):  # noqa: C901
         config = self.config
         present = set()
         for plan in self.iter_plans(reconcile_notices=True, claiming=True):
@@ -1155,7 +1156,7 @@ class Loop:
             raise _GracefulStop
         self._before_claim()
 
-    def _execute(self, plan):
+    def _execute(self, plan):  # noqa: C901, PLR0912, PLR0915
         plan = self._health_plan(plan, announce=True)
         if plan.health_wait:
             self._observe_plan(plan, self.discovery)
@@ -1282,7 +1283,7 @@ class Loop:
             return self._claim_execute(replace(plan, runtime=runtime), instructions, reservation,
                                        shared_instructions=shared)
 
-    def _claim_execute(self, plan, instructions, reservation=None, *, shared_instructions=""):
+    def _claim_execute(self, plan, instructions, reservation=None, *, shared_instructions=""):  # noqa: C901, PLR0912, PLR0915
         def confirm_stopped(history):
             # An expired setup has no agent outcome to recover. Use the claim's
             # fresh history to confirm local groups before starting another run.
@@ -1377,9 +1378,9 @@ class Loop:
 
         hook_attempted = False
 
-        def cleanup_workspace(record=True):
+        def cleanup_workspace(record=True):  # noqa: C901
             nonlocal preserve_scratch
-            def before_remove():
+            def before_remove():  # noqa: C901
                 nonlocal hook_attempted
                 if hook_attempted:
                     return False
@@ -1453,7 +1454,7 @@ class Loop:
         result, summary = "retry", "Assignment ended without a validated outcome"
         outcome = None
         usage_output = None
-        denials = {}
+        diagnostics = {}
         try:
             run_dir.mkdir(parents=True, exist_ok=True)
             self.coordinator.assert_owned(lease)
@@ -1531,7 +1532,9 @@ class Loop:
                                  pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()))
             finally:
                 self.coordinator.execution_finished(lease)
-                denials = collect_denials(plan.runtime.cli if plan.runtime else None, run_dir / "process.log")
+                cli = plan.runtime.cli if plan.runtime else None
+                diagnostics = (collect_denials(cli, run_dir / "process.log")
+                               | collect_usage(cli, run_dir / "process.log"))
             self.coordinator.execution_deadline(lease)
             if usage_output:
                 usage_output.poll(final=True)
@@ -1544,8 +1547,8 @@ class Loop:
             self._finalizing = True
             self.coordinator.assert_owned(lease)
             outcome = self.coordinator.outcome(lease)
-            if outcome is not None and denials:
-                self.coordinator.update_outcome(lease, outcome, **denials)
+            if outcome is not None and diagnostics:
+                self.coordinator.update_outcome(lease, outcome, **diagnostics)
             if outcome is None:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
@@ -1629,9 +1632,12 @@ class Loop:
             # unaccepted and persist the supervisor's actual verdict on the lease.
             outcome = self.coordinator.outcome(lease)
         if stopped:
-            self.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True)
+            if outcome is not None and usage_fields(diagnostics):
+                self.coordinator.update_outcome(lease, outcome, **usage_fields(diagnostics))
+            self.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True,
+                                     **usage_fields(diagnostics))
         else:
-            self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials,
+            self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, diagnostics,
                         completed=completing)
         self.github.end_finalization()
         self._renewal.close()
@@ -1727,7 +1733,7 @@ class Loop:
         self.finalize(lease, plan, outcome, what)
         return "success", outcome["summary"], "reset"
 
-    def settle(self, plan, lease, attempt, result, summary, effect, outcome=None, denials=None,
+    def settle(self, plan, lease, attempt, result, summary, effect, outcome=None, diagnostics=None,
                parking_outcome=None, *, completed=False):
         """Release with the verdict and backoff after persisting the report.
 
@@ -1747,11 +1753,12 @@ class Loop:
                                     **changes)
         if outcome is None:
             outcome = self.coordinator.report(lease, result, summary, agent_report=False)
-        if denials and any(outcome.get(key) != value for key, value in denials.items()):
-            self.coordinator.update_outcome(lease, outcome, **denials)
+        if diagnostics and any(outcome.get(key) != value for key, value in diagnostics.items()):
+            self.coordinator.update_outcome(lease, outcome, **diagnostics)
         self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
                                  parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts,
-                                 unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers)
+                                 unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers,
+                                 **usage_fields(diagnostics or {}))
 
     def finalize(self, lease, plan, outcome, what):
         """Validate a success report, apply its transition and accept it.
@@ -1950,7 +1957,7 @@ class Loop:
                 self._launch_number = None
                 self._launch_agent = None
 
-    def _launch(self, once):
+    def _launch(self, once):  # noqa: C901, PLR0912, PLR0915
         self.usage.reset()
         self.discovery_budget = DiscoveryBudget(clock=lambda: monotonic())
         self._planning_rate_until = None

@@ -237,7 +237,7 @@ class Cleaner:
             self.output(f"removing {artifact.kind} {artifact.name}: {' '.join(reason.split())}")
             self.control.checkpoint()
 
-    def clean(self, apply=False):
+    def clean(self, apply=False):  # noqa: C901, PLR0912, PLR0915
         self.preview_worktrees.clear()
         self.blocked_runs.clear()
         self.kept_runs.clear()

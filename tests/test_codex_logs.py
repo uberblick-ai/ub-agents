@@ -103,6 +103,22 @@ class CodexFormattingTests(unittest.TestCase):
         self.decode(recorded_item('agent_message'))
         self.assertIn('✗ Bash: Exit code 7', self.decode(failed).text)
 
+    def test_activity_helper_keeps_pairing_state_until_the_projection_is_committed(self):
+        started = recorded_item('command_execution', stage='item.started')
+        self.decode(started)
+        previous_tools = dict(self.formatter.tools)
+        previous_call = self.formatter.last_call
+        completed = deepcopy(started['item'])
+        completed.update(status='failed', exit_code=9, aggregated_output='first line\nsecond line')
+        label, lines, calls, last_call = self.formatter._activity(
+            completed, 'command_execution', completed['id'], 'item.completed')
+        self.assertEqual(label, 'tool ERROR')
+        self.assertEqual([line.text for line in lines], ['  ✗ Exit code 9: first line'])
+        self.assertEqual(calls, [(completed['id'], previous_tools[completed['id']])])
+        self.assertIsNone(last_call)
+        self.assertEqual(dict(self.formatter.tools), previous_tools)
+        self.assertEqual(self.formatter.last_call, previous_call)
+
     def test_synthetic_changed_activity_updates_and_failure_fields(self):
         value = recorded_item('command_execution', stage='item.started')
         self.decode(value)

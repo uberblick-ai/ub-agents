@@ -18,6 +18,7 @@ from .records import (MARKER, attempt_effect, attempts, backoff, body, display_p
                       outcome_declarations, outcome_rounds, payload, records, recovers, report_asks,
                       same_handoff, same_run, seconds, stop_report, timestamp)
 from .trust import LauncherTrust
+from .run_usage import usage_fields
 
 
 @dataclass(frozen=True)
@@ -162,7 +163,7 @@ class Coordinator:
         result = sorted(history, key=lambda record: record["id"]), invalid
         return (*result, histories) if by_item else result
 
-    def plan(self, item, agent, stop_labels, history=None, start=None, matches=None):
+    def plan(self, item, agent, stop_labels, history=None, start=None, matches=None):  # noqa: C901, PLR0912, PLR0915
         history = self.history(item.number) if history is None else history
         matches = matches or AgentMatches.for_item(item, (agent,))
         start = start or check_start(item, agent, matches, stop_labels, self.queue)
@@ -382,6 +383,25 @@ class Coordinator:
             else:
                 self.output(f"{reason}; claiming no work")
             return None
+        observed = self._claim_input(plan, stop_labels, recovery)
+        if observed is None:
+            return None
+        current, matches, history, outcome = observed
+        if authorize is not None and not authorize(current, matches):
+            return None
+        if confirm_stopped is not None:
+            confirm_stopped(history)
+        now = self.clock()
+        record = self._claim_record(plan, current, history, outcome, recovery, now)
+        created = self._write_claim(plan, current, record, stop_labels, recovery, before_write)
+        if not self._claim_wins(plan, current, created, recovery):
+            return None
+        if self.clock() >= seconds(created["expires"]):
+            raise LostOwnership("Lease expired during claiming")
+        self.notices.resumed(current.number)
+        return created
+
+    def _claim_input(self, plan, stop_labels, recovery):
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -397,6 +417,7 @@ class Coordinator:
                                     fresh=replace(plan, item=current, state="parked", reason=start.reason,
                                                   matches=matches, history=(), owner=None))
         history = self.history(current.number)
+        outcome = None
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, self.clock())
             if outcome is None or any(r["id"] != outcome["lease_id"]
@@ -413,11 +434,9 @@ class Coordinator:
                         and self.queue.dependencies == "wait" else ())
             if not check_start(current, plan.agent, matches, stop_labels, self.queue, blockers).allowed:
                 return self.decline(plan, f"Open blockers: {', '.join(blockers)}")
-        if authorize is not None and not authorize(current, matches):
-            return None
-        if confirm_stopped is not None:
-            confirm_stopped(history)
-        now = self.clock()
+        return current, matches, history, outcome
+
+    def _claim_record(self, plan, current, history, outcome, recovery, now):
         record = {"kind": "lease", "run": uuid.uuid4().hex,
                   "agent": plan.agent.name, "assignment": current.number,
                   "assignment_sha": current.head,
@@ -436,6 +455,9 @@ class Coordinator:
         if recovery:
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": lease_by_id(history, outcome["lease_id"])["run"]}
+        return record
+
+    def _write_claim(self, plan, current, record, stop_labels, recovery, before_write):
         if self.cleanup_control is not None:
             self.cleanup_control.protect(record, branch=current.branch if current.kind == "pr" else issue_branch(record))
         if before_write is not None:
@@ -453,6 +475,9 @@ class Coordinator:
         self.observed(created)
         if self.on_claim is not None:
             self.on_claim(created)
+        return created
+
+    def _claim_wins(self, plan, current, created, recovery):
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no
         # read-modify-write race on a shared lease comment is passed off as CAS.
@@ -474,10 +499,7 @@ class Coordinator:
                                     fresh=replace(plan, state="blocked" if owner.get("cleanup") == "unconfirmed" else "owned",
                                                   reason="Claim election lost on shared branch",
                                                   history=(), owner=owner))
-        if self.clock() >= seconds(created["expires"]):
-            raise LostOwnership("Lease expired during claiming")
-        self.notices.resumed(current.number)
-        return created
+        return True
 
     def withdraw_lost_claim(self):
         """Resolve an uncertain claim POST before any new assignment planning."""
@@ -634,7 +656,7 @@ class Coordinator:
             return False
 
     def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
-                max_attempts=None, *, unreported=False, stop_labels=None, triggers=None):
+                max_attempts=None, *, unreported=False, stop_labels=None, triggers=None, usage=None):
         self.assert_owned(lease)
         reported = self.outcome(lease)
         now = self.clock()
@@ -645,6 +667,7 @@ class Coordinator:
         # A released lease expires now; retry_after is only needed for a backoff.
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect,
+                    **usage_fields({"usage": usage}),
                     **({"unreported": True} if unreported else {}))
         with self._lease_lock:
             self.execution_finished(lease)
@@ -666,7 +689,7 @@ class Coordinator:
             self.observed(matches[0])
         return matches[0] if matches else None
 
-    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, option=None, agent_report=True,
+    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, option=None, agent_report=True,  # noqa: C901, PLR0912
                declarations=None, stop_labels=None):
         if declarations is None:
             declarations, claimed_stops = self._report_context.get(lease["id"], ({}, (), ()))[:2]
