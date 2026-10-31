@@ -71,7 +71,7 @@ class TimeWindow:
         return fallback
 
 
-def read_times(path, log_info, position, *, backwards=False, log_fd=None):
+def read_times(path, log_info, position, *, backwards=False, log_fd=None):  # noqa: C901, PLR0915
     """Read at most TIMES_BUDGET bytes; invalid/missing metadata is invisible.
 
     A dense index narrows the log window instead of losing valid times or

@@ -304,7 +304,7 @@ class GitHub:
         self._comment_since = None
         self.comment_window_start = None
 
-    def request(self, endpoint, method="GET", data=None, paginate=False, array=False):
+    def request(self, endpoint, method="GET", data=None, paginate=False, array=False):  # noqa: C901, PLR0912
         if paginate:
             parts = urlsplit(endpoint)
             query = dict(parse_qsl(parts.query)) | {"per_page": "100"}
@@ -357,7 +357,7 @@ class GitHub:
                 self._etag_cache.pop(endpoint, None)
         return value
 
-    def _response(self, command, endpoint, method, data, cached):
+    def _response(self, command, endpoint, method, data, cached):  # noqa: C901, PLR0912
         if cached is not None:
             command = command + ["-H", f"If-None-Match: {cached[0]}"]
         rest = urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}
@@ -642,7 +642,7 @@ class GitHub:
         ordered = sorted(active, key=lambda milestone: milestone_title_key(milestone[0]))
         return {number: title for title, number in ordered}
 
-    def dependency_graph(self):
+    def dependency_graph(self):  # noqa: C901
         """List open issues and their links together for cold queue ranking."""
         owner, name = self.repository.split("/", 1)
         query = """query($owner:String!, $name:String!, $cursor:String) {
@@ -758,7 +758,7 @@ class GitHub:
             except (KeyError, TypeError, ValueError, AgentError) as exc:
                 raise GitHubError("POST", "graphql", "Unreadable PR reviews") from exc
 
-    def repository_comments(self, lookback_seconds=None):
+    def repository_comments(self, lookback_seconds=None):  # noqa: C901
         # Bound discovery's first scan; cleanup leaves lookback unset for a full
         # history. Later scans read edits/new comments incrementally. Capture the
         # cursor BEFORE scanning, with overlap.

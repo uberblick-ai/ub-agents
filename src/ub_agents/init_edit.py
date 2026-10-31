@@ -41,7 +41,7 @@ def node_at(node, path):
     return node
 
 
-def additions(content, boards, priorities, claude_agents):
+def additions(content, boards, priorities, claude_agents):  # noqa: C901, PLR0912, PLR0915
     """Return text containing only insertions, or refuse the entire edit."""
     if any(isinstance(token, (AliasToken, AnchorToken)) for token in yaml.scan(content)):
         raise UnsafeEdit("YAML anchors or aliases require a manual edit")

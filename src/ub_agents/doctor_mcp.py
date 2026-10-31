@@ -179,7 +179,7 @@ class MCPChecks:
                 return {}
         return self.read(self.config.root / value)
 
-    def run(self, doctor, *, offline=False):
+    def run(self, doctor, *, offline=False):  # noqa: C901, PLR0912
         for agent in self.config.agents:
             if agent.command:
                 continue

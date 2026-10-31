@@ -203,7 +203,7 @@ def validate_content(content):
         raise ValueError("cannot distinguish creation from same-second edits")
 
 
-def _check_input(github, number, trigger_labels, kind="issue", actor=None, launchers=None, *,
+def _check_input(github, number, trigger_labels, kind="issue", actor=None, launchers=None, *,  # noqa: C901, PLR0912, PLR0915
                  sub_issue_labels=(), trusted_bots=(), trusted_pr_authors=(), read_only=False, expected=None):
     content = github.issue_content(number) if kind == "issue" else github.pr_content(number)
     if not isinstance(content["title"], str) or not isinstance(content["body"], str):

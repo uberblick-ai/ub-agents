@@ -7,7 +7,9 @@ the loop for this repository; agents run in private worktrees under `.ub-agents/
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -q -e .
+.venv/bin/pip install -q -e . -r requirements-dev.txt
+.venv/bin/ruff check src
+.venv/bin/mypy
 .venv/bin/python -m tests
 .venv/bin/ub-agents doctor --offline
 git diff --check
@@ -29,8 +31,10 @@ mise run ci [commit]    # defaults to HEAD
 ```
 
 It checks the commit out into a temporary worktree with a fresh virtualenv and runs
-`git diff --check` against `origin/main`, the unit suite and `ub-agents doctor --offline`. It
-posts nothing to GitHub and gates nothing.
+`git diff --check` against `origin/main`, Ruff, mypy, the unit suite and
+`ub-agents doctor --offline`. Tool versions are pinned in `requirements-dev.txt`;
+see [development checks](docs/development.md) for their scope and the complexity
+baseline. It posts nothing to GitHub and gates nothing.
 
 mise only reads a trusted `mise.toml`, and every fresh worktree is a new path, so an
 agent runs `mise trust` in its own worktree before its first `mise` command. That is

@@ -64,7 +64,7 @@ class _InvalidReload(AgentError):
 
 
 class Loop:
-    def __init__(self, config, github, actor, stop_event=None, output=print,
+    def __init__(self, config, github, actor, stop_event=None, output=print,  # noqa: PLR0915
                  config_path=None, interrupt_event=None,
                  default_config=False, observer=None):
         self.observer = observer
@@ -393,7 +393,7 @@ class Loop:
         return sorted(plans,
                       key=lambda plan: self._rank(plan, self.config.queue.priority))
 
-    def _milestone_plans(self, plans, milestones, *, approve=None):
+    def _milestone_plans(self, plans, milestones, *, approve=None):  # noqa: C901
         # Eligibility must be known before choosing a milestone. Merge the
         # milestone-first queue with unlisted issues one choice at a time: the
         # exception compares against the next eligible milestone issue, not a
@@ -469,7 +469,7 @@ class Loop:
         return tuple(a for a in self.config.agents
                      if self._launch_agent is None or a.name == self._launch_agent)
 
-    def iter_plans(self, cached=True, *, reconcile_notices=False, health_notices=False, claiming=False):
+    def iter_plans(self, cached=True, *, reconcile_notices=False, health_notices=False, claiming=False):  # noqa: C901, PLR0912, PLR0915
         agents = self.queue_agents()
         selected = {a.name for a in agents}
         self._queue_waits = {}
@@ -760,7 +760,7 @@ class Loop:
             return  # Discard incomplete observations; the normal pass retries.
         self._observe("replanned_item", item.number, events)
 
-    def _item_plans(self, item, now, github, coordinator, matches, blockers, agents=None,
+    def _item_plans(self, item, now, github, coordinator, matches, blockers, agents=None,  # noqa: C901
                     *, reconcile_notices=False, checked=None, health_notices=False, approval_errors=None,
                     defer_input=False):
         agents = self.config.agents if agents is None else agents
@@ -830,7 +830,7 @@ class Loop:
                 return replace(plan, state="waiting", runtime=None, reason=reason, health_wait=True)
         return plan
 
-    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,
+    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,  # noqa: C901, PLR0912
                             history, matched, approval, *, check_input=True, defer_input=False):
         latest = latest_leases(history)
         for agent in agents:
@@ -900,7 +900,7 @@ class Loop:
         if number is not None:
             self.discovery.invalidate(number)
 
-    def _tick(self):
+    def _tick(self):  # noqa: C901
         config = self.config
         present = set()
         for plan in self.iter_plans(reconcile_notices=True, claiming=True):
@@ -1155,7 +1155,7 @@ class Loop:
             raise _GracefulStop
         self._before_claim()
 
-    def _execute(self, plan):
+    def _execute(self, plan):  # noqa: C901, PLR0912, PLR0915
         plan = self._health_plan(plan, announce=True)
         if plan.health_wait:
             self._observe_plan(plan, self.discovery)
@@ -1282,7 +1282,7 @@ class Loop:
             return self._claim_execute(replace(plan, runtime=runtime), instructions, reservation,
                                        shared_instructions=shared)
 
-    def _claim_execute(self, plan, instructions, reservation=None, *, shared_instructions=""):
+    def _claim_execute(self, plan, instructions, reservation=None, *, shared_instructions=""):  # noqa: C901, PLR0912, PLR0915
         def confirm_stopped(history):
             # An expired setup has no agent outcome to recover. Use the claim's
             # fresh history to confirm local groups before starting another run.
@@ -1377,9 +1377,9 @@ class Loop:
 
         hook_attempted = False
 
-        def cleanup_workspace(record=True):
+        def cleanup_workspace(record=True):  # noqa: C901
             nonlocal preserve_scratch
-            def before_remove():
+            def before_remove():  # noqa: C901
                 nonlocal hook_attempted
                 if hook_attempted:
                     return False
@@ -1950,7 +1950,7 @@ class Loop:
                 self._launch_number = None
                 self._launch_agent = None
 
-    def _launch(self, once):
+    def _launch(self, once):  # noqa: C901, PLR0912, PLR0915
         self.usage.reset()
         self.discovery_budget = DiscoveryBudget(clock=lambda: monotonic())
         self._planning_rate_until = None

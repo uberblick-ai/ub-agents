@@ -111,7 +111,7 @@ class Plan:
             raise AgentError(f"{LOCAL_CONFIG} changed during setup; cancel and run init again to review its effective settings")
 
 
-def make_plan(path, repository, choices):
+def make_plan(path, repository, choices):  # noqa: C901
     path = Path(path).absolute()
     if path.is_symlink():
         raise AgentError(f"Starter files already exist; nothing overwritten: {path}")
@@ -210,7 +210,7 @@ class Applied:
         return self.error is None
 
 
-def apply_plan(plan, github, remote_labels=()):
+def apply_plan(plan, github, remote_labels=()):  # noqa: C901, PLR0912, PLR0915
     """Stop on partial failure; retain and describe successful effects, never roll back."""
     from .doctor import Doctor, public
     result = Applied()
