@@ -321,36 +321,22 @@ class Pane:
         return next((section.next for section in self.sections if section.next is not None), None)
 
 
-def work_pane(session, root, previous=None, selected=None, chosen=False):  # noqa: C901, PLR0912
-    """Compute the Work pane from a snapshot and the pane the view last drew.
+def earlier_selection(session, earlier):
+    omitted = any(omitted_plan(plan) and
+                  (plan.get('item'), text(plan.get('agent'))) == (earlier.item, earlier.agent)
+                  for plan in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
+    selection = replace(earlier, hidden=earlier.hidden or earlier.group != 'Eligible' or omitted)
+    if selection.state != 'earlier observation':
+        selection = replace(selection, state='earlier observation',
+                            reason=f'Last observed state: {selection.state}. {selection.reason}')
+    history = item_history(selection, session)
+    # Keep the latest observation if a later snapshot omits this item.
+    if history and history != selection.data.get('history'):
+        selection = replace(selection, data=selection.data | {'history': history})
+    return selection
 
-    No file reads or UI state: a superseded read can be recomputed using the
-    person's current selection, including a row missing from that snapshot.
-    """
-    work = work_rows(session, root)
-    own = next((row.key for row in work if row.group == 'Running'), None)
-    if own is not None and not chosen:
-        selected = own
-    selection = next((row for row in work if row.key == selected), None)
-    earlier = next((row for row in previous.rows if row.key == selected), None) if previous else None
-    if selection is None and earlier is not None:
-        selection = related_assignment(work, earlier) or related_plan(work, earlier)
-        if selection is None:
-            omitted = any(omitted_plan(plan) and
-                          (plan.get('item'), text(plan.get('agent'))) == (earlier.item, earlier.agent)
-                          for plan in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
-            selection = replace(earlier, hidden=earlier.hidden or earlier.group != 'Eligible' or omitted)
-            if selection.state != 'earlier observation':
-                selection = replace(selection, state='earlier observation',
-                                    reason=f'Last observed state: {selection.state}. {selection.reason}')
-            history = item_history(selection, session)
-            # Keep the latest observation if a later snapshot omits this item.
-            if history and history != selection.data.get('history'):
-                selection = replace(selection, data=selection.data | {'history': history})
-            work.append(selection)
-    if selection is None and work:
-        selection = work[0]
 
+def work_sections(session, work):
     sections = []
     for name in WORK_GROUPS[:-1]:
         grouped = tuple(row for row in work if row.group == name and not row.hidden)
@@ -371,6 +357,30 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):  # noq
                 label += ' · not claimed while stopping'
             next_key = next((row.key for row in grouped if row.state in {'ready', 'recover'}), None)
         sections.append(Section(name, label, grouped, idle=name == 'Running' and not grouped, next=next_key))
+    return sections
+
+
+def work_pane(session, root, previous=None, selected=None, chosen=False):
+    """Compute the Work pane from a snapshot and the pane the view last drew.
+
+    No file reads or UI state: a superseded read can be recomputed using the
+    person's current selection, including a row missing from that snapshot.
+    """
+    work = work_rows(session, root)
+    own = next((row.key for row in work if row.group == 'Running'), None)
+    if own is not None and not chosen:
+        selected = own
+    selection = next((row for row in work if row.key == selected), None)
+    earlier = next((row for row in previous.rows if row.key == selected), None) if previous else None
+    if selection is None and earlier is not None:
+        selection = related_assignment(work, earlier) or related_plan(work, earlier)
+        if selection is None:
+            selection = earlier_selection(session, earlier)
+            work.append(selection)
+    if selection is None and work:
+        selection = work[0]
+
+    sections = work_sections(session, work)
     recent = tuple(row for row in work if row.group == 'Recent activity' and not row.hidden)[:20]
     title = 'Work'
     latest = mapping(session.data.get('latest_pass'))

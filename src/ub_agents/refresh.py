@@ -56,7 +56,45 @@ def instruction_blob(root, oid, where):
         raise AgentError(f"{where} is unreadable in the refreshed checkout: {exc}") from exc
 
 
-def validate_incoming(root, head, path, where, links=0):  # noqa: C901, PLR0912
+def validate_local_incoming(root, head, path, where, resolved, part, pending, links):
+    # A clean checkout can contain ignored, local instruction files.
+    # They survive the merge unless a tracked path removes/replaces them.
+    local = root.joinpath(*resolved, part, *pending)
+    old = git(root, "ls-tree", "-z", "HEAD", "--",
+              f":(literal){local.relative_to(root)}")
+    parents = [root.joinpath(*resolved[:i]) for i in range(1, len(resolved) + 1)]
+    if not old and not any(parent.is_symlink() for parent in parents):
+        instruction_text(root, local, where)
+        actual = local.resolve()
+        if actual != local:
+            validate_incoming(root, head, actual, where, links + 1)
+        return
+    raise AgentError(f"{where} does not exist in the refreshed checkout: {path}")
+
+
+def incoming_link(root, oid, where, path, links, resolved):
+    if links > 40:
+        raise AgentError(f"{where} has a symlink loop: {path}")
+    target = Path(instruction_blob(root, oid, where))
+    if target.is_absolute():
+        try:
+            target = target.relative_to(root)
+        except ValueError as exc:
+            raise AgentError(f"{where} must remain inside the project") from exc
+        resolved = []
+    return target, resolved
+
+
+def incoming_parts(root, path, where, links):
+    if links > 40:
+        raise AgentError(f"{where} has a symlink loop: {path}")
+    try:
+        return deque(path.relative_to(root).parts)
+    except ValueError as exc:
+        raise AgentError(f"{where} must remain inside the project") from exc
+
+
+def validate_incoming(root, head, path, where, links=0):
     """Validate a Git tree's instruction path before changing the checkout.
 
     Follow file and directory symlinks in that tree, not in the current checkout.
@@ -64,12 +102,7 @@ def validate_incoming(root, head, path, where, links=0):  # noqa: C901, PLR0912
     """
     if path is None:
         return
-    if links > 40:
-        raise AgentError(f"{where} has a symlink loop: {path}")
-    try:
-        pending = deque(path.relative_to(root).parts)
-    except ValueError as exc:
-        raise AgentError(f"{where} must remain inside the project") from exc
+    pending = incoming_parts(root, path, where, links)
     resolved = []
     while pending:
         part = pending.popleft()
@@ -83,31 +116,12 @@ def validate_incoming(root, head, path, where, links=0):  # noqa: C901, PLR0912
         name = "/".join([*resolved, part])
         entry = git(root, "ls-tree", "-z", head, "--", f":(literal){name}")
         if not entry:
-            # A clean checkout can contain ignored, local instruction files.
-            # They survive the merge unless a tracked path removes/replaces them.
-            local = root.joinpath(*resolved, part, *pending)
-            old = git(root, "ls-tree", "-z", "HEAD", "--",
-                      f":(literal){local.relative_to(root)}")
-            parents = [root.joinpath(*resolved[:i]) for i in range(1, len(resolved) + 1)]
-            if not old and not any(parent.is_symlink() for parent in parents):
-                instruction_text(root, local, where)
-                actual = local.resolve()
-                if actual != local:
-                    validate_incoming(root, head, actual, where, links + 1)
-                return
-            raise AgentError(f"{where} does not exist in the refreshed checkout: {path}")
+            validate_local_incoming(root, head, path, where, resolved, part, pending, links)
+            return
         mode, kind, oid = entry.split("\t", 1)[0].split()
         if mode == "120000":
             links += 1
-            if links > 40:
-                raise AgentError(f"{where} has a symlink loop: {path}")
-            target = Path(instruction_blob(root, oid, where))
-            if target.is_absolute():
-                try:
-                    target = target.relative_to(root)
-                except ValueError as exc:
-                    raise AgentError(f"{where} must remain inside the project") from exc
-                resolved = []
+            target, resolved = incoming_link(root, oid, where, path, links, resolved)
             pending.extendleft(reversed(target.parts))
         elif pending and kind == "tree":
             resolved.append(part)

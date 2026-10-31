@@ -475,7 +475,7 @@ class Doctor:
             if not present:
                 self.missing_labels.append(label)
 
-    def agents(self, config):  # noqa: C901, PLR0912
+    def agents(self, config):
         usable = {}
         without_permissions = [agent.name for agent in config.agents
                                if any(not agent.runtime_args_for(runtime) for runtime in agent.runtimes)]
@@ -492,35 +492,7 @@ class Doctor:
                          None if installed else f"Install {executable} or correct agent {agent.name}'s command",
                          agent=agent)
                 continue
-            alternatives = []
-            for runtime in agent.runtimes:
-                installed = self.which(runtime.cli)
-                auth_error = None
-                if installed:
-                    try:
-                        self.probe(AUTH_PROBES[runtime.cli])
-                    except AgentError as exc:
-                        auth_error = str(exc)
-                alternatives.append((runtime, installed, auth_error))
-            usable[agent.name] = [r for r, installed, error in alternatives if installed and not error]
-            available = bool(usable[agent.name])
-            unavailable_status = "warn" if available else "fail"
-            for runtime, installed, auth_error in alternatives:
-                kwargs = dict(agent=agent, runtime=runtime)
-                self.add("runtime-executable", "ok" if installed else unavailable_status,
-                         f"executable {runtime.cli} {'resolves' if installed else 'does not resolve'}",
-                         None if installed else f"Install {runtime.cli} or remove {runtime.name} from agent {agent.name}'s runtime",
-                         required=not available, **kwargs)
-                remedy = None
-                if auth_error:
-                    remedy = (("Run codex login" if runtime.cli == "codex" else "Run claude auth login")
-                              + f" or remove {runtime.name} from agent {agent.name}'s runtime")
-                self.add("runtime-auth", "skip" if not installed else unavailable_status if auth_error else "ok",
-                         "executable unavailable" if not installed else auth_error or "auth probe passed",
-                         remedy, required=not available, **kwargs)
-            self.add("runtimes", "ok" if available else "fail",
-                     f"{len(usable[agent.name])} usable runtime alternative(s)",
-                     None if available else f"Install and authenticate at least one runtime for agent {agent.name}", agent=agent)
+            usable[agent.name] = self.agent_runtimes(agent)
         for agent in config.agents:
             for name in agent.different_from:
                 check_id = ("different-runtime-from" if len(agent.different_from) == 1
@@ -539,6 +511,38 @@ class Doctor:
                              f"Install/authenticate independent runtime alternatives for {agent.name} and {name}", agent=agent)
                 else:
                     self.add(check_id, "ok", f"independent execution available after {name}", agent=agent)
+
+    def agent_runtimes(self, agent):
+        alternatives = []
+        for runtime in agent.runtimes:
+            installed = self.which(runtime.cli)
+            auth_error = None
+            if installed:
+                try:
+                    self.probe(AUTH_PROBES[runtime.cli])
+                except AgentError as exc:
+                    auth_error = str(exc)
+            alternatives.append((runtime, installed, auth_error))
+        usable = [r for r, installed, error in alternatives if installed and not error]
+        available = bool(usable)
+        unavailable_status = "warn" if available else "fail"
+        for runtime, installed, auth_error in alternatives:
+            kwargs = dict(agent=agent, runtime=runtime)
+            self.add("runtime-executable", "ok" if installed else unavailable_status,
+                     f"executable {runtime.cli} {'resolves' if installed else 'does not resolve'}",
+                     None if installed else f"Install {runtime.cli} or remove {runtime.name} from agent {agent.name}'s runtime",
+                     required=not available, **kwargs)
+            remedy = None
+            if auth_error:
+                remedy = (("Run codex login" if runtime.cli == "codex" else "Run claude auth login")
+                          + f" or remove {runtime.name} from agent {agent.name}'s runtime")
+            self.add("runtime-auth", "skip" if not installed else unavailable_status if auth_error else "ok",
+                     "executable unavailable" if not installed else auth_error or "auth probe passed",
+                     remedy, required=not available, **kwargs)
+        self.add("runtimes", "ok" if available else "fail",
+                 f"{len(usable)} usable runtime alternative(s)",
+                 None if available else f"Install and authenticate at least one runtime for agent {agent.name}", agent=agent)
+        return usable
 
     def local(self, config, git_ready):
         local = config.root / ".ub-agents"

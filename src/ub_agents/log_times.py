@@ -71,7 +71,39 @@ class TimeWindow:
         return fallback
 
 
-def read_times(path, log_info, position, *, backwards=False, log_fd=None):  # noqa: C901, PLR0915
+def growth_position(growth, count, position):
+    low, high = 0, count
+    lower, upper = 0, 2**64
+    while low < high:
+        mid = (low + high) // 2
+        end, _ = growth(mid)
+        if not lower < end < upper:
+            raise ValueError("Unordered timing index")
+        if end <= position:
+            low, lower = mid + 1, end
+        else:
+            high, upper = mid, end
+    return low
+
+
+def growth_window(growth, count, low, room, backwards):
+    first = max(0, min(low + 1, count) - room) if backwards else low
+    last = min(count, low + 1) if backwards else min(count, first + room)
+    start = growth(first - 1)[0] if first else 0
+    ends, stamps = [], []
+    previous = start
+    for index in range(first, last):
+        end, stamp = growth(index)
+        if end <= previous:
+            raise ValueError("Unordered timing index")
+        ends.append(end)
+        stamps.append(stamp)
+        previous = end
+    limit = previous if not backwards and last < count else None
+    return start, limit, tuple(ends), tuple(stamps)
+
+
+def read_times(path, log_info, position, *, backwards=False, log_fd=None):
     """Read at most TIMES_BUDGET bytes; invalid/missing metadata is invisible.
 
     A dense index narrows the log window instead of losing valid times or
@@ -112,33 +144,10 @@ def read_times(path, log_info, position, *, backwards=False, log_fd=None):  # no
                     raise ValueError("Invalid timing offset")
                 return end, (EPOCH + timedelta(microseconds=stamp)).isoformat()
 
-            low, high = 0, count
-            lower, upper = 0, 2**64
-            while low < high:
-                mid = (low + high) // 2
-                end, _ = growth(mid)
-                if not lower < end < upper:
-                    raise ValueError("Unordered timing index")
-                if end <= position:
-                    low, lower = mid + 1, end
-                else:
-                    high, upper = mid, end
-
+            low = growth_position(growth, count, position)
             # Include a preceding pair to validate the first interval's start.
             room = (TIMES_BUDGET - used) // GROWTH.size - 1
-            first = max(0, min(low + 1, count) - room) if backwards else low
-            last = min(count, low + 1) if backwards else min(count, first + room)
-            start = growth(first - 1)[0] if first else 0
-            ends, stamps = [], []
-            previous = start
-            for index in range(first, last):
-                end, stamp = growth(index)
-                if end <= previous:
-                    raise ValueError("Unordered timing index")
-                ends.append(end)
-                stamps.append(stamp)
-                previous = end
-            limit = previous if not backwards and last < count else None
-            return TimeWindow(start, limit, tuple(ends), tuple(stamps), used)
+            start, limit, ends, stamps = growth_window(growth, count, low, room, backwards)
+            return TimeWindow(start, limit, ends, stamps, used)
     except (OSError, ValueError, OverflowError, struct.error):
         return TimeWindow(bytes_read=used)
