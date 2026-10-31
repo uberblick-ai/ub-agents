@@ -1,5 +1,6 @@
-"""Characterize run inputs at the execution boundary before extracting builders."""
+"""Pin run inputs at the execution boundary and verify the pure builders."""
 
+from copy import deepcopy
 from dataclasses import replace
 import json
 import os
@@ -11,7 +12,9 @@ from unittest.mock import Mock, patch
 
 from ub_agents.approvals import ApprovalCheck
 from ub_agents.config import Runtime
+from ub_agents.coordination import Plan
 from ub_agents.loop import Loop
+from ub_agents.run_prompt import run_context, run_environment, run_prompt
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
@@ -98,3 +101,36 @@ class RunPromptCharacterizationTests(unittest.TestCase):
     def test_pr_prompt_context_text_and_environment(self):
         expected = json.loads((Path(__file__).parent / "fixtures/run_prompt_pr.json").read_text())
         self.assertEqual(self.capture("pr"), expected)
+
+
+class RunPromptBuilderTests(unittest.TestCase):
+    def test_builders_use_explicit_inputs_without_io_or_environment_reads(self):
+        root = Path("/unused/project")
+        role = agent(root, worktree=True)
+        configured = config(root, role)
+        candidate = pr(head_repository="outside/project")
+        plan = Plan(candidate, role, None, "ready", "", 1)
+        lease = {"run": "explicit-run", "id": 17, "outcome_rounds": {"done": {"used": 1, "limit": 3}}}
+        snapshot = {"title": "Title", "body": "Body", "comments": [], "withheld_counts": {},
+                    "reviews": [], "review_comments": []}
+        feedback = [{"summary": "Correction"}]
+        earlier = []
+        environment = {"KEEP": "value", "UB_AGENTS_RUN": "stale", "UB_AGENTS_OTHER": "discard"}
+        inputs = (configured, plan, lease, snapshot, feedback, earlier, environment)
+        before = deepcopy(inputs)
+        with patch("os.environ", None), \
+                patch.object(Path, "open", side_effect=AssertionError("file I/O")):
+            context = run_context(configured.repository, plan, lease, snapshot, feedback=feedback,
+                                  scratch=Path("/explicit/scratch"), report_command="/explicit/report",
+                                  branch=None, earlier_branches=earlier)
+            prompt = run_prompt(configured, "off", plan, lease, context, "Role procedure")
+            env = run_environment(environment, context, lease["id"], root / "context.json", root / "run.json")
+        self.assertEqual(inputs, before)
+        self.assertIn("refs/ub-agents/runs/explicit-run/head", prompt)
+        self.assertIn(json.dumps(context, indent=2), prompt)
+        self.assertEqual(env, {
+            "KEEP": "value", "UB_AGENTS_REPOSITORY": "org/project", "UB_AGENTS_ASSIGNMENT": "2",
+            "UB_AGENTS_RUN": "explicit-run", "UB_AGENTS_LEASE_ID": "17",
+            "UB_AGENTS_CONTEXT": "/unused/project/context.json", "UB_AGENTS_RUN_CONFIG": "/unused/project/run.json",
+            "UB_AGENTS_REPORT": "/explicit/report", "UB_AGENTS_SCRATCH": "/explicit/scratch",
+            "UB_AGENTS_CANDIDATE_SHA": candidate.head, "UB_AGENTS_BRANCH": ""})
