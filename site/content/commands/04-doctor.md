@@ -41,7 +41,7 @@ only in configuration that the runtime won't read at the new path). In particula
 a project `.codex/config.toml` is unread; define Codex servers through `runtime-args`
 with `-c mcp_servers.<name>.command=...` and the other server settings instead.
 For Claude, commit `.mcp.json` and approve the server with `enabledMcpjsonServers`
-in `.claude/settings.json`. See [the Uberblick setup guide](/docs/guides/with-uberblick.html).
+in `.claude/settings.json`.
 
 For each loaded stdio configuration, doctor starts the server, initializes MCP and
 lists its tools, reporting the tool count. Identical command, arguments,
