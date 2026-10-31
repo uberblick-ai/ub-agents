@@ -240,6 +240,19 @@ class InitTests(unittest.TestCase):
         self.assertIn('shared policy', roles['reviewer'])
         self.assertIn('Immediately before merging', roles['integrator'])
         self.assertIn('gh pr merge N --squash --match-head-commit SHA', roles['integrator'])
+        for expected in (
+            "Wait for CI checks required by the project's merge policy to complete successfully "
+            'on that exact head, including your own base merge',
+            'Pending checks, including a just-pushed head with no checks yet, mean wait '
+            '(`gh pr checks N --watch`)',
+            'No required CI checks means no wait; failed checks follow the send-back rule below',
+            "Immediately before merging, re-read the item's labels; report blocked if any "
+            '`stop-labels` from `ub-agents.yaml` is present',
+            'If the merge command fails, check `gh pr view N --json state,mergeCommit`; '
+            'if merged, report `merged`',
+            'If GitHub mergeability is `UNKNOWN`, read it again',
+        ):
+            self.assertIn(expected, roles['integrator'])
 
     def test_base_merge_procedure_in_starter_and_repository_roles(self):
         self.assertEqual(self.init()[0], 0)
