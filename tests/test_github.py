@@ -414,7 +414,7 @@ class GitHubTests(unittest.TestCase):
             for size in (1, 99, 100, 101, 201):
                 runner = QueueRunner(size)
                 loop = Loop(config(root, agent(root)), GitHub("org/project", runner), "operator")
-                with patch.object(loop, "input_check", return_value=ApprovalCheck(True, "Approved")), \
+                with patch.object(loop.queue_planner, "input_check", return_value=ApprovalCheck(True, "Approved")), \
                         patch.object(loop.discovery, "prepare_approval_inputs"), \
                         patch.object(loop, "execute", return_value=True):
                     self.assertTrue(loop.tick())

@@ -9,11 +9,10 @@ from contextlib import contextmanager, nullcontext
 from time import monotonic
 from dataclasses import replace
 
-from . import approvals as input_approvals
 from . import queue_order
 from .agent_health import AgentHealth
 from .attention import latest_notice
-from .approvals import ApprovalCheck, pr_author_exclusions, resolve_policy
+from .approvals import ApprovalCheck, pr_author_exclusions
 from .labels import OUTSIDE_INPUT
 from .config import LEASE_SECONDS, instruction_text, load_config, resolve_config_path
 from .checkout_setup import discard_unused_baseline, preserve_baseline, run_setup
@@ -33,10 +32,11 @@ from .github import (APPROVAL_BATCH_SIZE, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMI
                      closing_issues)
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .pass_messages import PassMessages
+from .queue_planner import QueuePlanner
 from .poll_now import PollNow
 from .hooks import run_hook
 from .notices import ACTION_MARKER
-from .records import (attempts, display_provenance, iso, latest_leases, lease_by_id,
+from .records import (display_provenance, iso, latest_leases, lease_by_id,
                       lease_summary, records, seconds, timestamp)
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
@@ -85,7 +85,7 @@ class Loop:
         self._observation_warning = False
         self.config = config
         self.events = EventHooks(output)
-        self.approvals = config.approvals or "on"
+        approvals = config.approvals or "on"
         self.github = FinalizationReads(github, self.wait_rate_limit)
         self.coordinator = Coordinator(self.github, actor, output=output,
                                        on_claim=self.claimed,
@@ -95,7 +95,7 @@ class Loop:
                                        on_action=lambda *args: self.observe("action_needed", *args),
                                        on_decline=self.declined)
         self.coordinator.reconfigure(config, pr_author_exclusions(
-            config.trusted_pr_authors, self.approvals, self.github))
+            config.trusted_pr_authors, approvals, self.github))
         self._renewal = None
         self.stop_event = stop_event or threading.Event()
         self.interrupt_event = interrupt_event or self.stop_event
@@ -128,6 +128,26 @@ class Loop:
         self._github_reservation = None
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
+        self.queue_planner = QueuePlanner(
+            lambda: self.config, lambda: self.github, lambda: self.coordinator, approvals,
+            health=lambda: self.health, usage=lambda: self.usage,
+            maintenance=lambda: self.maintenance,
+            output=lambda line: self.output(line), observe=lambda *args: self.observe(*args),
+            before_claim=lambda: self.before_claim(),
+            reconcile_blocked_notices=lambda *args: self.reconcile_blocked_notices(*args),
+            targeted=lambda: self._targeted_pass, claiming=lambda: self._poll_complete,
+            notice_agent=lambda: self._launch_agent if self._launch_number is None else None)
+
+    @property
+    def approvals(self):
+        return self.queue_planner.approvals
+
+    @approvals.setter
+    def approvals(self, value):
+        self.queue_planner.approvals = value
+
+    def input_check(self, item, github=None, matches=None):
+        return self.queue_planner.input_check(item, github, matches)
 
     def observe(self, method, *args):
         with self._observer_lock:
@@ -331,27 +351,6 @@ class Loop:
         if self.stop_event.is_set():
             raise _GracefulStop
 
-    def input_check(self, item, github=None, matches=None):
-        github = github or self.github
-        if matches is None or matches.configured != self.config.agents:
-            matches = AgentMatches.for_item(item, self.config.agents)
-        triggers = matches.trigger_labels
-        def check():
-            return input_approvals.filter_input(github, item, self.approvals, triggers,
-                                               actor=self.coordinator.actor, launchers=self.config.launchers,
-                                               sub_issue_labels=self.config.sub_issue_labels,
-                                               trusted_bots=self.config.trusted_bots,
-                                               trusted_pr_authors=self.config.trusted_pr_authors,
-                                               raise_read_errors=self._targeted_pass or self._poll_complete)
-        approval = check()
-        if (isinstance(github, Discovery) and item.number in github.bulk_inputs
-                and approval.gate == "input" and isinstance(approval.snapshot.get("title"), dict)):
-            # Title gates embed the complete REST rename, including its ID and
-            # actor. Reread both inputs so persisted keys and fresh parking match.
-            github.fallback_approval_input(item.number)
-            approval = check()
-        return approval
-
     def plans(self):
         # Status evaluates every row, with fresh inputs even on a reused Loop.
         plans = self.iter_plans(cached=False)
@@ -376,7 +375,7 @@ class Loop:
             self.observe("queue_idle", self.idle_message())
             return
         checked = {}
-        self._resolve_approvals()
+        self.queue_planner.resolve_approvals()
         github = self.discovery if cached else Discovery(self.github)
         lookback = max(LEASE_SECONDS, self.config.lease_seconds) + COMMENT_RECOVERY_SECONDS
         items, comments = github.observe(lookback)
@@ -384,7 +383,7 @@ class Loop:
         self._has_trigger = any(item.state == "open" and item.labels.intersection(triggers)
                                 for item in items.values())
         self.observe("discovered", items, agents, True)
-        coordinator = self._planning_coordinator(github)
+        coordinator = self.queue_planner.planning_coordinator(github)
         history_index, invalid, histories = coordinator.repository_history(comments, by_item=True)
         now = coordinator.clock()
         latest = latest_leases(history_index)
@@ -486,12 +485,12 @@ class Loop:
                 if dependencies:
                     blockers = dependencies.blockers.get(item.number, ())
                 else:
-                    blockers = self._open_blockers(item, github)
-            plans = self._item_plans(item, now, github, coordinator, matches, blockers,
-                                     agents,
-                                     reconcile_notices=reconcile_notices, checked=checked,
-                                     health_notices=health_notices or reconcile_notices,
-                                     approval_errors=approval_errors, defer_input=batch_input)
+                    blockers = self.queue_planner.open_blockers(item, github)
+            plans = self.queue_planner.item_plans(item, now, github, coordinator, matches, blockers,
+                                                  agents,
+                                                  reconcile_notices=reconcile_notices, checked=checked,
+                                                  health_notices=health_notices or reconcile_notices,
+                                                  approval_errors=approval_errors, defer_input=batch_input)
             for plan in plans:
                 if isinstance(plan, ApprovalInput):
                     yield plan
@@ -549,23 +548,10 @@ class Loop:
         if self._launch_agent is not None:
             self.observe("queue_idle", self.idle_message())
 
-    def _open_blockers(self, item, github):
-        if (item.kind != "issue" or item.state != "open" or
-                self.config.queue.dependencies != "wait" or item.total_blocked_by == 0):
-            return ()
-        return open_blockers(github, item)
-
-    @staticmethod
-    def _gate_plan(plan, start, blockers):
-        if (plan.state == "ready" or plan.approval_gate) and not start.allowed:
-            plan = replace(plan, state="parked", runtime=None, reason=start.reason,
-                           approval_gate=None)
-        return replace(plan, blockers=blockers)
-
     def item_plans(self, number, agent_name=None, *, reconcile_notices=False, health_notices=False):
         if self._pass_stats is not None:
             self._pass_stats.candidates.add(number)
-        self._resolve_approvals()
+        self.queue_planner.resolve_approvals()
         # Share this item's history and approval reads, without repository
         # discovery, priority inheritance or milestone selection. An explicit
         # target still passes every other start gate.
@@ -577,34 +563,19 @@ class Loop:
             raise AgentError(f"Cannot read #{number}: {exc}") from exc
         self.observe("discovered", {item.number: item}, self.config.agents)
         agents = tuple(a for a in self.config.agents if agent_name is None or a.name == agent_name)
-        coordinator = self._planning_coordinator(github)
+        coordinator = self.queue_planner.planning_coordinator(github)
         queue_order.milestone_diagnostics(on_wait=lambda value: setattr(self, "milestone_wait", value),
                                           on_skips=lambda value: setattr(self, "milestone_skips", value))
-        blockers = self._open_blockers(item, github)
+        blockers = self.queue_planner.open_blockers(item, github)
         matches = AgentMatches.for_item(item, self.config.agents)
-        plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, blockers, agents,
-                                 reconcile_notices=reconcile_notices, checked={},
-                                 health_notices=health_notices or reconcile_notices)
+        plans = self.queue_planner.item_plans(item, coordinator.clock(), github, coordinator, matches, blockers, agents,
+                                              reconcile_notices=reconcile_notices, checked={},
+                                              health_notices=health_notices or reconcile_notices)
 
         def observed_plans():
             for plan in plans:
                 yield self._observe_plan(plan, github)
         return item, observed_plans()
-
-    def _resolve_approvals(self):
-        self.approvals, _ = resolve_policy(self.config.approvals, self.github.visibility)
-        self.coordinator.trust.trusted_pr_authors = set(pr_author_exclusions(
-            self.config.trusted_pr_authors, self.approvals, self.github))
-
-    def _planning_coordinator(self, github, observe=None):
-        observe = observe or self.observe
-        return Coordinator(github, self.coordinator.actor, clock=self.coordinator.clock,
-                           queue=self.config.queue, output=self.output,
-                           runtime_available=self.maintenance.available,
-                           runtime_paused=self.usage.paused, launchers=self.config.launchers,
-                           role=github.current_role, trusted_bots=self.config.trusted_bots,
-                           trusted_pr_authors=self.coordinator.trust.trusted_pr_authors,
-                           on_author=lambda *args: observe("coordination_author", *args))
 
     def _observe_plan(self, plan, github, observe=None):
         if self._launch_agent is not None and self._launch_number is None and observe is None:
@@ -642,143 +613,22 @@ class Loop:
         try:
             item = github.item(plan.item.number, plan.item.kind)
             matches = AgentMatches.for_item(item, self.config.agents)
-            coordinator = self._planning_coordinator(github, observe)
-            blockers = self._open_blockers(item, github)
+            coordinator = self.queue_planner.planning_coordinator(github, observe)
+            blockers = self.queue_planner.open_blockers(item, github)
             priority = self.config.queue.priority.effective(item.labels)
             if plan.priority is not None and (plan.priority_source or plan.priority_from_issue):
                 labels = self.config.queue.priority.labels
                 if priority is None or labels.index(plan.priority) < labels.index(priority):
                     priority = plan.priority  # Retain already-observed inheritance without a graph read.
-            for refreshed in self._item_plans(item, coordinator.clock(), github, coordinator,
-                                              matches, blockers,
-                                              self.queue_agents() if self._launch_number is None else None,
-                                              checked={}):
+            for refreshed in self.queue_planner.item_plans(item, coordinator.clock(), github, coordinator,
+                                                          matches, blockers,
+                                                          self.queue_agents() if self._launch_number is None else None,
+                                                          checked={}):
                 refreshed = replace(refreshed, priority=priority)
                 self._observe_plan(refreshed, github, observe)
         except Exception:
             return  # Discard incomplete observations; the normal pass retries.
         self.observe("replanned_item", item.number, events)
-
-    def _item_plans(self, item, now, github, coordinator, matches, blockers, agents=None,  # noqa: C901
-                    *, reconcile_notices=False, checked=None, health_notices=False, approval_errors=None,
-                    defer_input=False):
-        agents = self.config.agents if agents is None else agents
-        starts = {a.name: check_start(item, a, matches, self.config.stop_labels,
-                                     self.config.queue, blockers) for a in agents}
-        matched = tuple(a for a in matches.matched if a in agents)
-        approval = None
-        # The same comments supply coordination history and approval input.
-        # Claims and parking bypass this discovery reader for fresh authority.
-        try:
-            history = coordinator.history(item.number)
-        except RecordError as exc:
-            yield from (Plan(item, a, None, "blocked", str(exc), 1, history_read=False)
-                        for a in matched or agents)
-            return
-        except AgentError as exc:
-            # A shared failed comment read must still skip a transiently failed
-            # poll, rather than turn its unreadable approval into a parked row.
-            if isinstance(exc, GitHubError) and (self._targeted_pass or exc.rate_limited or exc.retryable):
-                raise
-            if approval_errors is not None and matched:
-                # The eager fallback distinguishes unreadable approval input
-                # from a coordination-only failure. Defer that verdict too;
-                # these provisional rows are never observed or claimed as ready.
-                approval_errors[item.number] = exc
-                yield from (Plan(item, a, None, "ready" if starts[a.name].allowed else "parked",
-                                 "" if starts[a.name].allowed else starts[a.name].reason,
-                                 1, history_read=False, matches=matches) for a in matched)
-                return
-            # Unreadable item input cannot authorize a claim. A transient
-            # coordination failure with readable approval input still fails the poll.
-            if matched and defer_input:
-                yield ApprovalInput(item)
-            approval = self.input_check(item, github, matches) if matched else None
-            if approval is None or approval.allowed:
-                raise
-            yield from (Plan(item, a, None, "parked", approval.reason, 1, history_read=False) for a in matched)
-            return
-        reconciled = set()
-        for plan in self._ungated_item_plans(item, now, github, coordinator, matches, starts, agents,
-                                             history, matched, approval, check_input=approval_errors is None,
-                                             defer_input=defer_input):
-            if isinstance(plan, ApprovalInput):
-                yield plan
-                continue
-            plan = self._gate_plan(replace(plan, matches=matches), starts[plan.agent.name], blockers)
-            plan = self._health_plan(plan, checked, announce=health_notices)
-            if reconcile_notices:
-                self.before_claim()
-                reconciled.add(plan.agent.name)
-                if not plan.health_wait:
-                    self.reconcile_blocked_notices([r for r in history if r["agent"] == plan.agent.name], coordinator)
-            yield plan
-        if reconcile_notices:
-            self.before_claim()
-            # Closed items can have a missing advisory without an assignment
-            # row. Keep that recovery, without evaluating later agents before
-            # a reached ready agent's claim or posting for health-waiting rows.
-            self.reconcile_blocked_notices([r for r in history if r["agent"] not in reconciled
-                                           and (self._launch_agent is None or self._launch_number is not None
-                                                or r["agent"] == self._launch_agent)], coordinator)
-
-    def _health_plan(self, plan, checked=None, *, announce=False):
-        if plan.state == "ready":
-            reason = self.health.check(self.config.root, plan.agent, checked, announce=announce)
-            if reason is not None:
-                return replace(plan, state="waiting", runtime=None, reason=reason, health_wait=True)
-        return plan
-
-    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,  # noqa: C901, PLR0912
-                            history, matched, approval, *, check_input=True, defer_input=False):
-        latest = latest_leases(history)
-        for agent in agents:
-            record = latest.get((item.number, agent.name))
-            parked = (item.state == "open" and item.labels.intersection(self.config.stop_labels)
-                      and any(r["kind"] == "outcome" and r["agent"] == agent.name
-                              and r.get("accepted") and r.get("transition_complete")
-                              and item.number == (r.get("handoff") or r["assignment"])
-                              and item.labels.intersection(r.get("transition", {}).get("add", ()))
-                                  .intersection(self.config.stop_labels) for r in history))
-            try:
-                pending = coordinator.pending_completion(history, agent.name, now)
-            except RecordError as exc:
-                yield Plan(item, agent, None, "blocked", str(exc),
-                           len(attempts(history, agent.name, now)) + 1, history=tuple(history))
-                continue
-            if (item.state != "open" and record and record["state"] == "released"
-                    and record.get("result") in {"retry", "blocked"}
-                    and record.get("cleanup") != "unconfirmed" and not pending):
-                continue
-            if (agent in matched or pending or parked or (record and record["state"] in {"claiming", "running"}
-                                                and seconds(record["expires"]) > now)):
-                plan = coordinator.plan(item, agent, self.config.stop_labels, history,
-                                        start=starts[agent.name], matches=matches)
-                if plan.state in {"ready", "recover", "blocked", "backoff"} and coordinator.actor is not None:
-                    if reason := coordinator.trust.reason(coordinator.actor):
-                        yield replace(plan, state="blocked", runtime=None, reason=reason, history=tuple(history))
-                        continue
-                if check_input and plan.state in {"ready", "blocked", "backoff"} and agent in matched:
-                    if approval is None:
-                        if defer_input:
-                            yield ApprovalInput(item)
-                        approval = self.input_check(item, github, matches)
-                    if not approval.allowed:
-                        gate = approval if plan.state == "ready" and approval.gate else None
-                        plan = replace(plan, state="parked", runtime=None, reason=approval.reason,
-                                       approval_gate=gate)
-                yield replace(plan, history=tuple(history))
-            elif record and (record["state"] in {"claiming", "running"}
-                             or record.get("result") in {"retry", "blocked"}):
-                if record.get("cleanup") == "unconfirmed":
-                    reason = f"Previous cleanup was unconfirmed: {lease_summary(history, record)}"
-                elif record["state"] == "released":
-                    reason = f"Last run {record['result']}: {lease_summary(history, record)}"
-                else:
-                    reason = "Expired run has no outcome or matching trigger"
-                yield Plan(item, agent, None, "blocked",
-                    f"{reason}; inspect GitHub and restore a trigger before retrying",
-                    len(attempts(history, agent.name, now)) + 1, history=tuple(history))
 
     def tick(self):
         with self.discovery_pass():
@@ -1048,7 +898,7 @@ class Loop:
         self.before_claim()
 
     def _execute(self, plan):  # noqa: C901, PLR0912, PLR0915
-        plan = self._health_plan(plan, announce=True)
+        plan = self.queue_planner.health_plan(plan, announce=True)
         if plan.health_wait:
             self._observe_plan(plan, self.discovery)
             if self._targeted_pass:
@@ -1139,7 +989,7 @@ class Loop:
             return False
         # A slow refresh or maintenance can outlive the cached pass. Recheck
         # before reserving a runtime and before the first assignment write.
-        plan = self._health_plan(plan, announce=True)
+        plan = self.queue_planner.health_plan(plan, announce=True)
         if plan.health_wait:
             self._observe_plan(plan, self.discovery)
             if self._targeted_pass:
