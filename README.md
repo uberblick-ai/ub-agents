@@ -3,9 +3,19 @@
 ub-agents runs an implementation and review loop for your GitHub issues in the
 background, on your own machine or server.
 
-Keep working in Claude Code or Codex. When a piece of work is clear, hand it to
-the loop instead of managing every implementation, review and revision yourself.
-The loop stops and asks when it needs a person.
+## Why this exists
+
+Once coding agents could write most of the code, our job changed. We were
+starting sessions, waiting for an agent to ask something, carrying its work to
+a reviewer, carrying the review back and restarting runs that died. We spent
+more time waiting than deciding.
+
+So we split the work. Keep working in Claude Code or Codex to decide what to
+build and how. When a piece of work is clear, hand it to the loop instead of
+managing every implementation, review and revision yourself. The loop stops and
+asks when it needs a person. The
+[motivation page](https://agents.uberblick.ai/docs/motivation.html) has the
+longer version.
 
 Under the hood it is small: a launcher polls your repository for labels, runs
 Claude Code or Codex for the matching role, and writes the result back as a
