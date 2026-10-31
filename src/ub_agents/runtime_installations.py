@@ -96,7 +96,38 @@ def claude_updates_disabled(env):
     return None
 
 
-def updater(cli, install, policy, run, env, which=None):  # noqa: C901, PLR0912
+def homebrew_updater(install, run, env, which):
+    if not writable(install.prefix) or not writable(install.package.parent):
+        return None, env, "installation needs elevated privileges; update it manually"
+    candidate = install.prefix / "bin/brew"
+    brew = str(candidate) if candidate.is_file() else which("brew")
+    if not brew or Path(run([brew, "--prefix"], env).strip()).resolve() != install.prefix.resolve():
+        return None, env, "owning Homebrew not found; configure runtime-updates command"
+    kind = "--cask" if install.method == "homebrew-cask" else "--formula"
+    brew_env = env | {"HOMEBREW_NO_INSTALL_CLEANUP": "1",
+                      "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK": "1",
+                      "HOMEBREW_NO_SUDO": "1", "HOMEBREW_NO_UPGRADE_QUIT_CASKS": "1",
+                      "HOMEBREW_NO_ASK": "1"}
+    return [brew, "upgrade", kind, install.token], brew_env, None
+
+
+def npm_updater(cli, install, run, env, which):
+    if not all(writable(p) for p in (install.package, install.package.parent, install.prefix / "bin")):
+        return None, env, "npm global installation needs elevated privileges; update it manually"
+    if cli == "claude":
+        return [install.executable, "update"], env, None
+    metadata = json.loads((install.package / "package.json").read_text())
+    if "-" in metadata.get("version", ""):
+        return None, env, "npm prerelease channel is ambiguous; configure runtime-updates command"
+    npm_env = env | {"PATH": str(install.prefix / "bin") + os.pathsep + env.get("PATH", "")}
+    candidate = install.prefix / "bin/npm"
+    npm = str(candidate) if candidate.is_file() else which("npm")
+    if not npm or Path(run([npm, "prefix", "-g"], npm_env).strip()).resolve() != install.prefix.resolve():
+        return None, env, "npm owning this global prefix not found; configure runtime-updates command"
+    return [npm, "install", "-g", "@openai/codex@latest"], npm_env, None
+
+
+def updater(cli, install, policy, run, env, which=None):
     """Return a targeted argv and environment, or an actionable skip reason."""
     which = which or shutil.which
     if policy == "off":
@@ -110,32 +141,9 @@ def updater(cli, install, policy, run, env, which=None):  # noqa: C901, PLR0912
     if install.method == "native":
         return [install.executable, "update"], env, None
     if install.method.startswith("homebrew"):
-        if not writable(install.prefix) or not writable(install.package.parent):
-            return None, env, "installation needs elevated privileges; update it manually"
-        candidate = install.prefix / "bin/brew"
-        brew = str(candidate) if candidate.is_file() else which("brew")
-        if not brew or Path(run([brew, "--prefix"], env).strip()).resolve() != install.prefix.resolve():
-            return None, env, "owning Homebrew not found; configure runtime-updates command"
-        kind = "--cask" if install.method == "homebrew-cask" else "--formula"
-        brew_env = env | {"HOMEBREW_NO_INSTALL_CLEANUP": "1",
-                          "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK": "1",
-                          "HOMEBREW_NO_SUDO": "1", "HOMEBREW_NO_UPGRADE_QUIT_CASKS": "1",
-                          "HOMEBREW_NO_ASK": "1"}
-        return [brew, "upgrade", kind, install.token], brew_env, None
+        return homebrew_updater(install, run, env, which)
     if install.method == "npm-global":
-        if not all(writable(p) for p in (install.package, install.package.parent, install.prefix / "bin")):
-            return None, env, "npm global installation needs elevated privileges; update it manually"
-        if cli == "claude":
-            return [install.executable, "update"], env, None
-        metadata = json.loads((install.package / "package.json").read_text())
-        if "-" in metadata.get("version", ""):
-            return None, env, "npm prerelease channel is ambiguous; configure runtime-updates command"
-        npm_env = env | {"PATH": str(install.prefix / "bin") + os.pathsep + env.get("PATH", "")}
-        candidate = install.prefix / "bin/npm"
-        npm = str(candidate) if candidate.is_file() else which("npm")
-        if not npm or Path(run([npm, "prefix", "-g"], npm_env).strip()).resolve() != install.prefix.resolve():
-            return None, env, "npm owning this global prefix not found; configure runtime-updates command"
-        return [npm, "install", "-g", "@openai/codex@latest"], npm_env, None
+        return npm_updater(cli, install, run, env, which)
     if install.method == "system" and cli != "ub":
         return None, env, "system package installation needs elevated privileges; update it manually"
     return None, env, f"{install.method} installation; configure runtime-updates.{cli}.command argv"

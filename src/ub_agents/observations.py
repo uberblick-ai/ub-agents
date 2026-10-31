@@ -676,7 +676,7 @@ class Observations:
         self.source_run = None
         self.activity("running assignment")
 
-    def record(self, record):  # noqa: C901, PLR0912
+    def record(self, record):
         if record["kind"] == "reset" or (record["kind"] == "lease" and record["state"] == "claiming"):
             self.state["action_needed"].pop(str(record["assignment"]), None)
         history = self.state["histories"].get(str(record["assignment"]))
@@ -691,61 +691,67 @@ class Observations:
         if record["kind"] == "lease":
             if assignment["run"] not in {None, record["run"]}:
                 return
-            self.source_run = record.get("recovered_run")
-            assignment.update(run=record["run"], runtime=record["runtime"],
-                              lease_state=record["state"], lease_expires=record["expires"])
-            if record.get("attempt") is not None:
-                assignment["attempt"] = record["attempt"]
-            if record.get("mode") == "recovery":
-                assignment.update(process="recovery", process_reason="Recovery starts no agent process",
-                                  recovered_run=self.source_run,
-                                  paths_reason="This recovery has no process log or context")
-            else:
-                if record["state"] == "released" and assignment["process"] in {"starting", "running"}:
-                    assignment.update(process="exited", process_reason="Supervisor released after execution ended")
-                directory = run_directory(self.root, record["run"])
-                assignment.update(process_log=str(directory / "process.log"),
-                                  context_path=str(directory / "context.json"), paths_reason=None)
-                if record["state"] == "running" and assignment["process"] == "claiming":
-                    assignment.update(process="starting", process_reason="No live process has been recorded")
-            if record.get("result"):
-                assignment.update(result=record["result"], summary=record.get("summary", "")[:MAX_TEXT])
-            for outcome in self.state["outcomes"]:
-                if outcome["run"] == (self.source_run or record["run"]):
-                    if record.get("result"):
-                        outcome.update(result=record["result"], summary=record.get("summary", "")[:MAX_TEXT])
+            self.record_lease(record, assignment)
         elif record["kind"] == "outcome" and record["run"] == (self.source_run or assignment["run"]):
-            finalized = bool(record.get("accepted") and record.get("transition_complete"))
-            acceptance = ("rejected" if record.get("rejected") else "finalized" if finalized else
-                          "accepted" if record.get("accepted") else "unaccepted")
-            row = {"item": record["assignment"], "agent": record["agent"], "run": record["run"],
-                   "kind": assignment["kind"], "title": assignment["title"],
-                   "handoff": record.get("handoff"),
-                   "runtime": record.get("runtime") or assignment.get("runtime"),
-                   "result": assignment.get("result", record["status"]),
-                   "summary": assignment.get("summary", record["summary"]),
-                   "report_result": record["status"],
-                   "time": record["created"], "observed_at": iso(self.clock()),
-                   "acceptance": acceptance, "rejection": record.get("rejected"),
-                   "completed": finalized, "transition_complete": bool(record.get("transition_complete")),
-                   "recovered": self.source_run is not None,
-                   "target": record.get("handoff") or record["assignment"],
-                   "human_blocker": (sorted(set(record.get("transition", {}).get("add", ()))
-                                            .intersection(self.stop_labels)) if finalized else None),
-                   "blocker_reason": None if finalized else "Transition is not finalized",
-                   "blocker_observed_at": iso(self.clock()) if finalized else None}
-            row = self.bounded(row)
-            outcomes = self.state["outcomes"]
-            existing = next((i for i, r in enumerate(outcomes) if r["run"] == record["run"]), None)
-            if existing is not None:
-                outcomes[existing] = row
-            else:
-                outcomes.append(row)
-                if len(outcomes) > MAX_OUTCOMES:
-                    outcomes.pop(0)
-                    self.state["omitted"]["outcomes"] += 1
-                    self.prune_histories(self.state)
+            self.record_outcome(record, assignment)
         self.emit()
+
+    def record_lease(self, record, assignment):
+        self.source_run = record.get("recovered_run")
+        assignment.update(run=record["run"], runtime=record["runtime"],
+                          lease_state=record["state"], lease_expires=record["expires"])
+        if record.get("attempt") is not None:
+            assignment["attempt"] = record["attempt"]
+        if record.get("mode") == "recovery":
+            assignment.update(process="recovery", process_reason="Recovery starts no agent process",
+                              recovered_run=self.source_run,
+                              paths_reason="This recovery has no process log or context")
+        else:
+            if record["state"] == "released" and assignment["process"] in {"starting", "running"}:
+                assignment.update(process="exited", process_reason="Supervisor released after execution ended")
+            directory = run_directory(self.root, record["run"])
+            assignment.update(process_log=str(directory / "process.log"),
+                              context_path=str(directory / "context.json"), paths_reason=None)
+            if record["state"] == "running" and assignment["process"] == "claiming":
+                assignment.update(process="starting", process_reason="No live process has been recorded")
+        if record.get("result"):
+            assignment.update(result=record["result"], summary=record.get("summary", "")[:MAX_TEXT])
+        for outcome in self.state["outcomes"]:
+            if outcome["run"] == (self.source_run or record["run"]):
+                if record.get("result"):
+                    outcome.update(result=record["result"], summary=record.get("summary", "")[:MAX_TEXT])
+
+    def record_outcome(self, record, assignment):
+        finalized = bool(record.get("accepted") and record.get("transition_complete"))
+        acceptance = ("rejected" if record.get("rejected") else "finalized" if finalized else
+                      "accepted" if record.get("accepted") else "unaccepted")
+        row = {"item": record["assignment"], "agent": record["agent"], "run": record["run"],
+               "kind": assignment["kind"], "title": assignment["title"],
+               "handoff": record.get("handoff"),
+               "runtime": record.get("runtime") or assignment.get("runtime"),
+               "result": assignment.get("result", record["status"]),
+               "summary": assignment.get("summary", record["summary"]),
+               "report_result": record["status"],
+               "time": record["created"], "observed_at": iso(self.clock()),
+               "acceptance": acceptance, "rejection": record.get("rejected"),
+               "completed": finalized, "transition_complete": bool(record.get("transition_complete")),
+               "recovered": self.source_run is not None,
+               "target": record.get("handoff") or record["assignment"],
+               "human_blocker": (sorted(set(record.get("transition", {}).get("add", ()))
+                                        .intersection(self.stop_labels)) if finalized else None),
+               "blocker_reason": None if finalized else "Transition is not finalized",
+               "blocker_observed_at": iso(self.clock()) if finalized else None}
+        row = self.bounded(row)
+        outcomes = self.state["outcomes"]
+        existing = next((i for i, r in enumerate(outcomes) if r["run"] == record["run"]), None)
+        if existing is not None:
+            outcomes[existing] = row
+        else:
+            outcomes.append(row)
+            if len(outcomes) > MAX_OUTCOMES:
+                outcomes.pop(0)
+                self.state["omitted"]["outcomes"] += 1
+                self.prune_histories(self.state)
 
     def process(self, state, reason):
         if self.state["assignment"]:

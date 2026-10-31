@@ -163,7 +163,7 @@ class Coordinator:
         result = sorted(history, key=lambda record: record["id"]), invalid
         return (*result, histories) if by_item else result
 
-    def plan(self, item, agent, stop_labels, history=None, start=None, matches=None):  # noqa: C901, PLR0912, PLR0915
+    def plan(self, item, agent, stop_labels, history=None, start=None, matches=None):
         history = self.history(item.number) if history is None else history
         matches = matches or AgentMatches.for_item(item, (agent,))
         start = start or check_start(item, agent, matches, stop_labels, self.queue)
@@ -173,9 +173,20 @@ class Coordinator:
         finished = [r for r in latest if r["state"] == "released"
                     or (r.get("result") and r.get("attempt_effect") in {"failure", "unchanged"})]
         attempt = len(previous) + 1
-        state, reason = "ready", "Trigger matched"
         runtime = None
         paused_clis = ()
+        state, reason, owner = self.plan_state(item, agent, history, start, now, latest, finished)
+        if state == "ready":
+            state, reason, runtime, paused_clis = self.plan_runtime(
+                item, agent, history, now, latest, finished, previous, attempt)
+        if state in {"ready", "recover"} and self.actor is not None:
+            if untrusted := self.trust.reason(self.actor):
+                state, reason, runtime = "blocked", untrusted, None
+        return Plan(item, agent, runtime, state, reason, attempt, owner=owner, matches=matches,
+                    paused_clis=paused_clis)
+
+    def plan_state(self, item, agent, history, start, now, latest, finished):
+        state, reason = "ready", "Trigger matched"
         owner = None
         owners = live_leases(history, now)
         if owners:
@@ -200,7 +211,13 @@ class Coordinator:
             state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
                                         f"inspect outcome and use ub-agents retry {item.number} "
                                         f"--agent {agent.name} --reason TEXT")
-        elif attempt > agent.max_attempts:
+        return state, reason, owner
+
+    def plan_runtime(self, item, agent, history, now, latest, finished, previous, attempt):
+        state, reason = "ready", "Trigger matched"
+        runtime = None
+        paused_clis = ()
+        if attempt > agent.max_attempts:
             state, reason = "blocked", ("Attempt limit exhausted; inspect failures and use "
                                         f"ub-agents retry {item.number} --agent {agent.name} --reason TEXT")
         elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
@@ -219,11 +236,7 @@ class Coordinator:
                 paused_clis = exc.clis
             except AgentError as exc:
                 state, reason = "blocked", str(exc)
-        if state in {"ready", "recover"} and self.actor is not None:
-            if untrusted := self.trust.reason(self.actor):
-                state, reason, runtime = "blocked", untrusted, None
-        return Plan(item, agent, runtime, state, reason, attempt, owner=owner, matches=matches,
-                    paused_clis=paused_clis)
+        return state, reason, runtime, paused_clis
 
     @staticmethod
     def head_moved_since_block(item, history, lease):
