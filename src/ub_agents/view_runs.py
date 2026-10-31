@@ -89,7 +89,7 @@ def run_status(row, now):
     return 'running', text(row.get('state'), 'running')
 
 
-def runs_view(row, session, now=None, *, app=None, history=None):
+def runs_view(row, session, now=None, *, app=None, history=None):  # noqa: C901
     # The plain projection remains usable without a running Textual app.
     muted = theme_style(app, 'view-muted', dim=True)
     success = theme_style(app, 'view-success')

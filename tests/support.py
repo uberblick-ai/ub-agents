@@ -14,6 +14,55 @@ from ub_agents.github import Dependency, Item, SubIssue, milestone_title_key
 from ub_agents.records import MARKER, body, payload, records
 
 
+class RecordingCITools:
+    """Run the local CI shell script without fetching, installing or running checks."""
+    sha = "a" * 40
+
+    def __init__(self, root):
+        self.root = root
+        self.log = root / "calls.jsonl"
+        self.tools = root / "tools"
+        self.tools.mkdir()
+        self.scratch = root / "scratch"
+        self.scratch.mkdir()
+        executable = self.tools / "git"
+        executable.write_text(f'''#!{sys.executable}
+import json
+from pathlib import Path
+import shutil
+import sys
+
+root = Path({str(root)!r})
+name, args = Path(sys.argv[0]).name, sys.argv[1:]
+with (root / "calls.jsonl").open("a") as stream:
+    stream.write(json.dumps([name, args, str(Path.cwd())]) + "\\n")
+if name == "git":
+    args = args[2:] if args[:1] == ["-C"] else args
+    if args[:1] == ["rev-parse"]:
+        print({self.sha!r})
+    elif args[:2] == ["worktree", "add"]:
+        shutil.copy2(root / "requirements-dev.txt", Path(args[-2]) / "requirements-dev.txt")
+    elif args[:2] == ["worktree", "remove"]:
+        shutil.rmtree(args[-1])
+elif name == "python3":
+    target = Path(".venv/bin")
+    target.mkdir(parents=True)
+    for command in ("python", "ruff", "mypy", "ub-agents"):
+        (target / command).symlink_to(root / "tools/git")
+if (root / "fail").exists() and (root / "fail").read_text() == name:
+    sys.exit(1)
+''')
+        executable.chmod(0o755)
+        (self.tools / "python3").symlink_to(executable)
+
+    def environment(self):
+        return os.environ | {"PATH": str(self.tools) + os.pathsep + os.environ.get("PATH", ""),
+                             "TMPDIR": str(self.scratch)}
+
+    def calls(self):
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+
 def legacy_approval_body(number, title, body, comments, *, head=None, reviews=(), review_comments=()):
     """Build a previously valid record to verify it grants no authority now."""
     def digest(text):

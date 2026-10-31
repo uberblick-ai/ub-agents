@@ -19,7 +19,7 @@ class Installation:
     native: bool = False
 
 
-def installation(cli, which=None, home=None):
+def installation(cli, which=None, home=None):  # noqa: C901
     executable = (which or shutil.which)(cli)
     if not executable:
         return None
@@ -96,7 +96,7 @@ def claude_updates_disabled(env):
     return None
 
 
-def updater(cli, install, policy, run, env, which=None):
+def updater(cli, install, policy, run, env, which=None):  # noqa: C901, PLR0912
     """Return a targeted argv and environment, or an actionable skip reason."""
     which = which or shutil.which
     if policy == "off":

@@ -329,7 +329,7 @@ def _stop_group(process, grace):
                        next_step=f"confirm process group {process.pid} has exited")
 
 
-def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expires=None,
+def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expires=None,  # noqa: C901, PLR0912
               process_started=None, pass_fds=(), observe_output=None, process_exited=None):
     if os.name != "posix":
         raise AgentError("Process supervision requires Linux or macOS")

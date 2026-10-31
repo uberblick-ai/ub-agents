@@ -315,7 +315,7 @@ def check_launch_setup(config, github, loop, *, interrupt, once=False):
             signal.signal(sig, handler)
 
 
-def run(args):
+def run(args):  # noqa: C901, PLR0912, PLR0915
     if args.command == "init":
         return init_project(args)
     if args.command == "report":
@@ -575,7 +575,7 @@ def launch_error_message(exc, root):
     return " ".join(detail.split())
 
 
-def main(argv=None):
+def main(argv=None):  # noqa: C901, PLR0912, PLR0915
     with ExitStack() as stack:
         args = None
         try:

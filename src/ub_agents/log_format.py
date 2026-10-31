@@ -314,7 +314,7 @@ class ClaudeFormatter(StructuredFormatter):
         # Unfamiliar valid shapes use the same labels as smaller Claude records.
         return self.project(data, raw, capture)
 
-    def _project(self, data):
+    def _project(self, data):  # noqa: C901, PLR0912, PLR0915
         kind = data.get("type")
         if kind == "tool_progress":
             # Preserve the previous raw projection's generic record label.
@@ -458,7 +458,7 @@ class CodexFormatter(StructuredFormatter):
             return Line(line.text + " · " + _one_line(item["type"]), "dim")
         return line
 
-    def _project(self, data):
+    def _project(self, data):  # noqa: C901, PLR0912, PLR0915
         kind = data.get("type")
         if kind in ("thread.started", "turn.started"):
             if kind == "thread.started" and not _identifier(data.get("thread_id")):

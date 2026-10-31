@@ -310,7 +310,7 @@ def preview_config(content, path, planned):
         raise type(exc)(f"Invalid configuration {path} with local overrides {local_path}: {exc}") from exc
 
 
-def _parse_config(data, root, *, planned=()):
+def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
                           "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots",
                           "trusted-pr-authors", "shared-instructions", "events"},

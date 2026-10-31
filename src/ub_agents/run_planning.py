@@ -122,7 +122,7 @@ class RunPlanning:
                         return True
         return control.wait(self.stop, max(0, deadline - self.clock()), on_request=self._requested)
 
-    def _run(self):
+    def _run(self):  # noqa: C901, PLR0912
         elapsed = self.clock() - self.started
         interval, _ = idle_interval(self.loop.discovery_budget.wait_seconds(),
                                     self.planner.config.poll_seconds,

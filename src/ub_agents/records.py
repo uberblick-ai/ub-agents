@@ -114,7 +114,7 @@ def body(record):
             f"```json\n{json.dumps(shown, indent=2, sort_keys=True, ensure_ascii=False)}\n```\n\n</details>\n")
 
 
-def records(comments, actor=None, *, trusted=None):
+def records(comments, actor=None, *, trusted=None):  # noqa: C901, PLR0912
     """Parse marked records, checking author trust before parsing their payloads."""
     result = []
     for comment in comments:
@@ -300,7 +300,7 @@ def resolve_transition(transition, triggers, stop_labels):
                          "remove": sorted(set(triggers).union(transition.get("remove", ())))}
 
 
-def validate(record):
+def validate(record):  # noqa: C901, PLR0912, PLR0915
     for field in ("agent", "actor", "created"):
         if not isinstance(record.get(field), str) or not record[field]:
             raise ValueError(f"missing {field}")

@@ -130,7 +130,7 @@ class Doctor:
                      f"Tailor {path} to the repository's required CI check, maintainer merge rules and review focus",
                      required=False)
 
-    def run(self, path, *, offline=False):
+    def run(self, path, *, offline=False):  # noqa: C901, PLR0912, PLR0915
         self.launcher = running_launcher(Path(path).resolve().parent)
         self.add("python", "ok" if sys.version_info >= (3, 11) else "fail",
                  f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
@@ -314,7 +314,7 @@ class Doctor:
                      "Supervision needs ps; install/allow ps (sandboxes may block process inspection)")
         return self.result()
 
-    def offline(self, config):
+    def offline(self, config):  # noqa: C901
         reason = "offline: GitHub access is not checked"
         for id in ("github-auth", "github-repository", "github-permissions", "github-labels",
                    "github-launcher-role", "github-launcher-listed", "github-rate-limit"):
@@ -438,7 +438,7 @@ class Doctor:
             if not present:
                 self.missing_labels.append(label)
 
-    def agents(self, config):
+    def agents(self, config):  # noqa: C901, PLR0912
         usable = {}
         without_permissions = [agent.name for agent in config.agents
                                if any(not agent.runtime_args_for(runtime) for runtime in agent.runtimes)]
