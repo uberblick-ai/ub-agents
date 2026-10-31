@@ -1,16 +1,28 @@
 # Motivation
 
-ub-agents started because we spent more time managing coding agents than letting them work: starting sessions, waiting for an agent to ask us something, passing work between implementers and reviewers, restarting failed runs. We spent more time waiting than deciding.
+ub-agents started because we spent more time managing coding agents than letting them work: starting sessions, waiting for an agent to ask something, carrying its work to a reviewer, carrying the review back and restarting runs that died. We spent more time waiting than deciding.
 
-We wanted agents to take an issue through implementation, review and integration while we worked on something else, without running another platform to coordinate them. For the bigger picture, see the [Uberblick motivation](https://next.uberblick.ai/docs/motivation/).
+So we split the work. The conversation stays with us: working out with Claude Code or Codex what to build and how. Everything after that decision, implementing, reviewing, revising and merging, goes to a loop that runs in the background on our own machines and stops when it needs one of us. For the bigger picture, see the [Uberblick motivation](https://next.uberblick.ai/docs/motivation/).
 
-## Why not just write a script?
+## Decide in the session, deliver in the loop
 
-You can. Polling GitHub and starting an agent is easy. The hard parts are coordinating several launchers, recovering interrupted runs, limiting review cycles and keeping track of what happened. ub-agents packages those, plus a nifty [terminal UI](/docs/commands/launch.html). If a short script covers your workflow, use the script.
+A session is the right place to think: you read the code with your agent, try ideas and settle the scope. It is the wrong place to sit through a review cycle. When the work is clear, your agent files it as an issue with a label, you start the next conversation, and you come back to a pull request or a question. See [How the loop works](/docs/how-the-loop-works.html).
+
+## People decide
+
+Agents are good at doing the work and less good at judging what matters. An agent that needs a decision stops and asks on the issue instead of guessing. Merges your policy reserves for a maintainer wait for one, and outside contributions need a maintainer's start. See [Approvals](/docs/configuration/approvals.html).
 
 ## No platform to run
 
-A loop with its own server, database, queue and webhooks is one more system to host, secure and debug, and it keeps part of your work away from where your team looks. Your issues and pull requests already live on GitHub, so the loop keeps its queue and history there too, as labels and comments. A launcher needs little more than a checkout and an agent CLI.
+A loop with its own server, database, queue and webhooks is one more system to host, secure and debug, and it keeps part of your work away from where your team looks. Your issues and pull requests already live on GitHub, so the loop keeps its queue and history there too, as labels and comments. A launcher needs a checkout and an agent CLI.
+
+## Your process is code
+
+Corrections typed into a chat are gone by the next session. Agents start fresh every run, so what they need has to be written down. Role instructions live in your repository, change through pull requests, and [retros](/docs/best-practices/retrospectives.html) show where they fall short.
+
+## Every repository is different
+
+A web app wants a browser check before merging, a library a changelog line, and a docs repository may not need a reviewer at all. So the workflow is yours: [init](/docs/commands/init.html) gives you a starter set, and you add, drop or change roles as you need.
 
 ## No lock-in
 
@@ -20,21 +32,11 @@ Agents use the logins their CLIs already have: a seat or an API key set in the l
 
 ## Use the machines you have
 
-Developer laptops are fast and spend much of the day waiting for their owner. We'd rather run ours overnight on the seats we have than pay a hosted agent to fix a simple bug, and they already have the toolchain: language versions, dependencies, Docker and tests.
+Developer laptops are fast and spend much of the day waiting for their owner, and they already have the toolchain: language versions, dependencies, Docker and tests. The models run at the provider, so a launcher mostly waits on GitHub, the agent and your checks. A small server that can run your builds and tests is enough for several loops around the clock, and all launchers share one queue. See [Add more launchers](/docs/guides/add-a-launcher.html).
 
-The models run at the provider, so a launcher mostly waits on GitHub, the agent and your checks. A small server that can run your builds and tests is enough for several loops around the clock. All launchers share the GitHub queue. See [Add more launchers](/docs/guides/add-a-launcher.html).
+## Why not just write a script?
 
-## Every repository is different
-
-A web app wants a browser check before merging, a library a changelog line, and a docs repository may not need a reviewer at all. So the workflow is yours: [init](/docs/commands/init.html) gives you a starter set, and you add, drop or change roles as you need.
-
-## Your process is code
-
-Corrections typed into a chat are gone by the next session. Agents start fresh every run, so what they need has to be written down. Role instructions live in your repository, change through pull requests, and [retros](/docs/best-practices/retrospectives.html) show where they fall short.
-
-## People decide
-
-Agents are good at doing the work and less good at judging what matters. Outside contributions need a maintainer's start, an agent that needs a decision stops and asks, and merges reserved for maintainers wait for them. See [Approvals](/docs/configuration/approvals.html).
+You can. Polling GitHub and starting an agent is easy. The hard parts come later: several launchers claiming the same issue, interrupted runs, review cycles that never end and knowing what happened. ub-agents handles those, plus a [terminal view](/docs/commands/launch.html) of what the loop is doing. If a short script covers your workflow, use the script.
 
 ## Take what fits
 
