@@ -80,7 +80,7 @@ pre code { font: inherit; background: none; padding: 0 }
 
 /* Terminal demo: the terminal view drawn as two framed panes and a status line, animated by site/demo.html. Dark in both themes. */
 .term-section { padding-block: 8px 44px }
-.tui { position: relative; background: var(--term-bg); color: var(--term-fg); border: 1px solid var(--line); border-radius: 8px; padding: 16px 14px 8px; font: 11px/1.5 var(--term); box-shadow: 0 18px 40px rgb(0 0 0 / 12%) }
+.tui { position: relative; perspective: 2400px; background: var(--term-bg); color: var(--term-fg); border: 1px solid var(--line); border-radius: 8px; padding: 16px 14px 8px; font: 11px/1.5 var(--term); box-shadow: 0 18px 40px rgb(0 0 0 / 12%) }
 .tui .g { display: inline-block; width: 1ch; text-align: center; font-style: normal }
 .tui .acc { color: var(--term-acc) } .tui .dim { color: var(--term-dim) } .tui .blue { color: var(--term-blue) } .tui .red { color: var(--term-red) } .tui .green { color: var(--term-green) }
 .tui .tscreen { display: grid; grid-template-columns: minmax(0, 42fr) minmax(0, 70fr); gap: 10px }
@@ -117,14 +117,22 @@ pre code { font: inherit; background: none; padding: 0 }
 .tui .wt.on { background: var(--term-sel); color: var(--term-fg) }
 .tui .twin button { margin-left: auto; font: inherit; color: var(--term-dim); background: none; border: 1px solid var(--term-rule); border-radius: 4px; padding: 0 8px; cursor: pointer }
 .tui .twin button:hover { color: var(--term-fg); background: var(--term-sel) }
-.tui .tviews { display: grid }
-.tui .tviews > * { grid-area: 1 / 1; min-width: 0; transition: opacity .3s }
-.tui.on-cc .ub, .tui:not(.on-cc) .cc { visibility: hidden; opacity: 0 }
+/* The two programs are the faces of one card: switching flips it over. */
+.tui .tviews { display: grid; transform-style: preserve-3d; transform: rotateY(180deg); transition: transform .9s cubic-bezier(.45, .05, .2, 1) }
+.tui.on-cc .tviews { transform: none }
+.tui .tviews > * { grid-area: 1 / 1; min-width: 0; background: var(--term-bg); backface-visibility: hidden; -webkit-backface-visibility: hidden }
+.tui .ub { transform: rotateY(180deg) }
 .tui .cc { contain: size; display: flex; flex-direction: column; overflow: hidden; font-size: 12px; padding: 0 4px }
 .tui .cclog { flex: 1; min-height: 0; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden }
 .tui .cclog li { padding: 3px 0 3px 2ch; text-indent: -2ch; overflow-wrap: anywhere; animation: tui-in .25s ease-out both }
-.tui .cclog li.u { color: var(--term-dim); margin-top: 6px }
+.tui .cclog li { color: #b4b0c2 }
+.tui .cclog li.u { color: var(--term-fg); margin-top: 6px } .tui .cclog li.u .p { color: var(--term-acc) }
+.tui .cclog li.u.key { color: var(--term-acc); font-weight: 600; background: var(--term-sel); border-radius: 3px; padding-right: 1ch }
 .tui .cclog li.o { padding-left: 4ch; color: var(--term-dim); padding-top: 0 }
+.tui .cclog li.quiet, .tui .cclog li.quiet b, .tui .cclog li.quiet .dot { color: var(--term-dim) }
+.tui .cclog li.o.pick { color: var(--term-acc); font-weight: 600 }
+.tui .cclog li.hi { color: var(--term-fg) } .tui .cclog li.o.hi { color: var(--term-green) }
+.tui .cclog li.a.hi:not(.t) { font-weight: 600 }
 .tui .cclog .dot { font-style: normal; color: var(--term-fg) }
 .tui .cclog .t .dot { color: var(--term-green) }
 .tui .cclog .t .dot.run { color: var(--term-dim); animation: tui-blink .8s steps(1) infinite }
@@ -176,7 +184,11 @@ pre code { font: inherit; background: none; padding: 0 }
 .tui .truns th:nth-child(1) { width: 13ch } .tui .truns th:nth-child(2) { width: 9ch } .tui .truns th:nth-child(4) { width: 13ch } .tui .truns th:nth-child(5) { width: 24ch }
 .tui .tfoot { padding-top: 5px; border-top: 1px dashed var(--term-rule); color: var(--term-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 2.1em }
 .tui .tstatus { display: flex; justify-content: space-between; gap: 16px; margin-top: 8px; padding: 0 2px; color: var(--term-dim); white-space: pre; overflow: hidden }
-.tui .tkey { position: absolute; right: 18px; bottom: 34px; display: flex; align-items: center; gap: 8px; font: 600 13px/1 var(--term); color: var(--term-bg); background: var(--term-acc); border-radius: 5px; padding: 6px 9px; box-shadow: 0 0 0 3px rgb(0 0 0 / 35%); opacity: 0; pointer-events: none }
+.tui .tcap { display: flex; align-items: baseline; gap: 10px; min-height: 1.5em; margin: 10px -14px -8px; padding: 9px 16px 10px; border-top: 1px solid var(--term-rule); font: 500 14px/1.5 var(--mono); color: var(--term-fg) }
+.tui .tcap:empty { visibility: hidden }
+.tui .tcap.on { animation: tui-in .4s ease-out both }
+.tui .tcap .n { flex: none; width: 1.6em; height: 1.6em; display: inline-grid; place-items: center; align-self: center; border-radius: 50%; background: var(--term-acc); color: var(--term-bg); font: 600 12px/1 var(--term) }
+.tui .tkey { position: absolute; z-index: 2; right: 18px; bottom: 76px; display: flex; align-items: center; gap: 8px; font: 600 13px/1 var(--term); color: var(--term-bg); background: var(--term-acc); border-radius: 5px; padding: 6px 9px; box-shadow: 0 0 0 3px rgb(0 0 0 / 35%); opacity: 0; pointer-events: none }
 .tui .tkey span { font-weight: 400; font-size: 11px }
 .tui .tkey.on { animation: tui-key 1.6s ease-out both }
 @keyframes tui-in { from { opacity: 0; transform: translateY(3px) } to { opacity: 1; transform: none } }
@@ -189,9 +201,10 @@ pre code { font: inherit; background: none; padding: 0 }
   .tui .tlog li { grid-template-columns: minmax(0, 1fr) }
   .tui .tbody { height: 24em }
   .tui .truns th:nth-child(4), .tui .truns td:nth-child(4) { display: none }
-  .tui .tkey { bottom: 12px }
+  .tui .tcap { margin-inline: -10px; padding-inline: 12px; font-size: 13px }
+  .tui .tkey { bottom: 58px }
 }
-@media (prefers-reduced-motion: reduce) { .tui *, .tui .tkey.on { animation: none !important } }
+@media (prefers-reduced-motion: reduce) { .tui *, .tui .tkey.on { animation: none !important } .tui .tviews { transition: none } }
 figure { margin: 0 }
 figcaption { font-size: 13px; color: var(--muted); margin-top: 10px }
 
