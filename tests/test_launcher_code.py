@@ -125,10 +125,12 @@ GitHub = lambda repository: fixture
         dependency.mkdir()
         (dependency / "__init__.py").touch()
         (dependency / "lazy.py").write_text("VALUE = 'retained dependency'\n")
+        (dependency / "data.txt").write_text("retained resource")
         (packages / "ub_agents/startup_probe.py").write_text(
             "from kept_dependency.lazy import VALUE\nprint(VALUE)\n")
         script = '''
 import pathlib, shlex, shutil, subprocess, sys
+from importlib.resources import files
 import kept_dependency
 from ub_agents.launcher_code import startup_copy, helper_command, descriptors
 from ub_agents.report_command import launcher_report_command
@@ -136,6 +138,8 @@ with startup_copy():
     shutil.rmtree(sys.argv[1])
     from kept_dependency.lazy import VALUE
     assert VALUE == 'retained dependency'
+    assert files('kept_dependency').joinpath('data.txt').read_text() == 'retained resource'
+    assert files('ub_agents').joinpath('templates/ub-agents.yaml').is_file()
     result = subprocess.run(helper_command('ub_agents.startup_probe'), pass_fds=descriptors(),
                             capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr

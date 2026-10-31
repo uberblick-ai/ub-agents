@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import threading
 import unittest
@@ -130,6 +131,16 @@ class SelfUpdateTests(unittest.TestCase):
             self.boundary()
         self.assertFalse(any("update" in call or "upgrade" in call for call in self.calls))
         self.assertEqual(self.calls[-1][0], "gh")
+
+    def test_peer_cleanup_of_startup_receipt_does_not_prevent_restart(self):
+        source = self.install.cellar / __version__ / "libexec/site-packages/ub_agents"
+        manager = SelfUpdates(self.lines.append, self.stop, detect=lambda: installation(source),
+                              runner=self.run_command, clock=lambda: self.clock)
+        self.put_keg(self.target)
+        shutil.rmtree(self.install.cellar / __version__)
+        self.assertIsNone(installation(source)[0])
+        with self.assertRaises(RestartLauncher):
+            manager.boundary(self.settings, self.updates)
 
     def test_unchanged_formula_or_successful_noop_does_not_restart(self):
         self.target = __version__

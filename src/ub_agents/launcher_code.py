@@ -1,6 +1,7 @@
 """Keep a launcher, its runs and Python helpers on one startup package copy."""
 
 from contextlib import contextmanager, ExitStack
+from importlib.util import spec_from_file_location
 import os
 from pathlib import Path
 import shutil
@@ -28,7 +29,7 @@ def descriptors():
 
 
 def helper_command(module):
-    # Keep a virtualenv's interpreter symlink, and ignore cwd and PYTHONPATH.
+    # Use the saved Homebrew runtime, and ignore cwd and PYTHONPATH.
     # The bootstrap inserts the copied package ahead of editable-install finders.
     descriptor = descriptors()[0] if _active else -1
     return [interpreter(), "-I", str(package_directory() / "helper_command.py"),
@@ -51,7 +52,7 @@ def _copy_runtime(path):
                 if parent.parent.name == "ub-agents" and parent.parent.parent.name == "Cellar"), None)
     if keg is None:
         return []
-    python = Path(sys.executable).resolve(strict=True)
+    python = Path(getattr(sys, "_base_executable", sys.executable)).resolve(strict=True)
     if python.is_relative_to(keg):
         raise OSError("Homebrew Python is inside the removable ub-agents keg")
     (path / "python").symlink_to(python)
@@ -80,12 +81,21 @@ def _cleanup(path):
 def _activate(path, stream, locations=()):
     global _active
     package = sys.modules["ub_agents"]
-    previous, previous_path = _active, package.__path__
+    previous = _active
     _active = path, stream
-    # Launcher modules imported lazily after refresh must use the copy too.
-    package.__path__ = [str(path / "ub_agents")]
     previous_sys_path = sys.path[:]
     packages = []
+
+    def relocate(module, paths):
+        # Resource readers use the package spec/loader rather than __path__.
+        packages.append((module, module.__path__, module.__file__, module.__spec__, module.__loader__))
+        module.__path__ = paths
+        module.__file__ = str(Path(paths[0]) / "__init__.py")
+        module.__spec__ = spec_from_file_location(module.__name__, module.__file__, submodule_search_locations=paths)
+        module.__loader__ = module.__spec__.loader
+
+    # Launcher imports and package resources must both use the startup copy.
+    relocate(package, [str(path / "ub_agents")])
     for source, target in locations:
         sys.path[:] = [target if Path(entry).resolve() == Path(source) else entry for entry in sys.path]
         for module in tuple(sys.modules.values()):
@@ -94,15 +104,14 @@ def _activate(path, stream, locations=()):
                 replacement = [str(Path(target) / Path(entry).resolve().relative_to(source))
                                if Path(entry).resolve().is_relative_to(source) else entry for entry in paths]
                 if replacement != list(paths):
-                    packages.append((module, paths))
-                    module.__path__ = replacement
+                    relocate(module, replacement)
     try:
         yield path
     finally:
         sys.path[:] = previous_sys_path
-        for module, paths in packages:
-            module.__path__ = paths
-        _active, package.__path__ = previous, previous_path
+        for module, paths, filename, spec, loader in reversed(packages):
+            module.__path__, module.__file__, module.__spec__, module.__loader__ = paths, filename, spec, loader
+        _active = previous
 
 
 @contextmanager

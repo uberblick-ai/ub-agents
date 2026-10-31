@@ -75,6 +75,8 @@ def release_range(pages, running, target):
                 raise ValueError("release markers could not be read")
             if release.get("draft") is True or release.get("prerelease") is True:
                 continue
+            if release.get("draft") is not False or release.get("prerelease") is not False:
+                raise ValueError("release markers could not be read")
             candidate = version(release.get("tag_name"))
             if not version(running) < candidate <= version(target):
                 continue
@@ -93,7 +95,10 @@ def release_range(pages, running, target):
 
 class SelfUpdates:
     def __init__(self, output=print, stop_event=None, *, detect=installation, runner=None, clock=time.monotonic):
-        self.output, self.stop_event, self.detect, self.clock = output, stop_event, detect, clock
+        self.output, self.stop_event, self.clock = output, stop_event, clock
+        # The startup keg may disappear while another launcher upgrades. Retain
+        # its verified ownership; subsequent version probes use the current opt.
+        self.install, self.reason = detect()
         # Stop requests never interrupt Homebrew; its deadline still applies.
         self.runner = runner or partial(RuntimeMaintenance()._run, output_limit=16 * 1024 * 1024)
         self.checked = None
@@ -116,7 +121,7 @@ class SelfUpdates:
         settings = config.runtime_updates
         if settings is None or settings.policies.get("ub-agents", "off") != "auto" or self.stopped():
             return
-        install, reason = self.detect()
+        install, reason = self.install, self.reason
         if reason:
             if reason not in self.skipped:
                 self.skip(reason, updates)
