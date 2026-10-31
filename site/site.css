@@ -112,8 +112,33 @@ pre code { font: inherit; background: none; padding: 0 }
 .tui .tab.on { background: var(--term-acc); color: var(--term-bg) }
 .tui .tsep { color: var(--term-rule); margin: 0 6px 0 4px }
 .tui .tmode { white-space: pre } .tui .tmode .u { color: var(--term-acc); text-decoration: underline; text-underline-offset: 2px }
-.tui .tbar button { margin-left: auto; font: inherit; color: var(--term-dim); background: none; border: 1px solid var(--term-rule); border-radius: 4px; padding: 0 8px; cursor: pointer }
-.tui .tbar button:hover { color: var(--term-fg); background: var(--term-sel) }
+.tui .twin { display: flex; align-items: center; gap: 4px; margin: -6px -2px 14px; padding-bottom: 8px; border-bottom: 1px solid var(--term-rule); color: var(--term-dim); white-space: nowrap }
+.tui .wt { padding: 1px 10px; border-radius: 4px; transition: background .2s, color .2s }
+.tui .wt.on { background: var(--term-sel); color: var(--term-fg) }
+.tui .twin button { margin-left: auto; font: inherit; color: var(--term-dim); background: none; border: 1px solid var(--term-rule); border-radius: 4px; padding: 0 8px; cursor: pointer }
+.tui .twin button:hover { color: var(--term-fg); background: var(--term-sel) }
+.tui .tviews { display: grid }
+.tui .tviews > * { grid-area: 1 / 1; min-width: 0; transition: opacity .3s }
+.tui.on-cc .ub, .tui:not(.on-cc) .cc { visibility: hidden; opacity: 0 }
+.tui .cc { contain: size; display: flex; flex-direction: column; overflow: hidden; font-size: 12px; padding: 0 4px }
+.tui .cclog { flex: 1; min-height: 0; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden }
+.tui .cclog li { padding: 3px 0 3px 2ch; text-indent: -2ch; overflow-wrap: anywhere; animation: tui-in .25s ease-out both }
+.tui .cclog li.u { color: var(--term-dim); margin-top: 6px }
+.tui .cclog li.o { padding-left: 4ch; color: var(--term-dim); padding-top: 0 }
+.tui .cclog .dot { font-style: normal; color: var(--term-fg) }
+.tui .cclog .t .dot { color: var(--term-green) }
+.tui .cclog .t .dot.run { color: var(--term-dim); animation: tui-blink .8s steps(1) infinite }
+.tui .cclog b { font-weight: 600 }
+.tui .ccask { margin-top: 8px; border: 1px solid var(--term-acc); border-radius: 6px; padding: 8px 12px; animation: tui-in .25s ease-out both }
+.tui .ccask .cq { margin-bottom: 6px } .tui .ccask .ch { background: var(--term-sel); color: var(--term-acc); padding: 0 6px }
+.tui .ccask .co { display: flex; flex-direction: column; padding: 2px 0; white-space: pre }
+.tui .ccask .co.sel { color: var(--term-acc) }
+.tui .ccask .cd { color: var(--term-dim); padding-left: 5ch; white-space: normal }
+.tui .ccask .ck { padding: 6px 0 0 }
+.tui .ccin { margin-top: 8px; border: 1px solid var(--term-rule); border-radius: 6px; padding: 6px 10px; min-height: 1.5em; white-space: pre-wrap }
+.tui .ccin[hidden] { display: none }
+.tui .caret { display: inline-block; width: 1ch; height: 1.2em; margin-left: 1px; vertical-align: text-bottom; background: var(--term-fg); animation: tui-blink 1s steps(1) infinite }
+.tui .cchint { padding: 4px 2px 0; color: var(--term-dim) }
 .tui .thead { padding: 6px 0; border-bottom: 1px dashed var(--term-rule) }
 .tui .thead .t1 { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .tui .thead .ino { text-decoration: underline; text-underline-offset: 2px }
@@ -155,6 +180,7 @@ pre code { font: inherit; background: none; padding: 0 }
 .tui .tkey span { font-weight: 400; font-size: 11px }
 .tui .tkey.on { animation: tui-key 1.6s ease-out both }
 @keyframes tui-in { from { opacity: 0; transform: translateY(3px) } to { opacity: 1; transform: none } }
+@keyframes tui-blink { 50% { opacity: 0 } }
 @keyframes tui-key { 0% { opacity: 0; transform: translateY(4px) } 12%, 70% { opacity: 1; transform: none } 100% { opacity: 0 } }
 @media (max-width: 760px) {
   .tui { font-size: 10.5px; padding: 14px 10px 8px }

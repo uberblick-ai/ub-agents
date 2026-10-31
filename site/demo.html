@@ -1,14 +1,25 @@
-<div class="tui" id="tui" role="img" aria-label="An animated example of the ub-agents terminal view on the ub-agents repository. The launcher picks issue 630 and an implementer starts on it. Its Agent tab streams the run: it reads the issue and the code, edits four files, runs the tests and opens pull request 632. The view switches to the Issue and Runs tabs and back. Then it selects issue 589, where the issue-preparer asked a person to decide, and its Unblock tab lists three options with a recommendation and the command that resumes the agent. When the implementer finishes, the pull request moves on to the reviewer.">
+<div class="tui" id="tui" role="img" aria-label="An animated example on the ub-agents repository. In Claude Code, a person asks how to fix the milestone order, picks one of three options Claude offers, and says to file issues for the loop. Claude files issues 630 and 636 labelled ready. The view switches to the ub-agents terminal view, which is idle until the two issues appear under Eligible one by one. The launcher picks issue 630 and an implementer starts on it. Its Agent tab streams the run: it reads the issue and the code, edits four files, runs the tests and opens pull request 632. The view switches to the Issue and Runs tabs and back. Then it selects issue 589, where the issue-preparer asked a person to decide, and its Unblock tab lists three options with a recommendation and the command that resumes the agent. When the implementer finishes, the pull request moves on to the reviewer.">
+  <div class="twin"><span class="wt" id="twcc">claude</span><span class="wt on" id="twub">ub-agents launch</span><button type="button" id="treplay">Replay</button></div>
+  <div class="tviews">
+  <div class="cc" id="cc">
+    <ol class="cclog" id="cclog"></ol>
+    <div class="ccask" id="ccask" hidden></div>
+    <div class="ccin" id="ccin"><span class="dim">&gt;</span> <span id="cctype"></span><span class="caret"></span></div>
+    <div class="cchint">? for shortcuts</div>
+  </div>
+  <div class="ub">
   <div class="tscreen">
     <div class="pane twork"><div class="ptitle">Work · pass complete</div><div id="twork"></div></div>
     <div class="pane tside"><div class="ptitle" id="tptitle">Agent</div>
-      <div class="tbar"><span id="ttabs"></span><span class="tsep">│</span><span class="tmode"><span class="u">Formatted</span>  Raw</span><button type="button" id="treplay">Replay</button></div>
+      <div class="tbar"><span id="ttabs"></span><span class="tsep">│</span><span class="tmode"><span class="u">Formatted</span>  Raw</span></div>
       <div class="thead" id="thead"></div>
       <div class="tbody" id="tbody"></div>
       <div class="tfoot" id="tfoot"></div>
     </div>
   </div>
   <div class="tstatus"><span id="tstatus">ub-agents · uberblick-ai/ub-agents</span><span>1-4 tabs  ↑↓ select  ? keys  q quit</span></div>
+  </div>
+  </div>
   <kbd class="tkey" id="tkey" aria-hidden="true"></kbd>
 </div>
 <script type="module">
@@ -25,8 +36,7 @@
     630: { ref: '#630', title: 'Order milestone titles with numbers compared as numbers' },
     632: { ref: '⌥632', title: 'Order milestone titles by comparing numbers numerically' },
     589: { ref: '#589', title: 'Give agent runs a narrower GitHub token' },
-    633: { ref: '#633', title: 'Trim the coordination records to the fields only they can hold' },
-    631: { ref: '#631', title: 'Cut the 0.3.6 release' },
+    636: { ref: '#636', title: 'Add milestones: strict-gate, which waits for the current milestone to close' },
     628: { ref: '⌥628', title: 'Collapse a run\'s claim once its outcome is posted' },
     624: { ref: '#624', title: 'Trust listed bots as PR authors' },
   };
@@ -34,7 +44,7 @@
     630: { claim: '11:37:05', meta: 'implementer · codex gpt-6.1-sol xhigh · attempt 1', lines: [
       ['info', '11:37:05', 'claimed <b>#630</b> Order milestone titles with numbers compared as numbers · implementer · attempt 1'],
       ['tool', '11:37:09', '<b>Bash</b> gh issue view 630 --comments', '', 900],
-      ['think', '11:37:14', 'The preparer narrowed this to one sort key that the GitHub client and the test fake share. Digit runs compare as numbers, so v0.5.9 sorts before v0.5.10.', '', 1200],
+      ['think', '11:37:14', 'The issue settles the approach: one sort key that the GitHub client and the test fake share. Digit runs compare as numbers, so v0.5.9 sorts before v0.5.10.', '', 1200],
       ['tool', '11:37:16', '<b>Read</b> AGENTS.md', '', 700],
       ['tool', '11:37:17', '<b>Read</b> .agents/implementer.md', '', 600],
       ['tool', '11:37:20', '<b>Grep</b> milestone_order', '2 files', 800],
@@ -83,7 +93,7 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
 <p class="dim">Source: GitHub · milestone v0.4.0 · filed by bk-one</p>`,
   };
   const RUNS = {
-    630: [['10 min ago', '✓', 'filed by bk-one', 'GitHub', 'filed'], ['6 min ago', '✓', 'issue-preparer · Issue prepared: checked the scope…', 'uberblick', 'prepared'], ['just now', 'spin', 'implementer', 'this machine', 'running']],
+    630: [['1 min ago', '✓', 'filed by bk-one · ready', 'GitHub', 'filed'], ['just now', 'spin', 'implementer', 'this machine', 'running']],
     589: [['5 days ago', '✓', 'filed by bk-one', 'GitHub', 'filed'], ['6 h ago', '✗', 'issue-preparer · Needs a token source', 'uberblick', 'needs-human · BLOCKED: token source']],
   };
   const UNBLOCK = `<p>Agent runs inherit the launcher's GitHub login, so a run can do anything the launcher account can. A narrower token per run needs a source the launcher does not have today.</p>
@@ -100,13 +110,11 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
   function fresh() {
     return {
       running: [], attention: [{ id: 589, glyph: '?', gcls: 'red', right: '6h', rcls: 'red', sub: 'issue-preparer · needs-human · token source' }],
-      eligible: [{ id: 630, glyph: '●', gcls: 'green', right: 'next', rcls: 'green', sub: 'implementer' },
-                 { id: 633, glyph: '●', gcls: 'green', right: 'ready', sub: 'implementer' },
-                 { id: 631, glyph: '●', gcls: 'green', right: 'low', sub: 'issue-preparer · priority:low', low: true }],
+      eligible: [],
       recent: [{ id: 628, glyph: '✓', gcls: 'green', right: 'merged', sub: 'integrator · 11:02 · squash-merged' },
                { id: 628, glyph: '✓', gcls: 'green', right: 'approved', sub: 'reviewer · 10:51' },
                { id: 624, glyph: '✓', gcls: 'green', right: 'merged', sub: 'integrator · 10:20 · squash-merged' }],
-      sel: 630, tab: 'agent', act: 'picking next item', open: false,
+      sel: null, tab: 'agent', act: 'idle', open: false,
     };
   }
 
@@ -119,9 +127,9 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
   let seen = new Set();
   function renderWork() {
     const sec = (label, cls, rows, extra) => `<div class="sec ${cls}"><div class="sh">${label}</div>${rows.map(row).join('')}${extra || ''}</div>`;
-    let h = sec(`Running · ${S.running.length}`, 's-run', S.running, S.running.length ? '' : `<div class="idle">${S.act === 'picking next item' ? g(FRAMES[0], 'spin') + ' picking next item' : 'Idle'}</div>`);
+    let h = sec(`Running · ${S.running.length}`, 's-run', S.running, S.running.length ? '' : `<div class="idle">${S.act === 'picking next item' ? g(FRAMES[0], 'spin') + ' picking next item' : (S.eligible.length ? 'Idle' : 'Idle · nothing eligible for this launcher')}</div>`);
     if (S.attention.length) h += sec(`Needs attention · ${S.attention.length}`, 's-att', S.attention);
-    h += sec(`Eligible · ${S.eligible.length}`, 's-elig', S.eligible);
+    if (S.eligible.length) h += sec(`Eligible · ${S.eligible.length}`, 's-elig', S.eligible);
     h += sec(`Recent activity · ${S.recent.length + 1} today`, 'past', S.recent.slice(0, 3).map(r => ({ ...r, past: true })));
     work.innerHTML = h;
     const now = new Set();
@@ -168,6 +176,11 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
   let runId = 0;
 
   function renderSide() {
+    if (!S.sel) {
+      tabs.innerHTML = '<span class="tab on">1 Agent</span><span class="tab">2 Issue</span><span class="tab">3 Runs</span>'; ptitle.textContent = 'Agent';
+      head.innerHTML = '<div class="t1">&nbsp;</div><div class="t2">&nbsp;</div>'; body.replaceChildren(Object.assign(document.createElement('p'), { className: 'tempty', textContent: 'No run in progress.' })); foot.innerHTML = '';
+      status.textContent = `ub-agents · uberblick-ai/ub-agents · ${S.act}`; return;
+    }
     const id = S.sel, it = ITEMS[id], attention = S.attention.some(r => r.id === id);
     if (S.tab === 'unblock' && !attention) S.tab = 'agent';
     const names = { agent: 'Agent', issue: 'Issue', runs: 'Runs', unblock: 'Unblock' };
@@ -196,6 +209,53 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
   }
   const render = () => { renderWork(); renderSide(); };
 
+  // The Claude Code session before the loop: discuss, decide, file the issues.
+  const cclog = $('cclog'), ask = $('ccask'), ccin = $('ccin'), typed = $('cctype');
+  function view(v) { tui.classList.toggle('on-cc', v === 'cc'); $('twcc').classList.toggle('on', v === 'cc'); $('twub').classList.toggle('on', v !== 'cc'); }
+  function line(cls, html) { const li = document.createElement('li'); li.className = cls; li.innerHTML = html; cclog.append(li); return li; }
+  async function type(text, id) {
+    for (const ch of text) { typed.textContent += ch; await sleep(26 + Math.random() * 30, id); }
+    await sleep(500, id); await press('⏎', 'Send', id);
+    typed.textContent = ''; line('u', `&gt; ${esc(text)}`); await sleep(700, id);
+  }
+  async function say(text, id) {
+    const s = line('a', `<i class="dot">⏺</i> <span></span>`).lastChild, words = text.split(' ');
+    for (let k = 0; k < words.length; k++) { s.textContent += (k ? ' ' : '') + words[k]; await sleep(40 + Math.random() * 35, id); }
+    await sleep(700, id);
+  }
+  async function tool(name, arg, out, id) {
+    const li = line('a t', `<i class="dot run">⏺</i> <b>${name}</b>(${esc(arg)})`);
+    await sleep(900, id); li.firstChild.classList.remove('run'); line('o', `⎿  ${out}`); await sleep(500, id);
+  }
+  const OPTIONS = [['Compare numbers as numbers (Recommended)', 'v0.5.9 before v0.5.10; titles without numbers keep plain order'],
+                   ['Order by creation date', 'a milestone created late sorts last, whatever its version'],
+                   ['Keep plain string order', 'v0.5.10 stays before v0.5.9']];
+  function choices(sel) {
+    ask.innerHTML = `<div class="cq"><span class="ch">Milestone order</span></div><div class="cq"><b>How should the queue order milestone titles?</b></div>` +
+      OPTIONS.map(([o, d], i) => `<div class="co${i === sel ? ' sel' : ''}"><span>${i === sel ? '❯' : ' '} ${i + 1}. ${o}</span><span class="cd">${d}</span></div>`).join('') +
+      `<div class="cd ck">Enter to select · ↑↓ to navigate · Esc to cancel</div>`;
+  }
+  async function claude(id) {
+    cclog.replaceChildren(); typed.textContent = ''; ask.hidden = true; ccin.hidden = false; view('cc');
+    await sleep(900, id);
+    await type('v0.5.10 sorts before v0.5.9, so the milestone gate can pick the wrong milestone. How should we fix the order?', id);
+    await tool('Grep', 'milestone_order', 'Found 2 files', id);
+    await tool('Read', 'src/ub_agents/github.py', 'Read 412 lines', id);
+    await say('Both the GitHub client and the test fake sort milestones by the plain title. One decision before I write this up:', id);
+    choices(0); ccin.hidden = true; ask.hidden = false;
+    await sleep(2600, id); await press('↓', 'Select', id); choices(1);
+    await sleep(1500, id); await press('↑', 'Select', id); choices(0);
+    await sleep(1000, id); await press('⏎', 'Choose', id);
+    ask.hidden = true; ccin.hidden = false; line('o', '⎿  Compare numbers as numbers'); await sleep(600, id);
+    await say('Then the scope is one sort key shared by the client and the fake, digit runs compared as numbers, the exact title breaking ties, and a line in the queue docs. Waiting until a milestone is closed is a separate issue: a strict gate.', id);
+    await sleep(800, id);
+    await type('file issues for the loop', id);
+    await tool('Bash', 'gh issue create --label ready --title "Order milestone titles with numbers compared as numbers" …', 'https://github.com/uberblick-ai/ub-agents/issues/630', id);
+    await tool('Bash', 'gh issue create --label ready --title "Add milestones: strict-gate, which waits for the current milestone to close" …', 'https://github.com/uberblick-ai/ub-agents/issues/636', id);
+    await say('Filed #630 and #636 as ready, since both are decided. The loop picks them up from here.', id);
+    await sleep(2200, id);
+  }
+
   async function press(k, label, id) {
     key.innerHTML = `${k}<span>${label}</span>`; key.classList.remove('on'); void key.offsetWidth; key.classList.add('on');
     await sleep(350, id);
@@ -203,19 +263,26 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
 
   async function play() {
     const id = ++gen; runId = id;
-    S = fresh(); seen = new Set(); logs = { 589: buildLog(589) };
+    S = fresh(); seen = new Set(); logs = { 589: buildLog(589) }; view('ub');
     for (const li of logs[589].children) li.classList.add('on');
     logs[589].querySelectorAll('.r').forEach(r => r.classList.add('on'));
     render();
     if (reduce) { // one still frame: the run in progress, its log so far
-      S.eligible.shift(); S.running = [{ id: 630, glyph: FRAMES[0], gcls: 'blue', right: '04:25', sub: 'implementer · this launcher · attempt 1' }]; S.act = 'running assignment';
+      S.eligible = [{ id: 636, glyph: '●', gcls: 'green', right: 'ready', sub: 'implementer' }]; S.sel = 630;
+      S.running = [{ id: 630, glyph: FRAMES[0], gcls: 'blue', right: '04:25', sub: 'implementer · this launcher · attempt 1' }]; S.act = 'running assignment';
       logs[630] = buildLog(630); render();
       [...logs[630].children].slice(0, 15).forEach(li => { li.classList.add('on'); const r = li.querySelector('.r'); if (r) r.classList.add('on'); const s = li.querySelector('.el'); if (s) s.textContent = ` · ${li.dataset.el}s`; });
       follow(logs[630]); return;
     }
     spin = spin || setInterval(() => { frame = (frame + 1) % FRAMES.length; for (const s of tui.querySelectorAll('.spin')) s.textContent = FRAMES[frame]; }, 100);
     try {
-      await sleep(1800, id);
+      await claude(id);
+      await press('⌘2', 'ub-agents launch', id); view('ub');
+      await sleep(1800, id); S.act = 'polling'; render();
+      await sleep(700, id); S.eligible.push({ id: 630, glyph: '●', gcls: 'green', right: 'next', rcls: 'green', sub: 'implementer' }); S.act = 'idle'; S.sel = 630; render();
+      await sleep(1400, id); S.eligible.push({ id: 636, glyph: '●', gcls: 'green', right: 'ready', sub: 'implementer' }); render();
+      await sleep(1600, id); S.act = 'picking next item'; render();
+      await sleep(1500, id);
       S.eligible.shift(); S.running = [{ id: 630, glyph: FRAMES[0], gcls: 'blue', right: '00:00', sub: 'implementer · this launcher · attempt 1' }];
       S.act = 'running assignment'; logs[630] = buildLog(630); render();
       const run = stream(630, logs[630]).then(() => true, () => false);

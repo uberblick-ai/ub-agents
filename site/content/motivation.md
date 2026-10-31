@@ -1,6 +1,6 @@
 # Motivation
 
-Once coding agents could write most of the code, our job changed. We were starting sessions, waiting for an agent to ask something, carrying its work to a reviewer, carrying the review back and restarting runs that died. We spent more time waiting than deciding.
+ub-agents started because we spent more time managing coding agents than letting them work: starting sessions, waiting for an agent to ask something, carrying its work to a reviewer, carrying the review back and restarting runs that died. We spent more time waiting than deciding.
 
 So we split the work. The conversation stays with us: working out with Claude Code or Codex what to build and how. Everything after that decision, implementing, reviewing, revising and merging, goes to a loop that runs in the background on our own machines and stops when it needs one of us. For the bigger picture, see the [Uberblick motivation](https://next.uberblick.ai/docs/motivation/).
 
