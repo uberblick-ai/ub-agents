@@ -4,12 +4,13 @@ import json
 import os
 import socket
 import threading
-from collections import Counter, deque
+from collections import Counter
 from contextlib import contextmanager, nullcontext
 from time import monotonic
 from dataclasses import replace
 
 from . import approvals as input_approvals
+from . import queue_order
 from .agent_health import AgentHealth
 from .attention import latest_notice
 from .approvals import ApprovalCheck, pr_author_exclusions, resolve_policy
@@ -377,93 +378,13 @@ class Loop:
             approval = check()
         return approval
 
-    @staticmethod
-    def _rank(plan, priority):
-        existing = plan.item.kind == "pr" or plan.state in {"owned", "recover"}
-        return (priority.labels.index(plan.priority) if plan.priority is not None else len(priority.labels),
-                0 if existing else 1,
-                0 if existing else plan.milestone_rank,
-                seconds(plan.item.created_at), plan.item.number)
-
     def plans(self):
         # Status evaluates every row, with fresh inputs even on a reused Loop.
         plans = self.iter_plans(cached=False)
         if self.config.queue.milestones == "gate":
             return list(plans)
         return sorted(plans,
-                      key=lambda plan: self._rank(plan, self.config.queue.priority))
-
-    def _milestone_plans(self, plans, milestones, *, approve=None):  # noqa: C901
-        # Eligibility must be known before choosing a milestone. Merge the
-        # milestone-first queue with unlisted issues one choice at a time: the
-        # exception compares against the next eligible milestone issue, not a
-        # milestone's highest priority before unavailable work is filtered out.
-        priority = self.config.queue.priority
-        rank = lambda plan: self._rank(plan, priority)
-        assigned, unlisted, other = [], [], []
-        for plan in plans:
-            if plan.item.kind == "issue" and plan.state == "ready":
-                (assigned if plan.milestone in milestones else unlisted).append(plan)
-            else:
-                other.append(plan)
-        assigned = deque(sorted(assigned, key=lambda plan: (plan.milestone_rank, rank(plan))))
-        unlisted = deque(sorted(unlisted, key=rank))
-        other = deque(sorted(other, key=rank))
-        evaluate = approve or (lambda plan: plan)
-
-        def approved_head():
-            while assigned:
-                assigned[0] = evaluate(assigned[0])
-                if assigned[0].state == "ready":
-                    return assigned[0]
-                yield assigned.popleft()
-            return None
-
-        # Both priority exceptions need the next approved milestone issue, even
-        # when an unlisted issue or existing work will ultimately go first.
-        head = yield from approved_head()
-        if approve is not None:
-            self._milestone_diagnostics((head,) if head else (), milestones)
-        while assigned or unlisted:
-            queue = (unlisted if unlisted and
-                     (not assigned or rank(unlisted[0])[0] < rank(assigned[0])[0]) else assigned)
-            next_issue = evaluate(queue.popleft())
-            if next_issue.state != "ready":
-                yield next_issue
-                continue
-            # Existing work keeps priority order and wins equal-priority ties
-            # against the new issue selected by the milestone policy.
-            while other and rank(other[0])[0] <= rank(next_issue)[0]:
-                yield evaluate(other.popleft())
-            yield next_issue
-            if queue is assigned:
-                yield from approved_head()
-        for plan in other:
-            yield evaluate(plan)
-
-    def _milestone_diagnostics(self, plans=(), milestones=()):
-        self.milestone_wait = None
-        eligible = {p.milestone for p in plans if p.item.kind == "issue" and p.state == "ready"}
-        first = next((rank for rank, number in enumerate(milestones) if number in eligible), len(milestones))
-        self.milestone_skips = tuple(f"Milestone #{number} has no eligible issues for this launcher"
-                                     for number in milestones[:first])
-
-    def _strict_milestone_plans(self, plans, milestones, *, approve=None):
-        active = next(iter(milestones), None)
-        eligible = False
-        for plan in plans:
-            if (active is not None and plan.item.kind == "issue"
-                    and plan.state == "ready" and plan.milestone != active):
-                plan = replace(plan, state="parked", runtime=None,
-                               reason=f"Waiting for active milestone #{active}", approval_gate=None)
-            elif approve is not None:
-                plan = approve(plan)
-            if plan.item.kind == "issue" and plan.state == "ready":
-                eligible = True
-            yield plan
-        if active is not None and not eligible:
-            self.milestone_wait = (f"Waiting for milestone #{active} ({milestones[active]}) "
-                                   "to close: no eligible issues")
+                      key=lambda plan: queue_order.rank(plan, self.config.queue.priority))
 
     def queue_agents(self):
         return tuple(a for a in self.config.agents
@@ -473,7 +394,9 @@ class Loop:
         agents = self.queue_agents()
         selected = {a.name for a in agents}
         self._queue_waits = {}
-        self._milestone_diagnostics()
+        on_wait = lambda value: setattr(self, "milestone_wait", value)
+        on_skips = lambda value: setattr(self, "milestone_skips", value)
+        queue_order.milestone_diagnostics(on_wait=on_wait, on_skips=on_skips)
         if not agents:
             self._has_trigger = False
             self.observe("queue_idle", self.idle_message())
@@ -534,9 +457,9 @@ class Loop:
                                    priority=priority.effective(item.labels), matches=matches))
         if not candidates:
             if self.config.queue.milestones == "gate":
-                self._milestone_diagnostics(milestones=milestones)
+                queue_order.milestone_diagnostics(milestones=milestones, on_wait=on_wait, on_skips=on_skips)
             elif strict:
-                yield from self._strict_milestone_plans((), milestone_titles)
+                yield from queue_order.strict_milestone_plans((), milestone_titles, on_wait=on_wait)
             if self._launch_agent is not None:
                 self.observe("queue_idle", self.idle_message())
             return
@@ -605,7 +528,7 @@ class Loop:
                               milestone_rank=candidate.milestone_rank)
                 yield observed
 
-        candidates = sorted(ranked, key=lambda plan: self._rank(plan, priority))
+        candidates = sorted(ranked, key=lambda plan: queue_order.rank(plan, priority))
         if batch_input and not claiming:
             plans = github.approval_plans(candidates, evaluate, APPROVAL_BATCH_SIZE)
         else:
@@ -639,13 +562,14 @@ class Loop:
                 return plan
 
             if strict:
-                ordered = self._strict_milestone_plans(milestone_plans, milestone_titles,
-                                                       approve=approve if lazy_approval else None)
+                ordered = queue_order.strict_milestone_plans(milestone_plans, milestone_titles, on_wait=on_wait,
+                                                            approve=approve if lazy_approval else None)
             else:
                 if not lazy_approval:
-                    self._milestone_diagnostics(milestone_plans, milestones)
-                ordered = self._milestone_plans(milestone_plans, milestones,
-                                                 approve=approve if lazy_approval else None)
+                    queue_order.milestone_diagnostics(milestone_plans, milestones, on_wait=on_wait, on_skips=on_skips)
+                ordered = queue_order.milestone_plans(milestone_plans, milestones, priority,
+                                                      on_wait=on_wait, on_skips=on_skips,
+                                                      approve=approve if lazy_approval else None)
             for observed in ordered:
                 yield self._observe_plan(observed, github)
         if self._launch_agent is not None:
@@ -680,7 +604,8 @@ class Loop:
         self.observe("discovered", {item.number: item}, self.config.agents)
         agents = tuple(a for a in self.config.agents if agent_name is None or a.name == agent_name)
         coordinator = self._planning_coordinator(github)
-        self._milestone_diagnostics()
+        queue_order.milestone_diagnostics(on_wait=lambda value: setattr(self, "milestone_wait", value),
+                                          on_skips=lambda value: setattr(self, "milestone_skips", value))
         blockers = self._open_blockers(item, github)
         matches = AgentMatches.for_item(item, self.config.agents)
         plans = self._item_plans(item, coordinator.clock(), github, coordinator, matches, blockers, agents,
