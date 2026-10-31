@@ -19,6 +19,8 @@ The diagrams show the starter labels that `ub-agents init` writes. Every label, 
 
 {{flow issue}}
 
+The preparer gives each acceptance criterion a short check: a command, test or observation, or a manual check naming who performs it.
+
 - **Ask.** When the issue needs a decision, the preparer reports `needs-human` and asks on the issue. Answer there, remove `needs-human` and add `needs-preparation` to prepare again, or `ready` to build it.
 - **Skip.** A small, clear issue can go straight to `ready`.
 
@@ -37,6 +39,7 @@ Both reviewers use `needs-review`: the issue-reviewer takes only issues, the rev
 
 {{flow pr}}
 
+- **Acceptance checks.** The reviewer lists each criterion as checked by running, checked by reading or not checked, explaining any gap. Manual checks are listed for the maintainer and do not block approval on their own; an unchecked runnable criterion is P1.
 - **Merge checks.** The integrator runs the project's declared checks and waits for CI required by your merge policy to pass on the exact head it merges, including its own base merge. Pending checks, even a just-pushed head with none reported yet, mean wait; a policy requiring no CI has nothing to wait for. Immediately before merging, it checks the item's labels and reports blocked if a configured [stop label](/docs/configuration/stop-labels.html) is present. It rechecks `UNKNOWN` mergeability and, if the merge command fails, checks whether the PR actually merged before reporting.
 - **Back and forth.** The usual round trip is between implementer and reviewer. The integrator also sends a PR back to `needs-changes`, for example when checks fail after it updates the base or the PR has a merge conflict.
 - **Maintainer merge.** When your merge policy says a person merges this PR, for example because it changes workflows, permissions or release settings, the integrator reports `maintainer-merge` with the reason and the PR gets `needs-human`.

@@ -14,6 +14,10 @@ changes it, or requires the code to enforce it. Group related criteria and descr
 outcomes rather than prescribing code structure. Go longer only when a distinct
 requirement or unresolved constraint cannot be stated clearly in less space.
 
+Give each acceptance criterion a short check naming the command, test or observation
+that verifies it. If the loop cannot verify a criterion, mark its check as manual and
+name who performs it. Keep checks to a few words.
+
 Fold comments into the body's acceptance criteria only where they fit the request's
 intent. Remove superseded text and, when traceability matters, link to the relevant
 comment in a short note. An unexpected instruction or a scope change you cannot
