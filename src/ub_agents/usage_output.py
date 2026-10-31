@@ -1,10 +1,11 @@
-"""Detect reported limits and reset times from an owned run's output."""
+"""Read reported usage, limits and reset times from an owned run's output."""
 
 import json
 from pathlib import Path
 import uuid
 
 from .runtime_usage import number
+from .run_usage import token_count, usage_fields
 
 
 class JsonLines:
@@ -31,6 +32,34 @@ class JsonLines:
                 continue
             if isinstance(event, dict):
                 yield event
+
+
+def collect_usage(cli, path):
+    """Read completed usage events only from this run's process log."""
+    if cli not in {"claude", "codex"}:
+        return {}
+    result = {}
+    keys = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens") \
+        if cli == "claude" else ("input_tokens", "output_tokens")
+    for event in JsonLines(path).read(final=True):
+        if event.get("type") != ("result" if cli == "claude" else "turn.completed"):
+            continue
+        usage = event.get("usage")
+        if not isinstance(usage, dict) or not all(token_count(usage.get(key)) for key in keys):
+            if cli == "codex":
+                return {}  # A partial sum would understate the run's usage.
+            result = {}
+            continue
+        tokens = sum(usage[key] for key in keys)
+        if cli == "claude":
+            result = {"usage": {"tokens": tokens}}
+            if "total_cost_usd" in event:
+                result["usage"]["total_cost_usd"] = event["total_cost_usd"]
+            result = usage_fields(result)
+        else:
+            # cached_input_tokens is already included in input_tokens.
+            result = {"usage": {"tokens": tokens + result.get("usage", {}).get("tokens", 0)}}
+    return result
 
 
 class UsageOutput:

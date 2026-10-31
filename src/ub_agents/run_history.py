@@ -2,13 +2,14 @@
 
 from .records import seconds
 from .denials import denial_fields
+from .run_usage import usage_fields
 
 
 def display_run(row):
     """Keep reduction identities and precedence metadata out of the snapshot."""
     return {key: row[key] for key in (
         "time", "agent", "summary", "host", "outcome", "acceptance", "human_blocker",
-        "result", "state", "expires", "rejection", "denials", "denials_omitted") if key in row}
+        "result", "state", "expires", "rejection", "denials", "denials_omitted", "usage") if key in row}
 
 
 def run_key(row):
@@ -23,6 +24,7 @@ def merge_record(runs, record, stop_labels):
     if row is None:
         row = {key: record.get(key) for key in ("assignment", "agent", "run")}
         runs.append(row)
+    row[record["kind"] + "_usage"] = usage_fields(record).get("usage")
     if record["kind"] == "lease":
         row.update(claim_time=record.get("created"), expires=record.get("expires"),
                    state=record.get("state"), lease_result=record.get("result"),
@@ -40,6 +42,10 @@ def merge_record(runs, record, stop_labels):
                    completed=finalized, target=record.get("handoff") or record["assignment"],
                    human_blocker=(sorted(set(record.get("transition", {}).get("add", ()))
                                          .intersection(stop_labels)) if finalized else None))
+    row.pop("usage", None)
+    usage = row.get("lease_usage") or row.get("outcome_usage")
+    if usage is not None:
+        row["usage"] = usage
     row.update(time=row.get("outcome_time") or row.get("claim_time"),
                host=row.get("claim_host") or row.get("outcome_host"),
                result=row.get("lease_result") or row.get("report_result"),

@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .denials import denial_count
+from .run_usage import short_tokens, usage_fields
 from .view_data import item_history, mapping, text
 from .view_spinner import spinner_frame
 from .view_theme import theme_style
@@ -116,15 +117,16 @@ def runs_view(row, session, now=None, *, app=None, history=None):
         return Group(subtitle, Text('No item history cached.'))
     table = Table(box=None, padding=(0, 1), pad_edge=False, expand=True, header_style=muted)
     table.add_column('when', width=11, no_wrap=True, overflow='ellipsis')
-    table.add_column('result', width=6, no_wrap=True, overflow='ellipsis')
+    table.add_column('', width=1, no_wrap=True, overflow='ellipsis')
     # A flexible width hint can shrink; min_width would re-expand after Rich's
     # narrow-table calculation and crop the outcome at the pane's right edge.
     table.add_column('agent · summary', ratio=1, width=6, no_wrap=True, overflow='ellipsis')
     table.add_column('where', min_width=4, max_width=14, no_wrap=True, overflow='ellipsis')
     table.add_column('outcome', min_width=9, max_width=24, no_wrap=True, overflow='ellipsis')
+    table.add_column('tokens', width=6, justify='right', no_wrap=True, overflow='ellipsis')
     if filed:
         table.add_row(relative_time(filing['time'], relative_now), Text('✓', style=success),
-                      Text('filed by ' + text(filing['author'])), 'GitHub', 'filed')
+                      Text('filed by ' + text(filing['author'])), 'GitHub', 'filed', '')
     frame = spinner_frame(now.timestamp())
     for run in runs:
         status, label = run_status(run, now)
@@ -136,6 +138,8 @@ def runs_view(row, session, now=None, *, app=None, history=None):
         blockers = run.get('human_blocker')
         if isinstance(blockers, list) and blockers:
             outcome += ' · BLOCKED: ' + ', '.join(text(b) for b in blockers[:10])
+        usage = usage_fields(run).get('usage')
         table.add_row(relative_time(run.get('time'), relative_now), glyph, Text(summary),
-                      run_host(run.get('host'), muted=muted), RunOutcome(outcome, denial_count(run)))
+                      run_host(run.get('host'), muted=muted), RunOutcome(outcome, denial_count(run)),
+                      short_tokens(usage['tokens']) if usage is not None else '')
     return Group(subtitle, table)

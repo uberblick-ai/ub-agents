@@ -5,6 +5,7 @@ import json
 import re
 
 from .errors import AgentError, RecordError
+from .run_usage import usage_suffix
 
 MARKER = "<!-- ub-agents:v4 -->"
 # All coordination markers are excluded from assignment and approval input;
@@ -107,7 +108,7 @@ def body(record):
     if len(note) > 240:
         note = note[:237] + "…"
     runtime = f" · {record['runtime']}" if record.get("runtime") else ""
-    line = f"{icon} {record['agent']} {state}{candidate}{runtime} — {note}"
+    line = f"{icon} {record['agent']} {state}{candidate}{runtime}{usage_suffix(record)} — {note}"
     # The comment author is the actor; empty fields are omitted.
     shown = {k: v for k, v in record.items() if v is not None and k != "actor"}
     return (f"{MARKER}\n{line}\n\n<details>\n<summary>Coordination record</summary>\n\n"

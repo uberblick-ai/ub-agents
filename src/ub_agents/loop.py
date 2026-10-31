@@ -43,7 +43,8 @@ from .renewal import LeaseRenewal
 from .request_stats import DiscoveryPass, PassOutput, request_counts, request_delta
 from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
-from .usage_output import UsageOutput
+from .usage_output import UsageOutput, collect_usage
+from .run_usage import usage_fields
 from .uberblick import workspace_binding
 from .trust import LauncherTrust
 from .run_planning import ObservationReads, RunPlanning
@@ -1453,7 +1454,7 @@ class Loop:
         result, summary = "retry", "Assignment ended without a validated outcome"
         outcome = None
         usage_output = None
-        denials = {}
+        diagnostics = {}
         try:
             run_dir.mkdir(parents=True, exist_ok=True)
             self.coordinator.assert_owned(lease)
@@ -1531,7 +1532,9 @@ class Loop:
                                  pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()))
             finally:
                 self.coordinator.execution_finished(lease)
-                denials = collect_denials(plan.runtime.cli if plan.runtime else None, run_dir / "process.log")
+                cli = plan.runtime.cli if plan.runtime else None
+                diagnostics = (collect_denials(cli, run_dir / "process.log")
+                               | collect_usage(cli, run_dir / "process.log"))
             self.coordinator.execution_deadline(lease)
             if usage_output:
                 usage_output.poll(final=True)
@@ -1544,8 +1547,8 @@ class Loop:
             self._finalizing = True
             self.coordinator.assert_owned(lease)
             outcome = self.coordinator.outcome(lease)
-            if outcome is not None and denials:
-                self.coordinator.update_outcome(lease, outcome, **denials)
+            if outcome is not None and diagnostics:
+                self.coordinator.update_outcome(lease, outcome, **diagnostics)
             if outcome is None:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
@@ -1629,9 +1632,12 @@ class Loop:
             # unaccepted and persist the supervisor's actual verdict on the lease.
             outcome = self.coordinator.outcome(lease)
         if stopped:
-            self.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True)
+            if outcome is not None and diagnostics:
+                self.coordinator.update_outcome(lease, outcome, **diagnostics)
+            self.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True,
+                                     **usage_fields(diagnostics))
         else:
-            self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials,
+            self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, diagnostics,
                         completed=completing)
         self.github.end_finalization()
         self._renewal.close()
@@ -1727,7 +1733,7 @@ class Loop:
         self.finalize(lease, plan, outcome, what)
         return "success", outcome["summary"], "reset"
 
-    def settle(self, plan, lease, attempt, result, summary, effect, outcome=None, denials=None,
+    def settle(self, plan, lease, attempt, result, summary, effect, outcome=None, diagnostics=None,
                parking_outcome=None, *, completed=False):
         """Release with the verdict and backoff after persisting the report.
 
@@ -1747,11 +1753,12 @@ class Loop:
                                     **changes)
         if outcome is None:
             outcome = self.coordinator.report(lease, result, summary, agent_report=False)
-        if denials and any(outcome.get(key) != value for key, value in denials.items()):
-            self.coordinator.update_outcome(lease, outcome, **denials)
+        if diagnostics and any(outcome.get(key) != value for key, value in diagnostics.items()):
+            self.coordinator.update_outcome(lease, outcome, **diagnostics)
         self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
                                  parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts,
-                                 unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers)
+                                 unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers,
+                                 **usage_fields(diagnostics or {}))
 
     def finalize(self, lease, plan, outcome, what):
         """Validate a success report, apply its transition and accept it.

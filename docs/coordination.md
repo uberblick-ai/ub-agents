@@ -314,6 +314,23 @@ run, runtime and original assignment SHA come from the outcome's source lease,
 identified by `lease_id` in its `assignment`'s history, including for handoff copies.
 Outcomes retain `agent` and `assignment` for history filtering.
 
+After execution exits, the launcher adds optional `usage` to the released lease
+and its outcome, including handoff copies: `{"tokens": 412000, "total_cost_usd": 1.84}`.
+Claude's final `result` supplies input, cache creation, cache read and output tokens
+and, when reported, `total_cost_usd`. Codex's `turn.completed` events supply input
+plus output tokens summed over the run; cached input is already included in input
+and is not added again. Codex reports no cost. Missing or malformed usage is omitted,
+including runs without a completed usage event and command agents without a runtime.
+
+Usage is display-only: it never changes claims, attempts, results, transitions,
+acceptance or usage-limit decisions. Readers ignore malformed values. The marker
+remains `v4`; older launchers ignore unknown fields and preserve them on rewrites,
+so no coordinated restart is needed. GitHub lease lines show usage after the runtime;
+outcome lines show it after the SHA. Counts below 1,000 are exact, below 1M round
+to `Nk`, and from 1M use `N.NM`. Reported dollars use two decimals. On a Claude
+subscription, the dollar figure is what the run would have cost at API prices,
+not a charge.
+
 The lease stores run ownership: `agent`, `assignment`, `run`, `runtime`, `created`,
 `expires`, `state`, `attempt`, `attempt_effect`, `started` and `triggers` (the labels
 present at claim time). A PR lease also stores `assignment_sha`. A running lease has
