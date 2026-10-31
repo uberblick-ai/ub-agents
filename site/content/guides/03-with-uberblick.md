@@ -15,7 +15,7 @@ Markdown in the repository is still right for how agents work: roles, instructio
 
 ## What we do now
 
-The index pages are gone. Every Uberblick page has tags and a short description written for the model. An agent searches its local copy of the workspace by tag, reads the descriptions and decides by itself what to read and what to skip. The search runs on the agent's machine, so a dozen lookups are a dozen local calls. Decisions are records with the question, the answer, who decided and when, linked to the issue, so an agent finds them in one call instead of reopening them.
+The index pages are gone. Every Uberblick page has tags and a short description written for the model. An agent searches the workspace by tag, reads the descriptions and decides by itself what to read and what to skip. Uberblick is local-first: the whole workspace sits on the agent's machine, kept in sync by a [hub](https://uberblick.ai/docs/hub) when there are several. So the MCP server answers from a local copy, and an agent that reads a dozen pages before it writes a line doesn't wait on a dozen round trips. Decisions are records with the question, the answer, who decided and when, linked to the issue, so an agent finds them in one call instead of reopening them.
 
 In the loop, each role uses the workspace because its instructions say so:
 
