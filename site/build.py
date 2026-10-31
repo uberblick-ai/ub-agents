@@ -12,7 +12,7 @@ CONTENT, OUT = ROOT / 'content', ROOT / 'out'
 VERSION = re.search(r'^version = "([^"]+)"', (ROOT.parent / 'pyproject.toml').read_text(), re.M).group(1)
 REPO = 'https://github.com/uberblick-ai/ub-agents'
 SITE = 'https://agents.uberblick.ai'
-TAGLINE = 'An autonomous coding loop for GitHub. Any agent, no server.'
+TAGLINE = 'Decide in the session, deliver in the loop. A coding loop for GitHub: any agent, no server.'
 SECTIONS = [  # (title, content entry, kind)
     ('Motivation', 'motivation.md', 'page'),
     ('Installation', 'installation.md', 'page'),
