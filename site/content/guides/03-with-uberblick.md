@@ -19,7 +19,7 @@ The index pages are gone. Every Uberblick page has tags and a short description 
 
 In the loop, each role uses the workspace because its instructions say so:
 
-- **Prepare.** The issue-preparer links the pages and decisions the issue touches instead of restating them.
+- **Prepare.** The issue-preparer names the areas the change touches, finds their pages by tag and links those pages and decisions instead of restating them.
 - **Implement.** The implementer reads those pages first. When the change makes a page wrong or adds something new, it proposes the new text in the pull request.
 - **Review.** The reviewer checks the code against the pages and reviews the proposed page text with it.
 - **Merge.** After the merge, the integrator applies the page changes, so the workspace describes what shipped.
