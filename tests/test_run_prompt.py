@@ -24,7 +24,7 @@ class RunPromptCharacterizationTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.state = os.environ["XDG_STATE_HOME"]
+        self.state = str(Path(os.environ["XDG_STATE_HOME"]).resolve())
 
     def capture(self, kind):
         runtime = Runtime("codex", "model", "high")
