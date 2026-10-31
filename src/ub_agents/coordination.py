@@ -374,7 +374,7 @@ class Coordinator:
             self.output(f"#{plan.item.number} {plan.agent.name}: declined — {reason}")
         return None
 
-    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,  # noqa: C901, PLR0912, PLR0915
+    def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
               confirm_stopped=None, on_refusal=None):
         reason = self.trust.reason(self.actor)
         if reason:
@@ -383,6 +383,25 @@ class Coordinator:
             else:
                 self.output(f"{reason}; claiming no work")
             return None
+        observed = self._claim_input(plan, stop_labels, recovery)
+        if observed is None:
+            return None
+        current, matches, history, outcome = observed
+        if authorize is not None and not authorize(current, matches):
+            return None
+        if confirm_stopped is not None:
+            confirm_stopped(history)
+        now = self.clock()
+        record = self._claim_record(plan, current, history, outcome, recovery, now)
+        created = self._write_claim(plan, current, record, stop_labels, recovery, before_write)
+        if not self._claim_wins(plan, current, created, recovery):
+            return None
+        if self.clock() >= seconds(created["expires"]):
+            raise LostOwnership("Lease expired during claiming")
+        self.notices.resumed(current.number)
+        return created
+
+    def _claim_input(self, plan, stop_labels, recovery):
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -398,6 +417,7 @@ class Coordinator:
                                     fresh=replace(plan, item=current, state="parked", reason=start.reason,
                                                   matches=matches, history=(), owner=None))
         history = self.history(current.number)
+        outcome = None
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, self.clock())
             if outcome is None or any(r["id"] != outcome["lease_id"]
@@ -414,11 +434,9 @@ class Coordinator:
                         and self.queue.dependencies == "wait" else ())
             if not check_start(current, plan.agent, matches, stop_labels, self.queue, blockers).allowed:
                 return self.decline(plan, f"Open blockers: {', '.join(blockers)}")
-        if authorize is not None and not authorize(current, matches):
-            return None
-        if confirm_stopped is not None:
-            confirm_stopped(history)
-        now = self.clock()
+        return current, matches, history, outcome
+
+    def _claim_record(self, plan, current, history, outcome, recovery, now):
         record = {"kind": "lease", "run": uuid.uuid4().hex,
                   "agent": plan.agent.name, "assignment": current.number,
                   "assignment_sha": current.head,
@@ -437,6 +455,9 @@ class Coordinator:
         if recovery:
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": lease_by_id(history, outcome["lease_id"])["run"]}
+        return record
+
+    def _write_claim(self, plan, current, record, stop_labels, recovery, before_write):
         if self.cleanup_control is not None:
             self.cleanup_control.protect(record, branch=current.branch if current.kind == "pr" else issue_branch(record))
         if before_write is not None:
@@ -454,6 +475,9 @@ class Coordinator:
         self.observed(created)
         if self.on_claim is not None:
             self.on_claim(created)
+        return created
+
+    def _claim_wins(self, plan, current, created, recovery):
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no
         # read-modify-write race on a shared lease comment is passed off as CAS.
@@ -475,10 +499,7 @@ class Coordinator:
                                     fresh=replace(plan, state="blocked" if owner.get("cleanup") == "unconfirmed" else "owned",
                                                   reason="Claim election lost on shared branch",
                                                   history=(), owner=owner))
-        if self.clock() >= seconds(created["expires"]):
-            raise LostOwnership("Lease expired during claiming")
-        self.notices.resumed(current.number)
-        return created
+        return True
 
     def withdraw_lost_claim(self):
         """Resolve an uncertain claim POST before any new assignment planning."""

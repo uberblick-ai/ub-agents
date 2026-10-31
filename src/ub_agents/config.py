@@ -351,6 +351,8 @@ def _parse_config(data, root, *, planned=()):
                   runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup,
                   lease_seconds=lease_seconds, lease_renew_seconds=renew_seconds,
                   trusted_pr_authors=trusted_pr_authors, events=events)
+
+
 def _parse_launchers(data):
     launchers = None
     if "launchers" in data:

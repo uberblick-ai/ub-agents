@@ -1,8 +1,9 @@
 import unittest
 from unittest.mock import patch
 
-from ub_agents.approvals import check_issue
+from ub_agents.approvals import _cleared_input_groups, check_issue
 from ub_agents.errors import AgentError
+from ub_agents.records import seconds
 from tests.support import FakeGitHub, issue, legacy_approval_body
 
 
@@ -189,3 +190,14 @@ class ApprovalTests(unittest.TestCase):
         self.assertFalse(self.check().allowed)
         self.legacy_record(second=10)
         self.assertFalse(self.check().allowed)
+
+    def test_clearance_helper_uses_both_timestamps_and_a_strict_boundary_for_each_group(self):
+        groups = {
+            'comments': [{'id': 1, 'created_at': at(1), 'updated_at': at(4)},
+                         {'id': 2, 'created_at': at(1), 'updated_at': at(5)}],
+            'reviews': [{'id': 3, 'created_at': at(6), 'updated_at': at(2)}],
+            'review_comments': []}
+        self.assertEqual(_cleared_input_groups(groups, [seconds(at(5))]), {
+            'comments': frozenset({1}), 'reviews': frozenset(), 'review_comments': frozenset()})
+        self.assertEqual(_cleared_input_groups(groups, [seconds(at(7)), seconds(at(5))]), {
+            'comments': frozenset({1, 2}), 'reviews': frozenset({3}), 'review_comments': frozenset()})

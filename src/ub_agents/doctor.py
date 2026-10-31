@@ -130,8 +130,31 @@ class Doctor:
                      f"Tailor {path} to the repository's required CI check, maintainer merge rules and review focus",
                      required=False)
 
-    def run(self, path, *, offline=False):  # noqa: C901, PLR0912, PLR0915
+    def run(self, path, *, offline=False):
         self.launcher = running_launcher(Path(path).resolve().parent)
+        git_ready, gh_ready = self._machine(offline)
+        config = self._load_configuration(path)
+        self._instructions(config)
+        self._repository(config, git_ready)
+        self.config = config
+        if offline:
+            self.offline(config)
+        else:
+            self._online(config, git_ready, gh_ready)
+        if config:
+            if not offline:
+                self.agents(config)
+            MCPChecks(config).run(self, offline=offline)
+            self.local(config, git_ready)
+        else:
+            for id in ("commands", "runtimes", "different-runtime-from", "local-state", "local-state-ignored"):
+                self.add(id, "skip", "offline: agent runtimes and commands are not checked"
+                         if offline and id in {"commands", "runtimes", "different-runtime-from"} else
+                         "configuration unavailable")
+        self._process_inspection()
+        return self.result()
+
+    def _machine(self, offline):
         self.add("python", "ok" if sys.version_info >= (3, 11) else "fail",
                  f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
                  "Install Python 3.11 or newer" if sys.version_info < (3, 11) else None)
@@ -148,6 +171,9 @@ class Doctor:
             self.add("gh", "skip", "offline: GitHub CLI is not needed")
         else:
             gh_ready = self.tool("gh", "Install GitHub CLI from https://cli.github.com and put gh on PATH")
+        return git_ready, gh_ready
+
+    def _load_configuration(self, path):
         config = None
         try:
             config = load_config(path)
@@ -157,6 +183,9 @@ class Doctor:
             self.add("config", "fail", f"no {Path(path).name} here; run ub-agents init" if missing else str(exc),
                      "Run ub-agents init to create the configuration" if missing else
                      "Fix the configuration error in the selected YAML file")
+        return config
+
+    def _instructions(self, config):
         if config:
             if config.shared_instructions is not None:
                 try:
@@ -178,132 +207,50 @@ class Doctor:
                              f"Restore a readable instruction file at {agent.instructions}", agent=agent)
         else:
             self.add("instructions", "skip", "configuration unavailable")
+
+    def _repository(self, config, git_ready):
         if config and git_ready:
-            def read_git(root, *args):
-                return self.probe(["git", "-C", str(root), *args], root).strip()
             remedies = {"repository-root": "Place the configuration at the consuming Git repository root",
                         "repository-remote": f"Set origin to https://github.com/{config.repository}.git or "
                                              f"git@github.com:{config.repository}.git "
                                              "(an SSH host alias for github.com also works)"}
-            for id, error in repository_checks(config, read_git, self.runner):
+            for id, error in repository_checks(config, self._read_git, self.runner):
                 self.add(id, "fail" if error else "ok", str(error) if error else
                          ("configuration is at the repository root" if id == "repository-root" else
                           f"origin matches {config.repository}"), remedies[id] if error else None)
         else:
             for id in ("repository-root", "repository-remote"):
                 self.add(id, "skip", "configuration unavailable" if not config else "git unavailable")
-        self.config = config
-        if offline:
-            self.offline(config)
+
+    def _read_git(self, root, *args):
+        return self.probe(["git", "-C", str(root), *args], root).strip()
+
+    def _online(self, config, git_ready, gh_ready):
+        github = self.github or GitHub(config.repository if config else "", runner=self.runner)
+        self.config, self.github = config, github
+        metadata = None
+        login = self._github_auth(github, gh_ready)
+        if config and gh_ready:
+            metadata = self.repository_access(config, github)
+            try:
+                self.approvals, _ = resolve_policy(config.approvals, lambda: repository_visibility(metadata))
+            except AgentError:
+                self.approvals = None
+            self.labels(config, github)
+            self._launcher_roles(config, github, login)
         else:
-            github = self.github or GitHub(config.repository if config else "", runner=self.runner)
-            self.config, self.github = config, github
-            metadata = None
-            login = None
-            if gh_ready:
-                try:
-                    login = github.actor()
-                    if not isinstance(login, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login):
-                        raise AgentError("no login")
-                    self.add("github-auth", "ok", f"authenticated as {login}")
-                except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
-                    login = None
-                    self.add("github-auth", "fail", self.github_failure("authentication", exc), "gh auth login")
-            else:
-                self.add("github-auth", "skip", "gh unavailable")
-            if config and gh_ready:
-                metadata = self.repository_access(config, github)
-                try:
-                    self.approvals, _ = resolve_policy(config.approvals, lambda: repository_visibility(metadata))
-                except AgentError:
-                    self.approvals = None
-                self.labels(config, github)
-                roles = Roles(github)
-                if login:
-                    try:
-                        role = roles({"login": login})
-                    except AgentError:
-                        role = None
-                    elevated = role in {"maintain", "admin"}
-                    self.add("github-launcher-role", "warn" if elevated or role not in WRITERS else "ok",
-                             (f"Launcher account {login} has {role}; agents can start and approve their own work"
-                              if elevated else f"Launcher account {login} has {role}"
-                              if role else "Launcher repository role could not be read"),
-                             "Use a dedicated launcher account with the write repository role"
-                             if elevated else "Ensure the token can read collaborator permissions" if not role else None,
-                             required=False)
-                    if config.launchers is not None and login.casefold() not in {v.casefold() for v in config.launchers}:
-                        self.add("github-launcher-listed", "warn", f"Authenticated account {login} is unlisted; it claims no work",
-                                 "Use a listed launcher account or add this account to launchers", required=False)
-                for account in config.launchers or ():
-                    try:
-                        role = roles({"login": account})
-                    except AgentError:
-                        role = None
-                    self.add(f"github-launcher-account:{account}", "ok" if role in WRITERS else "warn",
-                             f"Listed launcher account {account} has {role}" if role else
-                             f"Listed launcher account {account}'s repository role could not be read",
-                             "Listed accounts require write or higher and readable collaborator permissions"
-                             if role not in WRITERS else None, required=False)
-            else:
-                self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
-                self.add("github-permissions", "skip", "repository response unavailable")
-                self.add("github-labels", "skip", "configuration unavailable" if not config else "gh unavailable")
-            default = metadata.get("default_branch") if metadata else None
-            if config and git_ready and isinstance(default, str) and default:
-                for id, error in control_checkout_checks(config, default, read_git):
-                    self.add(id, "warn" if error else "ok", str(error) if error else
-                             {"control-checkout-branch": f"control checkout is on {default}",
-                              "control-checkout-dirty": "control checkout is clean",
-                              "control-checkout-origin": f"control checkout has no commits outside origin/{default}"}[id],
-                             required=False)
-            else:
-                self.add("control-checkout", "skip", "configuration unavailable" if not config else
-                         "git unavailable" if not git_ready else "repository default branch unavailable", required=False)
-            if config and config.approvals is None and metadata is None:
-                self.add("approvals", "skip", "gh unavailable" if not gh_ready else
-                         "repository response unavailable")
-            elif config:
-                try:
-                    value, source = resolve_policy(config.approvals, lambda: repository_visibility(metadata))
-                    self.add("approvals", "ok", f"Approvals: {value} ({source})")
-                except AgentError:
-                    self.add("approvals", "fail", "Approvals: repository visibility is unreadable",
-                             "Ensure the token can read repository visibility, or configure approvals: on or off")
-            else:
-                self.add("approvals", "skip", "configuration unavailable")
-            if config:
-                for agent in config.agents:
-                    if agent.retrospectives is None:
-                        continue
-                    number = agent.retrospectives
-                    if not gh_ready:
-                        self.add("github-retrospectives", "skip", f"Discussion #{number}: gh unavailable", agent=agent)
-                        continue
-                    try:
-                        github.discussion(number)
-                        self.add("github-retrospectives", "ok",
-                                 f"{agent.name}: discussion #{number} exists in {config.repository}", agent=agent)
-                    except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
-                        self.add("github-retrospectives", "fail",
-                                 f"{agent.name}: discussion #{number} in {config.repository} is missing or unreadable "
-                                 f"({self.github_failure('discussion lookup', exc)})",
-                                 "Set retrospectives to an existing discussion number in the configured repository "
-                                 "and ensure the token can read it", agent=agent)
-            if gh_ready:
-                self.rate_limit(github.quota_headers, github.rate_limited)
-            else:
-                self.add("github-rate-limit", "skip", "gh unavailable", required=False)
-        if config:
-            if not offline:
-                self.agents(config)
-            MCPChecks(config).run(self, offline=offline)
-            self.local(config, git_ready)
+            self.add("github-repository", "skip", "configuration unavailable" if not config else "gh unavailable")
+            self.add("github-permissions", "skip", "repository response unavailable")
+            self.add("github-labels", "skip", "configuration unavailable" if not config else "gh unavailable")
+        self._control_checkout(config, git_ready, metadata)
+        self._approval_policy(config, gh_ready, metadata)
+        self._retrospectives(config, github, gh_ready)
+        if gh_ready:
+            self.rate_limit(github.quota_headers, github.rate_limited)
         else:
-            for id in ("commands", "runtimes", "different-runtime-from", "local-state", "local-state-ignored"):
-                self.add(id, "skip", "offline: agent runtimes and commands are not checked"
-                         if offline and id in {"commands", "runtimes", "different-runtime-from"} else
-                         "configuration unavailable")
+            self.add("github-rate-limit", "skip", "gh unavailable", required=False)
+
+    def _process_inspection(self):
         try:
             rows = parse_process_table(self.probe(["ps", "-axo", "pid=,pgid=,stat="]))
             if os.getpid() not in {pid for pid, _, _ in rows}:
@@ -312,7 +259,97 @@ class Doctor:
         except AgentError as exc:
             self.add("process-inspection", "fail", str(exc),
                      "Supervision needs ps; install/allow ps (sandboxes may block process inspection)")
-        return self.result()
+
+    def _github_auth(self, github, gh_ready):
+        login = None
+        if gh_ready:
+            try:
+                login = github.actor()
+                if not isinstance(login, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login):
+                    raise AgentError("no login")
+                self.add("github-auth", "ok", f"authenticated as {login}")
+            except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
+                login = None
+                self.add("github-auth", "fail", self.github_failure("authentication", exc), "gh auth login")
+        else:
+            self.add("github-auth", "skip", "gh unavailable")
+        return login
+
+    def _launcher_roles(self, config, github, login):
+        roles = Roles(github)
+        if login:
+            try:
+                role = roles({"login": login})
+            except AgentError:
+                role = None
+            elevated = role in {"maintain", "admin"}
+            self.add("github-launcher-role", "warn" if elevated or role not in WRITERS else "ok",
+                     (f"Launcher account {login} has {role}; agents can start and approve their own work"
+                      if elevated else f"Launcher account {login} has {role}"
+                      if role else "Launcher repository role could not be read"),
+                     "Use a dedicated launcher account with the write repository role"
+                     if elevated else "Ensure the token can read collaborator permissions" if not role else None,
+                     required=False)
+            if config.launchers is not None and login.casefold() not in {v.casefold() for v in config.launchers}:
+                self.add("github-launcher-listed", "warn", f"Authenticated account {login} is unlisted; it claims no work",
+                         "Use a listed launcher account or add this account to launchers", required=False)
+        for account in config.launchers or ():
+            try:
+                role = roles({"login": account})
+            except AgentError:
+                role = None
+            self.add(f"github-launcher-account:{account}", "ok" if role in WRITERS else "warn",
+                     f"Listed launcher account {account} has {role}" if role else
+                     f"Listed launcher account {account}'s repository role could not be read",
+                     "Listed accounts require write or higher and readable collaborator permissions"
+                     if role not in WRITERS else None, required=False)
+
+    def _control_checkout(self, config, git_ready, metadata):
+        default = metadata.get("default_branch") if metadata else None
+        if config and git_ready and isinstance(default, str) and default:
+            for id, error in control_checkout_checks(config, default, self._read_git):
+                self.add(id, "warn" if error else "ok", str(error) if error else
+                         {"control-checkout-branch": f"control checkout is on {default}",
+                          "control-checkout-dirty": "control checkout is clean",
+                          "control-checkout-origin": f"control checkout has no commits outside origin/{default}"}[id],
+                         required=False)
+        else:
+            self.add("control-checkout", "skip", "configuration unavailable" if not config else
+                     "git unavailable" if not git_ready else "repository default branch unavailable", required=False)
+
+    def _approval_policy(self, config, gh_ready, metadata):
+        if config and config.approvals is None and metadata is None:
+            self.add("approvals", "skip", "gh unavailable" if not gh_ready else
+                     "repository response unavailable")
+        elif config:
+            try:
+                value, source = resolve_policy(config.approvals, lambda: repository_visibility(metadata))
+                self.add("approvals", "ok", f"Approvals: {value} ({source})")
+            except AgentError:
+                self.add("approvals", "fail", "Approvals: repository visibility is unreadable",
+                         "Ensure the token can read repository visibility, or configure approvals: on or off")
+        else:
+            self.add("approvals", "skip", "configuration unavailable")
+
+    def _retrospectives(self, config, github, gh_ready):
+        if config:
+            for agent in config.agents:
+                if agent.retrospectives is None:
+                    continue
+                number = agent.retrospectives
+                if not gh_ready:
+                    self.add("github-retrospectives", "skip", f"Discussion #{number}: gh unavailable", agent=agent)
+                    continue
+                try:
+                    github.discussion(number)
+                    self.add("github-retrospectives", "ok",
+                             f"{agent.name}: discussion #{number} exists in {config.repository}", agent=agent)
+                except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
+                    self.add("github-retrospectives", "fail",
+                             f"{agent.name}: discussion #{number} in {config.repository} is missing or unreadable "
+                             f"({self.github_failure('discussion lookup', exc)})",
+                             "Set retrospectives to an existing discussion number in the configured repository "
+                             "and ensure the token can read it", agent=agent)
 
     def offline(self, config):  # noqa: C901
         reason = "offline: GitHub access is not checked"

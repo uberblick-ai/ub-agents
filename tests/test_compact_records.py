@@ -6,7 +6,7 @@ import unittest
 
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import RecordError
-from ub_agents.records import MARKER, body, payload, records
+from ub_agents.records import MARKER, _validate_recovery, body, payload, records
 from tests.support import FakeGitHub, agent, issue, pr
 
 
@@ -108,3 +108,15 @@ class CompactRecordTests(unittest.TestCase):
         self.assertEqual(recovered['recovered_lease_id'], lease['id'])
         self.assertEqual(recovered['recovered_run'], lease['run'])
         self.assertNotIn('outcomes', recovered)
+
+    def test_recovery_validator_checks_identity_before_operator_reason(self):
+        recovered = {'mode': 'recovery', 'recovered_lease_id': 1, 'recovered_run': 'source',
+                     'recovery_reason': 'Operator confirmed termination'}
+        self.assertIsNone(_validate_recovery(recovered))
+        for fields, message in (
+                ({'recovered_lease_id': True, 'recovery_reason': ''}, 'invalid recovered lease identity'),
+                ({'recovered_run': ''}, 'invalid recovered lease identity'),
+                ({'recovery_reason': ' '}, 'invalid operator recovery reason'),
+                ({'mode': 'execution'}, 'invalid operator recovery reason')):
+            with self.subTest(fields=fields), self.assertRaisesRegex(ValueError, message):
+                _validate_recovery(recovered | fields)

@@ -146,40 +146,8 @@ def inactive_snapshot(parent, name, now, host):
         os.close(descriptor)
 
 
-def prune_sessions(cleaner, parent, own, now, removed, failed, output):  # noqa: C901, PLR0912, PLR0915
+def prune_sessions(cleaner, parent, own, now, removed, failed, output):
     host, cutoff = socket.gethostname(), now - RETENTION_SECONDS
-
-    def remove_histories(session):
-        name = session + ".histories"
-        try:
-            info = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            with removing(cleaner, Artifact("session", name, name), output):
-                if stat.S_ISLNK(info.st_mode):
-                    os.unlink(name, dir_fd=parent)
-                else:
-                    shutil.rmtree(name, dir_fd=parent)
-        except FileNotFoundError:
-            pass
-
-    def remove(name, *, companion=False):
-        try:
-            info = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            if not (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
-                return False
-            if not companion and info.st_mtime >= cutoff:
-                return False
-            if not same_file(info, os.stat(name, dir_fd=parent, follow_symlinks=False)):
-                return False
-            with removing(cleaner, Artifact("session", name, name), output):
-                os.unlink(name, dir_fd=parent)
-            removed("sessions", info.st_size)
-            return True
-        except FileNotFoundError:
-            return False
-        except OSError as exc:
-            failed(f"session file {name}", exc)
-            return False
-
     names = sorted(os.listdir(parent))
     # Snapshots first, so companion logs can be removed with them even if newer.
     for name in sorted(names, key=lambda n: not n.endswith(".json")):
@@ -190,25 +158,63 @@ def prune_sessions(cleaner, parent, own, now, removed, failed, output):  # noqa:
             continue
         session = name[:-len(suffix)]
         try:
-            info = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            if info.st_mtime >= cutoff:
-                continue
-            if suffix == ".json":
-                if not stat.S_ISLNK(info.st_mode) and not inactive_snapshot(parent, name, now, host):
-                    continue
-            elif not inactive_snapshot(parent, session + ".json", now, host):
-                continue
-            if not same_file(info, os.stat(name, dir_fd=parent, follow_symlinks=False)):
-                continue
-            if suffix == ".json":
-                remove_histories(session)
-            if remove(name) and suffix == ".json":
-                if inactive_snapshot(parent, name, now, host):
-                    remove(session + ".cleanup.log", companion=True)
+            _prune_session(cleaner, parent, name, suffix, session, cutoff, now, host, removed, failed, output)
         except FileNotFoundError:
             continue
         except OSError as exc:
             failed(f"session file {name}", exc)
+
+
+def _remove_session_histories(cleaner, parent, session, output):
+    name = session + ".histories"
+    try:
+        info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        with removing(cleaner, Artifact("session", name, name), output):
+            if stat.S_ISLNK(info.st_mode):
+                os.unlink(name, dir_fd=parent)
+            else:
+                shutil.rmtree(name, dir_fd=parent)
+    except FileNotFoundError:
+        pass
+
+
+def _remove_session_file(cleaner, parent, name, cutoff, removed, failed, output, *, companion=False):
+    try:
+        info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if not (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
+            return False
+        if not companion and info.st_mtime >= cutoff:
+            return False
+        if not same_file(info, os.stat(name, dir_fd=parent, follow_symlinks=False)):
+            return False
+        with removing(cleaner, Artifact("session", name, name), output):
+            os.unlink(name, dir_fd=parent)
+        removed("sessions", info.st_size)
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        failed(f"session file {name}", exc)
+        return False
+
+
+def _prune_session(cleaner, parent, name, suffix, session, cutoff, now, host, removed, failed, output):
+    info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if info.st_mtime >= cutoff:
+        return
+    if suffix == ".json":
+        if not stat.S_ISLNK(info.st_mode) and not inactive_snapshot(parent, name, now, host):
+            return
+    elif not inactive_snapshot(parent, session + ".json", now, host):
+        return
+    if not same_file(info, os.stat(name, dir_fd=parent, follow_symlinks=False)):
+        return
+    if suffix == ".json":
+        _remove_session_histories(cleaner, parent, session, output)
+    if _remove_session_file(cleaner, parent, name, cutoff, removed, failed, output) and suffix == ".json":
+        if inactive_snapshot(parent, name, now, host):
+            _remove_session_file(cleaner, parent, session + ".cleanup.log", cutoff,
+                                 removed, failed, output, companion=True)
 
 
 def size_text(size):
