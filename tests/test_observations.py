@@ -1260,6 +1260,10 @@ class PublisherTests(unittest.TestCase):
                 publisher = self.publisher(observation_writer_command(body))
                 observer = Observations(config(self.root), "operator", None, publisher)
                 self.wait_for(lambda: (self.root / "writer-entered").exists())
+                if "raise" in body:
+                    # Receive the writer diagnostic before more snapshots can
+                    # race it with a transport failure on the closed socket.
+                    self.wait_for(lambda: self.lines)
                 loop = Loop(config(self.root), PollGitHub(issue()), "operator", observer=observer,
                             output=lambda *_: None)
                 loop.config_path = self.root / "ub-agents.yaml"
