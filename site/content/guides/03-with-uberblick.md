@@ -41,6 +41,7 @@ ub-agents knows nothing about Uberblick. The connection is an MCP server entry a
 ## What each gets from the other
 
 - **The loop gets a spec.** Issues stay short because they point to pages. The implementer builds against written rules instead of guessing, the reviewer has something to check the code against, and a settled question doesn't become another stop for a person.
+- **Less feature creep.** Agents like to build more than was asked for. Pages that say what the product is for, and what it deliberately isn't, give them a reason to stop: the implementer builds what the issue needs, and the reviewer can point to the page when a change grows past it.
 - **The pages stay true.** Docs go stale because updating them is nobody's step. In the loop it is a step: a pull request that changes behavior carries its page updates, and the integrator applies them after the merge.
 - **Retros improve both.** A [retro](/docs/best-practices/retrospectives.html) can propose a change to the loop's instructions or to a page, and a person decides each one.
 
