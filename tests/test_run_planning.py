@@ -17,7 +17,7 @@ from ub_agents.observations import Observations
 from ub_agents.polling import DiscoveryBudget
 from ub_agents.records import iso, records, seconds
 from ub_agents.run_planning import ObservationReads, PassEvents, RunPlanning, _Cancelled
-from tests.support import DiscoveryCostRunner, MemoryPublisher, PollGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import settlement, DiscoveryCostRunner, MemoryPublisher, PollGitHub, agent, config, issue, pr, stub_refresh
 
 
 class RunPlanningTests(unittest.TestCase):
@@ -822,7 +822,7 @@ class RunPlanningTests(unittest.TestCase):
         # The pass read the old labels before the run finalized a parking outcome.
         outcome = self.loop.coordinator.report(lease, 'success', 'Maintainer needed', outcome='done',
                                                action='Maintainer: choose A or B; recommend A.')
-        self.loop.finalize(lease, plan, outcome, 'test completion')
+        settlement(self.loop).finalize(lease, plan, outcome, 'test completion')
         self.loop.coordinator.release(lease, 'success', 'Maintainer needed')
         previous = deepcopy(self.memory.snapshots[-1])
         self.observer.observation_pass(self.now, events.events)

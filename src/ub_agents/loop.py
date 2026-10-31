@@ -30,13 +30,13 @@ from .finalization import FinalizationReads
 from .report_command import launcher_report_command
 from .launcher_code import descriptors as code_descriptors
 from .github import (APPROVAL_BATCH_SIZE, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS,
-                     closing_issues, links_issue)
+                     closing_issues)
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .poll_now import PollNow
 from .hooks import run_hook
 from .notices import ACTION_MARKER
-from .records import (attempts, backoff, display_provenance, issue_branch, iso, latest_leases, lease_by_id,
-                      lease_summary, records, resolve_transition, same_run, seconds, timestamp, validate_report_action)
+from .records import (attempts, display_provenance, iso, latest_leases, lease_by_id,
+                      lease_summary, records, seconds, timestamp)
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
 from .renewal import LeaseRenewal
@@ -45,6 +45,8 @@ from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
 from .usage_output import UsageOutput, collect_usage
 from .run_usage import usage_fields
+from .run_branches import earlier_branches
+from .settlement import Settlement
 from .uberblick import workspace_binding
 from .trust import LauncherTrust
 from .run_planning import ObservationReads, RunPlanning
@@ -1266,6 +1268,7 @@ class Loop:
                 return True
         if plan.agent.on_conflict and fresh.mergeable is False and fresh.head == plan.item.head:
             return self._route_conflict(plan, lease, fresh)
+        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals)
         plan = replace(plan, item=replace(plan.item, head_repository=fresh.head_repository,
                                          base_branch=fresh.base_branch))
         run_dir = run_directory(self.config.root.resolve(), lease["run"])
@@ -1403,7 +1406,7 @@ class Loop:
                 self.config.repository, plan, lease, approval.snapshot,
                 feedback=self.coordinator.feedback(plan.item, plan.agent.name),
                 scratch=scratch.path, report_command=report_command, branch=workspace.branch,
-                earlier_branches=self.earlier_branches(plan.item, plan.agent, lease["run"]))
+                earlier_branches=earlier_branches(self.coordinator, plan.item, plan.agent, lease["run"]))
             context_path = run_dir / "context.json"
             context_path.write_text(json.dumps(context, indent=2))
             run_config_path = run_dir / "run.json"
@@ -1452,7 +1455,7 @@ class Loop:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
             else:
-                result, summary, effect = self.reported_verdict(lease, plan, outcome, lease, "completion")
+                result, summary, effect = settlement.reported_verdict(lease, plan, outcome, lease, "completion")
         except CleanupError as exc:
             self.observe("process", "unknown", str(exc))
             preserve_scratch = True
@@ -1536,8 +1539,8 @@ class Loop:
             self.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True,
                                      **usage_fields(diagnostics))
         else:
-            self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, diagnostics,
-                        completed=completing)
+            settlement.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, diagnostics,
+                              completed=completing)
         self.github.end_finalization()
         self._renewal.close()
         diagnostic("released", result=result, summary=summary,
@@ -1568,13 +1571,14 @@ class Loop:
                    "that cover the PR's changes and hand it off again.")
         outcome = self.coordinator.report(lease, "success", summary, outcome=plan.agent.on_conflict,
                                           agent_report=False)
+        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals)
         try:
-            result, summary, effect = self.reported_verdict(lease, plan, outcome, lease, "completion")
+            result, summary, effect = settlement.reported_verdict(lease, plan, outcome, lease, "completion")
         except TransitionPaused as exc:
             result, summary, effect = "blocked", str(exc), "unchanged"
         except ValidationError as exc:
             result, summary, effect = "blocked", str(exc), "failure"
-        self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, completed=True)
+        settlement.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, completed=True)
         self.github.end_finalization()
         self._renewal.close()
         self._replan_finished_item(plan)
@@ -1583,166 +1587,9 @@ class Loop:
             self._released_blockers[(plan.item.number, plan.agent.name)] = summary
         return True
 
-    def earlier_branches(self, item, agent, run):
-        """Branches from earlier executions; unstarted claims and recovery create none."""
-        if item.kind != "issue":
-            return []
-        return sorted({issue_branch(r) for r in self.coordinator.history(item.number) if r["kind"] == "lease"
-                       and r["agent"] == agent.name and r["run"] != run
-                       and r["started"] and r.get("mode") != "recovery"})
-
     def prompt_for(self, plan, lease, context, instructions, *, shared_instructions=""):
         return run_prompt(self.config, self.approvals, plan, lease, context, instructions,
                           shared_instructions=shared_instructions)
-
-    def reported_verdict(self, lease, plan, outcome, source, what):
-        """A recorded report's (result, summary, attempt effect); raises ValidationError if rejected."""
-        if outcome["status"] != "success":
-            self.validate_failure_report(lease, outcome, source)
-            return outcome["status"], outcome["summary"], "unchanged" if outcome["status"] == "blocked" else "failure"
-        self.finalize(lease, plan, outcome, what)
-        return "success", outcome["summary"], "reset"
-
-    def settle(self, plan, lease, attempt, result, summary, effect, outcome=None, diagnostics=None,
-               parking_outcome=None, *, completed=False):
-        """Release with the verdict and backoff after persisting the report.
-
-        Supervision failures persist their verdict first to supersede early reports.
-        Completed reports remain recoverable until release succeeds.
-        Without an outcome the launcher writes the run's report. The run is unreported
-        unless a recovery parks the source's agent report."""
-        delay = backoff(plan.agent, attempt) if result == "retry" and effect == "failure" else 0
-        unreported = outcome is None and parking_outcome is None
-        if result != "success" and not completed:
-            # The verdict supersedes early agent reports without relinquishing live ownership.
-            # If GitHub is unreadable, this fails closed and the lease expires without a lie.
-            changes = {"unreported": True} if unreported else {}
-            self.coordinator.assert_owned(lease)
-            self.coordinator.update(lease, result=result, summary=summary, attempt_effect=effect,
-                                    retry_after=iso(self.coordinator.clock() + delay) if delay else None,
-                                    **changes)
-        if outcome is None:
-            outcome = self.coordinator.report(lease, result, summary, agent_report=False)
-        if diagnostics and any(outcome.get(key) != value for key, value in diagnostics.items()):
-            self.coordinator.update_outcome(lease, outcome, **diagnostics)
-        self.coordinator.release(lease, result, summary, delay, attempt_effect=effect,
-                                 parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts,
-                                 unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers,
-                                 **usage_fields(diagnostics or {}))
-
-    def finalize(self, lease, plan, outcome, what):
-        """Validate a success report, apply its transition and accept it.
-
-        A rejected report is recorded on the outcome and raised as ValidationError.
-        GitHub errors retain their retry classification and leave expiry recovery
-        to finish the job."""
-        try:
-            if outcome.get("transition", {}).get("started"):
-                # Start is durable proof that success validation passed. A later
-                # head or link edit cannot strand already-applied changes.
-                self.validate_report(outcome)
-            else:
-                self.validate_success(plan, outcome)
-            self.apply_transition(lease, outcome)
-        except ValidationError as exc:
-            self.coordinator.update_outcome(lease, outcome, rejected=str(exc),
-                                            attempt_effect="unchanged" if isinstance(exc, TransitionPaused) else "failure")
-            raise
-        self.coordinator.accept(lease, outcome)
-
-    def validate_success(self, plan, outcome):
-        current = self.github.item(plan.item.number, plan.item.kind)
-        self.validate_report(outcome)
-        destination = (self.github.item(outcome["handoff"], "pr")
-                       if outcome.get("handoff") else current)
-        if outcome.get("handoff") and destination.draft:
-            raise ValidationError(f"Handoff PR #{destination.number} is still a draft")
-        if outcome["candidate_sha"] != destination.head:
-            raise ValidationError("Outcome candidate SHA does not match the observed PR head")
-        if plan.agent.different_from and current.head != plan.item.head:
-            raise ValidationError("Independent result is stale: the assigned candidate moved")
-        if outcome.get("handoff") and plan.item.kind == "issue":
-            if not links_issue(destination, self.config.repository, plan.item.number):
-                raise ValidationError("Implementation PR body does not link its original issue")
-            # A cheap tripwire for the duplicate the instructions exist to prevent.
-            source = lease_by_id(self.coordinator.history(outcome["assignment"]), outcome["lease_id"])
-            for branch in self.earlier_branches(plan.item, plan.agent, source["run"]):
-                others = [pr.number for pr in self.github.prs_for_branch(branch) if pr.number != destination.number]
-                if others:
-                    raise ValidationError(f"Another open PR #{others[0]} from an earlier run of this issue is on "
-                                          f"{branch}; continue or close it before handing off")
-
-    def validate_report(self, outcome):
-        if outcome.get("rejected"):
-            error = TransitionPaused if outcome.get("attempt_effect") == "unchanged" else ValidationError
-            raise error(outcome["rejected"])
-        history = self.coordinator.history(outcome["assignment"])
-        source = lease_by_id(history, outcome["lease_id"])
-        transition = outcome.get("transition")
-        if not source or not same_run(outcome, source):
-            raise ValidationError("Reported outcome does not match its source lease")
-        if not outcome.get("outcome") or transition is None:
-            raise ValidationError("Success report must name a declared outcome")
-        agent = next((agent for agent in self.config.agents if agent.name == outcome["agent"]), None)
-        if agent is None:
-            raise ValidationError("Reported agent is no longer configured")
-        transition = resolve_transition(transition, agent.triggers, self.config.stop_labels)
-        if "sub-issues" in transition and "sub_issues" not in outcome:
-            raise ValidationError("Sub-issue targets were not resolved in the outcome record")
-        try:
-            validate_report_action(source, outcome, self.config.stop_labels)
-        except ValueError as exc:
-            raise ValidationError(str(exc)) from exc
-        return transition
-
-    def validate_failure_report(self, lease, outcome, source):
-        try:
-            if outcome.get("rejected"):
-                raise ValueError(outcome["rejected"])
-            validate_report_action(source, outcome, self.config.stop_labels)
-        except ValueError as exc:
-            self.coordinator.update_outcome(lease, outcome, rejected=str(exc), attempt_effect="failure")
-            raise ValidationError(str(exc)) from exc
-
-    def apply_transition(self, lease, outcome):
-        transition = self.validate_report(outcome)
-        self.coordinator.assert_owned(lease)
-        assignment = self.github.item(outcome["assignment"])
-        copied_labels = ({OUTSIDE_INPUT} if self.approvals == "on"
-                         and OUTSIDE_INPUT in {label.casefold() for label in assignment.labels}
-                         else set())
-        target = outcome.get("handoff") or outcome["assignment"]
-        destination = self.github.item(target)
-        if not transition["started"]:
-            stops = set(self.config.stop_labels)
-            if assignment.labels.union(destination.labels).intersection(stops):
-                raise TransitionPaused("Transition paused: a stop label is on the assignment or handoff PR; "
-                                      "set workflow labels manually or use ub-agents retry after unpausing")
-            if not assignment.labels.intersection(transition["triggers"]):
-                raise TransitionPaused("Transition blocked: assignment trigger disappeared before label changes")
-            # Persist intent before the first mutation. Recovery must not mistake
-            # our own trigger removal or human-gate addition for external pausing.
-            self.coordinator.update_outcome(lease, outcome, transition=outcome["transition"] | {"started": True})
-        # Publish pending provenance before the next role's trigger can appear.
-        # Recovery refreshes this same comment before replaying the transition.
-        self.coordinator.copy_handoff(lease, outcome)
-        # Consume assignment labels before publishing the next role's trigger.
-        for label in sorted(set(transition["remove"])):
-            self.coordinator.assert_owned(lease)
-            if label in self.github.item(outcome["assignment"]).labels:
-                self.github.remove_label(outcome["assignment"], label)
-        self.coordinator.assert_owned(lease)
-        missing = sorted((set(transition["add"]) | copied_labels).difference(self.github.item(target).labels))
-        if missing:
-            self.github.add_labels(target, missing)
-        for number in outcome.get("sub_issues", ()):
-            self.coordinator.assert_owned(lease)
-            missing = sorted((set(transition["sub-issues"]["add"]) | copied_labels)
-                             .difference(self.github.item(number).labels))
-            if missing:
-                self.github.add_labels(number, missing)
-        if not outcome.get("transition_complete"):
-            self.coordinator.update_outcome(lease, outcome, transition_complete=True)
 
     def recover(self, plan):
         self._renewal = LeaseRenewal(self.coordinator, self.github.github)
@@ -1785,15 +1632,16 @@ class Loop:
             raise LostOwnership("Recovered outcome disappeared after claiming")
         # Validate against the originally assigned candidate, not today's head.
         original = replace(plan, item=replace(plan.item, head=source["assignment_sha"]))
+        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals)
         try:
-            result, summary, effect = self.reported_verdict(recovery, original, outcome, source,
-                                                            "recovered completion")
+            result, summary, effect = settlement.reported_verdict(recovery, original, outcome, source,
+                                                                 "recovered completion")
         except ValidationError as exc:
             result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
             effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
         # The source's attempt counts this failure, as an execution lease's does.
-        self.settle(plan, recovery, source["attempt"], result, f"Recovered {source['run']}:\n\n{summary}",
-                    effect, parking_outcome=outcome, completed=True)
+        settlement.settle(plan, recovery, source["attempt"], result, f"Recovered {source['run']}:\n\n{summary}",
+                          effect, parking_outcome=outcome, completed=True)
         self.github.end_finalization()
         self._renewal.close()
         self._diagnostic(run_directory(self.config.root.resolve(), recovery['run']), "released",

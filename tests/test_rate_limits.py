@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
+from ub_agents.settlement import Settlement
 from ub_agents.records import attempts, timestamp
 from tests.support import PollGitHub, agent, config, issue, stub_refresh
 
@@ -151,13 +152,13 @@ class RunRateLimitTests(unittest.TestCase):
         self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
         self.now += 61
         plan = self.loop.plans()[0]
-        finalize = self.loop.finalize
+        finalize = Settlement.finalize
 
         def recover(*args):
             self.github.read_results["item"] = [self.limit()]
             return finalize(*args)
 
-        with patch.object(self.loop, "finalize", side_effect=recover), \
+        with patch.object(Settlement, "finalize", autospec=True, side_effect=recover), \
                 patch.object(self.interrupt, "wait") as wait:
             self.loop.recover(plan)
         wait.assert_called_once_with(12)

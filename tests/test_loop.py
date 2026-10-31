@@ -12,12 +12,14 @@ from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Plan
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership, RetryableExecutionError
 from ub_agents.loop import Loop
+from ub_agents.settlement import Settlement
 from ub_agents.observations import Observations
 from ub_agents.prompts import RETROSPECTIVE_PROMPT
 from ub_agents.records import issue_branch, outcome_declarations, attempts, body, iso, timestamp
 from ub_agents.report_command import launcher_report_command
+from ub_agents.run_branches import earlier_branches
 from ub_agents.view_data import Session, work_pane
-from tests.support import stub_refresh, FakeGitHub, MemoryPublisher, agent, config, edit_lease, issue, pr
+from tests.support import settlement, stub_refresh, FakeGitHub, MemoryPublisher, agent, config, edit_lease, issue, pr
 
 
 class LoopTests(unittest.TestCase):
@@ -233,7 +235,7 @@ class LoopTests(unittest.TestCase):
         outcome = self.loop.coordinator.report(lease, "success", "Reviewed candidate", outcome="done")
         self.github.change(2, labels=frozenset({"ready-to-merge"}), head="b" * 40)
         with self.assertRaises(AgentError):
-            self.loop.validate_success(replace(plan, agent=reviewer), outcome)
+            settlement(self.loop).validate_success(replace(plan, agent=reviewer), outcome)
 
     def test_issue_handoff_requires_ready_pr_in_normal_completion(self):
         for draft in (True, False):
@@ -287,7 +289,7 @@ class LoopTests(unittest.TestCase):
             {"run": "recovery", "started": True, "mode": "recovery"},
         )]
         with patch.object(self.loop.coordinator, "history", return_value=history):
-            earlier = self.loop.earlier_branches(plan.item, self.agent, lease["run"])
+            earlier = earlier_branches(self.loop.coordinator, plan.item, self.agent, lease["run"])
             self.assertEqual(earlier, [])
             prompt = self.loop.prompt_for(plan, lease,
                                           {"earlier_branches": earlier, "report_command": "/launcher/report"}, "")
@@ -295,9 +297,9 @@ class LoopTests(unittest.TestCase):
             history.extend((lease | {"run": "real", "started": True, "state": "released"},
                             lease | {"run": "other", "started": True, "agent": "other"},
                             lease | {"started": True}))
-            self.assertEqual(self.loop.earlier_branches(plan.item, self.agent, lease["run"]),
+            self.assertEqual(earlier_branches(self.loop.coordinator, plan.item, self.agent, lease["run"]),
                              [issue_branch(history[-3])])
-            self.assertEqual(self.loop.earlier_branches(self.github.item(2), self.agent, lease["run"]), [])
+            self.assertEqual(earlier_branches(self.loop.coordinator, self.github.item(2), self.agent, lease["run"]), [])
 
     def test_handoff_ignores_unstarted_and_recovery_branches(self):
         plan = self.loop.plans()[0]
@@ -309,7 +311,7 @@ class LoopTests(unittest.TestCase):
             lease | {"id": 101, "run": "recovery", "mode": "recovery", "state": "released"}]
         with patch.object(self.loop.coordinator, "history", return_value=history), \
                 patch.object(self.github, "prs_for_branch", wraps=self.github.prs_for_branch) as lookup:
-            self.loop.validate_success(plan, outcome)
+            settlement(self.loop).validate_success(plan, outcome)
         lookup.assert_not_called()
 
     def test_handoff_continues_or_rejects_a_draft_on_an_earlier_run_branch(self):
@@ -1191,7 +1193,7 @@ class RecoveryTests(unittest.TestCase):
         loop.coordinator.report(source, "success", "Completed before outage", outcome="done")
         for _ in range(self.agent.max_attempts):
             now += 61
-            with patch.object(loop, "validate_success", side_effect=AgentError("GitHub timeout")):
+            with patch.object(Settlement, "validate_success", side_effect=AgentError("GitHub timeout")):
                 with self.assertRaisesRegex(AgentError, "GitHub timeout"):
                     loop.tick()
             history = loop.coordinator.history(1)

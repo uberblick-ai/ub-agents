@@ -83,7 +83,7 @@ class RunPromptCharacterizationTests(unittest.TestCase):
                 patch("ub_agents.coordination.uuid.uuid4", return_value=SimpleNamespace(hex="characterized-run")), \
                 patch.object(loop, "input_check", return_value=ApprovalCheck(True, "Approved", snapshot=snapshot)), \
                 patch.object(loop.coordinator, "feedback", side_effect=lambda *args: events.append("feedback") or feedback), \
-                patch.object(loop, "earlier_branches", side_effect=lambda *args: events.append("earlier_branches") or earlier), \
+                patch("ub_agents.loop.earlier_branches", side_effect=lambda *args: events.append("earlier_branches") or earlier), \
                 patch("ub_agents.loop.launcher_report_command", return_value="/launcher/python -I /launcher/report_command.py"), \
                 patch("ub_agents.loop.Workspace.prepare", prepare), \
                 patch.object(Path, "write_text", write), \

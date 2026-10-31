@@ -16,6 +16,7 @@ from ub_agents.config import Runtime, load_config
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
+from ub_agents.settlement import Settlement
 from ub_agents.records import issue_branch, attempts, seconds, timestamp
 from ub_agents.refresh import refresh_checkout
 from ub_agents.updates import Updates
@@ -343,6 +344,15 @@ class RefreshTests(unittest.TestCase):
     def test_reload_between_runs_changes_runtime_instructions_triggers_and_report_outcomes(self):
         self.enable_reload()
         calls = []
+        settlements = []
+
+        def create_settlement(*args):
+            component = Settlement(*args)
+            self.assertIs(component.config, self.loop.config)
+            self.assertIs(component.github, self.loop.github)
+            self.assertIs(component.github, self.loop.coordinator.github)
+            settlements.append(component)
+            return component
 
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
             number = int(env["UB_AGENTS_ASSIGNMENT"])
@@ -374,10 +384,16 @@ class RefreshTests(unittest.TestCase):
 
         self.github.change(3, labels=frozenset({"ready", "needs-changes"}))
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
+                patch("ub_agents.loop.Settlement", side_effect=create_settlement), \
                 patch("ub_agents.loop.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
             self.assertTrue(self.loop.tick())
         self.assertEqual(calls, [1, 3])
+        self.assertEqual(len(settlements), 2)
+        self.assertIsNot(settlements[0], settlements[1])
+        self.assertIsNot(settlements[0].config, settlements[1].config)
+        self.assertEqual(settlements[0].config.agents[0].triggers, ("ready",))
+        self.assertEqual(settlements[1].config.agents[0].triggers, ("needs-changes",))
         self.assert_success(1)
         self.assert_success(3)
         self.assertEqual(self.github.item(3).labels, frozenset({"ready", "needs-review"}))
