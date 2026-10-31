@@ -41,3 +41,7 @@ Yes. Open a pull request and add `needs-review`. The loop reviews it, fixes it a
 Claude Code, Codex, or any command. Each role picks its own CLI and model, and can list alternatives for when one is unavailable. See [Runtimes](/docs/configuration/runtimes.html).
 
 We plan to support more runtimes out of the box. [Open an issue](https://github.com/uberblick-ai/ub-agents/issues/new) to tell us which one you need, and we'll look into it.
+
+## Which models should I pick?
+
+Give the reviewer a capable model, different from the implementer's. With a strong reviewer, a cheaper implementer can often do the writing, because the review rounds catch what it misses. Whether that holds for you depends on your code base, how clean and well tested it is, how disciplined your issues and checks are, and the CLI you run. We make no general claims: try a few pairings on real issues and compare rounds, time and cost. Each role picks its own model; see [Runtimes](/docs/configuration/runtimes.html).
