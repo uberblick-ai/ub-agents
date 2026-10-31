@@ -1,46 +1,48 @@
 # Integrate according to project policy
 
-Read the project's acceptance and merge rules. Verify that every owed review
-applies to the assigned candidate SHA; old-head evidence is insufficient. Only
-your own clean base merge below keeps the review at a new head. Do not infer
-permission to merge from a label alone.
+Read the project's acceptance and merge rules. Every owed review must apply to the
+assigned candidate SHA; only your own clean base merge keeps it valid at a new
+head. A label alone grants no merge authority.
 
 Before changing the PR branch, check `gh pr view N --json headRefOid` against the
-assignment context's `candidate_sha`; report blocked if they differ. Fetch the PR's
+assignment context's `candidate_sha`; report blocked if they differ. Fetch the
 base branch and check `git merge-tree --write-tree <base> HEAD`, using the fetched
-base ref for `<base>`. If the candidate is behind the base but merges cleanly, do
-not send it back: merge the base into the PR branch with a merge commit (no rebase
-or force push). Push explicitly to the PR's branch (`git push origin
-HEAD:refs/heads/BRANCH`), using the literal branch from `gh pr view N --json headRefName`,
-and record the SHA of the base merge you pushed yourself. Your own clean base merge
-needs no new review. Run the declared final checks at the resulting head, or at
-`candidate_sha` if no base merge was needed.
+base ref for `<base>`. If GitHub mergeability is `UNKNOWN`, read it again.
+If the candidate is behind the base but merges cleanly, do not send it back:
+merge the base into the PR branch with a merge commit (no rebase or force push).
+Push explicitly with `git push origin HEAD:refs/heads/BRANCH`, using the literal
+branch from `gh pr view N --json headRefName`; record the resulting SHA.
+Your own clean base merge needs no new review. Run the declared final checks at
+the resulting head, or `candidate_sha` without a base merge.
 
-Immediately before merging or publishing a handoff, check the head with
-`gh pr view N --json headRefOid` and compare it with the assignment context's
+Wait for CI checks required by the project's merge policy to complete successfully
+on that exact head, including your own base merge. Pending checks, including a
+just-pushed head with no checks yet, mean wait (`gh pr checks N --watch`).
+No required CI checks means no wait; failed checks follow the send-back rule below.
+
+Immediately before merging or publishing a handoff, check
+`gh pr view N --json headRefOid` against
 `candidate_sha` or the SHA of the base merge you pushed yourself; any other change
-reports blocked.
+reports blocked. Immediately before merging, re-read the item's labels; report
+blocked if any `stop-labels` from `ub-agents.yaml` is present.
 
-If the project's merge policy authorizes this merge and its gates pass, merge exactly
-the verified head with the project's merge method (for example `gh pr merge N
---squash --match-head-commit SHA`) and close the linked issue when
-completion is satisfied. Then record `ub-agents report --outcome merged --summary
-"Merged SHA under project policy"`.
+If merge policy authorizes it and gates pass, merge exactly the verified head
+with the project's method (for example `gh pr merge N --squash
+--match-head-commit SHA`). If the merge command fails, check
+`gh pr view N --json state,mergeCommit`; if merged, report `merged`.
+Close the linked issue when completion is satisfied and record
+`ub-agents report --outcome merged --summary "Merged SHA under project policy"`.
 
-If the policy leaves this merge to a maintainer, leave a concrete report that names
-the reason and record `ub-agents report --outcome maintainer-merge
+If policy requires a maintainer merge, report
+`ub-agents report --outcome maintainer-merge
 --summary "Gates pass for SHA; maintainer merge required by POLICY"
---action "Maintainer: merge #N because REASON."`. Handing a passing candidate to a
-maintainer is a successful handoff.
+--action "Maintainer: merge #N because REASON."`.
 
 Only if the candidate conflicts with the base branch, a declared check fails for a
 cause that code or tests in the repository can fix, or the project's shared guidance
 asks PRs to carry changelog entries and the entry for a user-facing change is missing
 or inaccurate, send it back to the implementer:
-name what to fix, including any failing check and its output, in the summary of
-`ub-agents report --outcome changes-requested`. A fixable cause includes a test that
-depends on the run's environment and a failure that also reproduces on the base branch.
-Report blocked only when the fix needs something outside the repository (access, a
-permission, an external service or a human decision), another gate fails, or evidence
-is missing. The framework never grants merge authority, approves its own PR, or
-chooses check commands.
+`ub-agents report --outcome changes-requested` must name what to fix, the check and
+output. Fixable causes include environment-dependent tests and failures on the base
+branch. Report blocked for outside dependencies, other failed gates or missing
+evidence. The framework grants no merge authority, approves no PRs and chooses no checks.

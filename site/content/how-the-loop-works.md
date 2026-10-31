@@ -37,6 +37,7 @@ Both reviewers use `needs-review`: the issue-reviewer takes only issues, the rev
 
 {{flow pr}}
 
+- **Merge checks.** The integrator runs the project's declared checks and waits for CI required by your merge policy to pass on the exact head it merges, including its own base merge. Pending checks, even a just-pushed head with none reported yet, mean wait; a policy requiring no CI has nothing to wait for. Immediately before merging, it checks the item's labels and reports blocked if a configured [stop label](/docs/configuration/stop-labels.html) is present. It rechecks `UNKNOWN` mergeability and, if the merge command fails, checks whether the PR actually merged before reporting.
 - **Back and forth.** The usual round trip is between implementer and reviewer. The integrator also sends a PR back to `needs-changes`, for example when checks fail after it updates the base or the PR has a merge conflict.
 - **Maintainer merge.** When your merge policy says a person merges this PR, for example because it changes workflows, permissions or release settings, the integrator reports `maintainer-merge` with the reason and the PR gets `needs-human`.
 - **Three rounds.** Each review finding is P1 (must not merge as is) or P2. The reviewer sends a PR back at most three times, and always reviews a P1 fix again. After the third round, a PR with only P2 findings left is approved with them listed; an open P1 gets `needs-human`.

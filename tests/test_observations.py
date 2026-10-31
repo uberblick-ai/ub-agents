@@ -1177,7 +1177,10 @@ class PublisherTests(unittest.TestCase):
             observer.plan(plan)
         observer.complete_pass()
         state = self.wait_for(lambda: self.read(observer.state["session"]))
-        self.wait_for(lambda: self.read(observer.state["session"])["latest_pass"]["state"] == "complete")
+        # Large snapshots also write a history file per item; allow slow CI disks
+        # to finish without imposing a publication speed requirement.
+        self.wait_for(lambda: self.read(observer.state["session"])["latest_pass"]["state"] == "complete",
+                      timeout=30)
         state = self.read(observer.state["session"])
         path = self.root / ".ub-agents" / "sessions" / f"{state['session']}.json"
         self.assertLessEqual(path.stat().st_size, MAX_BYTES)
