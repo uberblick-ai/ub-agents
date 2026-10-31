@@ -154,7 +154,7 @@ class RequestStatsTests(unittest.TestCase):
         self.lines.clear()
         # A separate pass may reach a stale recovery row again.
         with self.loop.discovery_pass():
-            self.loop._declines.clear()
+            self.loop.pass_messages._declines.clear()
             self.assertIsNone(co.claim(recovery, recovery=True))
         self.assertEqual(self.lines[0], '#1 worker: declined — Recovery outcome no longer matches')
 
