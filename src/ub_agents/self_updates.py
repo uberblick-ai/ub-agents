@@ -179,6 +179,9 @@ class SelfUpdates:
 
         executable, current = installed()
         if version(current) > version(__version__):
+            if updates is not None and not updates.banner:
+                updates.banner = {"text": f"⬆ ub-agents {current} is installed · you run {__version__} · "
+                                          "review release notes before restarting the launcher"}
             markers(current)
             restart(executable, current)
             return

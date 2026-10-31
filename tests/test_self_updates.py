@@ -187,7 +187,10 @@ class SelfUpdateTests(unittest.TestCase):
         for pages in ([[release(self.target, "coordinated")]], [[release("99.0.1")]]):
             self.pages = pages
             self.manager.checked = None
+            self.updates.banner = None
             self.boundary()
+            self.assertIn(self.target + " is installed", self.updates.banner["text"])
+            self.assertIn("automatic update skipped", self.updates.banner["text"])
         self.assertFalse(any("upgrade" in call for call in self.calls))
 
     def test_failed_upgrade_is_logged_and_only_retried_next_update_check(self):
