@@ -28,7 +28,7 @@ is no separate orchestration server.
 
 ![An example session: a decision in Claude Code, the issues filed, then the ub-agents terminal view picks one up](docs/images/loop-demo.gif)
 
-The animation is the first minute of an example session; the one on
+The animation is the start of an example session; the one on
 [our website](https://agents.uberblick.ai) goes on to review and a blocked
 item. Here is what really happened to [#630](https://github.com/uberblick-ai/ub-agents/issues/630), the
 issue it is based on. It was filed from a Claude Code session with
