@@ -1,6 +1,6 @@
 # How it works with Uberblick
 
-ub-agents runs delivery: issues, pull requests, reviews and merges, all on GitHub. It doesn't hold what the product should do. We keep that in [Uberblick](https://next.uberblick.ai), a shared workspace of pages and decisions that people edit in the browser and agents read over MCP. Both come out of the same work, building our own software with coding agents, and both stayed separate tools. The [Uberblick motivation](https://next.uberblick.ai/docs/motivation/) tells the whole story; this page covers the part where the two meet.
+ub-agents runs delivery: issues, pull requests, reviews and merges, all on GitHub. It doesn't hold what the product should do. We keep that in [Uberblick](https://uberblick.ai), a shared workspace of pages and decisions that people edit in the browser and agents read over MCP. Both come out of the same work, building our own software with coding agents, and both stayed separate tools. The [Uberblick motivation](https://uberblick.ai/docs/motivation) tells the whole story; this page covers the part where the two meet.
 
 ## What hurt
 
@@ -24,6 +24,10 @@ In the loop, each role uses the workspace because its instructions say so:
 - **Review.** The reviewer checks the code against the pages and reviews the proposed page text with it.
 - **Merge.** After the merge, the integrator applies the page changes, so the workspace describes what shipped.
 
+## Also, it looks good
+
+Less serious, but it matters to us: Uberblick is nice to look at. Our [CI numbers](https://uberblick.ai/blog/2026/faster-ci-observe-it) are charts on a page instead of screenshots in a pull request. Flows are [drawn as text](https://uberblick.ai/guides/flows) that an agent writes in a few lines and people see as a diagram. A page reads like a page instead of a wall of text, and its [history](https://uberblick.ai/docs/history) shows what changed and who changed it. No more scrolling back through a chat to find what we agreed, and losing, quite literally, the Überblick. (It's German for overview. Pun intended.)
+
 ## Why they're separate
 
 ub-agents knows nothing about Uberblick. The connection is an MCP server entry and a short rule in your [shared policy](/docs/configuration/instructions.html#shared-policy).
@@ -40,4 +44,4 @@ ub-agents knows nothing about Uberblick. The connection is an MCP server entry a
 - **The pages stay true.** Docs go stale because updating them is nobody's step. In the loop it is a step: a pull request that changes behavior carries its page updates, and the integrator applies them after the merge.
 - **Retros improve both.** A [retro](/docs/best-practices/retrospectives.html) can propose a change to the loop's instructions or to a page, and a person decides each one.
 
-To connect them, [init](/docs/commands/init.html) can register the server, and [Agents over MCP](https://next.uberblick.ai/docs/agents) on the Uberblick site has the rest.
+To connect them, [init](/docs/commands/init.html) can register the server, and [Agents over MCP](https://uberblick.ai/docs/agents) on the Uberblick site has the rest.
