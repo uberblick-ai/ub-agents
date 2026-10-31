@@ -1,10 +1,12 @@
 from dataclasses import replace
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from ub_agents.coordination import Coordinator
+from ub_agents.discovery import Discovery
 from ub_agents.errors import GitHubError
 from ub_agents.loop import Loop
 from tests.support import FakeGitHub, agent, config, issue
@@ -21,6 +23,84 @@ class QueuePlannerTests(unittest.TestCase):
         self.loop = Loop(config(self.root, self.first, self.second), self.github,
                          "operator", output=lambda _: None)
         self.loop.coordinator.clock = lambda: 1000
+
+    def test_status_keeps_the_loop_iterator_patch_boundary(self):
+        plans = self.loop.queue_planner.plans()
+        with patch.object(self.loop, "iter_plans", return_value=iter(plans)) as iterate:
+            self.assertEqual(self.loop.plans(), plans)
+        iterate.assert_called_once_with(cached=False)
+
+    def test_planner_traverses_and_targets_without_loop_planning_methods(self):
+        with patch.object(self.loop, "iter_plans", side_effect=AssertionError("Loop traversal")), \
+                patch.object(self.loop, "item_plans", side_effect=AssertionError("Loop targeting")):
+            plans = self.loop.queue_planner.plans()
+            item, targeted = self.loop.queue_planner.target_plans(1, self.second.name)
+            targeted = list(targeted)
+        self.assertEqual([(plan.item.number, plan.agent, plan.state) for plan in plans],
+                         [(1, self.first, "ready"), (1, self.second, "ready")])
+        self.assertEqual(item.number, 1)
+        self.assertEqual([(plan.agent, plan.state) for plan in targeted], [(self.second, "ready")])
+        self.assertEqual(self.github.writes, [])
+
+    def test_traversal_reads_replaced_discovery_and_pass_stats_when_reached(self):
+        self.github.items[2] = issue(2)
+        original = self.loop.discovery
+        plans = self.loop.iter_plans(claiming=True)
+        self.addCleanup(plans.close)
+        self.loop.discovery = Discovery(self.loop.github)
+        first_stats = SimpleNamespace(candidates=set())
+        second_stats = SimpleNamespace(candidates=set())
+        self.loop._pass_stats = first_stats
+        with patch.object(original, "observe", side_effect=AssertionError("Old discovery")):
+            self.assertEqual(next(plans).item.number, 1)
+            self.assertEqual(first_stats.candidates, {1})
+            self.loop._pass_stats = second_stats
+            self.assertEqual(next(plans).item.number, 1)
+            self.assertEqual(second_stats.candidates, set())
+            self.assertEqual([plan.item.number for plan in plans], [2, 2])
+        self.assertEqual(first_stats.candidates, {1})
+        self.assertEqual(second_stats.candidates, {2})
+        self.assertEqual(self.github.writes, [])
+
+    def test_queue_diagnostics_reset_on_advancement_and_idle_follows_exhaustion(self):
+        previous_waits = {2: ("waiting", "Previous pass")}
+        self.loop._queue_waits = previous_waits
+        self.loop._has_trigger = None
+        self.loop.milestone_wait = "Previous milestone"
+        self.loop.milestone_skips = ("Previous skip",)
+        events = []
+        with patch.object(self.loop, "observe", side_effect=lambda *args: events.append(args)):
+            plans = self.loop.iter_plans(claiming=True)
+            self.addCleanup(plans.close)
+            self.loop._launch_agent = self.first.name
+            self.assertIs(self.loop._queue_waits, previous_waits)
+            self.assertIsNone(self.loop._has_trigger)
+            self.assertEqual(self.loop.milestone_wait, "Previous milestone")
+            self.assertEqual(self.loop.milestone_skips, ("Previous skip",))
+            self.assertEqual(events, [])
+            plan = next(plans)
+            self.assertEqual(plan.agent, self.first)
+            self.assertIsNot(self.loop._queue_waits, previous_waits)
+            self.assertEqual(self.loop._queue_waits, {1: ("ready", "Trigger matched")})
+            self.assertTrue(self.loop._has_trigger)
+            self.assertIsNone(self.loop.milestone_wait)
+            self.assertEqual(self.loop.milestone_skips, ())
+            self.assertFalse(any(event[0] == "queue_idle" for event in events))
+            self.loop._launch_agent = self.second.name
+            self.assertEqual(list(plans), [])
+        self.assertEqual(events[-1], ("queue_idle", "Agent second: no eligible work; waiting items: 1 ready"))
+
+    def test_targeted_observation_reads_launch_number_after_each_yield(self):
+        _, plans = self.loop.item_plans(1)
+        self.addCleanup(plans.close)
+        self.loop._launch_agent = self.first.name
+        self.loop._launch_number = 1
+        self.assertEqual(next(plans).agent, self.first)
+        self.assertEqual(self.loop._queue_waits, {})
+        self.loop._launch_number = None
+        self.assertEqual(next(plans).agent, self.second)
+        self.assertEqual(self.loop._queue_waits, {1: ("ready", "Trigger matched")})
+        self.assertEqual(list(plans), [])
 
     def test_swapped_coordinator_clock_controls_lease_expiry(self):
         self.loop.coordinator.clock = lambda: 2000
