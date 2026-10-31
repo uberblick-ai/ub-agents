@@ -179,70 +179,85 @@ class MCPChecks:
                 return {}
         return self.read(self.config.root / value)
 
-    def run(self, doctor, *, offline=False):  # noqa: C901, PLR0912
+    def run(self, doctor, *, offline=False):
         for agent in self.config.agents:
             if agent.command:
                 continue
             expected = self.expected(agent)
             for runtime in agent.runtimes:
-                arguments = agent.runtime_args_for(runtime)
-                self.errors = set()
-                if offline:
-                    loaded, unread, pending, denied = {}, {}, {}, {}
-                    explicit = (self.servers(codex_overrides(arguments), "mcp_servers")
-                                if runtime.cli == "codex" else {})
-                else:
-                    loaded, unread, pending, denied = getattr(self, runtime.cli)(arguments)
-                    explicit = self.servers(codex_overrides(arguments), "mcp_servers")
-                names = expected | set(explicit) if runtime.cli == "codex" else set(expected)
-                # Explicit Claude --mcp-config entries are relevant too; unrelated
-                # user-wide servers do not expand the project's checks.
-                if runtime.cli == "claude":
-                    for value in flags(arguments, "--mcp-config"):
-                        names.update(self.servers(self.json_argument(value), "mcpServers"))
-                if self.errors:
-                    doctor.add("runtime-mcp-config", "skip" if offline else "warn",
-                               "offline: MCP probes are not run" if offline else "MCP configuration could not be read",
-                               None if offline else "Fix the MCP JSON/TOML configuration for this runtime",
-                               required=False, agent=agent, runtime=runtime)
-                for name in sorted(names):
-                    kwargs = dict(required=False, agent=agent, runtime=runtime, server=name)
-                    if offline:
-                        doctor.add("runtime-mcp", "skip", f"{name}: offline: MCP servers are not checked", **kwargs)
-                        continue
-                    state = ("loaded" if name in loaded else
-                             "pending approval" if name in pending else "unread" if name in unread else "missing")
-                    if self.errors:
-                        state = "unread"
-                    entry = mapping(loaded.get(name))
-                    if state == "loaded" and entry.get("enabled") is False:
-                        state = "unread"
-                    if state == "loaded" and not (entry.get("command") or entry.get("url")):
-                        state = "missing"
-                    if state != "loaded":
-                        remedy = (f"Define {name} in runtime-args with -c mcp_servers.{name}.command and other entries"
-                                  if runtime.cli == "codex" else
-                                  f"Add {name} to enabledMcpjsonServers in the committed .claude/settings.json")
-                        if runtime.cli == "claude" and state == "missing":
-                            remedy = "Run ub mcp install claude, then " + remedy[0].lower() + remedy[1:]
-                        elif runtime.cli == "claude" and state == "unread":
-                            remedy = f"Define {name} in the project's .mcp.json and add it to enabledMcpjsonServers"
-                        if name in denied:
-                            remedy = f"Remove {name} from disabledMcpjsonServers, then " + remedy[0].lower() + remedy[1:]
-                        if entry.get("enabled") is False:
-                            remedy += f" and set mcp_servers.{name}.enabled=true"
-                        doctor.add("runtime-mcp", "warn", f"{name}: {state}", remedy, **kwargs)
-                        continue
-                    if entry.get("url") or entry.get("type", "stdio") != "stdio":
-                        doctor.add("runtime-mcp", "skip", f"{name}: loaded; non-stdio transport is not probed", **kwargs)
-                        continue
-                    if entry.get("experimental_environment") == "remote":
-                        doctor.add("runtime-mcp", "skip", f"{name}: loaded; remote stdio execution is not probed", **kwargs)
-                        continue
-                    count, error = self.start(runtime.cli, entry)
-                    doctor.add("runtime-mcp", "warn" if error else "ok",
-                               f"{name}: loaded; {error}" if error else f"{name}: loaded; {count} tools",
-                               f"Fix MCP server {name}: {error}" if error else None, **kwargs)
+                self.check_runtime(doctor, agent, runtime, expected, offline=offline)
+
+    def check_runtime(self, doctor, agent, runtime, expected, *, offline):
+        arguments = agent.runtime_args_for(runtime)
+        self.errors = set()
+        if offline:
+            loaded, unread, pending, denied = {}, {}, {}, {}
+            explicit = (self.servers(codex_overrides(arguments), "mcp_servers")
+                        if runtime.cli == "codex" else {})
+        else:
+            loaded, unread, pending, denied = getattr(self, runtime.cli)(arguments)
+            explicit = self.servers(codex_overrides(arguments), "mcp_servers")
+        names = expected | set(explicit) if runtime.cli == "codex" else set(expected)
+        # Explicit Claude --mcp-config entries are relevant too; unrelated
+        # user-wide servers do not expand the project's checks.
+        if runtime.cli == "claude":
+            for value in flags(arguments, "--mcp-config"):
+                names.update(self.servers(self.json_argument(value), "mcpServers"))
+        if self.errors:
+            doctor.add("runtime-mcp-config", "skip" if offline else "warn",
+                       "offline: MCP probes are not run" if offline else "MCP configuration could not be read",
+                       None if offline else "Fix the MCP JSON/TOML configuration for this runtime",
+                       required=False, agent=agent, runtime=runtime)
+        for name in sorted(names):
+            kwargs = dict(required=False, agent=agent, runtime=runtime, server=name)
+            if offline:
+                doctor.add("runtime-mcp", "skip", f"{name}: offline: MCP servers are not checked", **kwargs)
+                continue
+            state, entry = self.server_state(name, loaded, unread, pending)
+            self.check_server(doctor, runtime, name, state, entry, denied, kwargs)
+
+    def server_state(self, name, loaded, unread, pending):
+        state = ("loaded" if name in loaded else
+                 "pending approval" if name in pending else "unread" if name in unread else "missing")
+        if self.errors:
+            state = "unread"
+        entry = mapping(loaded.get(name))
+        if state == "loaded" and entry.get("enabled") is False:
+            state = "unread"
+        if state == "loaded" and not (entry.get("command") or entry.get("url")):
+            state = "missing"
+        return state, entry
+
+    @staticmethod
+    def server_remedy(cli, name, state, entry, denied):
+        remedy = (f"Define {name} in runtime-args with -c mcp_servers.{name}.command and other entries"
+                  if cli == "codex" else
+                  f"Add {name} to enabledMcpjsonServers in the committed .claude/settings.json")
+        if cli == "claude" and state == "missing":
+            remedy = "Run ub mcp install claude, then " + remedy[0].lower() + remedy[1:]
+        elif cli == "claude" and state == "unread":
+            remedy = f"Define {name} in the project's .mcp.json and add it to enabledMcpjsonServers"
+        if name in denied:
+            remedy = f"Remove {name} from disabledMcpjsonServers, then " + remedy[0].lower() + remedy[1:]
+        if entry.get("enabled") is False:
+            remedy += f" and set mcp_servers.{name}.enabled=true"
+        return remedy
+
+    def check_server(self, doctor, runtime, name, state, entry, denied, kwargs):
+        if state != "loaded":
+            remedy = self.server_remedy(runtime.cli, name, state, entry, denied)
+            doctor.add("runtime-mcp", "warn", f"{name}: {state}", remedy, **kwargs)
+            return
+        if entry.get("url") or entry.get("type", "stdio") != "stdio":
+            doctor.add("runtime-mcp", "skip", f"{name}: loaded; non-stdio transport is not probed", **kwargs)
+            return
+        if entry.get("experimental_environment") == "remote":
+            doctor.add("runtime-mcp", "skip", f"{name}: loaded; remote stdio execution is not probed", **kwargs)
+            return
+        count, error = self.start(runtime.cli, entry)
+        doctor.add("runtime-mcp", "warn" if error else "ok",
+                   f"{name}: loaded; {error}" if error else f"{name}: loaded; {count} tools",
+                   f"Fix MCP server {name}: {error}" if error else None, **kwargs)
 
     def start(self, cli, entry):
         try:

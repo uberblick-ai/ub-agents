@@ -229,10 +229,7 @@ class Observations:
         result["shortened"] = shortened if shortened["fields"] else row.get("shortened", shortened)
         return result
 
-    def emit(self):  # noqa: C901, PLR0912
-        if self._batching:
-            return
-        shortened = {"fields": 0, "characters": 0}
+    def snapshot_histories(self):
         histories = {}
         for key, history in self.state["histories"].items():
             counts = dict(history.get("shortened", {"fields": 0, "characters": 0}))
@@ -241,6 +238,10 @@ class Observations:
                     counts[name] += run.get("shortened", {}).get(name, 0)
             histories[key] = history | {"runs": [display_run(run) for run in history["runs"]],
                                         "shortened": counts}
+        return histories
+
+    def snapshot(self, histories):
+        shortened = {"fields": 0, "characters": 0}
         metadata = {key: {name: value for name, value in history.items() if name != "runs"}
                     for key, history in histories.items()}
         assignment = self.state["assignment"]
@@ -256,6 +257,45 @@ class Observations:
                 for key in shortened:
                     shortened[key] += row.get("shortened", {}).get(key, 0)
         state["shortened"] = shortened
+        return state
+
+    def trim_snapshot(self, state, visible, protected, attention, excess):
+        rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
+        # Drop notices outside visible attention rows first. Only this
+        # publication's copy loses text.
+        notices = state["action_needed"]
+        excess = self.omit_notices(notices, (key for key in notices if key not in attention), excess)
+        # Older outcomes and plans outside the visible sections go before
+        # any visible plan, together with their unreferenced histories.
+        while excess > 0 and state["outcomes"]:
+            excess = self.omit_row(state, "outcomes", state["outcomes"], 0, excess)
+        for row in reversed(tuple(rows)):
+            if excess <= 0:
+                break
+            if (row["item"], row["agent"]) not in protected:
+                excess = self.omit_row(state, "plans", rows, rows.index(row), excess)
+        excess = self.omit_notices(notices, (key for key in notices if key in attention), excess)
+        # Long visible titles and reasons can themselves fill the envelope.
+        # Shorten snapshot display text before losing a visible item.
+        for limit in (512, 128, 32):
+            if excess <= 0:
+                break
+            excess = self.shorten_visible(state, limit, excess)
+        # If even the remaining metadata cannot fit, keep the earliest
+        # visible items longest and never drop the assignment.
+        for work_row in reversed(visible):
+            for plan in reversed(work_row.eligible_plans or (work_row.data,)):
+                index = next((i for i, row in enumerate(rows)
+                              if (row["item"], row["agent"]) == (plan["item"], plan["agent"])), None)
+                if excess > 0 and index is not None:
+                    excess = self.omit_row(state, "plans", rows, index, excess)
+        return excess
+
+    def emit(self):
+        if self._batching:
+            return
+        histories = self.snapshot_histories()
+        state = self.snapshot(histories)
         # Use the view's grouping and order, including merged Eligible items and
         # ready/recovery plans before delayed plans. Pass order alone is not the
         # order of the rows a person sees.
@@ -276,35 +316,7 @@ class Observations:
             # Account for row bytes once instead of repeatedly serializing the
             # entire over-limit snapshot for each dropped row.
             excess = len(data) - MAX_BYTES + 32
-            rows = state["latest_pass"]["rows"] if state["latest_pass"] else []
-            # Drop notices outside visible attention rows first. Only this
-            # publication's copy loses text.
-            notices = state["action_needed"]
-            excess = self.omit_notices(notices, (key for key in notices if key not in attention), excess)
-            # Older outcomes and plans outside the visible sections go before
-            # any visible plan, together with their unreferenced histories.
-            while excess > 0 and state["outcomes"]:
-                excess = self.omit_row(state, "outcomes", state["outcomes"], 0, excess)
-            for row in reversed(tuple(rows)):
-                if excess <= 0:
-                    break
-                if (row["item"], row["agent"]) not in protected:
-                    excess = self.omit_row(state, "plans", rows, rows.index(row), excess)
-            excess = self.omit_notices(notices, (key for key in notices if key in attention), excess)
-            # Long visible titles and reasons can themselves fill the envelope.
-            # Shorten snapshot display text before losing a visible item.
-            for limit in (512, 128, 32):
-                if excess <= 0:
-                    break
-                excess = self.shorten_visible(state, limit, excess)
-            # If even the remaining metadata cannot fit, keep the earliest
-            # visible items longest and never drop the assignment.
-            for work_row in reversed(visible):
-                for plan in reversed(work_row.eligible_plans or (work_row.data,)):
-                    index = next((i for i, row in enumerate(rows)
-                                  if (row["item"], row["agent"]) == (plan["item"], plan["agent"])), None)
-                    if excess > 0 and index is not None:
-                        excess = self.omit_row(state, "plans", rows, index, excess)
+            excess = self.trim_snapshot(state, visible, protected, attention, excess)
             if excess > 0:
                 raise ValueError("Observation envelope exceeds its size limit")
 
@@ -569,7 +581,7 @@ class Observations:
         observed_blockers(history, plan.item, self.stop_labels)
         return self.bounded(history)
 
-    def plan(self, plan, filing=None, comments=None, authors=None):  # noqa: C901, PLR0912, PLR0915
+    def plan_notice(self, plan, comments, authors):
         if comments is not None:
             for comment in comments:
                 login = (comment.get("user") or {}).get("login")
@@ -584,6 +596,9 @@ class Observations:
                           for record in plan.history):
             self.state["action_needed"].pop(str(plan.item.number), None)
             notice = None
+        return notice
+
+    def plan_row(self, plan, notice):
         row = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
                "agent": plan.agent.name, "state": plan.state, "reason": plan.reason,
                "priority": plan.priority.rsplit(":", 1)[-1] if plan.priority else None,
@@ -599,22 +614,9 @@ class Observations:
         if plan.owner:
             row["owner"] = {key: plan.owner.get(key) for key in ("actor", "host", "run")}
             row["owner"]["host_reason"] = None if plan.owner.get("host") else "Host not recorded"
-        row = self.bounded(row)
-        key = (row["item"], row["agent"])
-        self.kept_keys.discard(key)
-        if key in self.pass_rows or len(self.pass_rows) < MAX_PLANS:
-            self.pass_rows[key] = row
-        else:
-            self.pass_omitted += 1
-        rows = self.state["latest_pass"]["rows"]
-        existing = next((i for i, r in enumerate(rows)
-                         if (r["item"], r["agent"]) == key), None)
-        if existing is not None:
-            rows[existing] = row
-        elif len(rows) < MAX_PLANS:
-            rows.append(row)
-        visible = {(r["item"], r["agent"]) for r in rows}
-        self.state["omitted"]["plans"] = self.pass_omitted + len(self.pass_rows.keys() - visible)
+        return self.bounded(row)
+
+    def plan_history(self, plan, filing, key, rows):
         listed = any(r["item"] == plan.item.number for r in rows)
         if listed or key in self.pass_rows:
             history = self.item_history(plan, filing)
@@ -633,6 +635,26 @@ class Observations:
                         rows[index] = kept | {"history_key": history_key}
                 self.state["histories"][str(plan.item.number)] = history
                 self.prune_histories(self.state)
+
+    def plan(self, plan, filing=None, comments=None, authors=None):
+        notice = self.plan_notice(plan, comments, authors)
+        row = self.plan_row(plan, notice)
+        key = (row["item"], row["agent"])
+        self.kept_keys.discard(key)
+        if key in self.pass_rows or len(self.pass_rows) < MAX_PLANS:
+            self.pass_rows[key] = row
+        else:
+            self.pass_omitted += 1
+        rows = self.state["latest_pass"]["rows"]
+        existing = next((i for i, r in enumerate(rows)
+                         if (r["item"], r["agent"]) == key), None)
+        if existing is not None:
+            rows[existing] = row
+        elif len(rows) < MAX_PLANS:
+            rows.append(row)
+        visible = {(r["item"], r["agent"]) for r in rows}
+        self.state["omitted"]["plans"] = self.pass_omitted + len(self.pass_rows.keys() - visible)
+        self.plan_history(plan, filing, key, rows)
         for outcome in self.state["outcomes"]:
             if outcome["target"] == plan.item.number and outcome["completed"]:
                 outcome["human_blocker"] = sorted(plan.item.labels.intersection(self.stop_labels))

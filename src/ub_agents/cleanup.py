@@ -237,7 +237,51 @@ class Cleaner:
             self.output(f"removing {artifact.kind} {artifact.name}: {' '.join(reason.split())}")
             self.control.checkpoint()
 
-    def clean(self, apply=False):  # noqa: C901, PLR0912, PLR0915
+    def removal_reason(self, artifact, lease):
+        reason = "No live run or open PR"
+        if artifact.kind == "worktree" and lease.get("cleanup_hook_error"):
+            reason += f"; retry hook: {lease['cleanup_hook_error']}"
+        if artifact.kind == "branch":
+            tip = git(self.root, "rev-parse", f"refs/heads/{artifact.name}")
+            if not self.known_tip(artifact.name, tip):
+                reason += f"; unpushed tip {tip}"
+            self.branch_tips[artifact.name] = tip
+        return reason
+
+    def remove_artifact(self, artifact, reason):
+        # Inventory/preview conclusions never authorize a deletion.
+        lease, outcome = self.check(artifact)
+        if artifact.kind == "worktree":
+            with self.mutation(artifact):
+                self.intent(artifact, reason)
+                failure = run_hook(self.config, lease, Path(artifact.name), outcome, branch=lease.get("branch"))
+                if failure:
+                    self.blocked_runs.add(artifact.run)
+                    raise AgentError(f"Cleanup hook failed; retry later: {failure}")
+            # Reads after a hook must not hold up quitting or a new
+            # claim. Reacquire the guard before the actual removal.
+            self.check(artifact)
+            with self.mutation(artifact):
+                self.intent(artifact, reason)
+                self.remove_worktree(artifact)
+        elif artifact.kind == "branch":
+            with self.mutation(artifact):
+                self.intent(artifact, reason)
+                # Compare-and-delete refuses to discard a newly moved tip.
+                if any(t.get("branch") == f"refs/heads/{artifact.name}"
+                       for t in worktrees(self.root)):
+                    raise AgentError("Branch became checked out before deletion")
+                if self.control is not None:
+                    self.control.checkpoint()
+                git(self.root, "update-ref", "-d", f"refs/heads/{artifact.name}",
+                    self.branch_tips[artifact.name])
+        else:
+            with self.mutation(artifact):
+                self.intent(artifact, reason)
+                tip = git(self.root, "rev-parse", artifact.name)
+                git(self.root, "update-ref", "-d", artifact.name, tip)
+
+    def clean(self, apply=False):
         self.preview_worktrees.clear()
         self.blocked_runs.clear()
         self.kept_runs.clear()
@@ -247,48 +291,11 @@ class Cleaner:
             if self.control is not None:
                 self.control.checkpoint()
             try:
-                lease, outcome = self.check(artifact)
-                reason = "No live run or open PR"
+                lease, _ = self.check(artifact)
+                reason = self.removal_reason(artifact, lease)
                 action = "would remove"
-                if artifact.kind == "worktree" and lease.get("cleanup_hook_error"):
-                    reason += f"; retry hook: {lease['cleanup_hook_error']}"
-                if artifact.kind == "branch":
-                    tip = git(self.root, "rev-parse", f"refs/heads/{artifact.name}")
-                    if not self.known_tip(artifact.name, tip):
-                        reason += f"; unpushed tip {tip}"
-                    self.branch_tips[artifact.name] = tip
                 if apply:
-                    # Inventory/preview conclusions never authorize a deletion.
-                    lease, outcome = self.check(artifact)
-                    if artifact.kind == "worktree":
-                        with self.mutation(artifact):
-                            self.intent(artifact, reason)
-                            failure = run_hook(self.config, lease, Path(artifact.name), outcome, branch=lease.get("branch"))
-                            if failure:
-                                self.blocked_runs.add(artifact.run)
-                                raise AgentError(f"Cleanup hook failed; retry later: {failure}")
-                        # Reads after a hook must not hold up quitting or a new
-                        # claim. Reacquire the guard before the actual removal.
-                        self.check(artifact)
-                        with self.mutation(artifact):
-                            self.intent(artifact, reason)
-                            self.remove_worktree(artifact)
-                    elif artifact.kind == "branch":
-                        with self.mutation(artifact):
-                            self.intent(artifact, reason)
-                            # Compare-and-delete refuses to discard a newly moved tip.
-                            if any(t.get("branch") == f"refs/heads/{artifact.name}"
-                                   for t in worktrees(self.root)):
-                                raise AgentError("Branch became checked out before deletion")
-                            if self.control is not None:
-                                self.control.checkpoint()
-                            git(self.root, "update-ref", "-d", f"refs/heads/{artifact.name}",
-                                self.branch_tips[artifact.name])
-                    else:
-                        with self.mutation(artifact):
-                            self.intent(artifact, reason)
-                            tip = git(self.root, "rev-parse", artifact.name)
-                            git(self.root, "update-ref", "-d", artifact.name, tip)
+                    self.remove_artifact(artifact, reason)
                     action = "removed"
                 elif artifact.kind == "worktree":
                     self.preview_worktrees.add(artifact.name)

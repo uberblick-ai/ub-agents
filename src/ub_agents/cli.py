@@ -640,47 +640,59 @@ def launch_error_message(exc, root):
     return " ".join(detail.split())
 
 
-def main(argv=None):  # noqa: C901, PLR0912, PLR0915
+def _print_help(command_line, args):
+    if args.command == "help" and args.topic and args.topic not in command_line.commands():
+        command_line.unknown_command(args.topic)
+    target = command_line.commands()[args.topic] if args.command == "help" and args.topic else command_line
+    target.print_help()
+
+
+def _retry_number(args, command_parser):
+    if args.number is not None and args.legacy_number is not None:
+        command_parser.error(f"{args.command} accepts either N or --number N, not both")
+    args.number = args.number if args.number is not None else args.legacy_number
+    if args.number is None or args.number < 1:
+        command_parser.error(f"{args.command} requires a positive item number")
+
+
+def _prepare_args(command_line, args):
+    command_parser = command_line.commands()[args.command]
+    command_config = getattr(args, "command_config", None)
+    if command_config is not None:
+        if args.config is not None:
+            command_parser.error("--config may be given before or after the command, not both")
+        args.config = command_config
+    if args.command == "retry":
+        _retry_number(args, command_parser)
+    args.default_config = args.config is None
+    if args.command == "read" and args.number < 1:
+        command_parser.error("read requires a positive item number")
+    if args.command == "status" and args.number is not None and args.number < 1:
+        command_parser.error("status requires a positive item number")
+    if args.command == "launch":
+        if args.number is not None and args.number < 1:
+            command_parser.error("launch requires a positive item number")
+    args.config = (Path(args.config or DEFAULT_CONFIG).absolute() if args.command == "init" else
+                   Path(args.config or DEFAULT_CONFIG).resolve() if args.command in {"report", "retrospective"}
+                   else resolve_config_path(args.config))
+    needs_config = args.command in {"status", "launch", "retry", "read"}
+    if args.command == "read" and "UB_AGENTS_RUN" in os.environ:
+        needs_config = False  # Supervised reads use the launcher's pinned input policy.
+    if needs_config and not args.config.exists():
+        name = DEFAULT_CONFIG if args.default_config else str(args.config)
+        raise AgentError(f"No {name} here; run ub-agents init to set up a project")
+
+
+def main(argv=None):
     with ExitStack() as stack:
         args = None
         try:
             command_line = parser()
             args = command_line.parse_args(argv)
             if args.command is None or args.command == "help":
-                if args.command == "help" and args.topic and args.topic not in command_line.commands():
-                    command_line.unknown_command(args.topic)
-                target = command_line.commands()[args.topic] if args.command == "help" and args.topic else command_line
-                target.print_help()
+                _print_help(command_line, args)
                 return 0
-            command_parser = command_line.commands()[args.command]
-            command_config = getattr(args, "command_config", None)
-            if command_config is not None:
-                if args.config is not None:
-                    command_parser.error("--config may be given before or after the command, not both")
-                args.config = command_config
-            if args.command == "retry":
-                if args.number is not None and args.legacy_number is not None:
-                    command_parser.error(f"{args.command} accepts either N or --number N, not both")
-                args.number = args.number if args.number is not None else args.legacy_number
-                if args.number is None or args.number < 1:
-                    command_parser.error(f"{args.command} requires a positive item number")
-            args.default_config = args.config is None
-            if args.command == "read" and args.number < 1:
-                command_parser.error("read requires a positive item number")
-            if args.command == "status" and args.number is not None and args.number < 1:
-                command_parser.error("status requires a positive item number")
-            if args.command == "launch":
-                if args.number is not None and args.number < 1:
-                    command_parser.error("launch requires a positive item number")
-            args.config = (Path(args.config or DEFAULT_CONFIG).absolute() if args.command == "init" else
-                           Path(args.config or DEFAULT_CONFIG).resolve() if args.command in {"report", "retrospective"}
-                           else resolve_config_path(args.config))
-            needs_config = args.command in {"status", "launch", "retry", "read"}
-            if args.command == "read" and "UB_AGENTS_RUN" in os.environ:
-                needs_config = False  # Supervised reads use the launcher's pinned input policy.
-            if needs_config and not args.config.exists():
-                name = DEFAULT_CONFIG if args.default_config else str(args.config)
-                raise AgentError(f"No {name} here; run ub-agents init to set up a project")
+            _prepare_args(command_line, args)
             if args.command == "launch":
                 stack.enter_context(launcher_lock(args.config.parent))
                 args.launch_output = stack.enter_context(launch_output(args.config.parent))

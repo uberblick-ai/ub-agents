@@ -315,6 +315,25 @@ class CodexFormattingTests(unittest.TestCase):
             parser.feed(invalid)
             self.assertIsNone(parser.finish())
 
+    def test_string_helpers_preserve_escape_and_utf8_state_across_each_fragment_boundary(self):
+        raw = (b'{"text":"\\uD83D\\uDE00\\n\\uD800x\\uDC00\\t\\\"\\\\\\/",'
+               b'"next":["caf\xc3\xa9","\\uD800"]}')
+        expected = json.loads(raw)
+        for boundary in range(len(raw) + 1):
+            with self.subTest(boundary=boundary):
+                parser = BoundedJSON()
+                parser.feed(raw[:boundary])
+                parser.feed(raw[boundary:])
+                self.assertEqual(parser.finish(), expected)
+        for invalid in (b'{"text":"\\u12xz"}', b'{"text":"\\q"}', b'{"text":"\x01"}'):
+            with self.subTest(invalid=invalid):
+                parser = BoundedJSON()
+                for byte in invalid:
+                    parser.feed(bytes([byte]))
+                self.assertTrue(parser.invalid)
+                self.assertEqual((parser.buffer, parser.head, list(parser.tail), parser.cuts), (b'', [], [], {}))
+                self.assertIsNone(parser.finish())
+
     def test_only_aware_top_level_timestamps_supply_producer_time(self):
         value = recorded_item('agent_message')
         prior = os.environ.get('TZ')
