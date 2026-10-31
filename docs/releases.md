@@ -21,7 +21,8 @@ mise run release X.Y.Z
 Replace X.Y.Z with the prepared version. `--check` runs only the preflight and
 prints the release notes. The preflight refuses unless HEAD is a clean checkout of
 current `origin/main`, `pyproject.toml` and `__version__` match X.Y.Z, `CHANGELOG.md`
-has a dated section for it, the tag is unused locally and on origin, Python 3.14
+has a dated section for it (with no Added, Changed or Removed group for a patch
+version), the tag is unused locally and on origin, Python 3.14
 is available, and the newest GitHub Actions `Test` run on the commit passed. Each
 refusal names its check and publishes nothing.
 

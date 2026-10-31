@@ -22,4 +22,4 @@ For example, Codex's `danger-full-access` means access to the whole machine as t
 
 ## Isolation
 
-Run launchers on a dedicated machine, VM or container to limit what an agent can affect. Built-in container support is planned for the [v0.6.0 milestone](https://github.com/uberblick-ai/ub-agents/milestone/12).
+Run launchers on a dedicated machine, VM or container to limit what an agent can affect. Built-in container support is planned for the [v0.7.0 milestone](https://github.com/uberblick-ai/ub-agents/milestone/12).
