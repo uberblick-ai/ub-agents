@@ -8,6 +8,7 @@ from textual.widgets import Static, TabbedContent, Tabs
 from .updates import release_age
 from .view_data import mapping, text
 from .view_scroll import PaneScroll
+from .view_status import pane_line
 
 SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
 
@@ -41,13 +42,6 @@ class HealthBanner(UpdateBanner):
     """The latest project health transition, including recovery, in one row."""
     def __init__(self):
         super().__init__(id='health_notice')
-
-
-def pane_line(value, width, style=''):
-    line = value.copy() if isinstance(value, Text) else Text(text(value, ''))
-    line.stylize_before(style)
-    line.truncate(max(0, width), overflow='ellipsis')
-    return line
 
 
 class ItemHeader(Static):

@@ -3,7 +3,6 @@
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from math import ceil
 from pathlib import Path
 from queue import Empty
 import sys
@@ -19,18 +18,20 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tree
 
 from .view_clipboard import copy_with_pbcopy, local_pbcopy
-from .view_data import (context_header, context_text, item_handoff, item_header, item_history, mapping,
-                        related_assignment, related_plan, run_status, text, work_pane)
+from .view_data import (context_header, context_text, item_header, item_history, mapping,
+                        related_assignment, related_plan, text, work_pane)
 from .view_github import DescriptionLoads
 from .view_log_pane import LogPane, MAX_RENDER_LINES, Reading
 from .view_markdown import description_parser
 from .view_unblock import (ActionComment, comment_sections, local_action, needs_attention,
-                           resume_section, trust_reason, unblock_body, unblock_metadata)
+                           resume_section, trust_reason, unblock_body)
 from .view_runs import run_status as history_status, runs_view
-from .view_spinner import SPINNER_FPS, spinner_frame
+from .view_spinner import SPINNER_FPS
+from .view_status import (StatusStyles, empty_log_message, footer, header, key_hints, log_mode,
+                          log_notices, paused_pill, run_status_line)
 from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
 from .view_widgets import (HealthBanner, ItemHeader, ItemTabs, KeyHelp, RawAccess, SIZE_WARNING,
-                           UpdateBanner, pane_line)
+                           UpdateBanner)
 from .view_worker import LocalWorker, Request
 from .view_work import RecentActivity, WorkTree, assignment_elapsed, work_lines
 from .view_theme import VIEW_THEME, item_reference, theme_style, variable_defaults
@@ -920,253 +921,65 @@ class View(App):
             lag += max(0, reading.latest.end - (refs[-1].end if refs else page.end))
         return unread, lag
 
-    def footer(self, width, keys):  # noqa: C901, PLR0912, PLR0915
-        now = time.monotonic()
-        if now < max(self.copy_notice_until, self.awake_notice_until):
-            value = self.awake_notice if self.awake_notice_until > self.copy_notice_until else self.copy_notice
-            notice = Text(value, no_wrap=True, overflow='ellipsis')
-            notice.truncate(max(0, width), overflow='ellipsis')
-            notice.pad_right(max(0, width - notice.cell_len))
-            return notice
-        parts = ['' if self.narrow else 'ub-agents']
-        repository = ''
-        if self.session:
-            version = text(self.session.data.get('base_version'), '')
-            if version:
-                parts[0] += ('' if self.narrow else ' ') + f'v{version}'
-            repository = text(self.session.data.get('repository'), '')
-        if repository:
-            parts.append(repository)
-        if self.launcher is not None and self.awake_enabled:
-            parts.append('☕')
-        if self.session:
-            now = datetime.now(timezone.utc)
-            pauses = runtime_pauses(self.session.data, now)
-            labels = [f'{cli} paused {remaining_time(end, now)}' if self.narrow else
-                      pause_status({cli: end}, now) for cli, end in pauses.items()]
-            prefix = parts.copy()
-            if repository:
-                prefix[1] = '…'
-            if self.narrow and Text(' · '.join(prefix + labels)).cell_len + len(keys) + 1 > width:
-                labels = [f'{cli} {remaining_time(end, now)}' for cli, end in pauses.items()]
-            parts.extend(labels)
-        prefix_count = len(parts)
-        # Reserve an intact prefix, with at least an ellipsis for the repository.
-        prefix = parts.copy()
-        if repository:
-            prefix[1] = '…'
-        reserve = Text(' · '.join(part for part in prefix if part)).cell_len
-        if self.session:
-            if self.session.data.get('queue_agent'):
-                parts.append('agent ' + text(self.session.data['queue_agent']))
-            state = self.session.state()
-            if state == 'malformed':
-                parts.append('malformed: ' + text(self.session.error))
-            elif state in {'stale', 'ended'}:
-                parts.append(state)
-            activity = mapping(self.session.data.get('activity'))
-            control = mapping(self.session.data.get('poll_now')) | self.poll_feedback
-            value = text(activity.get('state'), '')
-            now = datetime.now(timezone.utc)
-            limited = None
-            if self.launcher is not None:
-                limited = control.get('rate_limit_until')
-                if activity.get('reason') == 'rate-limit reset':
-                    limited = limited or activity.get('until')
-            limited = poll_deadline(limited, now)
-            if value == 'waiting':
-                try:
-                    until = datetime.fromisoformat(activity['until'].replace('Z', '+00:00'))
-                    if until.tzinfo is not None:
-                        poll_label = 'poll' if self.narrow else 'next poll'
-                        value = f'{poll_label} {max(0, ceil((until - now).total_seconds()))}s'
-                except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
-                    pass
-            if limited is not None:
-                label = f'rate limited for {remaining_time(limited, now)} · r unavailable'
-                value = f'{value} · {label}' if value == 'running assignment' else label
-            if value:
-                parts.append(value)
-            if limited is None:
-                if value == 'running assignment' and control.get('refreshing') is True:
-                    parts.append('polling')
-                elif self.launcher is not None:
-                    until = poll_deadline(control.get('cooldown_until'), now)
-                    if until is not None:
-                        parts.append(f'poll now available in {ceil((until - now).total_seconds())}s')
-        else:
-            parts.append('reading session')
-        left = Text(' · '.join(part for part in parts if part), no_wrap=True, overflow='ellipsis')
-        if self.launcher is not None:
-            poll_keys = keys.replace('? keys', 'r poll now ? keys')
-            if not self.narrow or len(poll_keys) + left.cell_len + 1 <= width:
-                keys = poll_keys
-        # Shorten paused keys only when they crowd out the version/activity.
-        if self.narrow and len(keys) + left.cell_len + 1 > width:
-            keys = keys.replace('g reload ', '')
-        if self.narrow and len(keys) + left.cell_len + 1 > width and keys.startswith('f follow'):
-            keys = 'f follow h older u raw PgUp/Dn ? keys q quit'
-            if len(keys) + left.cell_len + 1 > width:
-                keys = 'f follow h older u raw ? keys q quit'
-        if self.narrow and len(keys) + left.cell_len + 1 > width and keys.startswith('1-4 tabs f follow'):
-            keys = '1-4 tabs g load f follow h older u raw ? keys q quit'
-            if len(keys) + left.cell_len + 1 > width:
-                keys = '1-4 tabs g load f follow ? keys q quit'
-        # Add this hint only after retaining the existing poll/reload hints.
-        # It is the first hint to disappear as space becomes scarce.
-        if self.launcher is not None and self.awake_supported and 'r poll now' in keys:
-            awake_keys = keys.replace('? keys', 'c Stay awake ? keys')
-            if len(awake_keys) + left.cell_len + 1 <= width:
-                keys = awake_keys
-        right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
-        if prefix_count == 1:
-            reserve = 0
-        right.truncate(max(0, width - reserve - 1), overflow='ellipsis')
-        room = max(0, width - right.cell_len - 1)
-        if repository:
-            # Keep a readable name before shortening activity, then let it grow
-            # when the full activity fits. Reserve a separator and activity ellipsis
-            # where possible without cutting the version or awake token.
-            other = Text(' · '.join(part for part in parts[:1] + parts[2:] if part))
-            fixed = Text(' · '.join(part for part in parts[:1] + parts[2:prefix_count] if part))
-            activity = Text(' · '.join(part for part in parts[prefix_count:] if part))
-            name = Text(repository)
-            name_room = max(1, room - fixed.cell_len - (3 if fixed else 0) - (4 if activity else 0))
-            preferred = max(min(24, name.cell_len), room - other.cell_len - (3 if other else 0))
-            name.truncate(min(name_room, preferred), overflow='ellipsis')
-            parts[1] = name.plain
-            left = Text(' · '.join(part for part in parts[:prefix_count] if part), no_wrap=True)
-            activity_room = max(0, room - left.cell_len - 3)
-            if activity and activity_room:
-                activity.truncate(activity_room, overflow='ellipsis')
-                left.append(' · ')
-                left.append_text(activity)
-        left.truncate(room, overflow='ellipsis')
-        left.append(' ' * max(0, width - left.cell_len - right.cell_len))
-        left.append_text(right)
-        return left
+    def footer(self, width, keys):
+        return footer(self.session, width, keys, now=datetime.now(timezone.utc), monotonic_now=time.monotonic(),
+                      narrow=self.narrow, launcher_attached=self.launcher is not None,
+                      awake_enabled=self.awake_enabled, awake_supported=self.awake_supported,
+                      poll_feedback=self.poll_feedback, copy_notice=self.copy_notice,
+                      copy_notice_until=self.copy_notice_until, awake_notice=self.awake_notice,
+                      awake_notice_until=self.awake_notice_until)
 
-    def update_status(self):  # noqa: C901, PLR0912, PLR0915
+    def update_status(self):
         if not self.is_mounted:
             return
         if self.shutdown is not None:
             self.update_shutdown()
             return
         reading = self.reading
+        styles = StatusStyles(theme_style(self, 'view-muted'), theme_style(self, 'view-accent'),
+                              theme_style(self, 'view-error'), theme_style(self, 'view-warning'))
         indicator = self.query_one('#log_mode', Static)
         tab_width = sum(tab.region.width for tab in self.query('#panes Tab') if tab.display)
         mode_width = self.query_one(ItemTabs).content_size.width - tab_width
-        mode = Text('│ ', style=theme_style(self, 'view-muted'), no_wrap=True)
-        mode.append('Formatted', style=theme_style(self, 'view-muted' if reading.raw else 'view-accent',
-                                                   underline=not reading.raw))
-        mode.append('  ' if len('│ Formatted  Raw u') <= mode_width else ' ')
-        mode.append('Raw', style=theme_style(self, 'view-accent' if reading.raw else 'view-muted',
-                                           reverse=reading.raw))
-        hint = ' (u)'
-        if mode.cell_len + len(hint) > mode_width:
-            hint = ' u'
-        mode.append(hint, style=theme_style(self, 'view-muted'))
+        mode = log_mode(reading, mode_width, styles)
         indicator.styles.offset = (tab_width, 0)
         indicator.styles.width = mode.cell_len
         self.update_static(indicator, mode, layout=False)
         rule = self.query_one('#tab_rule', Static)
         self.update_static(rule, '┄' * rule.content_size.width, layout=False)
-        page, log = reading.page, reading.log
         unread, lag = self.log_lag()
-        keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit' if not reading.follow else
-                '1-3 tabs ? keys q quit')
-        if self.narrow:
-            if not self.item_view:
-                keys = '? keys q quit'
-            elif reading.follow:
-                keys = 'Esc back 1-3 tabs ? keys q quit'
-        if self.unblock_visible and (not self.narrow or self.item_view):
-            keys = keys.replace('1-3', '1-4')
-            if self.query_one(ItemTabs).active == 'unblock':
-                if '1-4 tabs' not in keys:
-                    keys = '1-4 tabs ' + keys
-                keys = keys.replace('? keys', 'g load ? keys')
-        if self.query_one(ItemTabs).active == 'log' and (not self.narrow or self.item_view):
-            keys = keys.replace('? keys', 'g reload ? keys')
+        keys = key_hints(reading, narrow=self.narrow, item_view=self.item_view,
+                         unblock_visible=self.unblock_visible, active_tab=self.query_one(ItemTabs).active)
         status = self.footer(self.size.width, keys)
         self.update_static(self.query_one('#status', Static), status, layout=False)
         if isinstance(self.screen, RawAccess):
-            for footer in self.screen.query('#raw_status').results(Static):
+            for raw_footer in self.screen.query('#raw_status').results(Static):
                 # Before its first layout the footer has no width; use the width compose used.
-                width = footer.size.width or self.size.width - self.screen.styles.padding.width
-                self.update_static(footer, self.footer(width, self.screen.footer_keys), layout=False)
+                width = raw_footer.size.width or self.size.width - self.screen.styles.padding.width
+                self.update_static(raw_footer, self.footer(width, self.screen.footer_keys), layout=False)
         pill = self.query_one('#log_state', Static)
-        pill.display = bool((page or log) and (not reading.follow or unread or lag))
-        parts = ['⏸ PAUSED' if not reading.follow else '↓ BEHIND']
-        if unread:
-            parts.append(f'{unread} new ↓')
-        if lag:
-            parts.append(f'{lag}B lag')
-        if reading.raw:
-            parts.append('RAW')
-        parts.append('f follow')
-        self.update_static(pill, Text(' ' + ' · '.join(parts) + ' ', style='reverse',
-                                     no_wrap=True, overflow='ellipsis'), layout=False)
+        pill.display, pill_text = paused_pill(reading, unread, lag)
+        self.update_static(pill, pill_text, layout=False)
         output = self.query_one('#output', LogPane)
         row = self.rows.get(self.selected)
-        header = self.query_one('#item_header', Static)
-        width = header.content_region.width
-        title, metadata = item_header(row, self.current_description(), self.session)
-        waiting = ''
-        if self.query_one(ItemTabs).active == 'unblock':
-            metadata, waiting = unblock_metadata(row, self.current_action(), self.session, self.descriptions.clock())
-        title_text, metadata_text = Text(title), Text(metadata)
-        if self.item_url() is not None:
-            title_text.stylize(Style(meta={'@click': 'app.open_reference'}), 0, len(str(row.item)) + 1)
-        accent = theme_style(self, 'view-accent')
-        if title.startswith('⌥'):
-            title_text.stylize(accent, 0, 1)
-        handoff = item_handoff(row, self.session)
-        if handoff is not None and self.query_one(ItemTabs).active != 'unblock':
-            offset = len(metadata) - len(f'⌥{handoff}')
-            metadata_text.stylize(accent, offset, offset + 1)
-        if waiting:
-            offset = metadata.find(waiting)
-            metadata_text.stylize(theme_style(self, 'view-error'), offset, offset + len(waiting))
-        header_text = Text()
-        header_text.append_text(pane_line(title_text, width, 'bold'))
-        header_text.append('\n').append_text(pane_line(metadata_text, width, theme_style(self, 'view-muted', dim=True)))
-        header_text.append('\n' + '┄' * width, style=theme_style(self, 'view-muted'))
-        self.update_static(header, header_text, layout=False)
+        item = self.query_one('#item_header', Static)
+        description = self.current_description()
+        unblock = self.query_one(ItemTabs).active == 'unblock'
+        action, now = None, None
+        if unblock:
+            action, now = self.current_action(), self.descriptions.clock()
+        header_text = header(row, description, self.session, item.content_region.width, styles,
+                             clickable=self.item_url() is not None, unblock=unblock, action=action, now=now)
+        self.update_static(item, header_text, layout=False)
         width = output.size.width
-        notices = []
-        if row and row.log:
-            if page and reading.latest and page.generation != reading.latest.generation:
-                notices.append('FILE CHANGED; paused earlier generation; f latest.')
-            elif page and page.generation:
-                notices.append('File replaced or changed generation.')
-            if log and log.error:
-                notices.append('Read error: ' + log.error)
-            if log and log.pending_bytes:
-                notices.append(f'Unfinished: {log.pending_bytes}B (raw preview)')
-            if reading.notice:
-                notices.append(reading.notice)
-            if reading.runtime not in ('claude', 'codex'):
-                notices.append(f'{reading.runtime}: plain/raw fallback')
         note = self.query_one('#log_note', Static)
-        note.display = bool(notices)
-        self.update_static(note, pane_line(' · '.join(notices), width,
-                                          theme_style(self, 'view-warning', bold=True)), layout=False)
-        empty_message = (row.reason if row and mapping(row.data.get('owner')) else
-                         'No local log cached for this row.' if not row or not row.log else 'No log output yet.')
+        note.display, note_text = log_notices(row, reading, width, styles)
+        self.update_static(note, note_text, layout=False)
+        empty_message = empty_log_message(row)
         if reading.empty_message != empty_message:
             reading.empty_message = empty_message
             output.refresh()
-        left, right, running = run_status(row, self.session)
-        if running:
-            left = spinner_frame(time.monotonic()) + ' ' + left
-        right_line = pane_line(right, max(0, width - 1))
-        left_line = pane_line(left, width - right_line.cell_len - (1 if right_line.cell_len else 0))
-        status_line = left_line
-        if right_line.cell_len:
-            status_line.append(' ' * max(1, width - left_line.cell_len - right_line.cell_len)).append_text(right_line)
-        run_note = Text('┄' * width + '\n', style=theme_style(self, 'view-muted'))
-        run_note.append_text(status_line)
+        run_note = run_status_line(row, self.session, width, styles, time.monotonic())
         self.update_static(self.query_one('#run_status', Static), run_note, layout=False)
         if isinstance(self.screen, RawAccess) and not isinstance(self.screen, KeyHelp):
             for details in self.screen.query('#raw_details').results(Static):
