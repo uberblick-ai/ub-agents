@@ -1,5 +1,7 @@
 # ub-agents
 
+[![Test coverage](https://raw.githubusercontent.com/uberblick-ai/ub-agents/python-coverage-comment-action-data/badge.svg)](https://github.com/uberblick-ai/ub-agents/tree/python-coverage-comment-action-data)
+
 ub-agents runs an implementation and review loop for your GitHub issues in the
 background, on your own machine or server.
 

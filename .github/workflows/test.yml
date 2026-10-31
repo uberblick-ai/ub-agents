@@ -35,6 +35,47 @@ jobs:
       - run: python -m pip install build
       - run: python -m build
       - run: python scripts/check_package.py dist/*.whl
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Release preflight checks the whole workflow; reporting failures are optional.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install -e . coverage==7.17.0
+      - run: coverage run -m tests
+      - run: coverage combine
+      - name: Summarize coverage
+        run: coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: .coverage
+          include-hidden-files: true
+          if-no-files-found: error
+  coverage-report:
+    needs: coverage
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage
+      - name: Publish coverage report
+        uses: py-cov-action/python-coverage-comment-action@e5fb2218463c3377f3504b0c5b5646ed53da7a2f # v4.5
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
   result:
     # One required check, so the matrix can change without editing the ruleset.
     name: Test result
