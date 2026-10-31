@@ -26,7 +26,7 @@ In the loop, each role uses the workspace because its instructions say so:
 
 ## Also, it looks good
 
-Less serious, but it matters to us: Uberblick is nice to look at. Our [CI numbers](https://uberblick.ai/blog/2026/faster-ci-observe-it) are charts on a page instead of screenshots in a pull request. Flows are [drawn as text](https://uberblick.ai/guides/flows) that an agent writes in a few lines and people see as a diagram. A page reads like a page instead of a wall of text, and its [history](https://uberblick.ai/docs/history) shows what changed and who changed it. No more scrolling back through a chat to find what we agreed, and losing, quite literally, the Überblick. (It's German for overview. Pun intended.)
+Less serious, but it matters to us: Uberblick is nice to look at. Our [CI numbers](https://uberblick.ai/blog/2026/faster-ci-observe-it) are charts on a page instead of screenshots in a pull request. Flows are [drawn as text](https://uberblick.ai/guides/flows) that an agent writes in a few lines and people see as a diagram, and the [ub-agents-flow](https://skills.uberblick.ai/skills/ub-agents-flow) skill draws your own loop that way. A page reads like a page instead of a wall of text, and its [history](https://uberblick.ai/docs/history) shows what changed and who changed it. No more scrolling back through a chat to find what we agreed, and losing, quite literally, the Überblick. (It's German for overview. Pun intended.)
 
 ## Why they're separate
 
