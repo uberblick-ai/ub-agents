@@ -58,6 +58,14 @@ def release_notes(changelog, version):
     return notes
 
 
+def patch_scope(version, notes):
+    """Patch releases contain only fixes; see AGENTS.md#changelog."""
+    groups = dict.fromkeys(re.findall(r'^### (Added|Changed|Removed)\s*$', notes, re.M))
+    if version.rsplit(".", 1)[1] != "0" and groups:
+        raise ReleaseError(f"version check: {version} is a patch release, but its notes have "
+                           f"{', '.join(groups)}; release it as a minor version")
+
+
 def preflight(root, version, run=subprocess.run, environ=None):
     environ = os.environ if environ is None else environ
     if environ.get("UB_AGENTS_RUN") or environ.get("UB_AGENTS_RUN_CONFIG"):
@@ -104,6 +112,7 @@ def preflight(root, version, run=subprocess.run, environ=None):
         notes = release_notes((root / "CHANGELOG.md").read_text(), version)
     except OSError as exc:
         raise ReleaseError(f"CHANGELOG check: {exc}") from exc
+    patch_scope(version, notes)
     try:
         runs = json.loads(command(run, ["gh", "api", f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/runs"
                                                      f"?head_sha={sha}"]).stdout)["workflow_runs"]

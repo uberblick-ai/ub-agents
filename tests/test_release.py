@@ -301,6 +301,29 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError, "expected one dated"):
             release.release_notes(section + section, VERSION)
 
+    def test_patch_release_allows_only_fixes(self):
+        fixes = "\n\n### Fixed\n\n- A fix (#400).\n\n"
+        for version, notes in (("0.2.1", fixes), ("0.3.0", NOTES), ("1.0.0", NOTES + "### Removed\n\n- Gone.\n")):
+            with self.subTest(version=version):
+                release.patch_scope(version, notes)
+        for notes, groups in ((NOTES, "Added"), ("\n### Changed\n- a\n### Removed\n- b\n### Changed\n- c\n",
+                                                 "Changed, Removed")):
+            with self.subTest(groups=groups), self.assertRaises(release.ReleaseError) as raised:
+                release.patch_scope("0.2.1", notes)
+            self.assertIn(f"0.2.1 is a patch release, but its notes have {groups}", str(raised.exception))
+
+    def test_patch_release_with_features_refuses_before_publication(self):
+        version = "0.2.1"
+        (self.root / "pyproject.toml").write_text(f'[project]\nversion = "{version}"\n')
+        self.version_file.write_text(f'__version__ = "{version}"\n')
+        (self.root / "CHANGELOG.md").write_text(f"# Changelog\n\n## {version} — 2026-10-10" + NOTES)
+        self.git("show-ref", "--verify", "--quiet", f"refs/tags/v{version}", response=self.result(1))
+        self.git("ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/v{version}", response=self.result(2))
+        with self.assertRaisesRegex(release.ReleaseError, "release it as a minor version"):
+            release.preflight(self.root, version, self.runner, environ={})
+        self.assertNotIn(RUNS, [args for args, _ in self.runner.calls])
+        self.assert_no_publication()
+
     def test_formula_url_hash_and_unchanged_resources(self):
         packages = [package(), package("typing-extensions", "4.16.0")]
         original = formula(*packages)
