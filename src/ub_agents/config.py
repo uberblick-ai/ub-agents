@@ -310,7 +310,7 @@ def preview_config(content, path, planned):
         raise type(exc)(f"Invalid configuration {path} with local overrides {local_path}: {exc}") from exc
 
 
-def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
+def _parse_config(data, root, *, planned=()):
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
                           "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots",
                           "trusted-pr-authors", "shared-instructions", "events"},
@@ -327,6 +327,31 @@ def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
         raise AgentError("approvals must be on or off")
     trusted_bots = bot_logins(data.get("trusted-bots", []))
     trusted_pr_authors = bot_logins(data.get("trusted-pr-authors", []), "trusted-pr-authors")
+    launchers = _parse_launchers(data)
+    runtime_updates = _parse_runtime_updates(data, root)
+    cleanup = _parse_cleanup(data)
+    events = _parse_events(data)
+    checkout_setup = _parse_checkout_setup(data, root)
+    queue = _parse_queue(data)
+    repo = string(data.get("repository"), "repository")
+    if not re.fullmatch(REPOSITORY, repo):
+        raise AgentError("repository must be owner/name")
+    limits, lease_seconds, renew_seconds = _parse_limits(data)
+    definitions = data.get("agents")
+    if not isinstance(definitions, dict) or not definitions:
+        raise AgentError("agents must be a nonempty mapping")
+    stop = () if data.get("stop-labels") == [] else strings(data.get("stop-labels", ["needs-human"]), "stop-labels")
+    agents = []
+    for name, definition in definitions.items():
+        agents.append(_parse_agent(name, definition, definitions, root, runtime_defaults,
+                                   limits, lease_seconds, stop, planned))
+    _validate_agent_relationships(agents, stop)
+    poll = number(data.get("poll-seconds", 30), "poll-seconds")
+    return Config(root, repo, tuple(agents), poll, stop, queue, cleanup,
+                  runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup,
+                  lease_seconds=lease_seconds, lease_renew_seconds=renew_seconds,
+                  trusted_pr_authors=trusted_pr_authors, events=events)
+def _parse_launchers(data):
     launchers = None
     if "launchers" in data:
         launchers = argv(data["launchers"], "launchers")
@@ -334,6 +359,10 @@ def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
             raise AgentError("launchers logins must not contain surrounding whitespace")
         if len({login.casefold() for login in launchers}) != len(launchers):
             raise AgentError("launchers logins must be unique (case-insensitive)")
+    return launchers
+
+
+def _parse_runtime_updates(data, root):
     runtime_updates = None
     if "runtime-updates" in data:
         settings = mapping(data["runtime-updates"], {*UPDATE_CLIS, "timeout-seconds"}, "runtime-updates")
@@ -354,6 +383,10 @@ def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
         if timeout > 3600:
             raise AgentError("runtime-updates timeout-seconds must be at most 3600")
         runtime_updates = RuntimeUpdates(policies, timeout)
+    return runtime_updates
+
+
+def _parse_cleanup(data):
     cleanup = None
     if "cleanup" in data:
         hook = mapping(data["cleanup"], {"command", "timeout-seconds"}, "cleanup")
@@ -361,6 +394,10 @@ def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
                               number(hook.get("timeout-seconds", 60), "cleanup timeout-seconds"))
         if cleanup.timeout_seconds > 3600:
             raise AgentError("cleanup timeout-seconds must be at most 3600")
+    return cleanup
+
+
+def _parse_events(data):
     events = None
     if "events" in data:
         hook = mapping(data["events"], {"command", "on", "timeout-seconds"}, "events")
@@ -372,6 +409,10 @@ def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
         if timeout > 60:
             raise AgentError("events timeout-seconds must be at most 60")
         events = EventsHook(argv(hook.get("command"), "events command"), subscribed, timeout)
+    return events
+
+
+def _parse_checkout_setup(data, root):
     checkout_setup = None
     if "checkout-setup" in data:
         setup = mapping(data["checkout-setup"], {"command", "when-changed", "timeout-seconds"}, "checkout-setup")
@@ -385,6 +426,10 @@ def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
         if timeout > 3600:
             raise AgentError("checkout-setup timeout-seconds must be at most 3600")
         checkout_setup = CheckoutSetup(argv(setup.get("command"), "checkout-setup command"), paths, timeout)
+    return checkout_setup
+
+
+def _parse_queue(data):
     queue = mapping(data.get("queue", {}), {"milestones", "priority", "dependencies"}, "queue")
     milestones = queue.get("milestones", "ignore")
     if milestones not in ("strict-gate", "gate", "order", "ignore"):
@@ -402,9 +447,10 @@ def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
         if "default" in settings and default not in labels:
             raise AgentError("queue priority default must be one of labels")
         priority = Priority(labels, default)
-    repo = string(data.get("repository"), "repository")
-    if not re.fullmatch(REPOSITORY, repo):
-        raise AgentError("repository must be owner/name")
+    return Queue(milestones, priority, dependencies)
+
+
+def _parse_limits(data):
     limits = DEFAULTS | mapping(data.get("limits", {}), CLOCKS | LEASE_CLOCKS, "limits")
     lease_seconds = number(limits.pop("lease-minutes", LEASE_SECONDS / 60), "limits lease-minutes") * 60
     renew_seconds = number(limits.pop("lease-renew-minutes", LEASE_RENEW_SECONDS / 60),
@@ -413,111 +459,133 @@ def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
         raise AgentError("limits lease-renew-minutes plus the renewal request bound "
                          f"({REQUEST_TIMEOUT_SECONDS + LEASE_RENEW_MARGIN_SECONDS} seconds) "
                          "must be shorter than lease-minutes")
-    definitions = data.get("agents")
-    if not isinstance(definitions, dict) or not definitions:
-        raise AgentError("agents must be a nonempty mapping")
-    stop = () if data.get("stop-labels") == [] else strings(data.get("stop-labels", ["needs-human"]), "stop-labels")
-    agents = []
-    for name, definition in definitions.items():
-        if not re.fullmatch(r"[a-z][a-z0-9_-]*", name):
-            raise AgentError("Agent names must be lowercase slugs")
-        item = mapping(definition, CLOCKS | {"runtime", "trigger", "instructions",
-            "command", "runtime-args", "different-runtime-from", "kind",
-            "worktree", "outcomes", "retrospectives", "health-check", "on-conflict"}, f"agent {name}")
-        retrospectives = item.get("retrospectives")
-        if "retrospectives" in item and (type(retrospectives) is not int or retrospectives <= 0):
-            raise AgentError(f"{name} retrospectives must be a positive integer discussion number")
-        if ("runtime" in item) == ("command" in item):
-            raise AgentError(f"{name}: specify exactly one of runtime or command")
-        command = argv(item["command"], f"{name} command") if "command" in item else ()
-        if command and "/" in command[0] and not Path(command[0]).is_absolute():
-            # Relative executables resolve against the operator's checkout, like instructions.
-            command = (str(root / command[0]),) + command[1:]
-        health_check = argv(item["health-check"], f"{name} health-check") if "health-check" in item else ()
-        if health_check and "/" in health_check[0] and not Path(health_check[0]).is_absolute():
-            health_check = (str(root / health_check[0]),) + health_check[1:]
-        runtimes = []
-        for spec in strings(item["runtime"], f"{name} runtime") if "runtime" in item else ():
-            parts = spec.split(":")
-            if len(parts) != 3 or not all(parts):
-                raise AgentError(f"{name}: runtime must be cli:model:effort")
-            cli, model, effort = parts
-            if cli not in CLIS:
-                raise AgentError(f"{name}: runtime cli must be one of {', '.join(CLIS)}")
-            runtimes.append(Runtime(cli, model, effort))
-        # Retain the configured path, including symlinks, for validation on each run.
-        instruction = (root / string(item["instructions"], f"{name} instructions")
-                       if "instructions" in item else None)
-        if instruction is not None:
-            project_path(root, str(instruction), f"{name} instructions", planned=planned)
-        if runtimes and instruction is None:
-            raise AgentError(f"{name}: runtime execution requires instructions")
-        clis = {runtime.cli for runtime in runtimes}
-        if "runtime-args" in item:
-            runtime_args = runtime_arguments(item["runtime-args"], clis, name)
-        else:
-            runtime_args = ({cli: args for cli, args in runtime_defaults.items() if cli in clis}
-                            if runtimes and runtime_defaults else ())
-        different = item.get("different-runtime-from")
-        if different is not None:
-            different = strings(different, f"{name} different-runtime-from")
-            if len(set(different)) != len(different):
-                raise AgentError(f"{name}: different-runtime-from must contain unique agent names")
-            if any(source not in definitions or source == name for source in different) or command:
-                raise AgentError(f"{name}: different-runtime-from must reference another runtime agent")
-        else:
-            different = ()
-        kind = item.get("kind", "either")
-        if kind not in ("issue", "pr", "either"):
-            raise AgentError(f"{name}: kind must be issue, pr, or either")
-        worktree = item.get("worktree", False)
-        if not isinstance(worktree, bool):
-            raise AgentError(f"{name}: worktree must be boolean")
-        clocks = limits | {k: item[k] for k in CLOCKS if k in item}
-        for key, value in clocks.items():
-            number(value, f"{name} {key}", integer=key == "max-attempts",
-                   zero=key in {"retry-backoff-seconds", "max-backoff-seconds"})
-        if clocks["max-backoff-seconds"] < clocks["retry-backoff-seconds"]:
-            raise AgentError(f"{name}: max-backoff-seconds must cover retry-backoff-seconds")
-        triggers = strings(item.get("trigger"), f"{name} trigger")
-        declared = item.get("outcomes")
-        if not isinstance(declared, dict) or not declared:
-            raise AgentError(f"{name}: outcomes must be a nonempty mapping of names to transitions")
-        outcomes = {}
-        for outcome, transition in declared.items():
-            string(outcome, f"{name} outcome")
-            mapping(transition, {"add", "remove", "sub-issues", "max-rounds"}, f"{name} outcome {outcome}")
-            labels = {key: argv(transition.get(key, []), f"{name} {outcome} {key}", empty=True)
-                      for key in ("add", "remove")}
-            if "max-rounds" in transition:
-                limit = transition["max-rounds"]
-                if type(limit) is not int or limit <= 0:
-                    raise AgentError(f"{name} {outcome} max-rounds must be a positive integer")
-                if not stop or set(labels["add"]).intersection(stop):
-                    raise AgentError(f"{name} {outcome} max-rounds requires stop labels "
-                                     "and an outcome that adds no stop label")
-                labels["max-rounds"] = limit
-            if "sub-issues" in transition:
-                if kind == "pr":
-                    raise AgentError(f"{name}: sub-issues requires an agent that takes issues")
-                children = mapping(transition["sub-issues"], {"add"}, f"{name} {outcome} sub-issues")
-                labels["sub-issues"] = {"add": argv(children.get("add"), f"{name} {outcome} sub-issues add")}
-            if set(labels["add"]).intersection(triggers):
-                raise AgentError(f"{name}: outcome cannot add its own trigger")
-            if set(labels["remove"]).union(triggers).intersection(stop):
-                raise AgentError(f"{name}: outcome cannot remove a stop label")
-            outcomes[outcome] = labels
-        on_conflict = string(item["on-conflict"], f"{name} on-conflict") if "on-conflict" in item else None
-        if on_conflict is not None and (kind != "pr" or on_conflict not in outcomes
-                                        or set(outcomes[on_conflict]["add"]).intersection(stop)):
-            raise AgentError(f"{name}: on-conflict must name a declared outcome of a pr agent "
-                             "that adds no stop label")
-        agents.append(Agent(name, triggers, instruction,
-            tuple(runtimes), command, runtime_args, different, kind, worktree,
-            lease_seconds,
-            clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
-            clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives, health_check,
-            on_conflict))
+    return limits, lease_seconds, renew_seconds
+
+
+def _parse_agent_execution(name, item, root, runtime_defaults, planned):
+    command = argv(item["command"], f"{name} command") if "command" in item else ()
+    if command and "/" in command[0] and not Path(command[0]).is_absolute():
+        # Relative executables resolve against the operator's checkout, like instructions.
+        command = (str(root / command[0]),) + command[1:]
+    health_check = argv(item["health-check"], f"{name} health-check") if "health-check" in item else ()
+    if health_check and "/" in health_check[0] and not Path(health_check[0]).is_absolute():
+        health_check = (str(root / health_check[0]),) + health_check[1:]
+    runtimes = []
+    for spec in strings(item["runtime"], f"{name} runtime") if "runtime" in item else ():
+        parts = spec.split(":")
+        if len(parts) != 3 or not all(parts):
+            raise AgentError(f"{name}: runtime must be cli:model:effort")
+        cli, model, effort = parts
+        if cli not in CLIS:
+            raise AgentError(f"{name}: runtime cli must be one of {', '.join(CLIS)}")
+        runtimes.append(Runtime(cli, model, effort))
+    # Retain the configured path, including symlinks, for validation on each run.
+    instruction = (root / string(item["instructions"], f"{name} instructions")
+                   if "instructions" in item else None)
+    if instruction is not None:
+        project_path(root, str(instruction), f"{name} instructions", planned=planned)
+    if runtimes and instruction is None:
+        raise AgentError(f"{name}: runtime execution requires instructions")
+    clis = {runtime.cli for runtime in runtimes}
+    if "runtime-args" in item:
+        runtime_args = runtime_arguments(item["runtime-args"], clis, name)
+    else:
+        runtime_args = ({cli: args for cli, args in runtime_defaults.items() if cli in clis}
+                        if runtimes and runtime_defaults else ())
+    return command, health_check, runtimes, instruction, runtime_args
+
+
+def _parse_different_runtime(name, item, definitions, command):
+    different = item.get("different-runtime-from")
+    if different is not None:
+        different = strings(different, f"{name} different-runtime-from")
+        if len(set(different)) != len(different):
+            raise AgentError(f"{name}: different-runtime-from must contain unique agent names")
+        if any(source not in definitions or source == name for source in different) or command:
+            raise AgentError(f"{name}: different-runtime-from must reference another runtime agent")
+    else:
+        different = ()
+    return different
+
+
+def _parse_agent_clocks(name, item, limits):
+    clocks = limits | {k: item[k] for k in CLOCKS if k in item}
+    for key, value in clocks.items():
+        number(value, f"{name} {key}", integer=key == "max-attempts",
+               zero=key in {"retry-backoff-seconds", "max-backoff-seconds"})
+    if clocks["max-backoff-seconds"] < clocks["retry-backoff-seconds"]:
+        raise AgentError(f"{name}: max-backoff-seconds must cover retry-backoff-seconds")
+    return clocks
+
+
+def _parse_outcomes(name, item, kind, triggers, stop):
+    declared = item.get("outcomes")
+    if not isinstance(declared, dict) or not declared:
+        raise AgentError(f"{name}: outcomes must be a nonempty mapping of names to transitions")
+    outcomes = {}
+    for outcome, transition in declared.items():
+        string(outcome, f"{name} outcome")
+        mapping(transition, {"add", "remove", "sub-issues", "max-rounds"}, f"{name} outcome {outcome}")
+        labels = {key: argv(transition.get(key, []), f"{name} {outcome} {key}", empty=True)
+                  for key in ("add", "remove")}
+        if "max-rounds" in transition:
+            limit = transition["max-rounds"]
+            if type(limit) is not int or limit <= 0:
+                raise AgentError(f"{name} {outcome} max-rounds must be a positive integer")
+            if not stop or set(labels["add"]).intersection(stop):
+                raise AgentError(f"{name} {outcome} max-rounds requires stop labels "
+                                 "and an outcome that adds no stop label")
+            labels["max-rounds"] = limit
+        if "sub-issues" in transition:
+            if kind == "pr":
+                raise AgentError(f"{name}: sub-issues requires an agent that takes issues")
+            children = mapping(transition["sub-issues"], {"add"}, f"{name} {outcome} sub-issues")
+            labels["sub-issues"] = {"add": argv(children.get("add"), f"{name} {outcome} sub-issues add")}
+        if set(labels["add"]).intersection(triggers):
+            raise AgentError(f"{name}: outcome cannot add its own trigger")
+        if set(labels["remove"]).union(triggers).intersection(stop):
+            raise AgentError(f"{name}: outcome cannot remove a stop label")
+        outcomes[outcome] = labels
+    return outcomes
+
+
+def _parse_agent(name, definition, definitions, root, runtime_defaults, limits, lease_seconds, stop, planned):
+    if not re.fullmatch(r"[a-z][a-z0-9_-]*", name):
+        raise AgentError("Agent names must be lowercase slugs")
+    item = mapping(definition, CLOCKS | {"runtime", "trigger", "instructions",
+        "command", "runtime-args", "different-runtime-from", "kind",
+        "worktree", "outcomes", "retrospectives", "health-check", "on-conflict"}, f"agent {name}")
+    retrospectives = item.get("retrospectives")
+    if "retrospectives" in item and (type(retrospectives) is not int or retrospectives <= 0):
+        raise AgentError(f"{name} retrospectives must be a positive integer discussion number")
+    if ("runtime" in item) == ("command" in item):
+        raise AgentError(f"{name}: specify exactly one of runtime or command")
+    command, health_check, runtimes, instruction, runtime_args = _parse_agent_execution(
+        name, item, root, runtime_defaults, planned)
+    different = _parse_different_runtime(name, item, definitions, command)
+    kind = item.get("kind", "either")
+    if kind not in ("issue", "pr", "either"):
+        raise AgentError(f"{name}: kind must be issue, pr, or either")
+    worktree = item.get("worktree", False)
+    if not isinstance(worktree, bool):
+        raise AgentError(f"{name}: worktree must be boolean")
+    clocks = _parse_agent_clocks(name, item, limits)
+    triggers = strings(item.get("trigger"), f"{name} trigger")
+    outcomes = _parse_outcomes(name, item, kind, triggers, stop)
+    on_conflict = string(item["on-conflict"], f"{name} on-conflict") if "on-conflict" in item else None
+    if on_conflict is not None and (kind != "pr" or on_conflict not in outcomes
+                                    or set(outcomes[on_conflict]["add"]).intersection(stop)):
+        raise AgentError(f"{name}: on-conflict must name a declared outcome of a pr agent "
+                         "that adds no stop label")
+    return Agent(name, triggers, instruction,
+        tuple(runtimes), command, runtime_args, different, kind, worktree,
+        lease_seconds,
+        clocks["agent-timeout-minutes"] * 60, clocks["max-attempts"],
+        clocks["retry-backoff-seconds"], clocks["max-backoff-seconds"], outcomes, retrospectives, health_check,
+        on_conflict)
+
+
+def _validate_agent_relationships(agents, stop):
     issue_triggers = {label for a in agents if a.kind != "pr" for label in a.triggers}
     for agent in agents:
         for transition in agent.outcomes.values():
@@ -529,11 +597,6 @@ def _parse_config(data, root, *, planned=()):  # noqa: C901, PLR0912, PLR0915
         for source in agent.different_from:
             if not next(a for a in agents if a.name == source).runtimes:
                 raise AgentError(f"{agent.name}: runtime independence requires runtime provenance from {source}")
-    poll = number(data.get("poll-seconds", 30), "poll-seconds")
-    return Config(root, repo, tuple(agents), poll, stop, Queue(milestones, priority, dependencies), cleanup,
-                  runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup,
-                  lease_seconds=lease_seconds, lease_renew_seconds=renew_seconds,
-                  trusted_pr_authors=trusted_pr_authors, events=events)
 
 
 def bot_logins(value, where="trusted-bots"):
