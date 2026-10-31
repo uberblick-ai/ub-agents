@@ -23,7 +23,7 @@ from .discovery import ApprovalInput, Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, ExecutionStopped, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
-from .execution import ScratchDirectory, Workspace, command_for, fork_head_ref, repository_checks, supervise
+from .execution import ScratchDirectory, Workspace, command_for, repository_checks, supervise
 from .events import EventHooks
 from .finalization import FinalizationReads
 from .report_command import launcher_report_command
@@ -32,11 +32,10 @@ from .github import (APPROVAL_BATCH_SIZE, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMI
                      closing_issues, links_issue)
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .poll_now import PollNow
-from .prompts import CONTINUATION_PROMPT, FORK_PR_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
 from .hooks import run_hook
 from .notices import ACTION_MARKER
 from .records import (attempts, backoff, display_provenance, issue_branch, iso, latest_leases, lease_by_id,
-                      lease_summary, outcome_declarations, records, resolve_transition, same_run, seconds, timestamp, validate_report_action)
+                      lease_summary, records, resolve_transition, same_run, seconds, timestamp, validate_report_action)
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
 from .renewal import LeaseRenewal
@@ -49,6 +48,7 @@ from .uberblick import workspace_binding
 from .trust import LauncherTrust
 from .run_planning import ObservationReads, RunPlanning
 from .run_config import record_process_group, run_config, run_directory
+from .run_prompt import run_context, run_environment, run_prompt
 from .worktree_setup import confirm_worktree_setup_stopped, run_worktree_setup
 
 POLL_RETRY_BASE_SECONDS = 5
@@ -1474,35 +1474,16 @@ class Loop:
                 raise AgentError("Candidate changed before execution")
             self.coordinator.assert_owned(lease)
             report_command = launcher_report_command()
-            context = {"repository": self.config.repository, "assignment": plan.item.number,
-                       "kind": plan.item.kind, "title": approval.snapshot["title"],
-                       "body": approval.snapshot["body"], "comments": approval.snapshot["comments"],
-                       "withheld_counts": approval.snapshot["withheld_counts"],
-                       "feedback": self.coordinator.feedback(plan.item, plan.agent.name),
-                       "candidate_sha": plan.item.head, "run": lease["run"],
-                       "scratch": str(scratch.path),
-                       "report_command": report_command,
-                       "agent": plan.agent.name, "branch": workspace.branch,
-                       "earlier_branches": self.earlier_branches(plan.item, plan.agent, lease["run"])}
-            if "outcome_rounds" in lease:
-                context["outcome_rounds"] = lease["outcome_rounds"]
-            if plan.item.kind == "pr":
-                context |= {name: approval.snapshot[name] for name in ("reviews", "review_comments")}
+            context = run_context(
+                self.config.repository, plan, lease, approval.snapshot,
+                feedback=self.coordinator.feedback(plan.item, plan.agent.name),
+                scratch=scratch.path, report_command=report_command, branch=workspace.branch,
+                earlier_branches=self.earlier_branches(plan.item, plan.agent, lease["run"]))
             context_path = run_dir / "context.json"
             context_path.write_text(json.dumps(context, indent=2))
             run_config_path = run_dir / "run.json"
             run_config_path.write_text(json.dumps(run_config(self.config, plan.agent, lease)))
-            env = {key: value for key, value in os.environ.items()
-                   if not key.startswith("UB_AGENTS_")}
-            env.update({"UB_AGENTS_REPOSITORY": self.config.repository,
-                        "UB_AGENTS_ASSIGNMENT": str(plan.item.number),
-                        "UB_AGENTS_RUN": lease["run"], "UB_AGENTS_LEASE_ID": str(lease["id"]),
-                        "UB_AGENTS_CONTEXT": str(context_path),
-                        "UB_AGENTS_RUN_CONFIG": str(run_config_path),
-                        "UB_AGENTS_REPORT": report_command,
-                        "UB_AGENTS_SCRATCH": str(scratch.path),
-                        "UB_AGENTS_CANDIDATE_SHA": context["candidate_sha"] or "",
-                        "UB_AGENTS_BRANCH": workspace.branch or ""})
+            env = run_environment(os.environ.copy(), context, lease["id"], context_path, run_config_path)
             diagnostic("started", cwd=str(cwd))
             setup = False
             command = command_for(plan.agent, plan.runtime, scratch.path, report_command)
@@ -1686,37 +1667,8 @@ class Loop:
                        and r["started"] and r.get("mode") != "recovery"})
 
     def prompt_for(self, plan, lease, context, instructions, *, shared_instructions=""):
-        earlier = context["earlier_branches"]
-        report_command = context["report_command"]
-        retrospective = (RETROSPECTIVE_PROMPT.format(report_command=report_command)
-                         if plan.agent.retrospectives is not None else "")
-        continuation = (CONTINUATION_PROMPT.format(earlier_branches=json.dumps(earlier)) if earlier else "")
-        matches = plan.matches
-        if matches is None or matches.configured != self.config.agents:
-            matches = AgentMatches.for_item(plan.item, self.config.agents)
-        workflow_labels = set(self.config.stop_labels).union(matches.workflow_triggers)
-        if self.approvals == "on":
-            workflow_labels.add(OUTSIDE_INPUT)
-        for configured in self.config.agents:
-            for changes in configured.outcomes.values():
-                workflow_labels.update(changes["add"])
-                workflow_labels.update(changes["remove"])
-        shared = (f"Shared project policy:\n{shared_instructions}\n\n"
-                  if self.config.shared_instructions is not None else "")
-        if plan.item.is_fork(self.config.repository):
-            workspace = ("The private worktree is a detached checkout of the PR's base branch tip "
-                         "from origin, with the base branch's files and project guidance."
-                         if plan.agent.worktree else
-                         "You are in the control checkout; it has not been moved to the PR head.")
-            head_ref = (fork_head_ref(lease["run"]) if plan.agent.worktree else
-                        f"origin refs/pull/{plan.item.number}/head (fetch only for reading the diff)")
-            shared = FORK_PR_PROMPT.format(workspace=workspace, head_ref=head_ref,
-                                          head=plan.item.head) + "\n" + shared
-        return RUN_PROMPT.format(agent=plan.agent.name, report_command=report_command,
-                                 outcomes=json.dumps(outcome_declarations(plan.agent), sort_keys=True),
-                                 labels=json.dumps(sorted(workflow_labels)), continuation=continuation,
-                                 retrospective=retrospective, context=json.dumps(context, indent=2),
-                                 shared_instructions=shared, instructions=instructions)
+        return run_prompt(self.config, self.approvals, plan, lease, context, instructions,
+                          shared_instructions=shared_instructions)
 
     def reported_verdict(self, lease, plan, outcome, source, what):
         """A recorded report's (result, summary, attempt effect); raises ValidationError if rejected."""
