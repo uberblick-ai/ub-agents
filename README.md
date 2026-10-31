@@ -15,7 +15,8 @@ longer version.
 
 The loop is deliberately small. GitHub holds the workflow state as labels and
 comments, the roles and their instructions live in your repository, and there
-is no separate orchestration server.
+is no separate orchestration server. Each role runs the agent you pick: Claude
+Code, Codex or any command.
 
 ## How it works
 
