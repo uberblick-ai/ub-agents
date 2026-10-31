@@ -389,7 +389,7 @@ class ApprovalBatchTests(unittest.TestCase):
         worker = RunPlanning(loop, 0)
         self.assertEqual(worker.planner.discovery.bulk_inputs, {1})
         runner.roles["operator"] = "none"
-        actual = worker.planner.input_check(item, worker.planner.discovery)
+        actual = worker.planner.queue_planner.input_check(item, worker.planner.discovery)
         expected = self.loop(runner).input_check(item)
         self.assertEqual(actual, expected)
         self.assertEqual(actual.gate, "input")

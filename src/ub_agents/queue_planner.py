@@ -27,9 +27,8 @@ class QueuePlanner:
         self._github = github
         self._coordinator = coordinator
         self.approvals = approvals
-        # The observation worker replaces its runtime helpers with the launcher's
-        # shared objects after construction. Tests can replace the coordinator or
-        # GitHub client too. Keep those and reloadable config live.
+        # Tests can replace runtime helpers, the coordinator or GitHub client.
+        # Keep those and reloadable config live.
         self.health = health
         self.usage = usage
         self.maintenance = maintenance
