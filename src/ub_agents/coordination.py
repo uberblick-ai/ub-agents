@@ -9,7 +9,7 @@ import uuid
 from .approvals import ApprovalCheck
 from .config import Agent, Queue, Runtime, LEASE_SECONDS, LEASE_RENEW_SECONDS, LEASE_RENEW_MARGIN_SECONDS
 from .eligibility import AgentMatches, check_start, open_blockers
-from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
+from .errors import AgentError, ExecutionStopped, GitHubError, LostOwnership, RecordError, RuntimePaused
 from .finalization import FinalizationReads
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
@@ -75,6 +75,8 @@ class Coordinator:
         self._lease_revision = 0
         self._lost = {}
         self._renewal_failures = {}
+        self._stop_labels = {}
+        self._execution_stops = {}
         # A failed POST may have created this record without returning its ID.
         # Keep only this launcher's uncertain claim; restarts use normal expiry.
         self.lost_claim = None
@@ -446,6 +448,8 @@ class Coordinator:
             raise
         created = records([comment], self.actor)[0]
         self._report_context[created["id"]] = ({} if recovery else outcome_declarations(plan.agent), tuple(stop_labels), tuple(plan.agent.triggers))
+        if not recovery:
+            self._stop_labels[created["id"]] = tuple(stop_labels)
         self.observed(created)
         if self.on_claim is not None:
             self.on_claim(created)
@@ -539,6 +543,36 @@ class Coordinator:
             lease["expires"] = current["expires"]
         return current
 
+    def observe_execution_item(self, lease, item):
+        with self._lease_lock:
+            if lease["id"] not in self._stop_labels:
+                return
+            stops = set(self._stop_labels[lease["id"]]).intersection(item.labels)
+            if item.state != "open":
+                kind = "Pull request" if item.kind == "pr" else "Issue"
+                state = "merged" if item.kind == "pr" and item.merged else "closed"
+                reason = f"{kind} {state}"
+            elif stops:
+                reason = f"Stop label {sorted(stops)[0]} added"
+            else:
+                return
+            self._execution_stops.setdefault(lease["id"], (reason, item.state != "open"))
+
+    def execution_deadline(self, lease):
+        """Check cancellation while keeping ownership available for cleanup and release."""
+        with self._lease_lock:
+            expiry = self.deadline(lease)
+            stop = self._execution_stops.get(lease["id"])
+            if stop is not None:
+                reason, item_closed = stop
+                raise ExecutionStopped(f"{reason}; attributable execution terminated", item_closed=item_closed)
+            return expiry
+
+    def execution_finished(self, lease):
+        """Ignore item reads that finish after the supervised process exits."""
+        with self._lease_lock:
+            self._stop_labels.pop(lease["id"], None)
+
     def assert_owned(self, lease):
         self.deadline(lease)
         try:
@@ -560,9 +594,12 @@ class Coordinator:
                 return False
             revision = self._lease_revision
             assignment = lease["assignment"]
+            watch_stops = lease["id"] in self._stop_labels
         try:
             # Pagination/role reads may outlast the lease. Keep deadlines and
             # local state edits available while those bounded requests finish.
+            if watch_stops:
+                self.observe_execution_item(lease, github.item(assignment))
             trusted = LauncherTrust(github, self.trust.launchers, trusted_bots=self.trust.trusted_bots,
                                     trusted_pr_authors=self.trust.trusted_pr_authors).observation()
             history = records(github.comments(assignment), trusted=trusted)
@@ -609,6 +646,9 @@ class Coordinator:
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect,
                     **({"unreported": True} if unreported else {}))
+        with self._lease_lock:
+            self.execution_finished(lease)
+            self._execution_stops.pop(lease["id"], None)
         if self.on_release is not None:
             self.on_release(lease, parking_outcome or reported)
         _, claimed_stops, claimed_triggers = self._report_context.pop(lease["id"], ({}, (), ()))

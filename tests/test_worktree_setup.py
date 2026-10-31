@@ -14,12 +14,13 @@ from unittest.mock import Mock, patch
 from ub_agents.cleanup import Cleaner
 from ub_agents.config import CheckoutSetup, instruction_text
 from ub_agents.errors import CleanupError, GitHubError, LostOwnership
-from ub_agents.execution import git, group_members, supervise
+from ub_agents.execution import ScratchDirectory, git, group_members, supervise
 from ub_agents.loop import Loop
 from ub_agents.records import iso, timestamp
 from ub_agents.worktree_setup import confirm_worktree_setup_stopped
 from tests.support import FakeGitHub, agent, config, edit_lease, issue, pr, stub_refresh
 from tests import test_refresh
+from tests.test_renewal import ManualRenewal
 
 
 class WorktreeSetupTests(unittest.TestCase):
@@ -211,7 +212,7 @@ class WorktreeSetupTests(unittest.TestCase):
     def test_item_checks_are_repeated_after_setup(self):
         for change, detail in (({"labels": frozenset({"ready", "needs-human"})}, "Stop label"),
                                ({"labels": frozenset()}, "State or trigger"),
-                               ({"state": "closed"}, "State or trigger"),
+                               ({"state": "closed"}, "Issue closed"),
                                ({"head": "b" * 40}, "Candidate changed")):
             with self.subTest(change=change):
                 self.github = FakeGitHub(issue())
@@ -226,6 +227,8 @@ class WorktreeSetupTests(unittest.TestCase):
                 execution.assert_not_called()
                 lease, directory, worktree = self.artifacts()
                 self.assertIn(detail, lease["summary"])
+                if change.get("state") == "closed":
+                    self.assertEqual((lease["result"], lease["attempt_effect"]), ("blocked", "unchanged"))
                 self.assertFalse(worktree.exists())
 
     def test_uncertain_setup_stop_keeps_ownership_scratch_and_worktree(self):
@@ -260,6 +263,46 @@ class WorktreeSetupTests(unittest.TestCase):
         self.assertEqual(lease["state"], "running")
         self.assertEqual(group_members(int((directory / "checkout-setup/pid").read_text())), [])
         self.assertFalse(worktree.exists())
+
+    def test_stop_label_terminates_worktree_setup_and_releases_without_outcome(self):
+        self.assert_setup_stopped({"labels": frozenset({"ready", "needs-human"})}, "Stop label needs-human")
+
+    def test_closed_item_terminates_worktree_setup_and_releases_without_outcome(self):
+        self.assert_setup_stopped({"state": "closed"}, "Issue closed", stop_labels=())
+
+    def assert_setup_stopped(self, change, reason, stop_labels=("needs-human",)):
+        self.role = replace(self.role, lease_seconds=1800)
+        loop = self.loop("import time; time.sleep(30)")
+        loop.config = replace(loop.config, stop_labels=stop_labels)
+        labels = change.get("labels", self.github.items[1].labels)
+        self.now = timestamp()
+        loop.coordinator.clock = lambda: self.now
+
+        def setup(*args, **kwargs):
+            def stop(final=False):
+                if not final:
+                    self.github.change(1, **change)
+                    self.now += 600
+                    loop._renewal.tick()
+            return supervise(*args, **(kwargs | {"observe_output": stop}))
+
+        with patch("ub_agents.loop.LeaseRenewal", ManualRenewal), \
+                patch("ub_agents.worktree_setup.supervise", side_effect=setup), \
+                patch("ub_agents.loop.supervise") as execution:
+            self.assertTrue(loop.tick())
+        execution.assert_not_called()
+        lease, = loop.coordinator.history(1)
+        self.assertEqual((lease["state"], lease["result"], lease["attempt_effect"]),
+                         ("released", "blocked", "unchanged"))
+        self.assertIn(reason, lease["summary"])
+        self.assertTrue(any(reason in line for line in self.lines))
+        self.assertEqual(self.github.items[1].labels, labels)
+        self.assertFalse(any(write[0] in {"add-labels", "remove-label"} for write in self.github.writes))
+        _, directory, worktree = self.artifacts()
+        self.assertEqual(group_members(int((directory / "checkout-setup/pid").read_text())), [])
+        self.assertEqual((directory / "checkout-setup/stopped").read_text(), "confirmed\n")
+        self.assertFalse(worktree.exists())
+        self.assertFalse(ScratchDirectory(self.root, loop.config.repository, lease["run"]).path.parent.exists())
 
     def test_local_process_record_failure_stops_setup_child(self):
         loop = self.loop("import time; time.sleep(30)")

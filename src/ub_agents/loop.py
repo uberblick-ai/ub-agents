@@ -21,7 +21,7 @@ from .dependencies import Dependencies
 from .denials import collect_denials
 from .discovery import ApprovalInput, Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
-from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, GitHubError, LostOwnership, RecordError,
+from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, ExecutionStopped, GitHubError, LostOwnership, RecordError,
                      RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import ScratchDirectory, Workspace, command_for, fork_head_ref, repository_checks, supervise
 from .events import EventHooks
@@ -1019,7 +1019,7 @@ class Loop:
     def reconcile_blocked_notices(self, history, coordinator):
         """Retry a blocked run's advisory notice from existing coordination records."""
         for lease in latest_leases(history).values():
-            if lease.get("result") != "blocked":
+            if lease.get("result") != "blocked" or lease.get("action_needed") is False:
                 continue
             if lease["state"] != "released" and seconds(lease["expires"]) > self.coordinator.clock():
                 continue
@@ -1368,7 +1368,7 @@ class Loop:
                 cause = cause.__context__
             try:
                 self.coordinator.assert_owned(lease)
-                self.coordinator.update(lease, cleanup="unconfirmed", summary=str(exc))
+                self.coordinator.update(lease, cleanup="unconfirmed", summary=str(exc), action_needed=True)
             except (AgentError, KeyboardInterrupt) as failure:
                 if isinstance(failure, KeyboardInterrupt):
                     self.interrupt_event.set()
@@ -1446,6 +1446,7 @@ class Loop:
             self._observe("process", "running", "Checkout setup running in worktree")
 
         interrupted = False
+        stopped = False
         completing = False
         setup = True
         effect = "failure"
@@ -1464,15 +1465,15 @@ class Loop:
             if workspace.created and not workspace.fork and self.config.checkout_setup is not None:
                 run_worktree_setup(self.config, cwd, run_dir, self.interrupt_event, self.output,
                                    lambda state: self._observe("activity", state),
-                                   expires=lambda: self.coordinator.deadline(lease),
+                                   expires=lambda: self.coordinator.execution_deadline(lease),
                                    process_started=setup_process_started,
                                    pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()),
                                    observe_output=lambda **_: self._poll_updates())
                 self._observe("process", "exited", "Supervision confirmed worktree setup has ended")
                 self._observe("activity", "running assignment")
             current = self.github.item(plan.item.number, plan.item.kind)
-            if current.labels.intersection(self.config.stop_labels):
-                raise TransitionPaused("Stop label added before execution")
+            self.coordinator.observe_execution_item(lease, current)
+            self.coordinator.execution_deadline(lease)
             if current.state != "open" or not current.labels.intersection(plan.agent.triggers):
                 raise AgentError("State or trigger changed before execution")
             if current.head != plan.item.head:
@@ -1524,11 +1525,14 @@ class Loop:
                                  plan.agent.timeout_seconds, self.interrupt_event,
                                  self.prompt_for(plan, lease, context, instructions,
                                                  shared_instructions=shared_instructions) if plan.runtime else None,
-                                 expires=lambda: self.coordinator.deadline(lease), process_started=process_started,
+                                 expires=lambda: self.coordinator.execution_deadline(lease), process_started=process_started,
+                                 process_exited=lambda: self.coordinator.execution_finished(lease),
                                  observe_output=observe_output if usage_output or self.updates else None,
                                  pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()))
             finally:
+                self.coordinator.execution_finished(lease)
                 denials = collect_denials(plan.runtime.cli if plan.runtime else None, run_dir / "process.log")
+            self.coordinator.execution_deadline(lease)
             if usage_output:
                 usage_output.poll(final=True)
             self._observe("process", "exited", "Supervision confirmed execution has ended")
@@ -1578,6 +1582,23 @@ class Loop:
             if isinstance(exc, CheckoutSetupInterrupted):
                 summary += f"; {exc}"
             cleanup_after_failure()
+        except ExecutionStopped as exc:
+            stopped = True
+            result, summary, effect = "blocked", str(exc), "unchanged"
+            self.coordinator.execution_finished(lease)
+            # Persist the supervision verdict before cleanup so an early report
+            # cannot become recoverable if cleanup or release is interrupted.
+            # Closure needs no action notice, including after a launcher restart.
+            try:
+                self.coordinator.assert_owned(lease)
+                self.coordinator.update(lease, result=result, summary=summary,
+                                        attempt_effect=effect, unreported=True,
+                                        **({"action_needed": False} if exc.item_closed else {}))
+            except (LostOwnership, GitHubError):
+                self._renewal.close()
+                cleanup_workspace(record=False)
+                raise
+            cleanup_after_failure()
         except TransitionPaused as exc:
             result, summary, effect = "blocked", str(exc), "unchanged"
             cleanup_after_failure()
@@ -1598,7 +1619,7 @@ class Loop:
                     # or prevent release of a completed run's lease.
                     diagnostic("scratch-removal-failed", path=str(scratch.path), error=str(exc))
                     self.output(f"Scratch removal failed: {exc}")
-        if usage_output and usage_output.reached and effect != "reset" and not interrupted:
+        if usage_output and usage_output.reached and effect != "reset" and not interrupted and not stopped:
             result, effect = "retry", "unchanged"
             summary = usage_output.summary
             completing = False  # This supervision verdict supersedes an early report.
@@ -1607,8 +1628,11 @@ class Loop:
             # A report can precede a timeout/interruption. Keep that report
             # unaccepted and persist the supervisor's actual verdict on the lease.
             outcome = self.coordinator.outcome(lease)
-        self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials,
-                    completed=completing)
+        if stopped:
+            self.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True)
+        else:
+            self.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, denials,
+                        completed=completing)
         self.github.end_finalization()
         self._renewal.close()
         diagnostic("released", result=result, summary=summary,

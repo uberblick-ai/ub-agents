@@ -276,6 +276,7 @@ def parse_item(data, kind, endpoint=None):
                     and isinstance(data["user"].get("login"), str) else None,
                     data["comments"] if type(data.get("comments")) is int and data["comments"] >= 0 else None,
                     data.get("mergeable") if kind == "pr" and type(data.get("mergeable")) is bool else None,
+                    merged=kind == "pr" and data.get("merged_at") is not None,
                     head_repository=head_repository, base_branch=base_branch)
     except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
         if endpoint is not None:
