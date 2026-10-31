@@ -11,7 +11,7 @@
   <div class="tstatus"><span id="tstatus">ub-agents · uberblick-ai/ub-agents</span><span>1-4 tabs  ↑↓ select  ? keys  q quit</span></div>
   <kbd class="tkey" id="tkey" aria-hidden="true"></kbd>
 </div>
-<script>
+<script type="module">
 (() => {
   const $ = id => document.getElementById(id);
   const tui = $('tui'), work = $('twork'), tabs = $('ttabs'), ptitle = $('tptitle'), head = $('thead'), body = $('tbody'), foot = $('tfoot'), status = $('tstatus'), key = $('tkey');
@@ -213,6 +213,7 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
       [...logs[630].children].slice(0, 15).forEach(li => { li.classList.add('on'); const r = li.querySelector('.r'); if (r) r.classList.add('on'); const s = li.querySelector('.el'); if (s) s.textContent = ` · ${li.dataset.el}s`; });
       follow(logs[630]); return;
     }
+    spin = spin || setInterval(() => { frame = (frame + 1) % FRAMES.length; for (const s of tui.querySelectorAll('.spin')) s.textContent = FRAMES[frame]; }, 100);
     try {
       await sleep(1800, id);
       S.eligible.shift(); S.running = [{ id: 630, glyph: FRAMES[0], gcls: 'blue', right: '00:00', sub: 'implementer · this launcher · attempt 1' }];
@@ -238,8 +239,6 @@ after:  Backlog, v0.5.9, v0.5.10, v0.10.0</pre>
     } catch (e) { if (e !== 'stale') throw e; }
   }
 
-  clearInterval(spin);
-  spin = setInterval(() => { frame = (frame + 1) % FRAMES.length; for (const s of tui.querySelectorAll('.spin')) s.textContent = FRAMES[frame]; }, 100);
   $('treplay').addEventListener('click', play);
   const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { io.disconnect(); play(); } }, { threshold: 0.25 });
   S = fresh(); render(); io.observe(tui);
