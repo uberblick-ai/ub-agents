@@ -59,3 +59,18 @@ Hold Shift (Option in iTerm2) while dragging to use the terminal's own selection
 ## Run it as a service
 
 To start the launcher on its own and restart it when it exits, run `ub-agents launch --no-ui` in the launcher checkout as a user service: launchd on macOS, systemd on Linux. Your agent can set it up for you. {{discuss launcher-service}}
+
+For the `uberblick-ai/tap/ub-agents` Homebrew formula, opt in with
+`runtime-updates: {ub-agents: auto}` after every launcher understands that key.
+Continuous queues, including `--agent` queues, upgrade only while idle: no run,
+recovery, checkout refresh or setup may be active. `--once` and numbered launches
+only show the banner. Coordinated releases and unreadable release markers require
+a manual upgrade of all launchers together; see [Upgrading](/docs/upgrading.html).
+
+An automatic restart replaces the launcher process, preserving its PID and
+arguments, so the service manager continues supervising it without an exit code.
+Use its normal restart policy for actual exits. During an upgrade, `SIGTERM` lets
+the upgrade finish, then exits 0 without restarting; stop the service to prevent
+its restart policy starting it again. Failed process replacement exits 1. Failed
+upgrades stay on the running version and retry at the next daily check, with the
+result in `.ub-agents/launch.log`.

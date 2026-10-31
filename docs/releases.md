@@ -25,6 +25,31 @@ has a dated section for it, the tag is unused locally and on origin, Python 3.14
 is available, and the newest GitHub Actions `Test` run on the commit passed. Each
 refusal names its check and publishes nothing.
 
+Release prep must put exactly one machine-readable marker in the version's dated
+CHANGELOG section. Publication copies it verbatim into the GitHub release body;
+the preflight refuses a missing, duplicate or unknown marker:
+
+```html
+<!-- ub-agents:launcher-upgrade=independent -->
+```
+
+Use `independent` only when launchers may upgrade and restart one at a time. Use
+the following whenever every launcher of a project must stop and upgrade together,
+including incompatible coordination changes or configuration this repository
+starts using that older launchers reject:
+
+```html
+<!-- ub-agents:launcher-upgrade=coordinated -->
+```
+
+For `coordinated`, also include a visible **Upgrading** note with the required
+operator steps. The marker supplements that note. Automatic launcher maintenance
+reads all stable releases newer than its running version through its target,
+including intermediate releases across skipped versions. Any coordinated,
+missing or unreadable marker prevents automatic upgrading and restarting. Keep
+the marker when finishing partial publication or editing release notes. Older
+unmarked releases deliberately require manual upgrades.
+
 The task pushes an annotated `vX.Y.Z` tag, creates the GitHub release
 `ub-agents X.Y.Z` from the CHANGELOG section without its heading, and opens a PR on
 `uberblick-ai/homebrew-tap` that updates the formula. It then tests the tag and

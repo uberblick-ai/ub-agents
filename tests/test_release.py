@@ -22,7 +22,8 @@ SHA = "a" * 40
 TAG = f"v{VERSION}"
 URL = f"https://github.com/{release.REPOSITORY}/archive/refs/tags/{TAG}.tar.gz"
 DIGEST = hashlib.sha256(b"archive fixture").hexdigest()
-NOTES = "\n\n**Upgrading:** restart launchers.\n\n### Added\n\n- A change (#398).\n\n"
+NOTES = ("\n\n<!-- ub-agents:launcher-upgrade=independent -->\n\n"
+         "**Upgrading:** restart launchers.\n\n### Added\n\n- A change (#398).\n\n")
 RUNS = ("gh", "api", f"repos/{release.REPOSITORY}/actions/workflows/test.yml/runs?head_sha={SHA}")
 
 
@@ -300,6 +301,15 @@ class ReleaseTests(unittest.TestCase):
         section = f"## {VERSION} — 2026-10-09" + NOTES
         with self.assertRaisesRegex(release.ReleaseError, "expected one dated"):
             release.release_notes(section + section, VERSION)
+
+    def test_release_notes_require_one_explicit_launcher_upgrade_marker(self):
+        for marker in ("", "<!-- ub-agents:launcher-upgrade=unknown -->",
+                       "<!-- ub-agents:launcher-upgrade=independent -->" * 2):
+            notes = NOTES.replace("<!-- ub-agents:launcher-upgrade=independent -->", marker)
+            with self.subTest(marker=marker), self.assertRaisesRegex(release.ReleaseError, "launcher-upgrade marker"):
+                release.release_notes(f"## {VERSION} — 2026-10-09" + notes, VERSION)
+        notes = NOTES.replace("=independent", "=coordinated")
+        self.assertEqual(release.release_notes(f"## {VERSION} — 2026-10-09" + notes, VERSION), notes)
 
     def test_formula_url_hash_and_unchanged_resources(self):
         packages = [package(), package("typing-extensions", "4.16.0")]

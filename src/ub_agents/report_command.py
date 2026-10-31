@@ -7,11 +7,11 @@ import sys
 
 
 def launcher_report_command():
-    from .launcher_code import package_directory
+    from .launcher_code import interpreter, package_directory
 
     # Keep a virtualenv's interpreter symlink: resolving it can lose that environment.
     # -I ignores PYTHONPATH and the agent's cwd; the entry point pins the package too.
-    return shlex.join([os.path.abspath(sys.executable), "-I", str(package_directory() / "report_command.py")])
+    return shlex.join([interpreter(), "-I", str(package_directory() / "report_command.py")])
 
 
 if __name__ == "__main__":

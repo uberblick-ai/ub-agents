@@ -296,9 +296,11 @@ launchers: [operator]
                              + "".join(f"  {name}:\n{worker}" for name in ("worker", "reviewer", "preparer", "integrator")))
         self.github.label_names.append("workflow:next")
         result = self.diagnose()
-        self.assertTrue(all(c["status"] == "ok" for c in result["checks"]))
+        self.assertTrue(all(c["status"] == "ok" for c in result["checks"] if c["id"] != "launcher-installation"))
         self.assertEqual(len(self.checks(result, "github-label")), 4)
         expected = ("No launcher running on this checkout\n"
+                    "skip launcher-installation - ub-agents: pip, source or other installation; "
+                    "only uberblick-ai/tap/ub-agents qualifies\n"
                     "ok machine: 7 checks passed\n"
                     "ok configuration: 11 checks passed\n"
                     "ok GitHub: 5 checks passed, 4 labels present\n"

@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import venv
 from unittest.mock import Mock, patch
 
 import ub_agents
@@ -106,6 +107,50 @@ GitHub = lambda repository: fixture
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 0)
         self.assertFalse(paths[0].exists())
         self.assertEqual(descriptors(), ())
+
+    def test_homebrew_keg_removal_keeps_lazy_dependencies_report_and_helpers_working(self):
+        # A real venv reproduces the deleted libexec/bin/python path. Its base
+        # interpreter, like Homebrew's python formula, is a separate installation.
+        keg = self.root / "brew/Cellar/ub-agents/1.0.0"
+        environment = keg / "libexec"
+        venv.EnvBuilder(with_pip=False, symlinks=True).create(environment)
+        python = environment / "bin/python"
+        result = subprocess.run([str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+                                text=True, capture_output=True, check=True, timeout=10)
+        packages = Path(result.stdout.strip())
+        shutil.copytree(Path(ub_agents.__file__).parent, packages / "ub_agents")
+        import yaml
+        shutil.copytree(Path(yaml.__file__).parent, packages / "yaml")
+        dependency = packages / "kept_dependency"
+        dependency.mkdir()
+        (dependency / "__init__.py").touch()
+        (dependency / "lazy.py").write_text("VALUE = 'retained dependency'\n")
+        (packages / "ub_agents/startup_probe.py").write_text(
+            "from kept_dependency.lazy import VALUE\nprint(VALUE)\n")
+        script = '''
+import pathlib, shlex, shutil, subprocess, sys
+import kept_dependency
+from ub_agents.launcher_code import startup_copy, helper_command, descriptors
+from ub_agents.report_command import launcher_report_command
+with startup_copy():
+    shutil.rmtree(sys.argv[1])
+    from kept_dependency.lazy import VALUE
+    assert VALUE == 'retained dependency'
+    result = subprocess.run(helper_command('ub_agents.startup_probe'), pass_fds=descriptors(),
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == VALUE
+    result = subprocess.run(shlex.split(launcher_report_command()) + ['--version'],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith('ub-agents '), result.stdout
+print('survived removal')
+'''
+        result = subprocess.run([str(python), "-I", "-c", script, str(keg)],
+                                text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("survived removal", result.stdout)
+        self.assertFalse(keg.exists())
 
     def test_lazy_update_checker_preserves_original_installation_and_banner_selection(self):
         with startup_copy() as copied:
