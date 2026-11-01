@@ -304,8 +304,11 @@ class Loop:
         self.maintain_launcher()
 
     def maintain_launcher(self):
+        # Restart validates files at startup; invalid files would exit instead
+        # of keeping the launcher alive to retry the configuration.
         if (not self._continuous or self._launch_number is not None or self.github.lease is not None
-                or self._refreshing_checkout or self._maintaining or self._finalizing):
+                or self._refreshing_checkout or self._maintaining or self._finalizing
+                or self.configuration_pause is not None):
             return
         self.before_claim()
         self._maintaining = True

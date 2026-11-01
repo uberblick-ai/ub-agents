@@ -298,6 +298,46 @@ class SelfUpdateTests(unittest.TestCase):
                     self.assertIsNone(loop.poll_now.waiter)
         self.assertFalse(any("upgrade" in call for call in self.calls))
 
+    def test_configuration_pause_defers_upgrade_and_peer_restart_until_valid(self):
+        for peer_upgrade in (False, True):
+            for poll_now in (False, True):
+                with self.subTest(peer_upgrade=peer_upgrade, poll_now=poll_now):
+                    self.manager.checked = None
+                    self.put_keg(self.target if peer_upgrade else __version__)
+                    self.calls.clear()
+                    loop = Loop(self.settings, FakeGitHub(), "operator", output=self.lines.append)
+                    loop._continuous = True
+                    loop.self_updates, loop.updates = self.manager, self.updates
+                    pause = {"error": "Invalid configuration", "commit": "invalid-head",
+                             "next_step": "Correct the configuration or instruction files"}
+                    loop.configuration_pause = pause
+                    if poll_now:
+                        loop.enable_poll_now()
+
+                    loop.maintain_launcher()
+                    loop.wait(loop.stop_event, 1, "next poll or runtime pause")
+                    self.assertEqual(self.calls, [])
+                    self.assertIsNone(self.manager.checked)
+                    self.assertEqual(loop.configuration_pause, pause)
+                    self.assertEqual(loop.github.writes, [])
+                    self.assertFalse(loop._maintaining)
+                    if poll_now:
+                        self.assertIsNone(loop.poll_now.waiter)
+
+                    with patch.object(loop, "_refresh_policy"), \
+                            patch("ub_agents.loop.git", return_value="valid-head"), \
+                            patch("ub_agents.loop.publish_configuration_pause"):
+                        self.assertTrue(loop._retry_configuration())
+                    self.assertIsNone(loop.configuration_pause)
+                    with self.assertRaises(RestartLauncher) as result:
+                        loop.wait(loop.stop_event, 3, "next poll or runtime pause")
+                    self.assertEqual(result.exception.executable, self.install.current())
+                    self.assertEqual(any("upgrade" in call for call in self.calls), not peer_upgrade)
+                    self.assertEqual(loop.github.writes, [])
+                    self.assertFalse(loop._maintaining)
+                    if poll_now:
+                        self.assertIsNone(loop.poll_now.waiter)
+
     def test_exec_preserves_pid_arguments_and_waits_until_resources_are_closed(self):
         path = self.root / "ub-agents.yaml"
         path.touch()

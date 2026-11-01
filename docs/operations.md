@@ -129,7 +129,8 @@ plain output, `launch.log` and `status` show the error, checkout commit and next
 Correct the configuration or instruction files; for unknown keys or values, upgrading
 ub-agents is another fix. Every poll, and `r`, fetches, fast-forwards and rereads even
 with an empty queue. Valid files resume claims automatically without a restart;
-a restarted launcher validates at startup as usual. `q` and `SIGTERM` stop promptly
+a restarted launcher validates at startup as usual. Automatic launcher upgrades
+and restarts wait until the configuration pause clears. `q` and `SIGTERM` stop promptly
 while waiting. The log records the pause starting, its error or commit changing,
 and claims resuming, rather than repeating the error every poll.
 

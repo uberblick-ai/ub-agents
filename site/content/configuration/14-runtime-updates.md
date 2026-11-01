@@ -47,6 +47,7 @@ The launcher waits until no run, recovery, checkout refresh or setup is active,
 then checks and upgrades its owning Homebrew installation. It claims nothing until
 maintenance finishes. `timeout-seconds` limits the whole operation. Failures go to
 `launch.log` and wait for the next daily update check before retrying.
+Automatic launcher upgrades and restarts wait until any configuration pause clears.
 
 It restarts only if the installed version is newer than its running version,
 including when another launcher or a person installed it. A successful command

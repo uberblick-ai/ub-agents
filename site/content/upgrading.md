@@ -17,6 +17,7 @@ outside runs, recovery, checkout refresh and setup, using `runtime-updates`
 `timeout-seconds` (300 by default). It restarts only on a newer installed version,
 including one installed manually or by another launcher. Failed upgrades are
 logged and retried at the next daily check.
+Automatic launcher upgrades and restarts wait until any configuration pause clears.
 
 Every release between the running and target versions must explicitly allow
 independent upgrades. A coordinated release, missing marker or unreadable release
