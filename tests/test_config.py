@@ -403,7 +403,7 @@ cleanup:
 
     def test_repository_opts_into_daily_runtime_updates(self):
         settings = load_config(Path(__file__).resolve().parents[1] / "ub-agents.yaml")
-        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "auto", "gh": "off", "ub": "off", "ub-agents": "off"})
+        self.assertEqual(settings.runtime_updates.policies, {"claude": "auto", "codex": "auto", "gh": "off", "ub": "auto", "ub-agents": "auto"})
 
     def test_launchers_and_runtime_updates_can_be_configured_together(self):
         settings = self.load('''repository: org/project
