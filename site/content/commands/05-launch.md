@@ -56,6 +56,16 @@ The footer shows usage pauses and launcher activity, such as `claude paused for 
 
 Before each run, launch pulls the default branch and starts the agent fresh, so changes to `ub-agents.yaml`, AGENTS.md and the role files apply once they land, without a restart. A new ub-agents version does need one; see [Upgrading](/docs/upgrading.html).
 
+If `ub-agents.yaml`, `ub-agents.local.yaml` or an instruction file fails validation
+after a refresh, continuous launch (including `--agent`) pauses claims. It starts
+no new runs or recoveries and uses no attempts. The terminal banner, plain output,
+`launch.log` and [`status`](/docs/commands/status.html) show the error, checkout commit
+and next step. Correct the file, or upgrade ub-agents for an unknown key or value.
+Every poll, or `r`, fetches and rereads even with an empty queue; valid files resume
+claims automatically. `q` and `SIGTERM` stop while paused as they do while idle.
+Startup validation, `--once` and numbered launches still fail on invalid files.
+Unsafe checkouts and failed fetches or fast-forwards still stop launch.
+
 [Checkout setup](/docs/configuration/checkout-setup.html) runs your own setup, such as installing dependencies, in every new worktree. Agents with a [health check](/docs/configuration/agents.html#health-check) wait until it passes, without using up attempts.
 
 ## Leftovers from earlier runs

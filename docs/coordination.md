@@ -563,9 +563,15 @@ Refresh runs only between runs, after this launcher's supervised processes and
 cleanup hooks have ended, and never for outcome-only recovery. It needs the default
 branch checked out, no staged, modified or untracked non-ignored files and no
 local-only commits. It never resets, stashes or switches branches, and refuses to
-overwrite ignored files. An unsafe checkout, a failed fetch or fast-forward, or
-invalid configuration or instructions stop the launcher with a message naming the
-fix, without a claim or a charged attempt. The GitHub read of the default branch is
+overwrite ignored files. An unsafe checkout or a failed fetch or fast-forward
+stops the launcher with a message naming the fix, without a claim or a charged
+attempt. In continuous launch (including `--agent`), invalid configuration or
+instructions found on reread instead pause all claims, including outcome-only
+recoveries. The launcher uses no previous policy to claim work. While paused it
+fetches, fast-forwards and rereads on every poll and `r`, even with no ready items,
+and resumes when validation succeeds. The pause charges no attempt and reports its
+error, checkout commit and remedy in the terminal, log and status. Startup validation,
+`--once` and `launch N` still fail on invalid files. The GitHub read of the default branch is
 part of discovery, so continuous launch retries its transient failures.
 
 New issue worktrees start from the remote default branch. PR worktrees in the same

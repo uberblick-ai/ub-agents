@@ -9,6 +9,7 @@ from .updates import release_age
 from .view_data import mapping, text
 from .view_scroll import PaneScroll
 from .view_status import pane_line
+from .launcher_lock import configuration_pause_summary
 
 SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
 
@@ -42,6 +43,19 @@ class HealthBanner(UpdateBanner):
     """The latest project health transition, including recovery, in one row."""
     def __init__(self):
         super().__init__(id='health_notice')
+
+
+class ConfigurationPause(Static):
+    """Keep the whole pause diagnostic and remedy readable at any width."""
+    def __init__(self):
+        super().__init__('', id='configuration_pause', markup=False)
+        self.pause = None
+
+    def set_pause(self, pause):
+        pause = mapping(pause)
+        self.pause = pause if all(isinstance(pause.get(key), str) for key in ('error', 'commit', 'next_step')) else None
+        self.display = bool(self.pause) and not self.app.too_small and self.app.shutdown is None
+        self.update(Text(configuration_pause_summary(self.pause)) if self.pause else '')
 
 
 class ItemHeader(Static):

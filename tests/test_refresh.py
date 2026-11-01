@@ -573,7 +573,7 @@ class RefreshTests(unittest.TestCase):
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
 
-    def test_invalid_reloaded_config_exits_with_offline_doctor_error_without_charging_attempt(self):
+    def test_invalid_reloaded_config_once_exits_with_offline_doctor_error_without_charging_attempt(self):
         (self.upstream / "ub-agents.yaml").write_text("invalid: configuration\n")
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
@@ -584,7 +584,7 @@ class RefreshTests(unittest.TestCase):
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 patch("ub_agents.loop.supervise") as execution, \
                 redirect_stderr(launch_error):
-            self.assertEqual(main(args + ["launch"]), 1)
+            self.assertEqual(main(args + ["launch", "--once"]), 1)
         self.assertEqual(launch_error.getvalue(), f'ub-agents: {self.offline_failure()}\n')
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
