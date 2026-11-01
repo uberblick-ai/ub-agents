@@ -1,0 +1,11 @@
+{"type":"session_meta","payload":{"id":"11111111-1111-4111-8111-111111111111"}}
+{"type":"event_msg","payload":{"type":"token_count","info":null}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":35210,"output_tokens":100},"last_token_usage":{"input_tokens":35210,"output_tokens":100},"model_context_window":200000}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":35210,"output_tokens":100},"last_token_usage":{"input_tokens":999999,"output_tokens":100},"model_context_window":200000}}}
+{"type":"compacted","payload":{"message":"synthetic compaction"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":197690,"output_tokens":200},"last_token_usage":{"input_tokens":162480,"output_tokens":100},"model_context_window":200000}}}
+{"type":"event_msg","payload":{"type":"token_count"}}
+{"type":"event_msg","payload":{"type":"compacted"}}
+{"type":"compacted","payload":{"message":"synthetic compaction"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":267804,"output_tokens":300},"last_token_usage":{"input_tokens":70114,"output_tokens":100}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":267804,"output_tokens":300},"last_token_usage":{"input_tokens":70114,"output_tokens":100},"model_context_window":1000000}}}

@@ -331,6 +331,37 @@ to `Nk`, and from 1M use `N.NM`. Reported dollars use two decimals. On a Claude
 subscription, the dollar figure is what the run would have cost at API prices,
 not a charge.
 
+In the same update as `usage`, the launcher adds optional main-session `context`
+to the outcome and its handoff copies, never to the lease:
+
+```json
+"context": {"window": 1000000, "first": 35210, "call_10": 70114, "peak": 162480, "compactions": 0}
+```
+
+`window` is the runtime-reported context window. `first`, `call_10` and `peak`
+are prompt-side tokens for the first, tenth (or last when fewer than ten) and
+largest main-session model calls; `compactions` counts runtime compactions.
+Claude's process log supplies assistant calls, deduplicated by `message.id`,
+excluding non-null `parent_tool_use_id` subagent events. Prompt tokens sum input,
+cache creation and cache read tokens. The final result's `modelUsage` supplies
+the single main-session model's `contextWindow`; other models are ignored.
+`system` events with subtype `compact_boundary` count compactions.
+
+Codex uses only the run's own session file, located by its fresh thread id.
+Each `event_msg` / `token_count` with `info` supplies a call's
+`last_token_usage.input_tokens`; info-less events and snapshots repeating the
+previous `total_token_usage` are skipped. The last reported
+`info.model_context_window` supplies the window, and top-level `compacted` items
+count compactions. Codex's process log supplies no context counts.
+
+Context is all or nothing: missing or invalid values, no main-session calls,
+a missing Codex session or window, a missing Claude result, multiple Claude main
+models or a main model absent from `modelUsage` omit the entire field. Usage and
+denials are collected independently. Context is display-only, with the same
+non-authoritative reading and `v4` compatibility rules as usage. Readers ignore
+malformed context, and older launchers preserve it on rewrites. It does not
+affect usage-limit decisions and is not shown in the terminal view or reports.
+
 The lease stores run ownership: `agent`, `assignment`, `run`, `runtime`, `created`,
 `expires`, `state`, `attempt`, `attempt_effect`, `started` and `triggers` (the labels
 present at claim time). A PR lease also stores `assignment_sha`. A running lease has
