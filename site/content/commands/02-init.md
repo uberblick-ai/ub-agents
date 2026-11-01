@@ -71,3 +71,6 @@ Writes the starter files without asking, with safe defaults: Codex runs the loop
 ```text
 {{help init}}
 ```
+
+The [init flow reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/init-wizard.md)
+keeps terminal captures for contributors changing the wizard.

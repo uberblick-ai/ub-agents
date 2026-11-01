@@ -1,13 +1,13 @@
 # Running launchers
 
 What a launcher prints, how to stop it, and what to do when something fails. The
-[configuration reference](configuration.md) lists every key, and the
-[coordination contract](coordination.md) has the exact rules for claims, attempts and
+[configuration reference](/docs/configuration/index.html) lists every key, and the
+[coordination contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md) has the exact rules for claims, attempts and
 recovery.
 
 ## Launch output
 
-In a terminal, `launch` opens a read-only [terminal view](terminal-view.md) of its own
+In a terminal, `launch` opens a read-only [terminal view](/docs/guides/terminal-view.html) of its own
 session. With `--no-ui`, or under a pipe or service, it prints plain lines.
 
 Launch output also goes to `.ub-agents/launch.log` in the control checkout, with a
@@ -17,7 +17,7 @@ with `tail -f .ub-agents/launch.log`.
 
 Discovery lines report the pass kind, elapsed time and request counts; identical
 consecutive passes print once. Each run also records its launcher requests in
-`events.jsonl`. See [request accounting](polling.md#accounting-and-diagnostics) for
+`events.jsonl`. See [request accounting](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#accounting-and-diagnostics) for
 the fields. When discovery declines a ready item, one line names the item, agent and
 reason, for example `#400 implementer: declined — Head moved before claim`.
 
@@ -31,7 +31,7 @@ discards any early report and leaves the labels unchanged. No failed attempt is
 charged. A label removed or an item reopened before the check has no effect.
 A closed item needs no further action. Resume a stopped open item with
 `ub-agents retry NUMBER --agent ROLE --reason "Ready to resume"`. See
-[stop labels](https://agents.uberblick.ai/docs/configuration/stop-labels.html).
+[stop labels](/docs/configuration/stop-labels.html).
 
 Every launch mode holds one exclusive lock for its resolved control checkout.
 A second launch exits before startup and names the running launcher's pid, host
@@ -56,53 +56,16 @@ owner record never blocks a restart; do not delete the lock files while launchin
 
 An idle launcher, including one waiting for a rate limit outside a run, exits promptly. A launcher
 error keeps its nonzero exit even during a drain. The
-[terminal view](terminal-view.md) describes the shutdown screens.
+[terminal view](/docs/guides/terminal-view.html) describes the shutdown screens.
 
-The launcher keeps a startup copy of its code and, for Homebrew installs, its Python
-dependencies. Its helpers use that copy too, even if an upgrade or cleanup removes
-the old ub-agents keg. This protection also applies with automatic updates off.
-Homebrew's separate Python installation must remain available.
-
-To let a continuous queue upgrade and restart itself, opt in:
-
-```yaml
-runtime-updates:
-  ub-agents: auto
-  timeout-seconds: 300
-```
-
-Only the `uberblick-ai/tap/ub-agents` Homebrew formula qualifies; `doctor` reports
-the installation or skip reason. The setting accepts `auto` or `off` (the default),
-with no command form. `launch NUMBER` and `--once` only show the update banner.
-Continuous queues with `--agent` also support automatic updates.
-
-At the daily release check, an opted-in launcher waits until no run, recovery,
-checkout refresh or setup is active, then updates its owning Homebrew and upgrades
-the formula. It claims nothing during maintenance. The shared `timeout-seconds`
-limits the entire check and upgrade. A failed upgrade is logged in `launch.log`
-and retried at the next daily check. A tap that still installs the running version
-causes no restart.
-
-When the installed version is newer, including after another launcher or a person
-upgrades it, the launcher checks every release between its running and installed
-versions before restarting. It also checks the intended formula version before
-upgrading. A coordinated release or any missing/unreadable release marker blocks
-automatic action, keeps the banner and logs the reason. Follow
-[Upgrading](https://agents.uberblick.ai/docs/upgrading.html) to stop and upgrade all
-launchers together in that case. Source checkouts still need a manual restart.
-
-Automatic restart replaces the process with the new executable, retaining its PID
-and arguments in both UI modes. Service managers need no special restart status;
-they continue supervising the same process. Configure their normal restart policy
-for actual exits. A failed exec exits 1. A `q` or `SIGTERM` during an upgrade lets
-the command finish, then exits 0 without restarting. No automatic update or restart
-claims an assignment or consumes an attempt.
+For automatic launcher upgrades, restart behavior under service managers and
+installation protection, see [Runtime updates](/docs/configuration/runtime-updates.html#updating-the-launcher).
 
 ## When things go wrong
 
 Most failures end `launch` with one `ub-agents:` line that names the problem and the
 next step. Fix the cause and launch again. For one stuck issue or PR, see
-[Unstick an item](https://agents.uberblick.ai/docs/guides/stuck-items.html).
+[Unstick an item](/docs/guides/stuck-items.html).
 
 **Launch refuses to start because of the control checkout.** It must be clean, on
 the repository's default branch and have no commits missing from `origin`. Commit,
@@ -120,7 +83,7 @@ An unsafe checkout or Git failure stops it. Fix the checkout and restart.
 Startup validation, `launch --once` and `launch N` also stop on invalid configuration
 or unreadable instructions, with the same errors as `ub-agents doctor --offline`.
 No attempt is charged. See
-[execution boundaries](coordination.md#execution-boundaries).
+[execution boundaries](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#execution-boundaries).
 
 **Claims paused for invalid configuration.** Continuous launch, including `--agent`,
 stays running when configuration or instructions fail validation after a refresh.
@@ -136,7 +99,7 @@ and claims resuming, rather than repeating the error every poll.
 
 **Control-checkout setup fails.** Read the log the message names, fix the install in
 the control checkout and launch again. Setup runs on every launch until it succeeds.
-See [checkout setup](configuration.md#checkout-setup).
+See [checkout setup](/docs/configuration/checkout-setup.html).
 
 **Setup fails in a private worktree.** The run ends before the agent starts and
 counts as a failed attempt. Fix the hook or environment. If the item has used all its
@@ -146,7 +109,7 @@ attempts, run `ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"`.
 without a limit, printing `Skipped GitHub poll: …; retrying in Ns`. No attempt is
 charged and no action is needed. `launch --once`, `launch N` and `status` fail on the
 first error; run them again later. `doctor --verbose` shows the remaining quota. See
-[quota and failure handling](polling.md#quota-and-failure-handling).
+[quota and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling).
 
 **Launch stops with "ub-agents does not retry this error."** Authentication failures,
 other HTTP 4xx errors are not retried. Fix the cause, for
@@ -155,21 +118,21 @@ it left open.
 
 **A runtime reached its usage limit.** The launcher pauses that CLI until the limit
 resets, and other CLIs keep working. No attempt is charged. Restart the launcher to
-clear the pause early. See [runtime usage pauses](configuration.md#runtime-usage-pauses).
+clear the pause early. See [runtime usage pauses](/docs/configuration/runtimes.html#usage-limits).
 
 **A health check fails.** The agent's items show `waiting` with the check's error.
 Fix the dependency; claiming resumes on its own. See
-[project health checks](configuration.md#project-health-checks).
+[project health checks](/docs/configuration/agents.html#health-check).
 
 **A runtime update broke a CLI.** The launcher marks the CLI unavailable and uses an
 alternative runtime if one is configured. While `gh` is unavailable, no run starts.
 Repair or reinstall the CLI; a later check between runs finds it working and resumes.
-See [daily runtime maintenance](configuration.md#daily-runtime-maintenance).
+See [daily runtime maintenance](/docs/configuration/runtime-updates.html).
 
 **A launcher died during a run.** Its claim expires when its lease runs out, 30
 minutes after the last renewal by default. Then any
 launcher recovers the work, and a recorded outcome finishes without rerunning the
-agent. See [recovery](coordination.md#recovery).
+agent. See [recovery](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#recovery).
 
 **Cleanup cannot confirm the run's processes stopped.** Launch stops and keeps the
 run's worktree and branch. Make `ps` usable, or confirm that the named process group
@@ -177,11 +140,11 @@ has exited, then restart.
 
 **The cleanup hook fails.** The worktree and branch stay, and the run's outcome stands.
 Fix the hook; the next launch retries it before removing the worktree. See
-[project cleanup hook](configuration.md#project-cleanup-hook).
+[project cleanup hook](/docs/configuration/cleanup.html).
 
 **Leftover worktrees or branches, or a branch you still need.** Restart `launch`; its
 startup sweep removes leftovers and logs each decision in
 `.ub-agents/sessions/<session>.cleanup.log`. Restore a removed branch from its logged
 `unpushed tip SHA` with `git branch <name> <sha>`. See
-[stale artifact cleanup](configuration.md#stale-artifact-cleanup), which also covers
+[stale artifact cleanup](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#stale-artifact-cleanup), which also covers
 the 7-day retention of run logs.

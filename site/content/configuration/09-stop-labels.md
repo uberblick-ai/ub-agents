@@ -66,3 +66,10 @@ The [`ub-agents-unblock`](https://skills.uberblick.ai/skills/ub-agents-unblock) 
 ## Rules
 
 An outcome may add a stop label but never remove one. `ub-agents doctor --offline` rejects it.
+
+## Key reference
+
+`stop-labels` accepts a label string or a list of labels; the default is `[needs-human]`.
+Use `[]` to configure none. See [claim election](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#claim-election)
+for cancellation checks and [explicit outcomes](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#explicit-outcomes)
+for stops during transitions.

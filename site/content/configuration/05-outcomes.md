@@ -48,7 +48,7 @@ An agent that takes issues can start the native sub-issues its run creates:
 split: {sub-issues: {add: [needs-preparation]}}
 ```
 
-Agents file sub-issues without trigger labels, then report `split`. The launcher adds the declared labels, which must be issue-agent triggers, and removes the parent's triggers. With [approvals on](/docs/configuration/approvals.html), sub-issues inherit the parent's start. See the [outcomes reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#outcomes-and-transitions).
+Agents file sub-issues without trigger labels, then report `split`. The launcher adds the declared labels, which must be issue-agent triggers, and removes the parent's triggers. With [approvals on](/docs/configuration/approvals.html), sub-issues inherit the parent's start. See the [outcome contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#explicit-outcomes).
 
 ## Ask a person
 
@@ -83,3 +83,18 @@ ub-agents report --outcome needs-human --summary "Storage policy unclear" \
 ```sh
 ub-agents report --status retry --summary "GitHub returned 502"
 ```
+
+## Key reference
+
+`outcomes` is a required, nonempty mapping from names to transitions.
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `add` | List, `[]` | Must not include the agent's own triggers. May add a stop label. |
+| `remove` | List, `[]` | Must not include a stop label, and no trigger of the agent may be one. |
+| `max-rounds` | Positive integer | Needs a configured stop label, and the outcome must not add one. |
+| `sub-issues` | Mapping with only `add` | Nonempty list of `issue` or `either` agent triggers, no stop labels. Agents that take issues only. |
+
+See [explicit outcomes](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#explicit-outcomes) for validation,
+transition order, stop checks and recovery, and [assignments and attempts](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#assignments-and-attempts)
+for round counting.

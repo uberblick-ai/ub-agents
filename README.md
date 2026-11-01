@@ -211,10 +211,9 @@ The website builds from `site/content/` into `site/out/` with
 `.venv/bin/python site/build.py`; open `site/out/index.html` to preview it.
 Workflow diagrams have their own [README](site/diagrams/README.md).
 
-Reference for contributors: [configuration](docs/configuration.md),
-[coordination contract](docs/coordination.md), [approvals](docs/approvals.md),
-[polling](docs/polling.md), [operations](docs/operations.md),
-[terminal view](docs/terminal-view.md), [init wizard](docs/init-wizard.md),
+Reference for contributors: [coordination contract](docs/coordination.md),
+[approvals](docs/approvals.md), [polling](docs/polling.md),
+[init wizard](docs/init-wizard.md),
 [session snapshots](docs/session-snapshots.md) and [releases](docs/releases.md).
 
 ## License
