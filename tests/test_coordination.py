@@ -515,7 +515,7 @@ class CoordinationTests(unittest.TestCase):
         lease = self.start()
         self.co.report(lease, "success", "PR opened", handoff=2, outcome="done")
         self.now += 61
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.recover(self.plan()))
         self.assertEqual(self.github.item(1).labels, frozenset())
         self.assertTrue(self.co.history(1)[1]["accepted"])
@@ -770,7 +770,7 @@ class CoordinationTests(unittest.TestCase):
         self.github.change(1, state="closed")
         self.co.report(lease, "success", "Requirements resolved", outcome="done")
         self.now += 61
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.tick())
         self.assertTrue(self.co.history(1)[1]["accepted"])
         # The unrelated PR is still ready for a normal assignment; isolate recovery.
@@ -817,7 +817,7 @@ class TrustTests(unittest.TestCase):
     def test_foreign_marker_comments_and_forged_records_have_no_authority(self):
         github = FakeGitHub(issue(), issue(7, labels=()))
         loop = self.loop(github)
-        with patch("ub_agents.loop.supervise", side_effect=AgentError("Unclassified execution failure")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AgentError("Unclassified execution failure")):
             loop.tick()
         source = loop.coordinator.history(1)[0]
         forged = [
@@ -854,7 +854,7 @@ class TrustTests(unittest.TestCase):
             return 0
 
         self.assertEqual(status_rows(loop)[0]["state"], "blocked")
-        with patch("ub_agents.loop.supervise", side_effect=execute):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute):
             self.assertTrue(loop.tick())
         self.assertEqual(loop.coordinator.history(7)[0]["result"], "success")
         self.assertEqual([p.item.number for p in loop.plans()], [1])

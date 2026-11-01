@@ -335,7 +335,7 @@ class FilteredLaunchTests(unittest.TestCase):
             waits.append(True)
             if len(waits) == 2:
                 self.loop.stop_event.set()
-        with patch("ub_agents.loop.supervise", side_effect=self.report_success) as run, \
+        with patch("ub_agents.assignment_run.supervise", side_effect=self.report_success) as run, \
                 patch("ub_agents.loop.refresh_instructions", return_value="Instructions"), \
                 patch("ub_agents.loop.monotonic", return_value=0), \
                 patch.object(self.loop, "wait", side_effect=wait):

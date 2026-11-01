@@ -54,7 +54,7 @@ class EventTests(unittest.TestCase):
             if failure:
                 raise failure
             return 0
-        with patch('ub_agents.loop.supervise', side_effect=execute):
+        with patch('ub_agents.assignment_run.supervise', side_effect=execute):
             return loop.tick()
 
     def test_started_precedes_workspace_and_outcome_follows_applied_transition(self):
@@ -124,7 +124,7 @@ class EventTests(unittest.TestCase):
         worker = replace(self.worker, kind='pr', on_conflict='done')
         self.github = FakeGitHub(replace(pr(1, labels=('ready',)), mergeable=False))
         loop, delivered, _ = self.loop(worker=worker)
-        with patch('ub_agents.loop.supervise') as process:
+        with patch('ub_agents.assignment_run.supervise') as process:
             loop.launch(once=True)
         process.assert_not_called()
         self.assertEqual([e['event'] for e in delivered], ['started', 'outcome'])
@@ -155,7 +155,7 @@ class EventTests(unittest.TestCase):
                                         outcome='done' if status == 'success' else None,
                                         action='Maintainer: inspect the item.', option='Maintainer: retry later.')
                 self.now += 61
-                with patch('ub_agents.loop.supervise') as process:
+                with patch('ub_agents.assignment_run.supervise') as process:
                     loop.launch(once=True)
                 process.assert_not_called()
                 self.assertEqual(len(delivered), 1)
@@ -196,7 +196,7 @@ class EventTests(unittest.TestCase):
                     self.github.content_histories[1] = {'author': {'login': 'outsider'}}
                     self.enterContext(patch.object(self.github, 'add_labels',
                         side_effect=GitHubError('POST', 'labels', 'unavailable')))
-                with patch('ub_agents.loop.supervise') as process:
+                with patch('ub_agents.assignment_run.supervise') as process:
                     loop.launch(once=True)
                 process.assert_not_called()
                 self.assertEqual(delivered, [])

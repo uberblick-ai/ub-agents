@@ -277,7 +277,7 @@ with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.loop
      patch('ub_agents.cli.GitHub', return_value=github), patch('ub_agents.cli.Loop', side_effect=create), \\
      patch.object(Loop, 'launch', launch), patch('ub_agents.cli.launch_checks', side_effect=check_setup), \\
      patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.loop.refresh_checkout'), \\
-     patch('ub_agents.loop.supervise', side_effect=run), \\
+     patch('ub_agents.assignment_run.supervise', side_effect=run), \\
      patch('ub_agents.launch_ui.ui_command', side_effect=lambda: escape_ack_command(ui_command())):
     result = main(['--config', str(root / 'ub-agents.yaml'), 'launch', *sys.argv[4:]])
 (root / 'result.json').write_text(json.dumps({'exit': result, 'history': loop.coordinator.history(116),

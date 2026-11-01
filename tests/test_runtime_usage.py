@@ -279,7 +279,7 @@ class UsageLoopTests(unittest.TestCase):
                 self.github.store.clear()
                 self.loop.usage.reset()
                 self.now = self.start
-                with patch("ub_agents.loop.supervise", side_effect=self.runtime(make(self.now + 300))) as run:
+                with patch("ub_agents.assignment_run.supervise", side_effect=self.runtime(make(self.now + 300))) as run:
                     self.assertTrue(self.loop.tick())
                     history = self.loop.coordinator.history(1)
                     lease = history[0]
@@ -305,7 +305,7 @@ class UsageLoopTests(unittest.TestCase):
             calls.append(self.now)
             return self.runtime(claude(next(resets)))(*args, **kwargs)
 
-        with patch("ub_agents.loop.supervise", side_effect=run):
+        with patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
             self.now += 899
             self.assertFalse(self.loop.tick())
@@ -318,12 +318,12 @@ class UsageLoopTests(unittest.TestCase):
         self.assertEqual(attempts(self.loop.coordinator.history(1), self.role.name, self.now), [])
 
     def test_limit_preserves_existing_failure_count_and_backoff(self):
-        with patch("ub_agents.loop.supervise", return_value=1):
+        with patch("ub_agents.assignment_run.supervise", return_value=1):
             self.loop.tick()
         earlier = self.loop.coordinator.history(1)[0]
         self.assertEqual(earlier["retry_after"], iso(self.start + 60))
         self.now += 60
-        with patch("ub_agents.loop.supervise", side_effect=self.runtime(claude(self.now + 100))):
+        with patch("ub_agents.assignment_run.supervise", side_effect=self.runtime(claude(self.now + 100))):
             self.loop.tick()
         history = self.loop.coordinator.history(1)
         self.assertEqual(history[0]["retry_after"], earlier["retry_after"])
@@ -337,13 +337,13 @@ class UsageLoopTests(unittest.TestCase):
             self.now += 10
             return code
 
-        with patch("ub_agents.loop.supervise", side_effect=run):
+        with patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
         self.assertEqual(self.loop.usage.paused("claude")["ends_at"], iso(self.start + 900))
         self.assertEqual(len([line for line in self.lines if "pausing claude" in line]), 1)
 
     def test_warning_does_not_pause_after_accepted_run_or_change_outcome(self):
-        with patch("ub_agents.loop.supervise", side_effect=self.runtime(
+        with patch("ub_agents.assignment_run.supervise", side_effect=self.runtime(
                 claude(self.now + 300, .9, "allowed_warning"), report=True)):
             self.loop.tick()
         lease, outcome = self.loop.coordinator.history(1)
@@ -354,7 +354,7 @@ class UsageLoopTests(unittest.TestCase):
     def test_accepted_outcome_survives_rejected_event_without_utilization(self):
         event = {"type": "rate_limit_event", "rate_limit_info": {
             "status": "rejected", "resetsAt": self.now + 300}}
-        with patch("ub_agents.loop.supervise", side_effect=self.runtime(event, report=True)):
+        with patch("ub_agents.assignment_run.supervise", side_effect=self.runtime(event, report=True)):
             self.loop.tick()
         self.assertEqual(self.loop.coordinator.history(1)[0]["result"], "success")
         self.assertEqual(self.loop.usage.paused("claude")["ends_at"], iso(self.now + 360))
@@ -372,7 +372,7 @@ class UsageLoopTests(unittest.TestCase):
         plans = loop.plans()
         self.assertEqual([(p.state, p.runtime.cli if p.runtime else None) for p in plans],
                          [("waiting", None), ("ready", "codex"), ("ready", "codex")])
-        with patch("ub_agents.loop.supervise", return_value=1) as run:
+        with patch("ub_agents.assignment_run.supervise", return_value=1) as run:
             self.assertTrue(loop.tick())
         run.assert_called_once()
         self.assertEqual(github.items[1].labels, frozenset({"a"}))
@@ -407,13 +407,13 @@ agents:
 ''')
         self.loop.config = load_config(path)
         role = self.loop.config.agents[0]
-        with patch("ub_agents.loop.supervise", side_effect=self.runtime(claude(self.now + 300))) as run:
+        with patch("ub_agents.assignment_run.supervise", side_effect=self.runtime(claude(self.now + 300))) as run:
             self.assertTrue(self.loop.tick())
         first = run.call_args.args[0]
         self.assertEqual(first[1], "--print")
         self.assertEqual(first[-2:], list(arguments["claude"]))
         self.assertNotIn("-c", first)
-        with patch("ub_agents.loop.supervise", return_value=1) as run:
+        with patch("ub_agents.assignment_run.supervise", return_value=1) as run:
             self.assertTrue(self.loop.tick())
         second = run.call_args.args[0]
         self.assertEqual(second[1], "exec")
@@ -460,7 +460,7 @@ agents:
             self.now += delay
 
         with patch('ub_agents.loop.monotonic', side_effect=lambda: self.now), \
-                patch('ub_agents.loop.supervise', side_effect=run), \
+                patch('ub_agents.assignment_run.supervise', side_effect=run), \
                 patch.object(self.loop.stop_event, 'wait', side_effect=wait):
             self.loop.launch()
         self.assertEqual(runs, [self.start, self.start + 90])

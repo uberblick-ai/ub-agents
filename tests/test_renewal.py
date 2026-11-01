@@ -57,7 +57,7 @@ class RenewalTests(unittest.TestCase):
         return 0
 
     def execute(self, run):
-        with patch("ub_agents.loop.supervise", side_effect=run):
+        with patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
         self.assertIsNone(self.loop._renewal)
         self.assertIsNone(self.loop.github.lease)
@@ -113,7 +113,7 @@ class RenewalTests(unittest.TestCase):
                     return supervise(command, cwd, env, directory, *args,
                                      **(kwargs | {"observe_output": stop}))
 
-                with patch("ub_agents.loop.supervise", side_effect=run):
+                with patch("ub_agents.assignment_run.supervise", side_effect=run):
                     self.assertTrue(self.loop.tick())
                 self.assertIsNone(self.loop._renewal)
                 history = self.co.history(1)
@@ -133,7 +133,7 @@ class RenewalTests(unittest.TestCase):
                     self.assertEqual(actions, [])
                     restarted = Loop(self.loop.config, self.github, "operator", output=lambda *_: None)
                     restarted.coordinator.clock = lambda: self.now
-                    with patch("ub_agents.loop.supervise") as execution:
+                    with patch("ub_agents.assignment_run.supervise") as execution:
                         self.assertFalse(restarted.tick())
                         self.assertFalse(restarted.tick())
                     execution.assert_not_called()
@@ -167,7 +167,7 @@ class RenewalTests(unittest.TestCase):
             return ""
 
         with patch.object(Workspace, "prepare", prepare), patch("ub_agents.execution.git", side_effect=remove), \
-                patch("ub_agents.loop.supervise") as execution:
+                patch("ub_agents.assignment_run.supervise") as execution:
             self.assertTrue(self.loop.tick())
         execution.assert_not_called()
         lease, = self.co.history(1)
@@ -210,7 +210,7 @@ class RenewalTests(unittest.TestCase):
             # Supervision also checks the latched stop after a fast process exits.
             return 0
 
-        with patch("ub_agents.loop.supervise", side_effect=run):
+        with patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
         lease, report = self.co.history(1)
         self.assertIn("Stop label paused", lease["summary"])
@@ -340,7 +340,7 @@ class RenewalTests(unittest.TestCase):
                 self.assertEqual(write.call_count, 2)
                 self.writes_at_expiry = self.github.writes.copy()
                 kwargs["expires"]()
-        with patch("ub_agents.loop.supervise", side_effect=run), self.assertRaises(LostOwnership):
+        with patch("ub_agents.assignment_run.supervise", side_effect=run), self.assertRaises(LostOwnership):
             self.loop.tick()
         self.assertEqual(self.github.writes, self.writes_at_expiry)
         self.assertIsNone(self.loop._renewal)
@@ -394,7 +394,7 @@ class RenewalTests(unittest.TestCase):
                         self.assertLessEqual(delay, self.loop.config.poll_seconds)
                         self.loop.stop_event.set()
 
-                with patch("ub_agents.loop.supervise", side_effect=execution), \
+                with patch("ub_agents.assignment_run.supervise", side_effect=execution), \
                         patch.object(self.loop.stop_event, "wait", side_effect=wait):
                     self.loop.launch()
                 self.assertEqual(len(executions), 1)
@@ -472,7 +472,7 @@ class RenewalTests(unittest.TestCase):
         self.assertEqual(other.plans()[0].state, "owned")
         self.now += 1
         with patch("ub_agents.loop.socket.gethostname", return_value="another-host"), \
-                patch("ub_agents.loop.supervise", side_effect=AssertionError("outcome recovery starts no agent")):
+                patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("outcome recovery starts no agent")):
             self.assertTrue(other.tick())
         history = self.co.history(1)
         self.assertTrue(history[1]["accepted"])

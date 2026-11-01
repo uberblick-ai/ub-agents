@@ -62,7 +62,7 @@ class HookTests(unittest.TestCase):
             return ""
         with patch.object(Workspace, "prepare", lambda workspace: self.prepare(workspace)), \
                 patch("ub_agents.execution.git", side_effect=remove), \
-                patch("ub_agents.loop.supervise", side_effect=agent_execution):
+                patch("ub_agents.assignment_run.supervise", side_effect=agent_execution):
             return loop.tick()
 
     def test_hook_success_has_reported_handoff_context_and_removes_tree(self):
@@ -146,7 +146,7 @@ class HookTests(unittest.TestCase):
                     return original(lease)
                 stack.enter_context(patch.object(loop.coordinator, "outcome", side_effect=read))
                 return 0
-            with patch("ub_agents.loop.run_hook", wraps=run_hook) as hook:
+            with patch("ub_agents.assignment_run.run_hook", wraps=run_hook) as hook:
                 with self.assertRaises(KeyboardInterrupt):
                     self.execute(loop, report_then_interrupt)
                 self.assertEqual(hook.call_count, 1)
@@ -383,7 +383,7 @@ class HookTests(unittest.TestCase):
 
                     stack.enter_context(patch.object(loop.coordinator, "outcome", side_effect=read_outcome))
                     stack.enter_context(patch.object(self.github, "update_comment", side_effect=write))
-                    hook = stack.enter_context(patch("ub_agents.loop.run_hook", wraps=run_hook))
+                    hook = stack.enter_context(patch("ub_agents.assignment_run.run_hook", wraps=run_hook))
                     with self.assertRaises(GitHubError) as raised:
                         self.execute(loop, execution)
                     self.assertIs(raised.exception, failure)
@@ -424,7 +424,7 @@ class HookTests(unittest.TestCase):
         def execution(*args, **kwargs):
             loop.coordinator.report(loop.coordinator.history(1)[0], "success", "done", outcome="done")
             return 0
-        with patch("ub_agents.loop.supervise", side_effect=execution), patch("ub_agents.loop.run_hook") as hook:
+        with patch("ub_agents.assignment_run.supervise", side_effect=execution), patch("ub_agents.assignment_run.run_hook") as hook:
             self.assertTrue(loop.tick())
             hook.assert_not_called()
 

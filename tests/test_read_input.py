@@ -454,7 +454,7 @@ class ReadInputTests(unittest.TestCase):
             self.assertEqual(context["withheld_counts"], read["withheld_counts"])
             loop.coordinator.report(loop.coordinator.history(2)[-1], "blocked", "Verified")
             return 0
-        with patch("ub_agents.loop.supervise", side_effect=execute) as executed:
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute) as executed:
             self.assertTrue(loop.tick_item(2))
         executed.assert_called_once()
 

@@ -50,8 +50,9 @@ class SettlementTests(unittest.TestCase):
                     loop.coordinator.report(lease, "success", "Finished", outcome="done")
                     return 0
 
-                with patch("ub_agents.loop.Settlement", side_effect=create), \
-                        patch("ub_agents.loop.supervise", side_effect=execute):
+                with patch("ub_agents.assignment_run.Settlement" if mode == "execution" else "ub_agents.loop.Settlement",
+                           side_effect=create), \
+                        patch("ub_agents.assignment_run.supervise", side_effect=execute):
                     self.assertTrue(loop.tick())
                 self.assertEqual(len(instances), 1)
                 history = loop.coordinator.history(candidate.number)

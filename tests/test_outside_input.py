@@ -39,7 +39,7 @@ class OutsideInputTests(unittest.TestCase):
             self.assertEqual('"outside-input"' in labels, self.loop.approvals == 'on')
             self.loop.coordinator.report(history[-1], 'success', 'Done', outcome='done')
             return 0
-        with patch('ub_agents.loop.supervise', side_effect=run) as process:
+        with patch('ub_agents.assignment_run.supervise', side_effect=run) as process:
             self.assertTrue(self.loop.tick())
         process.assert_called_once()
         self.assertEqual(self.loop.coordinator.history(number)[-2]['result'], 'success')
@@ -81,7 +81,7 @@ class OutsideInputTests(unittest.TestCase):
     def test_failed_write_spends_no_attempt_and_next_poll_retries(self):
         self.github.content_histories[1] = {'author': {'login': 'outsider'}}
         with patch.object(self.github, 'add_labels', side_effect=GitHubError('POST', 'labels', 'Unavailable')), \
-                patch('ub_agents.loop.supervise') as process:
+                patch('ub_agents.assignment_run.supervise') as process:
             self.assertTrue(self.loop.tick())
         process.assert_not_called()
         history = self.loop.coordinator.history(1)
@@ -98,7 +98,7 @@ class OutsideInputTests(unittest.TestCase):
             return update(lease, **changes)
         with patch.object(self.github, 'add_labels', side_effect=GitHubError('POST', 'labels', 'Unavailable')), \
                 patch.object(self.loop.coordinator, 'update', side_effect=fail_withdrawal), \
-                patch('ub_agents.loop.supervise') as process, self.assertRaises(GitHubError):
+                patch('ub_agents.assignment_run.supervise') as process, self.assertRaises(GitHubError):
             self.loop.tick()
         process.assert_not_called()
         history = self.loop.coordinator.history(1)
@@ -113,7 +113,7 @@ class OutsideInputTests(unittest.TestCase):
         self.github.store[1] = [feedback(100, second=10)]
         with patch.object(self.loop.coordinator, 'report',
                           side_effect=GitHubError('POST', 'outcome', 'Unavailable')), \
-                patch('ub_agents.loop.supervise') as process, self.assertRaises(GitHubError):
+                patch('ub_agents.assignment_run.supervise') as process, self.assertRaises(GitHubError):
             self.loop.tick()
         process.assert_not_called()
         self.assertIn('outside-input', self.github.item(1).labels)

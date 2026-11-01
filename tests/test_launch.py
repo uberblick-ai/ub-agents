@@ -609,7 +609,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 patch("ub_agents.launch_ui.open_view", side_effect=open_view), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.loop.refresh_checkout", side_effect=refresh), \
-                patch("ub_agents.loop.supervise", side_effect=execute or self.report_success) as run, \
+                patch("ub_agents.assignment_run.supervise", side_effect=execute or self.report_success) as run, \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             code = main(self.argv + list(args))
         self.loop.stop_event.wait.assert_not_called()

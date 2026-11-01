@@ -149,7 +149,7 @@ class RunUsageLoopTests(unittest.TestCase):
                 raise failure
             return 0
 
-        with patch("ub_agents.loop.supervise", side_effect=execute):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute):
             if isinstance(failure, (KeyboardInterrupt, LostOwnership)):
                 with self.assertRaises(type(failure)):
                     loop.tick()

@@ -45,7 +45,7 @@ class ConfigurationPauseTests(unittest.TestCase):
     def launch(self, wait, run=None, agent_name=None):
         with patch('ub_agents.coordination.shutil.which', return_value='installed'), \
                 patch.object(self.loop, 'wait', side_effect=wait) as waits, \
-                patch('ub_agents.loop.supervise', side_effect=run) as execution:
+                patch('ub_agents.assignment_run.supervise', side_effect=run) as execution:
             self.loop.launch(agent_name=agent_name)
         return waits, execution
 

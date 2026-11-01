@@ -133,7 +133,7 @@ def main():
                         patch.dict(os.environ, {"UB_AGENTS_REPORT": "/stale/ub-agents",
                                                 "UB_AGENTS_READ_CONFIG": "/stale/read.json",
                                                 "UB_AGENTS_RETROSPECTIVE_CONFIG": "/stale/retro.json"}), \
-                        patch("ub_agents.loop.supervise", side_effect=execute) as executed, \
+                        patch("ub_agents.assignment_run.supervise", side_effect=execute) as executed, \
                         startup_copy():
                     self.assertTrue(loop.tick())
                 executed.assert_called_once()

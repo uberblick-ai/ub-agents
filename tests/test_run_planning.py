@@ -521,7 +521,7 @@ class RunPlanningTests(unittest.TestCase):
                     self.loop.coordinator.report(self.loop.github.lease, 'success', 'Finished', outcome='done')
                     return 0
 
-                with patch('ub_agents.loop.supervise', side_effect=finish):
+                with patch('ub_agents.assignment_run.supervise', side_effect=finish):
                     self.loop.launch(**launch)
                 self.assertEqual(self.memory.snapshots[-1]['outcomes'][0]['result'], 'success')
                 self.assertEqual(self.loop._planning_workers, [])
@@ -747,7 +747,7 @@ class RunPlanningTests(unittest.TestCase):
             return 0
 
         with patch.object(self.github, 'observe', side_effect=read), \
-                patch('ub_agents.loop.supervise', side_effect=supervise), \
+                patch('ub_agents.assignment_run.supervise', side_effect=supervise), \
                 patch.object(self.loop, 'tick', side_effect=claiming_pass):
             self.loop.launch()
         leases = [r for comments in self.github.store.values() for r in records(comments)
@@ -786,7 +786,7 @@ class RunPlanningTests(unittest.TestCase):
                 unblock.set()
 
         with patch.object(self.github, 'observe', side_effect=read), \
-                patch('ub_agents.loop.supervise', side_effect=finish), \
+                patch('ub_agents.assignment_run.supervise', side_effect=finish), \
                 patch.object(self.loop.coordinator, 'release', side_effect=released):
             self.loop.launch()
         outcomes = self.memory.snapshots[-1]['outcomes']
@@ -801,7 +801,7 @@ class RunPlanningTests(unittest.TestCase):
             return 0
 
         with patch.object(RunPlanning, 'start', side_effect=RuntimeError('No worker available')), \
-                patch('ub_agents.loop.supervise', side_effect=finish):
+                patch('ub_agents.assignment_run.supervise', side_effect=finish):
             self.loop.launch()
         self.assertEqual(self.memory.snapshots[-1]['outcomes'][0]['result'], 'success')
         self.assertEqual(self.loop._planning_workers, [])
@@ -895,7 +895,7 @@ class RunPlanningTests(unittest.TestCase):
                     return 0
 
                 with patch('ub_agents.loop.monotonic', side_effect=lambda: self.now), \
-                        patch('ub_agents.loop.supervise', side_effect=supervise), \
+                        patch('ub_agents.assignment_run.supervise', side_effect=supervise), \
                         patch.object(self.loop.stop_event, 'wait') as wait:
                     self.loop.launch()
                 self.assertEqual(runs, [(1, 1000), (2, 1149)])
@@ -964,7 +964,7 @@ class RunPlanningTests(unittest.TestCase):
         with patch('ub_agents.loop.monotonic', side_effect=lambda: self.now), \
                 patch.object(self.loop, 'tick', side_effect=discover), \
                 patch.object(self.loop.stop_event, 'wait') as wait, \
-                patch('ub_agents.loop.supervise') as supervise:
+                patch('ub_agents.assignment_run.supervise') as supervise:
             self.loop.launch()
         self.assertEqual(ticks, [started, started + 5])
         self.assertTrue(any('recovered durable outcome' in line for line in self.lines))
