@@ -28,6 +28,12 @@ Outside issues, comments and pull requests reach agents only after a maintainer 
 
 A run that goes past its [timeout](/docs/configuration/limits.html#timeout) is stopped and retried. If a launcher dies, another launcher picks up its work once the claim expires. If the last run already opened a pull request, the next run continues it instead of starting over. After repeated failures the item stops and waits for you; see [Unstick an item](/docs/guides/stuck-items.html).
 
+## What if two launchers want the same issue?
+
+Each launcher posts a claim comment and reads the issue again. The first claim posted wins; the other launcher edits its comment to withdraw and tries its next item without starting an agent.
+
+By default, a claim lasts 30 minutes and the launcher renews it every 10 minutes while it works; see [claim timing](/docs/configuration/limits.html#claims). If a launcher dies, another can take the issue once its claim expires. This is a cooperative claim, not a lock or a guarantee of exactly-once execution, and launchers need reasonably synchronized clocks. See the [coordination contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#claim-election) for details.
+
 ## How do I stop or step in?
 
 Add `needs-human` to an issue or pull request and the loop leaves it alone until you remove it. Agents add the same label when they need a decision, with a comment that says what to decide. See [Stop labels](/docs/configuration/stop-labels.html).
