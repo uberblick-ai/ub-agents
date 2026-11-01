@@ -51,10 +51,8 @@ class SignalTests(unittest.TestCase):
 
     def run_signals(self, signals, *, signal_sent=None):
         marker = self.root / ".ub-agents" / "finished"
-        phases = {"launch": time.monotonic()}
 
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
-            phases["child_start"] = time.monotonic()
             script = "import os,signal,time; "
             if signal_sent is not None:
                 # The same monotonic clock is shared by parent and child. Send
@@ -64,20 +62,14 @@ class SignalTests(unittest.TestCase):
             script += "; ".join(
                 f"os.kill(os.getppid(), {int(sig)}); time.sleep(0.3)" for sig in signals)
             script += f"; open({str(marker)!r}, 'w').write('finished')"
-            try:
-                code = supervise([sys.executable, "-c", script], cwd, env, run_dir, 5, stop,
-                                 prompt, **kwargs)
-            finally:
-                phases["supervised"] = time.monotonic()
+            code = supervise([sys.executable, "-c", script], cwd, env, run_dir, 5, stop,
+                             prompt, **kwargs)
             with patch.dict(os.environ, env), redirect_stdout(io.StringIO()):
                 self.assertEqual(main(["report", "--outcome", "done", "--summary", "Finished"]), 0)
-            phases["reported"] = time.monotonic()
             return code
 
         with patch("ub_agents.loop.supervise", side_effect=run):
             result = self.launch()
-        phases["exited"] = time.monotonic()
-        self.signal_phases = phases
         return result, marker
 
     def test_sigterm_finishes_active_process_report_transition_and_cleanup(self):
@@ -136,6 +128,8 @@ class SignalTests(unittest.TestCase):
             while not (self.root / "writer-entered").exists():
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(0.01)
+            # Exclude launcher setup and child startup; keep all signal handling,
+            # active-run draining, reporting and launcher shutdown in the bound.
             reader, writer = os.pipe()
             with os.fdopen(reader, "rb") as received, os.fdopen(writer, "wb") as sent:
                 with patch("ub_agents.observations.Publisher", return_value=publisher):
@@ -143,15 +137,6 @@ class SignalTests(unittest.TestCase):
                 exited = time.monotonic()
                 sent.close()
                 started = float(received.read())
-            phases = self.signal_phases
-            print(f"Stalled publisher {sig.name}: "
-                  f"setup={phases['child_start'] - phases['launch']:.6f}s "
-                  f"child_startup={started - phases['child_start']:.6f}s "
-                  f"signal_to_supervised={phases['supervised'] - started:.6f}s "
-                  f"report={phases.get('reported', phases['supervised']) - phases['supervised']:.6f}s "
-                  f"shutdown={exited - phases.get('reported', phases['supervised']):.6f}s "
-                  f"signal_to_exit={exited - started:.6f}s "
-                  f"old_interval={exited - phases['launch']:.6f}s", file=sys.__stderr__)
             self.assertLess(exited - started, 1)
             self.assertEqual(result, 0 if sig == signal.SIGTERM else 130)
             self.assertEqual(marker.exists(), sig == signal.SIGTERM)
