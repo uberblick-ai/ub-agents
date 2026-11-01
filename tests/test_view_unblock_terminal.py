@@ -55,7 +55,7 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
     def proof_values(self):
         tree = self.query_one(WorkTree)
         tree.get_node_at_line(0)
-        node = self.nodes.get('plan:178:attention')
+        node = tree.nodes.get('plan:178:attention')
         first = tree.render_line(node._line - tree.scroll_offset.y) if node else None
         second = tree.render_line(node._line + 1 - tree.scroll_offset.y) if node and tree.row_height == 2 else None
         value = {'tab': self.query_one(ItemTabs).active, 'attention': self.unblock_visible,
