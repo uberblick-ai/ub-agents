@@ -8,7 +8,7 @@ from collections import deque
 import codecs
 import json
 
-from .log_format import MAX_RECORD, MAX_TEXT, SHORTENED
+from .log_limits import MAX_RECORD, MAX_TEXT, SHORTENED
 
 
 class ShortenedText(str):

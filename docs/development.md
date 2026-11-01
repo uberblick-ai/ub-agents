@@ -23,6 +23,11 @@ grep -rn 'noqa: C901\|noqa: PLR09' src
 not check unannotated function bodies (`check_untyped_defs` is off). Neither
 check covers `tests/`.
 
+`tests/test_import_boundaries.py` reads source imports, including function-local
+imports, to keep core modules independent of `view.py` and `view_*.py` and prevent
+a cycle between `log_format` and `log_json`. Shared snapshot grouping and history
+paths live in `observation_data`; shared log bounds live in `log_limits`.
+
 GitHub Actions runs both commands in the `static` job of the `Test` workflow.
 The required `Test result` check succeeds only when that job and the test matrix
 succeed. `mise run ci [commit]` installs the same pins and runs both commands in

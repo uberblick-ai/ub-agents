@@ -16,7 +16,7 @@ from .github import closing_issues
 from .eligibility import AgentMatches
 from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from .run_config import run_directory
-from .view_data import ELIGIBLE_LIMIT, Session, work_rows
+from .observation_data import ELIGIBLE_LIMIT, work_rows
 from . import __version__
 from .launcher_code import descriptors, helper_command
 
@@ -299,7 +299,7 @@ class Observations:
         # Use the view's grouping and order, including merged Eligible items and
         # ready/recovery plans before delayed plans. Pass order alone is not the
         # order of the rows a person sees.
-        work = work_rows(Session(self.root / ".ub-agents/sessions/observation.json", state), self.root)
+        work = work_rows(state, self.root)
         eligible = [row for row in work if row.group == "Eligible"]
         if state["latest_pass"]:
             state["latest_pass"]["eligible_count"] = len(eligible)
