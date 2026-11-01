@@ -29,7 +29,7 @@ ready-to-merge -.-> needs-changes tone=rework to=bottom.2 : on merge conflict
 integrator --> needs-changes tone=rework to=bottom.1 : changes-requested
 needs-changes --> implementer tone=rework from=top to=left label=end : revise the same PR
 
-implementer --> human tone=stop : blocked
+implementer --> human tone=stop : needs-human
 reviewer --> human tone=stop : blocked
 integrator --> human tone=stop : maintainer-merge, blocked
 
