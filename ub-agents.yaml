@@ -5,6 +5,7 @@ shared-instructions: .agents/ub_agents.md
 runtime-updates:
   claude: auto
   codex: auto
+  ub-agents: auto
 queue:
   milestones: order
   priority:
