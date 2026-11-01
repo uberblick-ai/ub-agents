@@ -3671,7 +3671,6 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             while not app.worker.results.empty():
                 app.worker.results.get_nowait()
             now = datetime(2026, 10, 5, 20, 0, tzinfo=timezone.utc)
-            status_text = None
             for tick, glyph in enumerate('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋'):
                 with self.subTest(tick=tick):
                     later = now + timedelta(milliseconds=100 * tick)
@@ -3681,6 +3680,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     table = list(app.query_one('#runs_text', Static).content.renderables)[1]
                     results = table.columns[1]._cells
                     self.assertEqual([cell.plain for cell in results], ['✓', '✓', glyph])
+            # The hidden Agent tab has zero width; lay it out before reading its status.
+            await pilot.press('1')
+            status_text = None
+            for tick, glyph in enumerate('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋'):
+                with self.subTest(tick=tick):
+                    later = now + timedelta(milliseconds=100 * tick)
                     # Patch only this synchronous render, keeping Textual's timers live.
                     with patch('ub_agents.view_ui.time.monotonic', return_value=later.timestamp()):
                         app.update_status()
