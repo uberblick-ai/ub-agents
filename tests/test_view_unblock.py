@@ -553,7 +553,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = self.app
         async with app.run_test(size=(160, 45)) as pilot:
-            await self.ready(pilot, lambda: 'plan:178:attention' in app.nodes)
+            await self.ready(pilot, lambda: 'plan:178:attention' in app.query_one(WorkTree).nodes)
             app.select('plan:178:attention')
             await pilot.press('2')
             await self.ready(pilot, lambda: 'ub-agents retry 178 --agent implementer' in
@@ -577,7 +577,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.selected, 'plan:178:attention')
             self.assertEqual(app.query_one(ItemTabs).active, 'unblock')
             self.assertTrue(app.unblock_visible)
-            self.assertIn('plan:178', app.nodes)
+            self.assertIn('plan:178', app.query_one(WorkTree).nodes)
             body = app.query_one('#unblock_body', Markdown).source
             self.assertIn('New implementation blocker', body)
             self.assertIn('New conflict', body)
@@ -604,7 +604,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(80, 40)) as pilot:
             await self.ready(pilot, lambda: app.local_description is not None)
             tree = app.query_one(WorkTree)
-            tree.move_cursor(app.nodes['plan:178:attention'])
+            tree.move_cursor(app.query_one(WorkTree).nodes['plan:178:attention'])
             await pilot.press('enter', '2')
             for pane in ('issue_body', 'unblock_body', 'unblock_details_body'):
                 with self.subTest(pane=pane):

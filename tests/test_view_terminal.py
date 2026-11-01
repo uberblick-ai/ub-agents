@@ -376,7 +376,7 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
         return {'narrow': self.narrow, 'selected': self.selected,
                 'cursor': tree.cursor_node.data if tree.cursor_node else None,
                 'focus': self.focused.id if self.focused else None,
-                'groups': {name: node._line for name, node in self.groups.items()},
+                'groups': {name: node._line for name, node in self.query_one(Tree).groups.items()},
                 'rows': tree.virtual_size.height, 'spacers': sorted(tree._spacer_lines),
                 'scroll': tree.scroll_offset.y, 'upper_bottom': tree.region.bottom,
                 'recent_y': recent.region.y, 'recent_scroll': recent.scroll_y,
@@ -1154,9 +1154,9 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
         recent.focus()
         recent.refresh()
     def action_plan_cursor(self):
-        self.cursor(self.nodes['plan:21'])
+        self.cursor(self.query_one(Tree).nodes['plan:21'])
     def action_assignment_cursor(self):
-        self.cursor(self.nodes['assignment:owned-run'])
+        self.cursor(self.query_one(Tree).nodes['assignment:owned-run'])
     def proof_values(self):
         pane = self.query_one(LogPane)
         r = self.reading
@@ -1189,15 +1189,15 @@ class ProofView(checkpoint_view(View, sys.argv[3])):
                  'focus': self.focused.id if self.focused else None,
                  'title': self.query_one('#work_pane').border_title,
                  'sections': [node.label.plain for node in tree.root.children],
-                 'nodes': list(self.nodes),
+                 'nodes': list(self.query_one(Tree).nodes),
                  'work_lines': {key: tree.render_line(node._line - tree.scroll_offset.y).text
-                                for key, node in self.nodes.items()},
+                                for key, node in self.query_one(Tree).nodes.items()},
                  'work_details': {key: tree.render_line(node._line + 1 - tree.scroll_offset.y).text
-                                  for key, node in self.nodes.items()},
+                                  for key, node in self.query_one(Tree).nodes.items()},
                  'work_width': tree.scrollable_content_region.width,
-                 'idle': self.idle_node.label.plain if self.idle_node else None,
-                 'idle_dim': self.idle_node.label.style == 'dim' if self.idle_node else False,
-                 'eligible': [node.data for node in self.groups.get('Eligible', tree.root).children],
+                 'idle': self.query_one(Tree).idle_node.label.plain if self.query_one(Tree).idle_node else None,
+                 'idle_dim': self.query_one(Tree).idle_node.label.style == 'dim' if self.query_one(Tree).idle_node else False,
+                 'eligible': [node.data for node in self.query_one(Tree).groups.get('Eligible', tree.root).children],
                  'recent': recent.render().plain,
                  'recent_rows': [row.key for row in recent.visible_rows],
                  'recent_bounds': [recent.region.y, recent.size.height],
