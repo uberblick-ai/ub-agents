@@ -23,6 +23,7 @@ GitHub Actions runs the `Test` workflow (`.github/workflows/test.yml`) on every 
 after each merge to main. It covers Linux and macOS with Python 3.11 and 3.14. Its
 `Test result` check gates merges through the main ruleset, and the release check
 requires a green run on the release commit.
+The coverage jobs report coverage and do not gate merges or releases.
 
 To run these checks locally before pushing, optionally:
 
