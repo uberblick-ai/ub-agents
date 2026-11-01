@@ -67,6 +67,12 @@ ub-agents report --outcome approved --summary "Checks pass"
 ub-agents report --outcome handed-off --summary "Ready for review" --handoff 219
 ```
 
+After a Claude or Codex run ends, the launcher can record its main-session context
+window, first, tenth (or last) and peak prompt token counts, and compaction count
+on the outcome and its handoff copies. Missing or invalid context is omitted.
+These display-only values do not change results, labels or usage-limit decisions;
+see the [coordination record reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md).
+
 ## Stop reports
 
 A report that parks the item needs at least one ask: `--action` for each thing a person must do, or `--option` per alternative for a choice, recommendation first. Each ask is one sentence that names who acts. A `max-rounds` stop gets a review request from the launcher if no ask is given.
