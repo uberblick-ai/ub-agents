@@ -30,6 +30,7 @@ buildSync({
   bundle: true,
   format: 'esm',
   target: 'es2020',
-  banner: { js: '// Generated from @uberblick/ablauf@0.3.0 (MIT) by site/diagrams/render.mjs.' },
+  banner: { js: '// Generated from @uberblick/ablauf@0.3.0 by site/diagrams/render.mjs.\n/*\n'
+    + readFileSync(new URL('node_modules/@uberblick/ablauf/LICENSE', import.meta.url), 'utf8') + '*/' },
   outfile: fileURLToPath(new URL('ablauf-playback.js', assets)),
 });

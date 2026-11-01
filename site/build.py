@@ -348,7 +348,7 @@ def workflow_player(workflow, here, scenario='', preview=False):
     timelines = workflow_timelines(name)
     # Escape '<' so a caption can never terminate this inline data block.
     data = json.dumps({'timelines': timelines, 'urls': [
-        rel(f'workflows/{name}/{slug(t["name"])}/', here) for t in timelines
+        rel(f'workflows/{name}/{t["slug"]}/', here) for t in timelines
     ]}).replace('<', '\\u003c')
     svg = (ROOT / 'diagrams' / f'workflow-{name}.svg').read_text()
     mode = 'preview' if preview else 'entry'
@@ -404,7 +404,7 @@ def workflow_pages():
     for workflow in WORKFLOWS:
         pages.append(workflow_entry(workflow))
         for timeline in workflow_timelines(workflow['name']):
-            pages.append(workflow_entry(workflow, slug(timeline['name'])))
+            pages.append(workflow_entry(workflow, timeline['slug']))
     return pages
 
 def main():

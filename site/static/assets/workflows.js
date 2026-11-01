@@ -1,7 +1,6 @@
 import { createPlayer, mountPlayback } from './ablauf-playback.js';
 
 const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-const slug = name => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 function mountPreview(container, svg, timelines) {
   let visible = false;
@@ -58,7 +57,9 @@ function mountPreview(container, svg, timelines) {
 function mountEntry(container, svg, timelines, urls) {
   const { player, destroy } = mountPlayback(container, svg, timelines);
   const select = player.select.bind(player);
-  const scenarioIndex = name => Math.max(0, timelines.findIndex(t => slug(t.name) === name));
+  const scenarioIndex = name => Math.max(0, timelines.findIndex(t => t.slug === name));
+  // Resolve once: pushState changes document.baseURI after the first tab switch.
+  const scenarioUrls = urls.map(url => new URL(url, document.baseURI));
   select(scenarioIndex(container.dataset.scenario));
   if (!motion.matches) player.play();
 
@@ -66,7 +67,7 @@ function mountEntry(container, svg, timelines, urls) {
   // Keep those native controls and give each selected scenario its own URL.
   player.select = index => {
     select(index);
-    const url = new URL(urls[player.state.scenario], document.baseURI);
+    const url = scenarioUrls[player.state.scenario];
     if (url.pathname !== location.pathname) history.pushState(null, '', url);
   };
   function navigate() {
