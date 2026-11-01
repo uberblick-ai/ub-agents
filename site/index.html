@@ -25,6 +25,8 @@
 <span class="k">ready</span>              implementer     <span class="c">→</span> a pull request with needs-review
 <span class="k">needs-review</span>       reviewer        <span class="c">→</span> ready-to-merge, or needs-changes <span class="c">→</span> implementer
 <span class="k">ready-to-merge</span>     integrator      <span class="c">→</span> merged, or needs-human for a maintainer</code></pre>
+    <h3>A fresh agent session for every step</h3>
+    <p>Each step starts a one-shot agent session, including reviews and revisions. The agent reads the GitHub issue or pull request, repository Markdown and, if configured, <a href="/docs/guides/with-uberblick.html">Uberblick</a>. It records its outcome and exits. The launcher keeps running; the next step starts with a fresh conversation.</p>
     <p>Each role is a few lines of YAML, with instructions that live in your repository:</p>
 <pre><code><span class="k">implementer</span>:
   <span class="k">runtime</span>: "codex:gpt-6.1-sol:high"

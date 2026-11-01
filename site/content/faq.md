@@ -8,6 +8,12 @@ The loop merges as quickly or as cautiously as you define. Your merge policy in 
 
 When an agent is unsure, it stops with `needs-human` and asks, instead of guessing. Its instructions live in your repository and change through pull requests, and its [retros](/docs/best-practices/retrospectives.html) show where they fall short. See [How the loop works](/docs/how-the-loop-works.html).
 
+## Are agents kept running between steps?
+
+No. The launcher stays running and starts a fresh, one-shot agent session for each step, including implementation, review and revision. Each session reads the GitHub issue or pull request, recorded outcomes and repository Markdown, plus [Uberblick](/docs/guides/with-uberblick.html) if configured, then records its own outcome before exiting.
+
+An individual job can take time. One-shot means its conversation ends with the job. The next step starts a new conversation and picks up from the recorded work. See [Runtimes](/docs/configuration/runtimes.html#what-runs).
+
 ## What does it cost?
 
 ub-agents is free and MIT licensed. Agents run with the logins your Claude Code or Codex CLI already has: a seat or an API key set in the launcher's environment. Check your provider's terms for unattended use. When a seat reaches its usage limit, only that CLI pauses until the limit resets.
