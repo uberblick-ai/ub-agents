@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" data-ab-play="workflow-dependabot" viewBox="0 0 900 427" width="900" height="427" role="img" aria-label="Flow: Dependabot, dependencies, integrator, human, needs-changes, implementer, Merged · minor or patch. Legend: dependencies: GitHub label, agent role, a person decides">
+<style>.ab.ab-auto{--bg:var(--ab-bg,#ffffff);--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--neutral:var(--ab-neutral,#59616c);--neutral-bg:var(--ab-neutral-bg,#e1e3e6);--agent:var(--ab-agent,#3e6563);--agent-bg:var(--ab-agent-bg,#e7eeed);--system:var(--ab-system,#4f5d76);--system-bg:var(--ab-system-bg,#ebedf3);--rework:var(--ab-rework,#806752);--rework-bg:var(--ab-rework-bg,#f3f0eb);--stop:var(--ab-stop,#815f5a);--stop-bg:var(--ab-stop-bg,#ede6e5);--done:var(--ab-done,#536e5a);--done-bg:var(--ab-done-bg,#e8ede9);}@media (prefers-color-scheme:dark){.ab.ab-auto{--bg:var(--ab-bg,#171c24);--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--neutral:var(--ab-neutral,#b6bbc3);--neutral-bg:var(--ab-neutral-bg,#303640);--agent:var(--ab-agent,#85aaa5);--agent-bg:var(--ab-agent-bg,#232d2b);--system:var(--ab-system,#98a5bf);--system-bg:var(--ab-system-bg,#262a31);--rework:var(--ab-rework,#b29d87);--rework-bg:var(--ab-rework-bg,#2c2720);--stop:var(--ab-stop,#ac8c88);--stop-bg:var(--ab-stop-bg,#2b2221);--done:var(--ab-done,#95b09c);--done-bg:var(--ab-done-bg,#222a24);}}
+.ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
+.ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
+.ab .muted{fill:var(--muted)}.ab .b{font-weight:600}
+.ab .cap{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.08em;fill:var(--muted)}
+.ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
+.ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
+.ab .knockout{fill:none;stroke:var(--bg);stroke-width:5.6}.ab .knockout-band{stroke:var(--band)}
+.ab .arrow{fill:none;stroke:none}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-neutral{fill:var(--neutral)}.ab .e-neutral{stroke:var(--neutral)}.ab .k-neutral{fill:var(--neutral-bg);stroke:var(--neutral);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-system{fill:var(--system)}.ab .e-system{stroke:var(--system)}.ab .k-system{fill:var(--system-bg);stroke:var(--system);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}
+.ab.ab-auto{--play:var(--ab-play,#0a7a60);--play-done:var(--ab-play-done,#596e81);}@media (prefers-color-scheme:dark){.ab.ab-auto{--play:var(--ab-play,#6ff0cf);--play-done:var(--ab-play-done,#5f9e8a);}}.ab[data-ab-play="workflow-dependabot"] [data-ab-part].ab-played :is(rect:not(.gap),path:not(.arrow),line){stroke:var(--play-done)}.ab[data-ab-play="workflow-dependabot"] [data-ab-part].ab-played :is(text,circle){fill:var(--play-done)}.ab[data-ab-play="workflow-dependabot"] [data-ab-part].ab-played .arrow{marker-end:url(#workflow-dependabot-play-played)}.ab .play-head-played{fill:var(--play-done)}.ab[data-ab-play="workflow-dependabot"] [data-ab-part].ab-current :is(rect:not(.gap),path:not(.arrow),line){stroke:var(--play)}.ab[data-ab-play="workflow-dependabot"] [data-ab-part].ab-current :is(text,circle){fill:var(--play)}.ab[data-ab-play="workflow-dependabot"] [data-ab-part].ab-current .arrow{marker-end:url(#workflow-dependabot-play-current)}.ab .play-head-current{fill:var(--play)}.ab[data-ab-play="workflow-dependabot"].ab-in-progress [data-ab-part]:not(.ab-current):not(.ab-played):not(:has(.gap)){opacity:.3}.ab[data-ab-play="workflow-dependabot"].ab-in-progress [data-ab-part]:not(.ab-current):not(.ab-played):has(.gap) text{opacity:.3}
+.ab[data-ab-play="workflow-dependabot"] [data-ab-part].ab-current :is(rect:not(.gap),.decision,.e){filter:drop-shadow(0 0 var(--ab-play-glow,6px) color-mix(in srgb,var(--play) 55%,transparent));stroke-width:2.2}.ab[data-ab-play="workflow-dependabot"].ab-playing [data-ab-part].ab-current .e{stroke-dasharray:8 6;animation:ab-run-77-6f-72-6b-66-6c-6f-77-2d-64-65-70-65-6e-64-61-62-6f-74 .7s linear infinite}@keyframes ab-run-77-6f-72-6b-66-6c-6f-77-2d-64-65-70-65-6e-64-61-62-6f-74{from{stroke-dashoffset:0}to{stroke-dashoffset:-14}}.ab[data-ab-play="workflow-dependabot"].ab-playing [data-ab-part]:not(:has(.gap)),.ab[data-ab-play="workflow-dependabot"].ab-playing [data-ab-part] text{transition:opacity .35s ease}.ab[data-ab-play="workflow-dependabot"].ab-playing [data-ab-part] :is(rect:not(.gap),path:not(.arrow),line,text,circle){transition:opacity .35s ease,fill .35s ease,stroke .35s ease}@media (prefers-reduced-motion:reduce){.ab[data-ab-play="workflow-dependabot"].ab-playing [data-ab-part].ab-current .e{animation:none}.ab[data-ab-play="workflow-dependabot"].ab-playing [data-ab-part]:not(:has(.gap)),.ab[data-ab-play="workflow-dependabot"].ab-playing [data-ab-part] text,.ab[data-ab-play="workflow-dependabot"].ab-playing [data-ab-part] :is(rect:not(.gap),path:not(.arrow),line,text,circle){transition:none}}</style>
+<defs>
+<marker id="workflow-dependabot-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
+<marker id="workflow-dependabot-rework" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-rework"/></marker>
+<marker id="workflow-dependabot-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
+<marker id="workflow-dependabot-play-played" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="play-head-played"/></marker>
+<marker id="workflow-dependabot-play-current" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="play-head-current"/></marker>
+</defs>
+<g data-ab-part="edge-0"><path d="M405,62 L405,92" class="e e-ink"/></g>
+<g data-ab-part="edge-1"><path d="M405,126 L405,164" class="e e-ink"/></g>
+<g data-ab-part="edge-2"><path d="M405,225 L405,331" class="e e-ink"/></g>
+<g data-ab-part="edge-3"><path d="M287,195 L181,195" class="e e-rework"/></g>
+<g data-ab-part="edge-4"><path d="M116,212 L116,255" class="e e-rework"/></g>
+<g data-ab-part="edge-5"><path d="M215,278 L251,278 L251,205 L287,205" class="e e-rework"/></g>
+<g data-ab-part="edge-6"><path d="M522,195 L694,195" class="e e-stop"/></g>
+<g data-ab-part="edge-0"><path d="M405,62 L405,92" class="arrow" marker-end="url(#workflow-dependabot-ink)"/></g>
+<g data-ab-part="edge-1"><path d="M405,126 L405,164" class="arrow" marker-end="url(#workflow-dependabot-ink)"/></g>
+<g data-ab-part="edge-2"><path d="M405,225 L405,331" class="arrow" marker-end="url(#workflow-dependabot-ink)"/></g>
+<g data-ab-part="edge-3"><path d="M287,195 L181,195" class="arrow" marker-end="url(#workflow-dependabot-rework)"/></g>
+<g data-ab-part="edge-4"><path d="M116,212 L116,255" class="arrow" marker-end="url(#workflow-dependabot-rework)"/></g>
+<g data-ab-part="edge-5"><path d="M251,205 L287,205" class="arrow" marker-end="url(#workflow-dependabot-rework)"/></g>
+<g data-ab-part="edge-6"><path d="M522,195 L694,195" class="arrow" marker-end="url(#workflow-dependabot-stop)"/></g>
+<g data-ab-part="node-0"><g>
+<rect x="287" y="16" width="235" height="46" rx="8" class="k-agent"/>
+<text x="405" y="35" text-anchor="middle" class="m s13 b t-agent">Dependabot</text>
+<text x="405" y="52" text-anchor="middle" class="s11 muted">opens a pull request</text>
+</g></g>
+<g data-ab-part="node-1"><g><rect x="344" y="92" width="122" height="34" rx="17" class="pill"/>
+<circle cx="358" cy="109" r="5" class="t-agent"/>
+<text x="370" y="113" class="m s12">dependencies</text></g></g>
+<g data-ab-part="node-2"><g>
+<rect x="287" y="164" width="235" height="61" rx="8" class="k-agent"/>
+<text x="405" y="183" text-anchor="middle" class="m s13 b t-agent">integrator</text>
+<text x="405" y="200" text-anchor="middle" class="s11 muted">reads the title and the diff, runs</text>
+<text x="405" y="215" text-anchor="middle" class="s11 muted">the gates</text>
+</g></g>
+<g data-ab-part="node-3"><g><rect x="51" y="178" width="130" height="34" rx="17" class="pill"/>
+<circle cx="65" cy="195" r="5" class="t-rework"/>
+<text x="77" y="199" class="m s12">needs-changes</text></g></g>
+<g data-ab-part="node-4"><g>
+<rect x="16" y="255" width="199" height="46" rx="8" class="k-agent"/>
+<text x="116" y="274" text-anchor="middle" class="m s13 b t-agent">implementer</text>
+<text x="116" y="291" text-anchor="middle" class="s11 muted">one fix round, then a review</text>
+</g></g>
+<g data-ab-part="node-5"><rect x="308" y="331" width="194" height="34" rx="17" class="k-done"/>
+<text x="405" y="352" text-anchor="middle" class="s12 b t-done">Merged · minor or patch</text></g>
+<g data-ab-part="node-6"><g><rect x="694" y="164" width="190" height="137" rx="10" class="k-stop panel"/>
+<rect x="732" y="208" width="115" height="30" rx="15" class="pill"/>
+<circle cx="746" cy="223" r="5" class="t-stop"/>
+<text x="758" y="227" class="m s12">needs-human</text>
+<text x="789" y="257" text-anchor="middle" class="s12 b">A person decides</text></g></g>
+<g data-ab-part="edge-1"><text x="415" y="149" class="m s11">trigger</text></g>
+<g data-ab-part="edge-2"><text x="415" y="282" class="m s11">gates green</text></g>
+<g data-ab-part="edge-3"><text x="277" y="188" text-anchor="end" class="m s11 t-rework">a gate failed</text></g>
+<g data-ab-part="edge-6"><text x="532" y="188" class="m s11 t-stop">major, or still failing</text></g>
+<line x1="8" y1="381" x2="892" y2="381" class="rule"/>
+<g><rect x="16" y="395" width="104" height="20" rx="10" class="pill"/><circle cx="23" cy="405" r="3" class="t-done"/><text x="31" y="409" class="m s11">dependencies</text><text x="126" y="409" class="s11 muted">GitHub label</text></g>
+<g><rect x="219" y="399" width="24" height="12" rx="3" class="k-agent"/><text x="249" y="409" class="s11 muted">agent role</text></g>
+<g><rect x="330" y="399" width="24" height="12" rx="3" class="k-stop panel"/><text x="360" y="409" class="s11 muted">a person decides</text></g>
+</svg>

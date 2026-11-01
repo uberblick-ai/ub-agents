@@ -1,0 +1,86 @@
+flow v0
+# The default loop, with each scenario kept beside the diagram it plays.
+
+columns rework main stop
+
+section "Issue"
+text start col=main "A maintainer adds the first label"
+pill needs-preparation tone=muted
+box issue-preparer "writes scope and criteria"
+pill ready tone=done
+
+section "Pull request"
+box implementer "codes, checks, opens the PR"
+pill needs-review tone=agent
+box reviewer "reviews the exact head SHA"
+pill ready-to-merge tone=done
+box integrator "checks the candidate, merges"
+end merged "Merged · issue closed"
+
+pill needs-changes col=rework row=reviewer tone=rework
+
+panel human col=stop row=needs-review span=3 tone=stop
+  pill needs-human
+  muted "or an Action needed comment"
+  rule
+  strong "A person decides"
+  text "answers on GitHub"
+  muted "then restarts an eligible role"
+
+start --> needs-preparation
+needs-preparation --> issue-preparer : trigger
+issue-preparer --> ready : prepared
+ready --> implementer
+implementer --> needs-review : handed-off
+needs-review --> reviewer
+reviewer --> ready-to-merge : approved
+ready-to-merge --> integrator
+integrator --> merged : merged
+
+reviewer --> needs-changes tone=rework : changes-requested
+ready-to-merge -.-> needs-changes tone=rework to=bottom.2 : on-conflict · launcher
+integrator --> needs-changes tone=rework to=bottom.1 : changes-requested
+needs-changes --> implementer tone=rework from=top to=left label=end : revise the same PR
+
+issue-preparer --> human tone=stop to=top.2 : needs-human
+implementer --> human tone=stop to=top.1 : blocked
+reviewer --> human tone=stop : blocked
+integrator --> human tone=stop : maintainer-merge, blocked
+
+legend
+  pill tone=done "GitHub label" sample=ready
+  box "agent role"
+  panel tone=stop "a person decides"
+  dashed tone=rework "set by the launcher"
+
+play "Clean merge"
+  tempo 1.8s
+  step start actor="Maintainer" "Write an issue and label it needs-preparation"
+  step needs-preparation actor="Loop picks" "Claim the next eligible issue"
+  step issue-preparer 2.4s actor="Issue preparer" "Set the scope and give each acceptance criterion a check"
+  step ready actor="Loop hands off" "The issue is ready for implementation"
+  step implementer 2.6s actor="Implementer" "Implement, run the checks and open a pull request"
+  step needs-review actor="Loop hands off" "The pull request is ready for review"
+  step reviewer 2.4s actor="Reviewer" "Review the exact head commit against the acceptance criteria"
+  step ready-to-merge actor="Loop hands off" "The reviewed pull request is ready for merge checks"
+  step integrator 2.6s actor="Integrator" "No conflicts, checks pass on this head, and policy allows merging"
+  step merged 3s actor="Merged" "The pull request merges and its linked issue closes"
+
+play "One fix round"
+  tempo 1.8s
+  step implementer actor="Implementer" "Open a pull request with the first implementation"
+  step needs-review actor="Loop hands off" "Send the candidate for review"
+  step reviewer 2.4s actor="Reviewer" "Find a change that needs another pass"
+  step needs-changes actor="Loop hands back" "Label the same pull request needs-changes"
+  step implementer 2.4s actor="Implementer" "Apply the findings and check the revision"
+  step needs-review actor="Loop hands off" "Send the new head for another review"
+  step reviewer 2.4s actor="Reviewer" "The revision meets the acceptance criteria"
+  step ready-to-merge actor="Loop hands off" "Approve the revised candidate"
+  step integrator 2.6s actor="Integrator" "Checks pass on the head that will merge; policy allows it"
+  step merged 3s actor="Merged" "The pull request merges after one fix round"
+
+play "A person decides"
+  tempo 1.8s
+  step ready actor="Loop picks" "Start the next eligible issue"
+  step implementer 2.6s actor="Implementer" "A scope decision needs a person; report the question and stop"
+  step human 3s actor="Maintainer" "Answer on GitHub and restart an eligible role once the decision is clear"

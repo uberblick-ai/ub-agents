@@ -1,0 +1,270 @@
+[
+  {
+    "name": "Clean merge",
+    "slug": "clean-merge",
+    "steps": [
+      {
+        "target": "start",
+        "kind": "text",
+        "actor": "Maintainer",
+        "caption": "Write an issue and label it needs-preparation",
+        "ms": 1800,
+        "parts": [
+          "node-0"
+        ]
+      },
+      {
+        "target": "needs-preparation",
+        "kind": "pill",
+        "actor": "Loop picks",
+        "caption": "Claim the next eligible issue",
+        "ms": 1800,
+        "parts": [
+          "node-1",
+          "edge-0"
+        ]
+      },
+      {
+        "target": "issue-preparer",
+        "kind": "box",
+        "actor": "Issue preparer",
+        "caption": "Set the scope and give each acceptance criterion a check",
+        "ms": 2400,
+        "parts": [
+          "node-2",
+          "edge-1"
+        ]
+      },
+      {
+        "target": "ready",
+        "kind": "pill",
+        "actor": "Loop hands off",
+        "caption": "The issue is ready for implementation",
+        "ms": 1800,
+        "parts": [
+          "node-3",
+          "edge-2"
+        ]
+      },
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Implement, run the checks and open a pull request",
+        "ms": 2600,
+        "parts": [
+          "node-4",
+          "edge-3"
+        ]
+      },
+      {
+        "target": "needs-review",
+        "kind": "pill",
+        "actor": "Loop hands off",
+        "caption": "The pull request is ready for review",
+        "ms": 1800,
+        "parts": [
+          "node-5",
+          "edge-4"
+        ]
+      },
+      {
+        "target": "reviewer",
+        "kind": "box",
+        "actor": "Reviewer",
+        "caption": "Review the exact head commit against the acceptance criteria",
+        "ms": 2400,
+        "parts": [
+          "node-6",
+          "edge-5"
+        ]
+      },
+      {
+        "target": "ready-to-merge",
+        "kind": "pill",
+        "actor": "Loop hands off",
+        "caption": "The reviewed pull request is ready for merge checks",
+        "ms": 1800,
+        "parts": [
+          "node-7",
+          "edge-6"
+        ]
+      },
+      {
+        "target": "integrator",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "No conflicts, checks pass on this head, and policy allows merging",
+        "ms": 2600,
+        "parts": [
+          "node-8",
+          "edge-7"
+        ]
+      },
+      {
+        "target": "merged",
+        "kind": "end",
+        "actor": "Merged",
+        "caption": "The pull request merges and its linked issue closes",
+        "ms": 3000,
+        "parts": [
+          "node-9",
+          "edge-8"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "One fix round",
+    "slug": "one-fix-round",
+    "steps": [
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Open a pull request with the first implementation",
+        "ms": 1800,
+        "parts": [
+          "node-4"
+        ]
+      },
+      {
+        "target": "needs-review",
+        "kind": "pill",
+        "actor": "Loop hands off",
+        "caption": "Send the candidate for review",
+        "ms": 1800,
+        "parts": [
+          "node-5",
+          "edge-4"
+        ]
+      },
+      {
+        "target": "reviewer",
+        "kind": "box",
+        "actor": "Reviewer",
+        "caption": "Find a change that needs another pass",
+        "ms": 2400,
+        "parts": [
+          "node-6",
+          "edge-5"
+        ]
+      },
+      {
+        "target": "needs-changes",
+        "kind": "pill",
+        "actor": "Loop hands back",
+        "caption": "Label the same pull request needs-changes",
+        "ms": 1800,
+        "parts": [
+          "node-10",
+          "edge-9"
+        ]
+      },
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Apply the findings and check the revision",
+        "ms": 2400,
+        "parts": [
+          "node-4",
+          "edge-12"
+        ]
+      },
+      {
+        "target": "needs-review",
+        "kind": "pill",
+        "actor": "Loop hands off",
+        "caption": "Send the new head for another review",
+        "ms": 1800,
+        "parts": [
+          "node-5",
+          "edge-4"
+        ]
+      },
+      {
+        "target": "reviewer",
+        "kind": "box",
+        "actor": "Reviewer",
+        "caption": "The revision meets the acceptance criteria",
+        "ms": 2400,
+        "parts": [
+          "node-6",
+          "edge-5"
+        ]
+      },
+      {
+        "target": "ready-to-merge",
+        "kind": "pill",
+        "actor": "Loop hands off",
+        "caption": "Approve the revised candidate",
+        "ms": 1800,
+        "parts": [
+          "node-7",
+          "edge-6"
+        ]
+      },
+      {
+        "target": "integrator",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Checks pass on the head that will merge; policy allows it",
+        "ms": 2600,
+        "parts": [
+          "node-8",
+          "edge-7"
+        ]
+      },
+      {
+        "target": "merged",
+        "kind": "end",
+        "actor": "Merged",
+        "caption": "The pull request merges after one fix round",
+        "ms": 3000,
+        "parts": [
+          "node-9",
+          "edge-8"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "A person decides",
+    "slug": "a-person-decides",
+    "steps": [
+      {
+        "target": "ready",
+        "kind": "pill",
+        "actor": "Loop picks",
+        "caption": "Start the next eligible issue",
+        "ms": 1800,
+        "parts": [
+          "node-3"
+        ]
+      },
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "A scope decision needs a person; report the question and stop",
+        "ms": 2600,
+        "parts": [
+          "node-4",
+          "edge-3"
+        ]
+      },
+      {
+        "target": "human",
+        "kind": "panel",
+        "actor": "Maintainer",
+        "caption": "Answer on GitHub and restart an eligible role once the decision is clear",
+        "ms": 3000,
+        "parts": [
+          "node-11",
+          "edge-14"
+        ]
+      }
+    ]
+  }
+]

@@ -1,14 +1,16 @@
 """The docs build inlines committed diagrams without a Node runtime."""
 
+import html
 from html.parser import HTMLParser
 import importlib.util
+import json
 from pathlib import Path
 import re
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 import xml.etree.ElementTree as ET
 
 
@@ -34,6 +36,92 @@ class Links(HTMLParser):
 
 
 class SiteTests(unittest.TestCase):
+    def test_workflow_gallery_has_two_cards_and_no_docs_sidebar(self):
+        page = build.workflow_gallery()
+        self.assertIn('<h1>Workflows</h1>', page)
+        self.assertEqual(page.count('class="workflow-card"'), 2)
+        self.assertEqual(page.count('data-mode="preview"'), 2)
+        self.assertNotIn('<details class="side"', page)
+        self.assertIn('href="default/"', page)
+        self.assertIn('href="dependabot/"', page)
+        for workflow in build.WORKFLOWS:
+            self.assertIn(workflow['title'], page)
+            self.assertIn(workflow['intent'], html.unescape(page))
+        self.assertIn(build.WORKFLOWS[0]['about'], page)
+        ids = Links(page).ids
+        self.assertEqual(len(ids), len(set(ids)), 'gallery SVG ids must be unique')
+
+    def test_workflow_scenarios_have_urls_and_native_playback_data(self):
+        expected = {'default': ['clean-merge', 'one-fix-round', 'a-person-decides'],
+                    'dependabot': ['clean-merge', 'tests-failing', 'fix-fails', 'major-release']}
+        pages = dict(build.workflow_pages())
+        self.assertEqual(len(pages), 10)
+        for workflow in build.WORKFLOWS:
+            name = workflow['name']
+            timelines = build.workflow_timelines(name)
+            self.assertEqual([build.slug(t['name']) for t in timelines], expected[name])
+            svg = ET.fromstring((build.ROOT / f'diagrams/workflow-{name}.svg').read_text())
+            parts = {el.attrib['data-ab-part'] for el in svg.iter() if 'data-ab-part' in el.attrib}
+            for timeline in timelines:
+                for step in timeline['steps']:
+                    self.assertTrue(step['caption'])
+                    self.assertTrue(step['actor'])
+                    self.assertGreater(step['ms'], 0)
+                    self.assertTrue(set(step['parts']) <= parts)
+            for scenario in ['', *expected[name]]:
+                path = f'workflows/{name}/' + (f'{scenario}/' if scenario else '') + 'index.html'
+                page = pages[path]
+                self.assertIn(f'data-scenario="{scenario}"', page)
+                self.assertIn(f'href="{build.SITE}/{path.removesuffix("index.html")}"', page)
+                data = json.loads(re.search(r'class="workflow-data">(.*?)</script>', page).group(1))
+                self.assertEqual(data['timelines'], timelines)
+                for url, target in zip(data['urls'], expected[name]):
+                    self.assertEqual(urljoin(path, url), f'workflows/{name}/{target}/')
+                self.assertIn('type="module" src="', page)
+                self.assertNotIn('<details class="side"', page)
+
+    def test_workflow_stories_and_adopt_prompts(self):
+        for workflow in build.WORKFLOWS:
+            name = workflow['name']
+            _, page = build.workflow_entry(workflow)
+            prompt = ' '.join((build.ROOT / f'prompts/workflow-{name}.md').read_text().split())
+            self.assertIn(workflow['title'], prompt)
+            self.assertIn(f'{build.SITE}/workflows/{name}/', prompt)
+            self.assertIn('ub-agents.yaml', prompt)
+            self.assertIn('loop policy', prompt)
+            self.assertIn('smallest', prompt)
+            self.assertIn('diff before writing anything', prompt)
+            self.assertIn('Where you step in', page)
+            for link in Links(page).hrefs:
+                if link.startswith(('claude://', 'codex://')):
+                    self.assertEqual(unquote(link.split('=', 1)[1]), prompt)
+            self.assertEqual(page.count('class="discuss"'), 1)
+            self.assertIn('claude://code/new?q=', page)
+            self.assertIn('codex://new?prompt=', page)
+            if name == 'dependabot':
+                self.assertIn('https://uberblick.ai/blog/2026/agents-auto-merge-dependabot', Links(page).hrefs)
+                for requirement in ('0.3.5', 'trusted-pr-authors: [dependabot]', 'dependencies',
+                                    'one fix round', 'max-rounds: 1', 'changes-requested'):
+                    self.assertIn(requirement, prompt)
+
+    def test_build_writes_workflow_routes_sitemap_and_assets_without_node(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / 'out'
+            with (patch.object(build, 'OUT', out),
+                  patch.object(build, 'command_help', return_value='Command help'),
+                  patch.object(build.subprocess, 'run') as run):
+                build.main()
+            run.assert_not_called()
+            for path, _ in build.workflow_pages():
+                page = (out / path).read_text()
+                self.assertIn(build.public_url(path), (out / 'sitemap.xml').read_text())
+                self.assertIn(f'href="{build.rel("workflows/", path)}">Workflows</a>', page)
+            for path in ('index.html', 'docs/installation.html', '404.html'):
+                self.assertIn('>Workflows</a>', (out / path).read_text())
+            for asset in ('workflows.js', 'ablauf-playback.js'):
+                self.assertEqual((out / 'assets' / asset).read_bytes(),
+                                 (build.ROOT / 'static/assets' / asset).read_bytes())
+
     def test_flow_is_a_standalone_block_and_code_examples_stay_literal(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -103,11 +191,14 @@ class SiteTests(unittest.TestCase):
                 self.assertIn(target, ids)
 
         targets = {p['path']: Links(p['body']) for p in pages}
+        targets.update({path: Links(body) for path, body in build.workflow_pages()})
         for href in Links(page['body']).hrefs:
             with self.subTest(href=href):
                 link = urlsplit(href)
                 self.assertFalse(link.scheme)
                 path = link.path.lstrip('/') if link.path else page['path']
+                if path.endswith('/'):
+                    path += 'index.html'
                 self.assertIn(path, targets)
                 if link.fragment:
                     self.assertIn(unquote(link.fragment), targets[path].ids)

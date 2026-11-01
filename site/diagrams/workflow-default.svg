@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" data-ab-play="workflow-default" viewBox="0 0 793 780" width="793" height="780" role="img" aria-label="Flow: A maintainer adds the first label, needs-preparation, issue-preparer, ready, implementer, needs-review, human, reviewer, needs-changes, ready-to-merge, integrator, Merged · issue closed. Legend: ready: GitHub label, agent role, a person decides, set by the launcher">
+<style>.ab.ab-auto{--bg:var(--ab-bg,#ffffff);--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--neutral:var(--ab-neutral,#59616c);--neutral-bg:var(--ab-neutral-bg,#e1e3e6);--agent:var(--ab-agent,#3e6563);--agent-bg:var(--ab-agent-bg,#e7eeed);--system:var(--ab-system,#4f5d76);--system-bg:var(--ab-system-bg,#ebedf3);--rework:var(--ab-rework,#806752);--rework-bg:var(--ab-rework-bg,#f3f0eb);--stop:var(--ab-stop,#815f5a);--stop-bg:var(--ab-stop-bg,#ede6e5);--done:var(--ab-done,#536e5a);--done-bg:var(--ab-done-bg,#e8ede9);}@media (prefers-color-scheme:dark){.ab.ab-auto{--bg:var(--ab-bg,#171c24);--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--neutral:var(--ab-neutral,#b6bbc3);--neutral-bg:var(--ab-neutral-bg,#303640);--agent:var(--ab-agent,#85aaa5);--agent-bg:var(--ab-agent-bg,#232d2b);--system:var(--ab-system,#98a5bf);--system-bg:var(--ab-system-bg,#262a31);--rework:var(--ab-rework,#b29d87);--rework-bg:var(--ab-rework-bg,#2c2720);--stop:var(--ab-stop,#ac8c88);--stop-bg:var(--ab-stop-bg,#2b2221);--done:var(--ab-done,#95b09c);--done-bg:var(--ab-done-bg,#222a24);}}
+.ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
+.ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
+.ab .muted{fill:var(--muted)}.ab .b{font-weight:600}
+.ab .cap{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.08em;fill:var(--muted)}
+.ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
+.ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
+.ab .knockout{fill:none;stroke:var(--bg);stroke-width:5.6}.ab .knockout-band{stroke:var(--band)}
+.ab .arrow{fill:none;stroke:none}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-neutral{fill:var(--neutral)}.ab .e-neutral{stroke:var(--neutral)}.ab .k-neutral{fill:var(--neutral-bg);stroke:var(--neutral);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-system{fill:var(--system)}.ab .e-system{stroke:var(--system)}.ab .k-system{fill:var(--system-bg);stroke:var(--system);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}
+.ab.ab-auto{--play:var(--ab-play,#0a7a60);--play-done:var(--ab-play-done,#596e81);}@media (prefers-color-scheme:dark){.ab.ab-auto{--play:var(--ab-play,#6ff0cf);--play-done:var(--ab-play-done,#5f9e8a);}}.ab[data-ab-play="workflow-default"] [data-ab-part].ab-played :is(rect:not(.gap),path:not(.arrow),line){stroke:var(--play-done)}.ab[data-ab-play="workflow-default"] [data-ab-part].ab-played :is(text,circle){fill:var(--play-done)}.ab[data-ab-play="workflow-default"] [data-ab-part].ab-played .arrow{marker-end:url(#workflow-default-play-played)}.ab .play-head-played{fill:var(--play-done)}.ab[data-ab-play="workflow-default"] [data-ab-part].ab-current :is(rect:not(.gap),path:not(.arrow),line){stroke:var(--play)}.ab[data-ab-play="workflow-default"] [data-ab-part].ab-current :is(text,circle){fill:var(--play)}.ab[data-ab-play="workflow-default"] [data-ab-part].ab-current .arrow{marker-end:url(#workflow-default-play-current)}.ab .play-head-current{fill:var(--play)}.ab[data-ab-play="workflow-default"].ab-in-progress [data-ab-part]:not(.ab-current):not(.ab-played):not(:has(.gap)){opacity:.3}.ab[data-ab-play="workflow-default"].ab-in-progress [data-ab-part]:not(.ab-current):not(.ab-played):has(.gap) text{opacity:.3}
+.ab[data-ab-play="workflow-default"] [data-ab-part].ab-current :is(rect:not(.gap),.decision,.e){filter:drop-shadow(0 0 var(--ab-play-glow,6px) color-mix(in srgb,var(--play) 55%,transparent));stroke-width:2.2}.ab[data-ab-play="workflow-default"].ab-playing [data-ab-part].ab-current .e{stroke-dasharray:8 6;animation:ab-run-77-6f-72-6b-66-6c-6f-77-2d-64-65-66-61-75-6c-74 .7s linear infinite}@keyframes ab-run-77-6f-72-6b-66-6c-6f-77-2d-64-65-66-61-75-6c-74{from{stroke-dashoffset:0}to{stroke-dashoffset:-14}}.ab[data-ab-play="workflow-default"].ab-playing [data-ab-part]:not(:has(.gap)),.ab[data-ab-play="workflow-default"].ab-playing [data-ab-part] text{transition:opacity .35s ease}.ab[data-ab-play="workflow-default"].ab-playing [data-ab-part] :is(rect:not(.gap),path:not(.arrow),line,text,circle){transition:opacity .35s ease,fill .35s ease,stroke .35s ease}@media (prefers-reduced-motion:reduce){.ab[data-ab-play="workflow-default"].ab-playing [data-ab-part].ab-current .e{animation:none}.ab[data-ab-play="workflow-default"].ab-playing [data-ab-part]:not(:has(.gap)),.ab[data-ab-play="workflow-default"].ab-playing [data-ab-part] text,.ab[data-ab-play="workflow-default"].ab-playing [data-ab-part] :is(rect:not(.gap),path:not(.arrow),line,text,circle){transition:none}}</style>
+<defs>
+<marker id="workflow-default-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
+<marker id="workflow-default-rework" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-rework"/></marker>
+<marker id="workflow-default-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
+<marker id="workflow-default-play-played" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="play-head-played"/></marker>
+<marker id="workflow-default-play-current" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="play-head-current"/></marker>
+</defs>
+
+<rect x="8" y="278" width="777" height="448" class="band"/>
+<line x1="8" y1="278" x2="785" y2="278" class="rule"/>
+<g data-ab-part="edge-0"><path d="M378,32 L378,62" class="e e-ink"/></g>
+<g data-ab-part="edge-1"><path d="M378,96 L378,134" class="e e-ink"/></g>
+<g data-ab-part="edge-2"><path d="M378,180 L378,218" class="e e-ink"/></g>
+<g data-ab-part="edge-3"><path d="M378,252 L378,304" class="e e-ink"/></g>
+<g data-ab-part="edge-4"><path d="M378,350 L378,388" class="e e-ink"/></g>
+<g data-ab-part="edge-5"><path d="M378,422 L378,452" class="e e-ink"/></g>
+<g data-ab-part="edge-6"><path d="M378,498 L378,536" class="e e-ink"/></g>
+<g data-ab-part="edge-7"><path d="M378,570 L378,600" class="e e-ink"/></g>
+<g data-ab-part="edge-8"><path d="M378,646 L378,684" class="e e-ink"/></g>
+<g data-ab-part="edge-9"><path d="M278,475 L146,475" class="e e-rework"/></g>
+<g data-ab-part="edge-10"><path d="M309,553 L103,553 L103,492" class="e e-rework dash"/></g>
+<g data-ab-part="edge-11"><path d="M278,623 L59,623 L59,492" class="e e-rework"/></g>
+<g data-ab-part="edge-12"><path d="M81,458 L81,327 L278,327" class="e e-rework"/></g>
+<g data-ab-part="edge-13"><path d="M477,157 L701,157 L701,388" class="e e-stop"/></g>
+<g data-ab-part="edge-14"><path d="M477,327 L624,327 L624,388" class="e e-stop"/></g>
+<g data-ab-part="edge-15"><path d="M477,475 L548,475" class="e e-stop"/></g>
+<g data-ab-part="edge-16"><path d="M477,623 L663,623 L663,570" class="e e-stop"/></g>
+<g data-ab-part="edge-0"><path d="M378,32 L378,62" class="arrow" marker-end="url(#workflow-default-ink)"/></g>
+<g data-ab-part="edge-1"><path d="M378,96 L378,134" class="arrow" marker-end="url(#workflow-default-ink)"/></g>
+<g data-ab-part="edge-2"><path d="M378,180 L378,218" class="arrow" marker-end="url(#workflow-default-ink)"/></g>
+<g data-ab-part="edge-3"><path d="M378,252 L378,304" class="arrow" marker-end="url(#workflow-default-ink)"/></g>
+<g data-ab-part="edge-4"><path d="M378,350 L378,388" class="arrow" marker-end="url(#workflow-default-ink)"/></g>
+<g data-ab-part="edge-5"><path d="M378,422 L378,452" class="arrow" marker-end="url(#workflow-default-ink)"/></g>
+<g data-ab-part="edge-6"><path d="M378,498 L378,536" class="arrow" marker-end="url(#workflow-default-ink)"/></g>
+<g data-ab-part="edge-7"><path d="M378,570 L378,600" class="arrow" marker-end="url(#workflow-default-ink)"/></g>
+<g data-ab-part="edge-8"><path d="M378,646 L378,684" class="arrow" marker-end="url(#workflow-default-ink)"/></g>
+<g data-ab-part="edge-9"><path d="M278,475 L146,475" class="arrow" marker-end="url(#workflow-default-rework)"/></g>
+<g data-ab-part="edge-10"><path d="M103,553 L103,492" class="arrow" marker-end="url(#workflow-default-rework)"/></g>
+<g data-ab-part="edge-11"><path d="M59,623 L59,492" class="arrow" marker-end="url(#workflow-default-rework)"/></g>
+<g data-ab-part="edge-12"><path d="M81,327 L278,327" class="arrow" marker-end="url(#workflow-default-rework)"/></g>
+<g data-ab-part="edge-13"><path d="M701,157 L701,388" class="arrow" marker-end="url(#workflow-default-stop)"/></g>
+<g data-ab-part="edge-14"><path d="M624,327 L624,388" class="arrow" marker-end="url(#workflow-default-stop)"/></g>
+<g data-ab-part="edge-15"><path d="M477,475 L548,475" class="arrow" marker-end="url(#workflow-default-stop)"/></g>
+<g data-ab-part="edge-16"><path d="M663,623 L663,570" class="arrow" marker-end="url(#workflow-default-stop)"/></g>
+<text x="20" y="22" class="cap">ISSUE</text>
+<text x="20" y="300" class="cap">PULL REQUEST</text>
+<g data-ab-part="node-0"><text x="378" y="28" text-anchor="middle" class="s12 muted">A maintainer adds the first label</text></g>
+<g data-ab-part="node-1"><g><rect x="299" y="62" width="158" height="34" rx="17" class="pill"/>
+<circle cx="313" cy="79" r="5" class="t-muted"/>
+<text x="325" y="83" class="m s12">needs-preparation</text></g></g>
+<g data-ab-part="node-2"><g>
+<rect x="278" y="134" width="199" height="46" rx="8" class="k-agent"/>
+<text x="378" y="153" text-anchor="middle" class="m s13 b t-agent">issue-preparer</text>
+<text x="378" y="170" text-anchor="middle" class="s11 muted">writes scope and criteria</text>
+</g></g>
+<g data-ab-part="node-3"><g><rect x="342" y="218" width="72" height="34" rx="17" class="pill"/>
+<circle cx="356" cy="235" r="5" class="t-done"/>
+<text x="368" y="239" class="m s12">ready</text></g></g>
+<g data-ab-part="node-4"><g>
+<rect x="278" y="304" width="199" height="46" rx="8" class="k-agent"/>
+<text x="378" y="323" text-anchor="middle" class="m s13 b t-agent">implementer</text>
+<text x="378" y="340" text-anchor="middle" class="s11 muted">codes, checks, opens the PR</text>
+</g></g>
+<g data-ab-part="node-5"><g><rect x="317" y="388" width="122" height="34" rx="17" class="pill"/>
+<circle cx="331" cy="405" r="5" class="t-agent"/>
+<text x="343" y="409" class="m s12">needs-review</text></g></g>
+<g data-ab-part="node-6"><g>
+<rect x="278" y="452" width="199" height="46" rx="8" class="k-agent"/>
+<text x="378" y="471" text-anchor="middle" class="m s13 b t-agent">reviewer</text>
+<text x="378" y="488" text-anchor="middle" class="s11 muted">reviews the exact head SHA</text>
+</g></g>
+<g data-ab-part="node-7"><g><rect x="309" y="536" width="137" height="34" rx="17" class="pill"/>
+<circle cx="323" cy="553" r="5" class="t-done"/>
+<text x="335" y="557" class="m s12">ready-to-merge</text></g></g>
+<g data-ab-part="node-8"><g>
+<rect x="278" y="600" width="199" height="46" rx="8" class="k-agent"/>
+<text x="378" y="619" text-anchor="middle" class="m s13 b t-agent">integrator</text>
+<text x="378" y="636" text-anchor="middle" class="s11 muted">checks the candidate, merges</text>
+</g></g>
+<g data-ab-part="node-9"><rect x="287" y="684" width="181" height="34" rx="17" class="k-done"/>
+<text x="378" y="705" text-anchor="middle" class="s12 b t-done">Merged · issue closed</text></g>
+<g data-ab-part="node-10"><g><rect x="16" y="458" width="130" height="34" rx="17" class="pill"/>
+<circle cx="30" cy="475" r="5" class="t-rework"/>
+<text x="42" y="479" class="m s12">needs-changes</text></g></g>
+<g data-ab-part="node-11"><g><rect x="548" y="388" width="229" height="182" rx="10" class="k-stop panel"/>
+<rect x="606" y="420" width="115" height="30" rx="15" class="pill"/>
+<circle cx="620" cy="435" r="5" class="t-stop"/>
+<text x="632" y="439" class="m s12">needs-human</text>
+<text x="663" y="469" text-anchor="middle" class="s11 muted">or an Action needed comment</text>
+<line x1="564" y1="481" x2="761" y2="481" class="rule"/>
+<text x="663" y="501" text-anchor="middle" class="s12 b">A person decides</text>
+<text x="663" y="519" text-anchor="middle" class="s11">answers on GitHub</text>
+<text x="663" y="537" text-anchor="middle" class="s11 muted">then restarts an eligible role</text></g></g>
+<g data-ab-part="edge-1"><text x="388" y="119" class="m s11">trigger</text></g>
+<g data-ab-part="edge-2"><text x="388" y="203" class="m s11">prepared</text></g>
+<g data-ab-part="edge-4"><text x="388" y="373" class="m s11">handed-off</text></g>
+<g data-ab-part="edge-6"><text x="388" y="521" class="m s11">approved</text></g>
+<g data-ab-part="edge-8"><text x="388" y="669" class="m s11">merged</text></g>
+<g data-ab-part="edge-9"><text x="268" y="468" text-anchor="end" class="m s11 t-rework">changes-requested</text></g>
+<g data-ab-part="edge-10"><text x="299" y="546" text-anchor="end" class="m s11 t-rework">on-conflict · launcher</text></g>
+<g data-ab-part="edge-11"><text x="268" y="616" text-anchor="end" class="m s11 t-rework">changes-requested</text></g>
+<g data-ab-part="edge-12"><text x="268" y="320" text-anchor="end" class="m s11 t-rework">revise the same PR</text></g>
+<g data-ab-part="edge-13"><text x="487" y="150" class="m s11 t-stop">needs-human</text></g>
+<g data-ab-part="edge-14"><text x="487" y="320" class="m s11 t-stop">blocked</text></g>
+<g data-ab-part="edge-15"><text x="487" y="468" class="m s11 t-stop">blocked</text></g>
+<g data-ab-part="edge-16"><text x="487" y="616" class="m s11 t-stop">maintainer-merge, blocked</text></g>
+<line x1="8" y1="734" x2="785" y2="734" class="rule"/>
+<g><rect x="16" y="748" width="57" height="20" rx="10" class="pill"/><circle cx="23" cy="758" r="3" class="t-done"/><text x="31" y="762" class="m s11">ready</text><text x="79" y="762" class="s11 muted">GitHub label</text></g>
+<g><rect x="172" y="752" width="24" height="12" rx="3" class="k-agent"/><text x="202" y="762" class="s11 muted">agent role</text></g>
+<g><rect x="283" y="752" width="24" height="12" rx="3" class="k-stop panel"/><text x="313" y="762" class="s11 muted">a person decides</text></g>
+<g><path d="M431,758 L455,758" class="e e-rework dash" marker-end="url(#workflow-default-rework)"/><text x="461" y="762" class="s11 muted">set by the launcher</text></g>
+</svg>

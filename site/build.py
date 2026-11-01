@@ -4,7 +4,7 @@ Standard library only, plus an installed ub-agents for the command help pages:
 
     pip install . && python3 site/build.py
 """
-import html, os, posixpath, re, shutil, subprocess, sys, urllib.parse
+import html, json, os, posixpath, re, shutil, subprocess, sys, urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -24,6 +24,15 @@ SECTIONS = [  # (title, content entry, kind)
     ('Guides', 'guides', 'dir'),
     ('Best practices', 'best-practices', 'dir'),
     ('Upgrading', 'upgrading.md', 'page'),
+]
+WORKFLOWS = [
+    {'name': 'default', 'title': 'The default ub-agents loop',
+     'intent': 'Label an issue. Get back a reviewed, merged pull request.',
+     'about': 'Built on ub-agents, a minimal agent loop for experienced developers: '
+              'plain GitHub labels, your own coding agents, nothing to host.'},
+    {'name': 'dependabot', 'title': 'Dependabot on autopilot',
+     'intent': "Patch and minor bumps merge on their own once the tests pass, without anyone opening the PR. "
+               "Majors, and failures one fix round can't settle, wait for you."},
 ]
 
 # ---------- Markdown (the subset these pages use) ----------
@@ -178,7 +187,8 @@ def collect():
 def rel(target, here):
     """Turn a site path ('/docs/x.html' or 'docs/x.html') into a link relative to `here`."""
     target = target.lstrip('/')
-    return posixpath.relpath(target, posixpath.dirname(here) or '.')
+    path = posixpath.relpath(target, posixpath.dirname(here) or '.')
+    return path + '/' if target.endswith('/') else path
 
 def fix_links(body, here):
     return re.sub(r'href="/([^"]+)"', lambda m: f'href="{rel(m.group(1), here)}"', body)
@@ -189,6 +199,7 @@ def header(here):
   <a class="ver" href="{REPO}/releases">v{VERSION}</a>
   <nav>
     <a href="{rel('docs/installation.html', here)}">Docs</a>
+    <a href="{rel('workflows/', here)}">Workflows</a>
     <a href="{REPO}/releases">Releases</a>
     <a href="{REPO}">GitHub</a>
   </nav>
@@ -206,6 +217,7 @@ def footer(here):
   <div><h3>Learn</h3><ul>
     <li><a href="{rel('docs/installation.html', here)}">Installation</a></li>
     <li><a href="{rel('docs/how-the-loop-works.html', here)}">How the loop works</a></li>
+    <li><a href="{rel('workflows/', here)}">Workflows</a></li>
     <li><a href="{rel('docs/configuration/index.html', here)}">Configuration</a></li>
     <li><a href="{rel('docs/commands/index.html', here)}">Commands</a></li>
     <li><a href="{rel('docs/faq.html', here)}">FAQ</a></li>
@@ -328,6 +340,73 @@ def not_found():
     body = body.replace('url(assets/', 'url(/assets/')
     return re.sub(r'href="(?!https?:|/|#)', 'href="/', body)
 
+def workflow_timelines(name):
+    return json.loads((ROOT / 'diagrams' / f'workflow-{name}.timelines.json').read_text())
+
+def workflow_player(workflow, here, scenario='', preview=False):
+    name = workflow['name']
+    timelines = workflow_timelines(name)
+    # Escape '<' so a caption can never terminate this inline data block.
+    data = json.dumps({'timelines': timelines, 'urls': [
+        rel(f'workflows/{name}/{t["slug"]}/', here) for t in timelines
+    ]}).replace('<', '\\u003c')
+    svg = (ROOT / 'diagrams' / f'workflow-{name}.svg').read_text()
+    mode = 'preview' if preview else 'entry'
+    caption = (f'<p class="workflow-tick"><span class="workflow-scenario">{html.escape(timelines[0]["name"])}</span>'
+               '<span class="workflow-caption">Play the workflow step by step.</span></p>'
+               '<button class="workflow-preview-toggle" type="button" aria-pressed="false">Pause preview</button>') if preview else ''
+    return (f'<div class="workflow-player" data-mode="{mode}" data-scenario="{scenario}">'
+            f'<div class="workflow-stage flow">{svg}</div>{caption}'
+            f'<script type="application/json" class="workflow-data">{data}</script></div>')
+
+def workflow_shell(here, title, description, body):
+    return (head(here, title=html.escape(title + ' · ub-agents'),
+                 description=html.escape(description), canonical=public_url(here))
+            + header(here) + '<main class="workflows">' + body + '</main>' + footer(here)
+            + f'<script type="module" src="{rel("assets/workflows.js", here)}"></script>\n</body>\n</html>\n')
+
+def workflow_gallery():
+    here = 'workflows/index.html'
+    cards = []
+    for w in WORKFLOWS:
+        url = rel(f'workflows/{w["name"]}/', here)
+        about = f'<p class="workflow-about">{html.escape(w["about"])}</p>' if w.get('about') else ''
+        cards.append(f'''<article class="workflow-card">
+  {workflow_player(w, here, preview=True)}
+  <div class="workflow-meta"><h2><a href="{url}">{w["title"]}</a></h2>
+    <p>{html.escape(w["intent"])}</p>{about}
+    <a class="workflow-open" href="{url}">Explore the workflow →</a>
+  </div>
+</article>''')
+    description = 'See the loop run, then adapt it to your repository with an agent.'
+    return workflow_shell(here, 'Workflows', description,
+                          f'<h1>Workflows</h1><p class="workflow-intro">{description}</p>'
+                          + '<div class="workflow-grid">' + ''.join(cards) + '</div>')
+
+def workflow_entry(workflow, scenario=''):
+    name = workflow['name']
+    here = f'workflows/{name}/' + (f'{scenario}/' if scenario else '') + 'index.html'
+    _, story = markdown((CONTENT / 'workflows' / f'{name}.md').read_text())
+    body = f'''<p class="crumb"><a href="{rel('workflows/', here)}">Workflows</a></p>
+<h1>{workflow['title']}</h1><p class="workflow-intro">{html.escape(workflow['intent'])}</p>
+{workflow_player(workflow, here, scenario)}
+<div class="workflow-story"><div class="workflow-prose">{fix_links(story, here)}</div>
+  <aside class="workflow-adopt" aria-label="Adopt this workflow">
+    <h2>Adopt this workflow</h2>
+    <p>Ask an agent to compare it with your configuration and propose the smallest change. Review the diff before anything is written.</p>
+    {inline('{{discuss workflow-' + name + '}}')}
+  </aside>
+</div>'''
+    return here, workflow_shell(here, workflow['title'], workflow['intent'], body)
+
+def workflow_pages():
+    pages = [('workflows/index.html', workflow_gallery())]
+    for workflow in WORKFLOWS:
+        pages.append(workflow_entry(workflow))
+        for timeline in workflow_timelines(workflow['name']):
+            pages.append(workflow_entry(workflow, timeline['slug']))
+    return pages
+
 def main():
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -339,6 +418,11 @@ def main():
         dest = OUT / p['path']
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(doc_page(pages, i))
+    workflows = workflow_pages()
+    for path, body in workflows:
+        dest = OUT / path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body)
     landing = (ROOT / 'index.html').read_text()
     landing = landing.replace('{{header}}', header('index.html')).replace('{{footer}}', footer('index.html'))
     landing = landing.replace('{{demo}}', (ROOT / 'demo.html').read_text().rstrip())
@@ -349,12 +433,13 @@ def main():
         landing = top + landing + '\n</body>\n</html>\n'
     (OUT / 'index.html').write_text(fix_links(landing, 'index.html'))
     (OUT / '404.html').write_text(not_found())
-    urls = [public_url('index.html')] + [public_url(p['path']) for p in pages]
+    urls = ([public_url('index.html')] + [public_url(p['path']) for p in pages]
+            + [public_url(path) for path, _ in workflows])
     (OUT / 'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
         + ''.join(f'  <url><loc>{u}</loc></url>\n' for u in urls) + '</urlset>\n')
     (OUT / 'robots.txt').write_text(f'User-agent: *\nAllow: /\n\nSitemap: {SITE}/sitemap.xml\n')
-    print(f'{len(pages)} pages')
+    print(f'{len(pages) + len(workflows)} pages')
 
 if __name__ == '__main__':
     main()

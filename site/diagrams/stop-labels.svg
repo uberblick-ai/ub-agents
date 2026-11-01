@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="ab" viewBox="0 0 581 406" width="581" height="406" role="img" aria-label="Flow: agent, stopped, blocked, answer, retry, The agent runs again. Legend: GitHub label, human involved">
-<style>.ab{--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--agent:var(--ab-agent,#0b6b67);--agent-bg:var(--ab-agent-bg,#dff1ee);--rework:var(--ab-rework,#a65f0c);--rework-bg:var(--ab-rework-bg,#fbefdc);--stop:var(--ab-stop,#b2382f);--stop-bg:var(--ab-stop-bg,#f9e2df);--done:var(--ab-done,#2a7845);--done-bg:var(--ab-done-bg,#e0f1e5);}@media (prefers-color-scheme:dark){.ab{--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--agent:var(--ab-agent,#5cc5bb);--agent-bg:var(--ab-agent-bg,#12302d);--rework:var(--ab-rework,#e3a250);--rework-bg:var(--ab-rework-bg,#33250f);--stop:var(--ab-stop,#ef7f73);--stop-bg:var(--ab-stop-bg,#3a1916);--done:var(--ab-done,#72cf91);--done-bg:var(--ab-done-bg,#142e1d);}}
+<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" viewBox="0 0 501 429" width="501" height="429" role="img" aria-label="Flow: agent, stopped, blocked, answer, retry, The agent runs again. Legend: GitHub label, human involved">
+<style>.ab.ab-auto{--bg:var(--ab-bg,#ffffff);--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--neutral:var(--ab-neutral,#59616c);--neutral-bg:var(--ab-neutral-bg,#e1e3e6);--agent:var(--ab-agent,#3e6563);--agent-bg:var(--ab-agent-bg,#e7eeed);--system:var(--ab-system,#4f5d76);--system-bg:var(--ab-system-bg,#ebedf3);--rework:var(--ab-rework,#806752);--rework-bg:var(--ab-rework-bg,#f3f0eb);--stop:var(--ab-stop,#815f5a);--stop-bg:var(--ab-stop-bg,#ede6e5);--done:var(--ab-done,#536e5a);--done-bg:var(--ab-done-bg,#e8ede9);}@media (prefers-color-scheme:dark){.ab.ab-auto{--bg:var(--ab-bg,#171c24);--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--neutral:var(--ab-neutral,#b6bbc3);--neutral-bg:var(--ab-neutral-bg,#303640);--agent:var(--ab-agent,#85aaa5);--agent-bg:var(--ab-agent-bg,#232d2b);--system:var(--ab-system,#98a5bf);--system-bg:var(--ab-system-bg,#262a31);--rework:var(--ab-rework,#b29d87);--rework-bg:var(--ab-rework-bg,#2c2720);--stop:var(--ab-stop,#ac8c88);--stop-bg:var(--ab-stop-bg,#2b2221);--done:var(--ab-done,#95b09c);--done-bg:var(--ab-done-bg,#222a24);}}
 .ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
 .ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 .ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
@@ -8,44 +8,53 @@
 .ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
 .ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
 .ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
-.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .knockout{fill:none;stroke:var(--bg);stroke-width:5.6}.ab .knockout-band{stroke:var(--band)}
+.ab .arrow{fill:none;stroke:none}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-neutral{fill:var(--neutral)}.ab .e-neutral{stroke:var(--neutral)}.ab .k-neutral{fill:var(--neutral-bg);stroke:var(--neutral);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-system{fill:var(--system)}.ab .e-system{stroke:var(--system)}.ab .k-system{fill:var(--system-bg);stroke:var(--system);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
 .ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}</style>
 <defs>
 <marker id="stop-labels-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
 <marker id="stop-labels-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
 </defs>
-<path d="M414,62 L414,92" class="e e-stop" marker-end="url(#stop-labels-stop)"/>
-<path d="M414,184 L414,214" class="e e-stop" marker-end="url(#stop-labels-stop)"/>
-<path d="M414,288 L414,318" class="e e-ink" marker-end="url(#stop-labels-ink)"/>
-<path d="M262,39 L111,39 L111,110" class="e e-ink" marker-end="url(#stop-labels-ink)"/>
-<path d="M111,166 L111,223" class="e e-stop" marker-end="url(#stop-labels-stop)"/>
-<path d="M111,279 L111,335 L327,335" class="e e-ink" marker-end="url(#stop-labels-ink)"/>
+<path d="M374,77 L374,115" class="e e-stop"/>
+<path d="M374,207 L374,237" class="e e-stop"/>
+<path d="M374,311 L374,341" class="e e-ink"/>
+<path d="M262,47 L111,47 L111,133" class="e e-ink"/>
+<path d="M111,189 L111,246" class="e e-stop"/>
+<path d="M111,302 L111,358 L287,358" class="e e-ink"/>
+<path d="M374,77 L374,115" class="arrow" marker-end="url(#stop-labels-stop)"/>
+<path d="M374,207 L374,237" class="arrow" marker-end="url(#stop-labels-stop)"/>
+<path d="M374,311 L374,341" class="arrow" marker-end="url(#stop-labels-ink)"/>
+<path d="M111,47 L111,133" class="arrow" marker-end="url(#stop-labels-ink)"/>
+<path d="M111,189 L111,246" class="arrow" marker-end="url(#stop-labels-stop)"/>
+<path d="M111,358 L287,358" class="arrow" marker-end="url(#stop-labels-ink)"/>
 <g>
-<rect x="262" y="16" width="303" height="46" rx="8" class="k-agent"/>
-<text x="414" y="35" text-anchor="middle" class="m s13 b t-agent">agent</text>
-<text x="414" y="52" text-anchor="middle" class="s11 muted">reports needs-human with one ask per decision</text>
+<rect x="262" y="16" width="223" height="61" rx="8" class="k-agent"/>
+<text x="374" y="35" text-anchor="middle" class="m s13 b t-agent">agent</text>
+<text x="374" y="52" text-anchor="middle" class="s11 muted">reports needs-human with one ask</text>
+<text x="374" y="67" text-anchor="middle" class="s11 muted">per decision</text>
 </g>
-<g><rect x="319" y="92" width="190" height="92" rx="10" class="k-stop panel"/>
-<rect x="357" y="104" width="115" height="30" rx="15" class="pill"/>
-<circle cx="371" cy="119" r="5" class="t-stop"/>
-<text x="383" y="123" class="m s12">needs-human</text>
-<text x="414" y="153" text-anchor="middle" class="s12 b">Action needed comment</text>
-<text x="414" y="171" text-anchor="middle" class="s11 muted">one line per ask</text></g>
-<g><rect x="313" y="214" width="202" height="74" rx="10" class="k-stop panel"/>
-<text x="414" y="239" text-anchor="middle" class="s12 b">A person answers on GitHub</text>
-<text x="414" y="257" text-anchor="middle" class="s11 muted">removes needs-human</text>
-<text x="414" y="275" text-anchor="middle" class="s11 muted">re-adds the trigger label</text></g>
-<rect x="327" y="318" width="174" height="34" rx="17" class="k-done"/>
-<text x="414" y="339" text-anchor="middle" class="s12 b t-done">The agent runs again</text>
-<g><rect x="16" y="110" width="190" height="56" rx="10" class="k-muted panel"/>
-<text x="111" y="135" text-anchor="middle" class="s12 b">Blocked run</text>
-<text x="111" y="153" text-anchor="middle" class="s11 muted">same ask, no label</text></g>
-<g><rect x="16" y="223" width="190" height="56" rx="10" class="k-stop panel"/>
-<text x="111" y="248" text-anchor="middle" class="s12 b">ub-agents retry N</text>
-<text x="111" y="266" text-anchor="middle" class="s11 muted">with a reason</text></g>
-<text x="424" y="81" class="m s11 t-stop">needs-human</text>
-<text x="252" y="32" text-anchor="end" class="m s11">blocked</text>
-<line x1="8" y1="368" x2="573" y2="368" class="rule"/>
-<g><rect x="16" y="382" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="388" r="3" class="t-stop"/><text x="46" y="392" class="s11 muted">GitHub label</text></g>
-<g><rect x="139" y="382" width="24" height="12" rx="3" class="k-stop panel"/><text x="169" y="392" class="s11 muted">human involved</text></g>
+<g><rect x="279" y="115" width="190" height="92" rx="10" class="k-stop panel"/>
+<rect x="317" y="127" width="115" height="30" rx="15" class="pill"/>
+<circle cx="331" cy="142" r="5" class="t-stop"/>
+<text x="343" y="146" class="m s12">needs-human</text>
+<text x="374" y="176" text-anchor="middle" class="s12 b">Action needed comment</text>
+<text x="374" y="194" text-anchor="middle" class="s11 muted">one line per ask</text></g>
+<g><rect x="272" y="237" width="203" height="74" rx="10" class="k-stop panel"/>
+<text x="374" y="262" text-anchor="middle" class="s12 b">A person answers on GitHub</text>
+<text x="374" y="280" text-anchor="middle" class="s11 muted">removes needs-human</text>
+<text x="374" y="298" text-anchor="middle" class="s11 muted">re-adds the trigger label</text></g>
+<rect x="287" y="341" width="174" height="34" rx="17" class="k-done"/>
+<text x="374" y="362" text-anchor="middle" class="s12 b t-done">The agent runs again</text>
+<g><rect x="16" y="133" width="190" height="56" rx="10" class="k-muted panel"/>
+<text x="111" y="158" text-anchor="middle" class="s12 b">Blocked run</text>
+<text x="111" y="176" text-anchor="middle" class="s11 muted">same ask, no label</text></g>
+<g><rect x="16" y="246" width="190" height="56" rx="10" class="k-stop panel"/>
+<text x="111" y="271" text-anchor="middle" class="s12 b">ub-agents retry N</text>
+<text x="111" y="289" text-anchor="middle" class="s11 muted">with a reason</text></g>
+<text x="384" y="100" class="m s11 t-stop">needs-human</text>
+<text x="252" y="40" text-anchor="end" class="m s11">blocked</text>
+<line x1="8" y1="391" x2="493" y2="391" class="rule"/>
+<g><rect x="16" y="405" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="411" r="3" class="t-stop"/><text x="46" y="415" class="s11 muted">GitHub label</text></g>
+<g><rect x="139" y="405" width="24" height="12" rx="3" class="k-stop panel"/><text x="169" y="415" class="s11 muted">human involved</text></g>
 </svg>

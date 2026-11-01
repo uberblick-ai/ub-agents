@@ -26,6 +26,15 @@ description = "Maintainers: publish a prepared release and open its Homebrew tap
 usage = 'arg "<version>" help="Prepared version X.Y.Z"'
 run = 'python3 "{{config_root}}/bin/release.py" "${usage_version?}"'
 
+[tasks."diagrams:install"]
+description = "Install the pinned diagram renderer and browser bundler locally"
+run = "npm install --prefix site/diagrams --no-save --package-lock=false --ignore-scripts @uberblick/ablauf@0.3.0 esbuild@0.25.12"
+
+[tasks.diagrams]
+description = "Render committed diagrams and bundle ablauf playback for the site"
+depends = ["diagrams:install"]
+run = "node site/diagrams/render.mjs"
+
 [hooks]
 enter = [
   { task = "setup" },
