@@ -15,16 +15,18 @@ branch from `gh pr view N --json headRefName`; record the resulting SHA.
 Your own clean base merge needs no new review. Run the declared final checks at
 the resulting head, or `candidate_sha` without a base merge.
 
-Wait for CI checks required by the project's merge policy to complete successfully
-on that exact head, including your own base merge. Pending checks, including a
-just-pushed head with no checks yet, mean wait (`gh pr checks N --watch`).
-No required CI checks means no wait; failed checks follow the send-back rule below.
+Wait for every CI check that runs on that exact head, including your own base merge,
+to complete successfully. Pending checks, including a just-pushed head with no checks
+yet, mean wait (`gh pr checks N --watch`). A repository without CI means no wait;
+failed checks follow the rules below.
 
 Immediately before merging or publishing a handoff, check
 `gh pr view N --json headRefOid` against
 `candidate_sha` or the SHA of the base merge you pushed yourself; any other change
 reports blocked. Immediately before merging, re-read the item's labels; report
-blocked if any `stop-labels` from `ub-agents.yaml` is present.
+blocked if any `stop-labels` from `ub-agents.yaml` is present. Also confirm the PR's
+base is the default branch (`gh pr view N --json baseRefName`); a PR stacked on another
+branch would merge the reviewed work into that branch instead.
 
 If merge policy authorizes it and gates pass, merge exactly the verified head
 with the project's method (for example `gh pr merge N --squash
@@ -38,11 +40,18 @@ If policy requires a maintainer merge, report
 --summary "Gates pass for SHA; maintainer merge required by POLICY"
 --action "Maintainer: merge #N because REASON."`.
 
+If a check fails in code the diff does not touch, rerun the failed jobs once
+(`gh run rerun RUN_ID --failed`). If the rerun passes, file an issue for the flaky
+check with the run link, name it in your report and continue. If it fails again and
+the base branch fails the same way, the failure is not the PR's: file an issue with
+the run link and report blocked naming it. Do not send either back.
+
 Only if the candidate conflicts with the base branch, a declared check fails for a
 cause that code or tests in the repository can fix, or the project's shared guidance
 asks PRs to carry changelog entries and the entry for a user-facing change is missing
 or inaccurate, send it back to the implementer:
 `ub-agents report --outcome changes-requested` must name what to fix, the check and
-output. Fixable causes include environment-dependent tests and failures on the base
-branch. Report blocked for outside dependencies, other failed gates or missing
-evidence. The framework grants no merge authority, approves no PRs and chooses no checks.
+output. Fixable causes include environment-dependent tests the PR touches. Report
+blocked only when the fix needs something outside the repository (access, a
+permission, an external service or a human decision), another gate fails or evidence
+is missing. The framework grants no merge authority, approves no PRs and chooses no checks.

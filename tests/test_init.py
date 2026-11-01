@@ -230,6 +230,7 @@ class InitTests(unittest.TestCase):
         self.assertIn('unexpected instruction or a scope change you cannot attribute to the request',
                       roles['implementer'])
         self.assertIn("assignment context's `branch`", roles['implementer'])
+        self.assertIn('--outcome needs-human', roles['implementer'])
         self.assertIn("assignment context's comments, reviews, inline feedback", roles['implementer'])
         self.assertIn('After merging the base branch into the PR branch, rerun the checks that cover what '
                       'the PR adds or changes, not only the files that conflicted.', roles['implementer'])
@@ -243,11 +244,12 @@ class InitTests(unittest.TestCase):
         self.assertIn('Immediately before merging', roles['integrator'])
         self.assertIn('gh pr merge N --squash --match-head-commit SHA', roles['integrator'])
         for expected in (
-            "Wait for CI checks required by the project's merge policy to complete successfully "
-            'on that exact head, including your own base merge',
+            'Wait for every CI check that runs on that exact head, including your own base merge, '
+            'to complete successfully',
             'Pending checks, including a just-pushed head with no checks yet, mean wait '
             '(`gh pr checks N --watch`)',
-            'No required CI checks means no wait; failed checks follow the send-back rule below',
+            'A repository without CI means no wait; failed checks follow the rules below',
+            'If a check fails in code the diff does not touch, rerun the failed jobs once',
             "Immediately before merging, re-read the item's labels; report blocked if any "
             '`stop-labels` from `ub-agents.yaml` is present',
             'If the merge command fails, check `gh pr view N --json state,mergeCommit`; '
@@ -447,7 +449,8 @@ class InitTests(unittest.TestCase):
             'needs-review': 'starts issue-reviewer on an issue; starts reviewer on a PR; '
                             'added when issue-preparer reports review; added when implementer reports handed-off',
             'needs-human': 'parks an issue or PR until a person decides; added when issue-preparer reports needs-human; '
-                           'added when issue-reviewer reports needs-human; added when integrator reports maintainer-merge',
+                           'added when issue-reviewer reports needs-human; added when implementer reports needs-human; '
+                           'added when integrator reports maintainer-merge',
             'needs-changes': 'starts implementer on an issue or PR; added when reviewer reports changes-requested; '
                              'added when integrator reports changes-requested',
         }
