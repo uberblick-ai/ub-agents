@@ -17,8 +17,10 @@ the resulting head, or `candidate_sha` without a base merge.
 
 Wait for every CI check that runs on that exact head, including your own base merge,
 to complete successfully. Pending checks, including a just-pushed head with no checks
-yet, mean wait (`gh pr checks N --watch`). A repository without CI means no wait;
-failed checks follow the rules below.
+yet, mean wait (`gh pr checks N --watch`). Skip the wait only after confirming from
+the repository's CI configuration and recent default-branch runs that no checks are
+expected for this head; no reported checks alone is not evidence. Failed checks
+follow the rules below.
 
 Immediately before merging or publishing a handoff, check
 `gh pr view N --json headRefOid` against
@@ -42,9 +44,12 @@ If policy requires a maintainer merge, report
 
 If a check fails in code the diff does not touch, rerun the failed jobs once
 (`gh run rerun RUN_ID --failed`). If the rerun passes, file an issue for the flaky
-check with the run link, name it in your report and continue. If it fails again and
-the base branch fails the same way, the failure is not the PR's: file an issue with
-the run link and report blocked naming it. Do not send either back.
+check with the run link, name it in your report and continue. If it fails again,
+compare the same check on the current base branch; run it there if no comparable
+result exists. If the base fails the same way, file an issue with both results and
+report blocked naming it. Do not send flaky or shared base failures back. If the
+base passes, send it back with the failing head and passing base results. If you
+cannot obtain a comparable base result, report blocked for missing evidence.
 
 Only if the candidate conflicts with the base branch, a declared check fails for a
 cause that code or tests in the repository can fix, or the project's shared guidance
@@ -52,6 +57,7 @@ asks PRs to carry changelog entries and the entry for a user-facing change is mi
 or inaccurate, send it back to the implementer:
 `ub-agents report --outcome changes-requested` must name what to fix, the check and
 output. Fixable causes include environment-dependent tests the PR touches. Report
-blocked only when the fix needs something outside the repository (access, a
-permission, an external service or a human decision), another gate fails or evidence
-is missing. The framework grants no merge authority, approves no PRs and chooses no checks.
+blocked for a failure shared with the base branch, when the fix needs something
+outside the repository (access, a permission, an external service or a human
+decision), another gate fails or evidence is missing. The framework grants no merge
+authority, approves no PRs and chooses no checks.

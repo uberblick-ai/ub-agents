@@ -9,8 +9,8 @@ your worktree; never install globally.
 
 ## Merging
 
-Only the integrator merges, by squash, once the checks above and any required CI
-checks pass at the exact head it merges. No agent enables auto-merge, changes branch
+Only the integrator merges, by squash, once the checks above and every CI check
+pass at the exact head it merges. No agent enables auto-merge, changes branch
 protection or publishes a release. Leave the merge to `@org/maintainers` when the PR:
 
 - changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` and any
@@ -20,8 +20,10 @@ protection or publishes a release. Leave the merge to `@org/maintainers` when th
 - changes what users rely on, such as commands, options, public APIs or output,
   beyond what the closing issue asks for.
 
-Judge each case by what the diff does, not which paths it touches: a minor or patch
-bump of a dependency or of a workflow's `uses:` pin is not a setup or CI change.
+Only for the setup, CI or release tooling rule, a change limited to a verified minor
+or patch version bump of an existing dependency or workflow's `uses:` pin does not
+trigger that rule. All other maintainer-merge rules still apply. If the release
+level cannot be verified, leave the merge to a maintainer.
 
 ## Human decisions
 

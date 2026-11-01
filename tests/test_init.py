@@ -199,6 +199,23 @@ class InitTests(unittest.TestCase):
                     self.assertNotIn('maintainer team', policy)
                     self.assertIn('- New behavior has tests that fail without the change.',
                                   policy.split('## Review focus\n\n')[1])
+                    for expected in (
+                        'once the checks above and every CI check pass at the exact head it merges',
+                        'changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` and any '
+                        '`AGENTS.md` or `CLAUDE.md`',
+                        'Only for the setup, CI or release tooling rule, a change limited to a verified minor '
+                        "or patch version bump of an existing dependency or workflow's `uses:` pin does not "
+                        'trigger that rule.',
+                        'All other maintainer-merge rules still apply.',
+                        'If the release level cannot be verified, leave the merge to a maintainer.',
+                        'adds a runtime dependency',
+                        'An answer covers what it names; anything beyond it is a new question.',
+                        'Callers of changed behavior still work; a finding names a concrete input that '
+                        'goes wrong.',
+                        'search the docs for the old wording, not only the pages the issue names.',
+                    ):
+                        self.assertIn(expected, ' '.join(policy.split()))
+                    self.assertNotIn('Judge each case by what the diff does, not which paths it touches', policy)
                     self.assertEqual(policy.count('before handoff'), 1)
                     prose = ' '.join(line for line in policy.splitlines() if not line.startswith('#'))
                     sentences = re.split(r'(?<=[.!?])\s+', prose.strip())
@@ -215,6 +232,11 @@ class InitTests(unittest.TestCase):
         self.assertIn("only where they fit the request's intent", roles['issue-preparer'])
         self.assertIn('gh issue edit N --body-file PATH', roles['issue-preparer'])
         self.assertIn('--outcome needs-human', roles['issue-preparer'])
+        self.assertIn("Fetch the default branch and verify the issue's claims against it; point to files and "
+                      'functions rather than prescribing code, and name the commit you checked in your summary.',
+                      roles['issue-preparer'])
+        self.assertIn('An open PR that touches the same files is not a reason to wait; whichever lands second '
+                      'merges the base.', roles['issue-preparer'])
         self.assertIn('record the wait as a blocked-by relationship on the assigned issue',
                       roles['issue-preparer'])
         self.assertIn('native GitHub sub-issues', roles['issue-preparer'])
@@ -231,6 +253,13 @@ class InitTests(unittest.TestCase):
                       roles['implementer'])
         self.assertIn("assignment context's `branch`", roles['implementer'])
         self.assertIn('--outcome needs-human', roles['implementer'])
+        self.assertNotIn('--status blocked --summary "Scope decision pending:', roles['implementer'])
+        self.assertIn('Otherwise run the full check suite once, then commit the first coherent checkpoint',
+                      roles['implementer'])
+        self.assertIn('In the PR body, mark each acceptance criterion done or not done, including work '
+                      'outside the repository.', roles['implementer'])
+        self.assertIn('Local checks are your evidence: do not wait on or watch CI, the integrator does.',
+                      roles['implementer'])
         self.assertIn("assignment context's comments, reviews, inline feedback", roles['implementer'])
         self.assertIn('After merging the base branch into the PR branch, rerun the checks that cover what '
                       'the PR adds or changes, not only the files that conflicted.', roles['implementer'])
@@ -241,6 +270,8 @@ class InitTests(unittest.TestCase):
         self.assertIn('gh pr review N --comment --body-file PATH', roles['reviewer'])
         self.assertIn('candidate_sha', roles['reviewer'])
         self.assertIn('shared policy', roles['reviewer'])
+        self.assertIn('Read earlier reviews first: a settled finding stays settled unless this head changed '
+                      'the affected code or you have new, reproducible evidence.', roles['reviewer'])
         self.assertIn('Immediately before merging', roles['integrator'])
         self.assertIn('gh pr merge N --squash --match-head-commit SHA', roles['integrator'])
         for expected in (
@@ -248,8 +279,20 @@ class InitTests(unittest.TestCase):
             'to complete successfully',
             'Pending checks, including a just-pushed head with no checks yet, mean wait '
             '(`gh pr checks N --watch`)',
-            'A repository without CI means no wait; failed checks follow the rules below',
+            "Skip the wait only after confirming from the repository's CI configuration and recent "
+            'default-branch runs that no checks are expected for this head; no reported checks alone '
+            'is not evidence.',
             'If a check fails in code the diff does not touch, rerun the failed jobs once',
+            'If the rerun passes, file an issue for the flaky check with the run link, name it in your '
+            'report and continue.',
+            'If it fails again, compare the same check on the current base branch; run it there if no '
+            'comparable result exists.',
+            'If the base fails the same way, file an issue with both results and report blocked naming it.',
+            'Do not send flaky or shared base failures back.',
+            'If the base passes, send it back with the failing head and passing base results.',
+            'If you cannot obtain a comparable base result, report blocked for missing evidence.',
+            'Report blocked for a failure shared with the base branch,',
+            "Also confirm the PR's base is the default branch (`gh pr view N --json baseRefName`)",
             "Immediately before merging, re-read the item's labels; report blocked if any "
             '`stop-labels` from `ub-agents.yaml` is present',
             'If the merge command fails, check `gh pr view N --json state,mergeCommit`; '

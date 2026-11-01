@@ -69,7 +69,7 @@
 <text x="317" y="306" text-anchor="end" class="m s11 t-rework">on merge conflict</text>
 <text x="268" y="376" text-anchor="end" class="m s11 t-rework">changes-requested</text>
 <text x="268" y="96" text-anchor="end" class="m s11 t-rework">revise the same PR</text>
-<text x="523" y="96" class="m s11 t-stop">blocked</text>
+<text x="523" y="96" class="m s11 t-stop">needs-human</text>
 <text x="523" y="236" class="m s11 t-stop">blocked</text>
 <text x="523" y="376" class="m s11 t-stop">maintainer-merge, blocked</text>
 <line x1="8" y1="486" x2="915" y2="486" class="rule"/>
