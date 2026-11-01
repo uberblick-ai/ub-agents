@@ -21,19 +21,19 @@ from tests.support import MemoryPublisher, RecordingDescriptionTransport, agent,
 from ub_agents.coordination import Plan
 from ub_agents.observations import Observations
 from ub_agents.observation_worker import write_snapshot
-from ub_agents.view_github import DescriptionLoads, Response, parse_response
-from ub_agents.view_data import POINTERS_LIMIT
+from ub_agents.view.github import DescriptionLoads, Response, parse_response
+from ub_agents.view.data import POINTERS_LIMIT
 
 from textual import events, messages
 from textual.geometry import Size
 from textual.widgets import Collapsible, Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
-from ub_agents.view_log_pane import LogPane, MAX_RENDER_LINES
-from ub_agents.view_ui import RecentActivity, View, WorkTree
-from ub_agents.view_widgets import ConfigurationPause, HealthBanner, ItemTabs, KeyHelp, RawAccess, UpdateBanner, pane_line
-from ub_agents.view_worker import LocalWorker
-from ub_agents.view_data import Session, item_history, work_pane
-from ub_agents.view_theme import theme_style
-from ub_agents.view_unblock import ACTION_MARKER, ActionComment
+from ub_agents.view.log_pane import LogPane, MAX_RENDER_LINES
+from ub_agents.view.ui import RecentActivity, View, WorkTree
+from ub_agents.view.widgets import ConfigurationPause, HealthBanner, ItemTabs, KeyHelp, RawAccess, UpdateBanner, pane_line
+from ub_agents.view.worker import LocalWorker
+from ub_agents.view.data import Session, item_history, work_pane
+from ub_agents.view.theme import theme_style
+from ub_agents.view.unblock import ACTION_MARKER, ActionComment
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
@@ -43,7 +43,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=30)).isoformat()}
         app = View(self.root, self.path)
         app.session = Session(self.path, self.state)
-        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now + timedelta(seconds=4)
             line = app.footer(160, '? keys q quit')
             clock.now.assert_called_once_with(timezone.utc)
@@ -58,7 +58,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['repository'] = 'owner/' + 'long-repository-name' * 4
         app = View(self.root, self.path)
         app.session = Session(self.path, self.state)
-        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
             for width in (60, 80, 109, 110, 160, 220):
                 with self.subTest(width=width):
@@ -88,8 +88,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         # Both openings use the same session file, as an attached or reopened view does.
         for attached in (False, True):
             app = View(self.root, self.path, launcher=Mock() if attached else None)
-            with (patch('ub_agents.view_ui.datetime', wraps=datetime) as clock,
-                  patch('ub_agents.view_work.datetime', wraps=datetime) as row_clock):
+            with (patch('ub_agents.view.ui.datetime', wraps=datetime) as clock,
+                  patch('ub_agents.view.work.datetime', wraps=datetime) as row_clock):
                 clock.now.return_value = row_clock.now.return_value = now
                 async with app.run_test(size=(220, 40)) as pilot:
                     await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node is not None)
@@ -191,7 +191,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=26)).isoformat()}
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path, launcher=Mock())
-        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
             async with app.run_test(size=(160, 45)) as pilot:
                 await self.ready(app, pilot)
@@ -276,7 +276,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             ('', {'state': 'waiting', 'until': later}, {'cooldown_until': later},
              'next poll 300s · poll now available in 300s'),
         )
-        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
             for agent, activity, control, expected in states:
                 self.state.update(queue_agent=agent, activity=activity, poll_now=control)
@@ -454,7 +454,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         value = '  café α\nsecond line  '
         selected = 'café α\nsecond line'
         sequence = '\x1b]52;c;' + base64.b64encode(selected.encode('utf-8')).decode('ascii') + '\a'
-        with (patch('ub_agents.view_ui.local_pbcopy', return_value=None),
+        with (patch('ub_agents.view.ui.local_pbcopy', return_value=None),
               patch.object(app, 'raw_details', return_value=value)):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
@@ -504,7 +504,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
     async def test_click_empty_selection_and_y_without_selection_copy_nothing(self):
         app = View(self.root, self.path)
         with (patch.object(app, 'copy_to_clipboard') as copy,
-              patch('ub_agents.view_ui.local_pbcopy') as pbcopy):
+              patch('ub_agents.view.ui.local_pbcopy') as pbcopy):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
                 for key in ('2', 'p', '?'):
@@ -538,8 +538,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await asyncio.Event().wait()
 
         process.communicate = AsyncMock(side_effect=communicate)
-        with (patch('ub_agents.view_ui.local_pbcopy', return_value='/usr/bin/pbcopy'),
-              patch('ub_agents.view_clipboard.asyncio.create_subprocess_exec',
+        with (patch('ub_agents.view.ui.local_pbcopy', return_value='/usr/bin/pbcopy'),
+              patch('ub_agents.view.clipboard.asyncio.create_subprocess_exec',
                     new=AsyncMock(return_value=process))):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
@@ -569,7 +569,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         launcher = Mock()
         app = View(self.root, self.path, launcher=launcher)
-        with patch('ub_agents.view_work.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.work.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
@@ -766,7 +766,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                   'rate_limit_until': None}
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path, launcher=Mock())
-        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
             async with app.run_test(size=(180, 45)) as pilot:
                 await self.ready(app, pilot)
@@ -806,7 +806,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.state['poll_now'] = {'cooldown_until': None, 'rate_limit_until': None, 'waiting': True}
                 publish_snapshot(self.path, self.state)
                 app = View(self.root, self.path, launcher=Mock())
-                with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
                     clock.now.return_value = now
                     async with app.run_test(size=size) as pilot:
                         await self.ready(app, pilot)
@@ -896,7 +896,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                   'reason': 'next poll or runtime pause'}
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path, launcher=Mock())
-        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
             async with app.run_test(size=(180, 45)) as pilot:
                 await self.ready(app, pilot)
@@ -924,7 +924,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                           'rate_limit_until': until.isoformat() if limited else None}
                 publish_snapshot(self.path, self.state)
                 app = View(self.root, self.path, launcher=Mock())
-                with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
                     clock.now.return_value = now
                     async with app.run_test(size=(180, 45)) as pilot:
                         await self.ready(app, pilot)
@@ -949,7 +949,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             for attached in (False, True):
                 with self.subTest(control=control, attached=attached):
                     app = View(self.root, self.path, launcher=Mock() if attached else None)
-                    with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                    with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
                         clock.now.return_value = now
                         async with app.run_test(size=(180, 45)) as pilot:
                             await self.ready(app, pilot)
@@ -1382,7 +1382,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=26)).isoformat()}
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
-        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
             async with app.run_test(size=(80, 24)) as pilot:
                 await self.ready(app, pilot)
@@ -2091,7 +2091,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=30)).isoformat()}
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
-        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
             clock.now.return_value = now
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
@@ -2992,8 +2992,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         loads.cooldown = 1100
         app = View(self.root, self.path, descriptions=loads)
         # Freeze both the snapshot age and display clock so note text stays fixed.
-        with (patch('ub_agents.view_data.time.time', return_value=1000),
-              patch('ub_agents.view_data.datetime', wraps=datetime) as clock):
+        with (patch('ub_agents.view.data.time.time', return_value=1000),
+              patch('ub_agents.view.data.datetime', wraps=datetime) as clock):
             clock.now.return_value = datetime.fromisoformat(self.state['published_at'])
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
@@ -3522,7 +3522,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             widgets.append(app.screen.query_one('#raw_status', Static))
             widgets.append(app.query_one('#issue_pointers_note', Static))
             now = datetime.now(timezone.utc).replace(microsecond=0)
-            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
                 clock.now.return_value = now
                 app._static_values.clear()
                 app.last_runs = None
@@ -3538,7 +3538,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         app.tick()
                     update.assert_not_called()
             await pilot.press('?', '3')
-            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
                 clock.now.return_value = now
                 # Rebuild the baseline at Runs' laid-out width after tab activation.
                 app._static_values.clear()
@@ -3564,7 +3564,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: app.session is not None)
             comment = ActionComment(available=True, source='GitHub', observed_at=now.timestamp())
             status, note = app.query_one('#status', Static), app.query_one('#unblock_note', Static)
-            with (patch('ub_agents.view_ui.datetime', wraps=datetime) as clock,
+            with (patch('ub_agents.view.ui.datetime', wraps=datetime) as clock,
                   patch.object(app.descriptions, 'clock') as loaded_clock,
                   patch.object(app, 'current_action', return_value=comment),
                   patch.object(status, 'update', wraps=status.update) as status_update,
@@ -3599,9 +3599,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             while not app.worker.results.empty():
                 app.worker.results.get_nowait()
             now = datetime.now(timezone.utc).replace(microsecond=0)
-            from ub_agents.view_runs import runs_view
-            with (patch('ub_agents.view_ui.datetime', wraps=datetime) as clock,
-                  patch('ub_agents.view_ui.runs_view', wraps=runs_view) as render):
+            from ub_agents.view.runs import runs_view
+            with (patch('ub_agents.view.ui.datetime', wraps=datetime) as clock,
+                  patch('ub_agents.view.ui.runs_view', wraps=runs_view) as render):
                 app.last_runs = None
                 for tick in range(20):
                     clock.now.return_value = now + timedelta(milliseconds=100 * tick)
@@ -3642,7 +3642,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             while not app.worker.results.empty():
                 app.worker.results.get_nowait()
             now = datetime.now(timezone.utc).replace(microsecond=0)
-            with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
                 clock.now.return_value = now
                 app.select('plan:12')
                 runs = app.query_one('#runs_text', Static)
@@ -3674,7 +3674,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             for tick, glyph in enumerate('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋'):
                 with self.subTest(tick=tick):
                     later = now + timedelta(milliseconds=100 * tick)
-                    with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+                    with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
                         clock.now.return_value = later
                         app.update_runs()
                     table = list(app.query_one('#runs_text', Static).content.renderables)[1]
@@ -3687,7 +3687,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(tick=tick):
                     later = now + timedelta(milliseconds=100 * tick)
                     # Patch only this synchronous render, keeping Textual's timers live.
-                    with patch('ub_agents.view_ui.time.monotonic', return_value=later.timestamp()):
+                    with patch('ub_agents.view.ui.time.monotonic', return_value=later.timestamp()):
                         app.update_status()
                     line = app.query_one('#run_status', Static).render().plain.split('\n')[1]
                     self.assertEqual(line[0], glyph)
@@ -4880,7 +4880,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app._tree_second = None
             with (patch.object(tree, '_refresh_line', wraps=tree._refresh_line) as line_refresh,
                   patch.object(tree, 'refresh', wraps=tree.refresh) as refresh,
-                  patch('ub_agents.view_ui.time.monotonic') as clock):
+                  patch('ub_agents.view.ui.time.monotonic') as clock):
                 for tick in range(11):
                     clock.return_value = 1000 + tick / 10
                     app.tick()
@@ -4929,12 +4929,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 return strips[y].crop(tree.region.x, tree.region.x + tree.scrollable_content_region.width).text
             # Keep the real Textual clock running while controlling only synchronous ticks.
             with patch.object(app.descriptions, 'clock', return_value=now.timestamp()) as waiting_clock:
-                with patch('ub_agents.view_ui.time.monotonic', return_value=1000):
+                with patch('ub_agents.view.ui.time.monotonic', return_value=1000):
                     app.tick()
                 await pilot.pause(0.1)
                 self.assertTrue(displayed().endswith('0m'), displayed())
                 waiting_clock.return_value = (now + timedelta(seconds=1)).timestamp()
-                with patch('ub_agents.view_ui.time.monotonic', return_value=1001):
+                with patch('ub_agents.view.ui.time.monotonic', return_value=1001):
                     app.tick()
                 await pilot.pause(0.1)
                 self.assertTrue(displayed().endswith('1m'), displayed())
@@ -4980,7 +4980,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 strips = app.screen._compositor.render_strips()
                 return strips[tree.region.y + line].crop(tree.region.x,
                                                         tree.region.x + tree.scrollable_content_region.width).text
-            with patch('ub_agents.view_work.datetime') as clock:
+            with patch('ub_agents.view.work.datetime') as clock:
                 clock.fromisoformat = datetime.fromisoformat
                 clock.now.return_value = now
                 tree.refresh()

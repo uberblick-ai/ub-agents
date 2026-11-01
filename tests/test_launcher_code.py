@@ -49,7 +49,7 @@ fixture.next_id = 100
 GitHub = lambda repository: fixture
 ''')
         probe = 'from ub_agents import run_config\nprint(run_config.__file__)\n'
-        for module in ("view_request", "observation_worker", "view", "startup_probe"):
+        for module in ("view/request", "observation_worker", "view/__main__", "startup_probe"):
             (package / f"{module}.py").write_text(probe)
         github = FakeGitHub(issue())
         coordinator = Coordinator(github, "operator")
@@ -78,8 +78,10 @@ GitHub = lambda repository: fixture
                                       10, threading.Event(), pass_fds=descriptors()), 0,
                              (run_dir / "process.log").read_text())
             self.assertEqual(json.loads((run_dir / "process.log").read_text())["status"], "success")
-            for module in ("view_request", "observation_worker", "view"):
-                (package / f"{module}.py").write_text('raise RuntimeError("changed helper")\n')
+            for module, path in (("view.request", "view/request.py"),
+                                 ("observation_worker", "observation_worker.py"),
+                                 ("view", "view/__main__.py")):
+                (package / path).write_text('raise RuntimeError("changed helper")\n')
                 result = subprocess.run(helper_command("ub_agents." + module), cwd=shadow, env=env,
                                         pass_fds=descriptors(), capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -107,6 +109,24 @@ GitHub = lambda repository: fixture
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 0)
         self.assertFalse(paths[0].exists())
         self.assertEqual(descriptors(), ())
+
+    def test_view_package_imports_from_copy_after_cli_imports_setup(self):
+        script = '''
+from pathlib import Path
+import sys
+import ub_agents.cli
+from ub_agents.launcher_code import startup_copy
+assert {name for name in sys.modules if name.startswith('ub_agents.init.')} == {'ub_agents.init.setup'}
+assert 'ub_agents.view' not in sys.modules
+with startup_copy() as copied:
+    import ub_agents.view.request
+    assert Path(ub_agents.view.__file__) == copied / 'ub_agents/view/__init__.py'
+    assert Path(ub_agents.view.request.__file__) == copied / 'ub_agents/view/request.py'
+    assert {name for name in sys.modules if name.startswith('ub_agents.init.')} == {'ub_agents.init.setup'}
+assert 'textual' not in sys.modules
+'''
+        result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_homebrew_keg_removal_keeps_lazy_dependencies_report_and_helpers_working(self):
         # A real venv reproduces the deleted libexec/bin/python path. Its base

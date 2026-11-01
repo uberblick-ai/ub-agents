@@ -276,7 +276,7 @@ def test_formula(run, fetch, python, workspace, archive, formula, version):
     for args, expected_output in (([cli, "--version"], f"ub-agents {version}"),
                                  ([cli, "init", "--repository", "example/project"], None),
                                  ([cli, "doctor", "--offline"], "0 required failures"),
-                                 ([interpreter, "-c", "from ub_agents.view_ui import View"], None)):
+                                 ([interpreter, "-c", "from ub_agents.view.ui import View"], None)):
         label = ' '.join(str(arg) for arg in args[1:])
         output = command(run, args, cwd=project).stdout.strip()
         if expected_output is not None and expected_output not in output:

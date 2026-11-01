@@ -7,7 +7,7 @@ import re
 import subprocess
 import tomllib
 
-from .errors import AgentError
+from ..errors import AgentError
 
 CLIENTS = {"claude": ("Claude Code", ".mcp.json"), "codex": ("Codex", ".codex/config.toml")}
 

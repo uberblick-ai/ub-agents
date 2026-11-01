@@ -27,8 +27,8 @@ from ub_agents.observations import (MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
-from ub_agents.view_data import Session, history_path, item_history, load_session, local_description, work_pane, work_rows
-from ub_agents.view_worker import LocalWorker, Request
+from ub_agents.view.data import Session, history_path, item_history, load_session, local_description, work_pane, work_rows
+from ub_agents.view.worker import LocalWorker, Request
 from tests.support import FakeGitHub, MemoryPublisher, PollGitHub, agent, config, issue, pr, observation_writer_command, stub_refresh
 
 

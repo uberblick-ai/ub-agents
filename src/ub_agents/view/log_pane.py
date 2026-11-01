@@ -9,9 +9,9 @@ from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.widgets import TabbedContent
 
-from .view_scroll import ScrollbarVisibility
-from .view_theme import log_style
-from .view_widgets import pane_line
+from .scroll import ScrollbarVisibility
+from .theme import log_style
+from .widgets import pane_line
 
 MAX_RENDER_LINES = 400
 

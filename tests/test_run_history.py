@@ -17,8 +17,8 @@ from ub_agents.observations import MAX_BYTES, MAX_OUTCOMES, MAX_TEXT, Observatio
 from ub_agents.records import display_provenance, iso
 from ub_agents.run_history import merge_record
 from ub_agents.observation_worker import write_snapshot
-from ub_agents.view_data import Session, history_path, item_history, load_session, work_rows
-from ub_agents.view_runs import relative_time, run_host, run_status, runs_view
+from ub_agents.view.data import Session, history_path, item_history, load_session, work_rows
+from ub_agents.view.runs import relative_time, run_host, run_status, runs_view
 from tests.support import FakeGitHub, MemoryPublisher, agent, config, issue, pr
 
 
@@ -82,7 +82,7 @@ class RunsTests(unittest.TestCase):
         self.addCleanup(time.tzset)
         with patch.dict(os.environ, {'TZ': 'America/New_York'}):
             time.tzset()
-            with patch('ub_agents.view_runs.datetime', wraps=datetime) as clock:
+            with patch('ub_agents.view.runs.datetime', wraps=datetime) as clock:
                 clock.now.return_value = datetime(2026, 11, 3, 1, tzinfo=timezone(timedelta(hours=-5)))
                 self.assertEqual(relative_time('2026-10-27T04:30:00Z'), '2026-10-27')
 
@@ -296,8 +296,8 @@ class RunsTests(unittest.TestCase):
         row = next(row for row in work_rows(session, self.root) if row.item == 1)
         other = history_path(snapshot, '2')
         other.write_text('malformed history')
-        from ub_agents.view_data import read_json
-        with patch('ub_agents.view_data.read_json', wraps=read_json) as read:
+        from ub_agents.view.data import read_json
+        with patch('ub_agents.view.data.read_json', wraps=read_json) as read:
             self.assertEqual(len(item_history(row, session, full=True)['runs']), 1)
         self.assertEqual(read.call_args_list, [unittest.mock.call(history_path(snapshot, '1'), limit=None)])
         path = history_path(snapshot, '1')

@@ -9,9 +9,9 @@ from rich.console import Console
 from rich.text import Text
 from textual.geometry import Region
 
-from ub_agents.view_data import Pane, Section, WorkRow
-from ub_agents.view_work import WorkTree, work_lines
-from ub_agents.view_theme import VIEW_THEME, theme_style
+from ub_agents.view.data import Pane, Section, WorkRow
+from ub_agents.view.work import WorkTree, work_lines
+from ub_agents.view.theme import VIEW_THEME, theme_style
 
 
 class WorkTreeTests(unittest.TestCase):

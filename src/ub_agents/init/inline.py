@@ -6,7 +6,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Input, Static
 
-from .init_prompts import CYAN, DIM, GREEN, RED
+from .prompts import CYAN, DIM, GREEN, RED
 
 
 class Question(App):

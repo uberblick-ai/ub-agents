@@ -16,27 +16,27 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tree
 
-from .view_clipboard import copy_with_pbcopy, local_pbcopy
-from .view_data import (context_header, context_text, item_header, item_history, mapping,
+from .clipboard import copy_with_pbcopy, local_pbcopy
+from .data import (context_header, context_text, item_header, item_history, mapping,
                         related_assignment, related_plan, text, work_pane)
-from .view_github import DescriptionLoads
-from .view_log_pane import LogPane, MAX_RENDER_LINES, Reading
-from .view_markdown import description_parser
-from .view_unblock import (ActionComment, comment_sections, local_action, needs_attention,
+from .github import DescriptionLoads
+from .log_pane import LogPane, MAX_RENDER_LINES, Reading
+from .markdown import description_parser
+from .unblock import (ActionComment, comment_sections, local_action, needs_attention,
                            resume_section, trust_reason, unblock_body)
-from .view_runs import run_status as history_status, runs_view
-from .view_spinner import SPINNER_FPS
-from .view_status import (StatusStyles, empty_log_message, footer, header, key_hints, log_mode,
+from .runs import run_status as history_status, runs_view
+from .spinner import SPINNER_FPS
+from .status import (StatusStyles, empty_log_message, footer, header, key_hints, log_mode,
                           log_notices, pane_line, paused_pill, run_status_line)
-from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
-from .view_widgets import (ConfigurationPause, HealthBanner, ItemHeader, ItemTabs, KeyHelp, RawAccess, SIZE_WARNING,
+from .scroll import PaneScroll, ScrollbarVisibility, scroll_action
+from .widgets import (ConfigurationPause, HealthBanner, ItemHeader, ItemTabs, KeyHelp, RawAccess, SIZE_WARNING,
                            UpdateBanner)
-from .view_worker import LocalWorker, Request
-from .view_work import RecentActivity, WorkTree, assignment_elapsed
-from .view_theme import VIEW_THEME, item_reference, theme_style, variable_defaults
-from .poll_now import COOLDOWN_SECONDS
-from .log_format import inert
-from .view_time import deadline as poll_deadline, pause_status, plan_pauses, remaining_time, runtime_pauses
+from .worker import LocalWorker, Request
+from .work import RecentActivity, WorkTree, assignment_elapsed
+from .theme import VIEW_THEME, item_reference, theme_style, variable_defaults
+from ..poll_now import COOLDOWN_SECONDS
+from ..log_format import inert
+from .time import deadline as poll_deadline, pause_status, plan_pauses, remaining_time, runtime_pauses
 
 
 class View(App):

@@ -11,12 +11,12 @@ from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.widgets import Tree
 
-from .view_data import attention_agents, item_handoff, mapping, rows, text
-from .view_scroll import ScrollbarVisibility
-from .view_spinner import spinner_frame
-from .attention import attention_state, waiting_time
-from .view_theme import SECTION_COLORS, item_reference, theme_style
-from .view_time import pause_status, plan_pauses, runtime_pauses
+from .data import attention_agents, item_handoff, mapping, rows, text
+from .scroll import ScrollbarVisibility
+from .spinner import spinner_frame
+from ..attention import attention_state, waiting_time
+from .theme import SECTION_COLORS, item_reference, theme_style
+from .time import pause_status, plan_pauses, runtime_pauses
 
 
 def section_rule(label, width, style):

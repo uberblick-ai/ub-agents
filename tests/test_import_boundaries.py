@@ -1,7 +1,9 @@
-"""Keep the source dependency directions needed by the future view/log packages."""
+"""Keep core imports independent of the terminal view and log import cycles."""
 
 import ast
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 
@@ -23,7 +25,7 @@ def imported_modules(source):
 
 
 def is_view(module):
-    return module == 'view' or module.startswith('view_')
+    return module == 'view'
 
 
 class ImportBoundaryTests(unittest.TestCase):
@@ -42,12 +44,29 @@ class ImportBoundaryTests(unittest.TestCase):
                          'log_format and log_json must have at most one import direction')
 
     def test_import_scan_includes_local_and_aliased_imports(self):
-        for statement in ('from .view_data import ELIGIBLE_LIMIT',
-                          'from . import view_data as data',
-                          'from ub_agents.view_data import Session',
-                          'from ub_agents import view_data as data',
-                          'import ub_agents.view_data as data',
-                          'import view_data'):
+        for statement in ('from .view.data import ELIGIBLE_LIMIT',
+                          'from .view import data',
+                          'from . import view as data',
+                          'from ub_agents.view.data import Session',
+                          'from ub_agents.view import data',
+                          'from ub_agents import view as data',
+                          'import ub_agents.view.data',
+                          'import ub_agents.view.data as data',
+                          'import view'):
             with self.subTest(statement=statement):
-                self.assertIn('view_data', imported_modules('def local():\n    ' + statement))
-        self.assertEqual(imported_modules('"from .view_data import Session"\n# import view_data'), set())
+                self.assertIn('view', imported_modules('def local():\n    ' + statement))
+        self.assertEqual(imported_modules('"from .view.data import Session"\n# import view'), set())
+
+    def test_package_submodules_load_independently_without_textual(self):
+        for module in ('init.setup', 'view.request'):
+            with self.subTest(module=module):
+                script = f'''
+import importlib
+import sys
+importlib.import_module('ub_agents.{module}')
+package = 'ub_agents.{module.split('.')[0]}'
+assert {{name for name in sys.modules if name.startswith(package + '.')}} == {{'ub_agents.{module}'}}
+assert not any(name == 'textual' or name.startswith('textual.') for name in sys.modules)
+'''
+                result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)

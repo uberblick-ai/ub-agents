@@ -9,9 +9,9 @@ from textual import events
 from tests.support import RecordingDescriptionTransport
 from tests.test_view_data import event, fixture, publish_snapshot
 from tests.terminal import Terminal
-from ub_agents.view_github import DescriptionLoads
-from ub_agents.view_ui import LogPane, View
-from ub_agents.view_work import RecentActivity, WorkTree
+from ub_agents.view.github import DescriptionLoads
+from ub_agents.view.ui import LogPane, View
+from ub_agents.view.work import RecentActivity, WorkTree
 
 
 def recent_fixture(root):
@@ -35,7 +35,7 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path, self.state = recent_fixture(self.root)
-        clock_patch = patch('ub_agents.view_scroll.monotonic', return_value=100)
+        clock_patch = patch('ub_agents.view.scroll.monotonic', return_value=100)
         self.clock = clock_patch.start()
         self.addCleanup(clock_patch.stop)
 
@@ -285,8 +285,8 @@ class RecentActivityTerminalTests(unittest.TestCase):
             proof = root / 'proof.json'
             script = '''
 import pathlib, sys
-from ub_agents.view_ui import LogPane, View
-from ub_agents.view_work import RecentActivity, WorkTree
+from ub_agents.view.ui import LogPane, View
+from ub_agents.view.work import RecentActivity, WorkTree
 class ProofView(checkpoint_view(View, sys.argv[3])):
     def proof_values(self):
         tree, recent = self.query_one(WorkTree), self.query_one(RecentActivity)

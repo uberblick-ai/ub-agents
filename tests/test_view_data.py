@@ -11,12 +11,12 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from ub_agents.view import main
-from ub_agents.view_data import (Description, POINTERS_LIMIT, Session, choose_session, item_context, load_session,
+from ub_agents.view.main import main
+from ub_agents.view.data import (Description, POINTERS_LIMIT, Session, choose_session, item_context, load_session,
                                  item_header, item_history, local_description, outcome_text, outcomes_today, read_json,
                                  run_status, text, work_pane, work_rows)
-from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
-from ub_agents.view_worker import LocalWorker, Request
+from ub_agents.view.logs import FileChanged, PAGE_BYTES, ViewReader
+from ub_agents.view.worker import LocalWorker, Request
 from ub_agents.config import Queue
 from ub_agents.eligibility import AgentMatches, check_start
 from tests.support import agent, issue
@@ -431,7 +431,7 @@ class WorkPaneTests(unittest.TestCase):
         self.assertEqual(pane.selected, 'plan:114')
         self.data['latest_pass']['rows'] = []
         self.assertEqual(self.pane().selected, 'outcome:previous-run')
-        code = 'import sys; import ub_agents.view_data; assert "textual" not in sys.modules'
+        code = 'import sys; import ub_agents.view.data; assert "textual" not in sys.modules'
         result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -722,7 +722,7 @@ class ViewDataTests(unittest.TestCase):
         self.assertIn('BLOCKED: needs-human', outcome_text(session))
         self.state['latest_pass']['rows'][0]['description'] = {'available': True, 'text': 'snapshot body'}
         session = Session(self.path, self.state)
-        with patch('ub_agents.view_data.read_json', side_effect=AssertionError('unneeded local context read')):
+        with patch('ub_agents.view.data.read_json', side_effect=AssertionError('unneeded local context read')):
             self.assertIn('snapshot body', item_context(work[0], session))
 
     def test_description_whitespace_and_all_other_controls_are_inert(self):
@@ -1026,7 +1026,7 @@ class ViewLogTests(unittest.TestCase):
                     observed.append(info)
                     return info
 
-                with patch('ub_agents.view_logs.os.fstat', side_effect=append):
+                with patch('ub_agents.view.logs.os.fstat', side_effect=append):
                     page = reader.older(end, reader.resets)
                 self.assertEqual(page, expected)
                 self.assertEqual(len(observed), 2)
@@ -1060,7 +1060,7 @@ class ViewLogTests(unittest.TestCase):
                     observed.append(info)
                     return info
 
-                with patch('ub_agents.view_logs.os.fstat', side_effect=rewrite), self.assertRaises(FileChanged):
+                with patch('ub_agents.view.logs.os.fstat', side_effect=rewrite), self.assertRaises(FileChanged):
                     reader.older(end, reader.resets)
                 self.assertEqual(len(observed), 2)
                 if not append:
@@ -1089,7 +1089,7 @@ class ViewLogTests(unittest.TestCase):
                             stream.write(b'appended\n')
                     return fstat(fd)
 
-                with patch('ub_agents.view_logs.os.fstat', side_effect=rewrite), self.assertRaises(FileChanged):
+                with patch('ub_agents.view.logs.os.fstat', side_effect=rewrite), self.assertRaises(FileChanged):
                     reader.older(end, reader.resets)
 
     def test_truncation_during_older_read_discards_result(self):
@@ -1107,7 +1107,7 @@ class ViewLogTests(unittest.TestCase):
                     stream.truncate(reader.page().start)
             return fstat(fd)
 
-        with patch('ub_agents.view_logs.os.fstat', side_effect=truncate), self.assertRaises(FileChanged):
+        with patch('ub_agents.view.logs.os.fstat', side_effect=truncate), self.assertRaises(FileChanged):
             reader.older(reader.page().start, reader.resets)
 
     def test_truncation_of_unread_append_during_older_read_discards_result(self):
@@ -1127,7 +1127,7 @@ class ViewLogTests(unittest.TestCase):
                     stream.truncate(reader.size + 1)
             return fstat(fd)
 
-        with patch('ub_agents.view_logs.os.fstat', side_effect=truncate), self.assertRaises(FileChanged):
+        with patch('ub_agents.view.logs.os.fstat', side_effect=truncate), self.assertRaises(FileChanged):
             reader.older(reader.page().start, reader.resets)
 
 

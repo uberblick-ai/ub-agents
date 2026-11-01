@@ -6,9 +6,9 @@ import re
 import time
 from typing import ClassVar
 
-from .view_data import Description, attention_agents, description_text, mapping, text
-from .attention import attention_state, notice_summary, short_reason, stamp, waiting_time
-from .notices import notice_reason, outcome_resume, retry_command
+from .data import Description, attention_agents, description_text, mapping, text
+from ..attention import attention_state, notice_summary, short_reason, stamp, waiting_time
+from ..notices import notice_reason, outcome_resume, retry_command
 
 ACTION_MARKER = '<!-- ub-agents:action-needed '
 LINKS = re.compile(r'^\[Claim\]\(.*?\) · (?:\[Outcome\]\(.*?\)|No outcome was reported\.)$')

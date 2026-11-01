@@ -47,7 +47,7 @@ def formula(*packages):
             '    virtualenv_install_with_resources\n'
             '  end\n\n'
             '  test do\n'
-            '    system libexec/"bin/python", "-c", "from ub_agents.view_ui import View"\n'
+            '    system libexec/"bin/python", "-c", "from ub_agents.view.ui import View"\n'
             '  end\n'
             'end\n')
 
@@ -490,7 +490,7 @@ class ReleaseTests(unittest.TestCase):
         self.respond([cli, "init", "--repository", "example/project"], "Created configuration.\n")
         self.respond([cli, "doctor", "--offline"], "0 required failures, 0 warnings\n"
                      "Approvals: from repository visibility (public: on; private/internal: off)\n")
-        self.respond([interpreter, "-c", "from ub_agents.view_ui import View"])
+        self.respond([interpreter, "-c", "from ub_agents.view.ui import View"])
         self.downloads = []
 
         def fetch(url, path):
@@ -536,7 +536,7 @@ class ReleaseTests(unittest.TestCase):
         for index in (init_index, remote_index):
             self.assertEqual(self.runner.calls[index][1]["cwd"], self.workspace / "test-project")
         test_calls = [(call, kwargs) for call, kwargs in self.runner.calls
-                      if call[0].endswith("ub-agents") or "from ub_agents.view_ui import View" in call]
+                      if call[0].endswith("ub-agents") or "from ub_agents.view.ui import View" in call]
         self.assertEqual(len(test_calls), 4)
         self.assertTrue(all(kwargs["cwd"] == self.workspace / "test-project" for _, kwargs in test_calls))
         self.assertFalse(any("merge" in call or "--force" in call or "-d" in call for call in args))

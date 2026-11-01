@@ -5,11 +5,11 @@ from textual.binding import Binding
 from textual.screen import ModalScreen
 from textual.widgets import Static, TabbedContent, Tabs
 
-from .updates import release_age
-from .view_data import mapping, text
-from .view_scroll import PaneScroll
-from .view_status import pane_line
-from .launcher_lock import configuration_pause_summary
+from ..updates import release_age
+from .data import mapping, text
+from .scroll import PaneScroll
+from .status import pane_line
+from ..launcher_lock import configuration_pause_summary
 
 SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
 

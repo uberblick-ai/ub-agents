@@ -12,10 +12,10 @@ from rich.console import Console
 from rich.style import Style
 from rich.text import Text
 
-from ub_agents.view_data import Description, Session, WorkRow
-from ub_agents.view_status import (StatusStyles, empty_log_message, footer, header, key_hints, log_mode,
+from ub_agents.view.data import Description, Session, WorkRow
+from ub_agents.view.status import (StatusStyles, empty_log_message, footer, header, key_hints, log_mode,
                                    log_notices, pane_line, paused_pill, run_status_line)
-from ub_agents.view_unblock import ActionComment
+from ub_agents.view.unblock import ActionComment
 
 NOW = datetime(2026, 10, 5, 20, tzinfo=timezone.utc)
 STYLES = StatusStyles(Style(color='grey50'), Style(color='magenta'), Style(color='red'), Style(color='yellow'))
@@ -36,7 +36,7 @@ class FooterTests(unittest.TestCase):
         return footer(self.session, width, keys, **({'now': NOW, 'monotonic_now': 100} | values))
 
     def test_full_footer_and_countdown_use_supplied_wall_clock(self):
-        with patch('ub_agents.view_data.datetime', wraps=datetime) as clock:
+        with patch('ub_agents.view.data.datetime', wraps=datetime) as clock:
             clock.now.side_effect = AssertionError('unexpected clock read')
             line = self.render(now=NOW + timedelta(seconds=4))
         self.assertTrue(line.plain.startswith('ub-agents v9.8.7 · example/repo · next poll 26s'))
@@ -283,9 +283,9 @@ class StatusTextTests(unittest.TestCase):
     def test_status_module_imports_without_textual_or_view_ui(self):
         script = """
 import sys
-from ub_agents import view_status
+from ub_agents.view import status as view_status
 assert not any(name == 'textual' or name.startswith('textual.') for name in sys.modules)
-assert 'ub_agents.view_ui' not in sys.modules
+assert 'ub_agents.view.ui' not in sys.modules
 """
         result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -10,9 +10,9 @@ import stat
 import time
 from typing import ClassVar
 
-from .log_format import CONTROLS, inert
-from .attention import attention_state, stamp
-from .observation_data import (ELIGIBLE_LIMIT, WORK_GROUPS, WorkRow, history_path, mapping,
+from ..log_format import CONTROLS, inert
+from ..attention import attention_state, stamp
+from ..observation_data import (ELIGIBLE_LIMIT, WORK_GROUPS, WorkRow, history_path, mapping,
                                omitted_plan, own_run, plan_group, rows, runtime_type, text,
                                work_rows as snapshot_rows)
 
@@ -340,7 +340,7 @@ class Description:
         object.__setattr__(self, 'body_digest', sha256(body.encode('utf-8')).hexdigest())
         pointers = ''
         if self.extract_pointers and body:
-            from .view_markdown import pointer_sections
+            from .markdown import pointer_sections
             body, pointers = pointer_sections(body)
         pointer_notices = []
         if len(pointers) > POINTERS_LIMIT:

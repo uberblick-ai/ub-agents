@@ -7,8 +7,8 @@ from unittest.mock import patch
 from tests.support import SetupGitHub
 from ub_agents.config import load_config
 from ub_agents.errors import AgentError
-from ub_agents.init_boards import Boards
-from ub_agents.init_setup import Choices, apply_plan, make_plan
+from ub_agents.init.boards import Boards
+from ub_agents.init.setup import Choices, apply_plan, make_plan
 
 
 class BoardSetupTests(unittest.TestCase):

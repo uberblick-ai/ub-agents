@@ -36,10 +36,10 @@ from textual.binding import Binding
 from textual.widgets import Markdown
 from tests.support import RecordingDescriptionTransport
 from tests.test_view_unblock import AUTHORS, comment, comments_reply
-from ub_agents.view_github import DescriptionLoads, parse_response
-from ub_agents.view_ui import ItemTabs, View
-from ub_agents.view_unblock import stamp
-from ub_agents.view_work import WorkTree
+from ub_agents.view.github import DescriptionLoads, parse_response
+from ub_agents.view.ui import ItemTabs, View
+from ub_agents.view.unblock import stamp
+from ub_agents.view.work import WorkTree
 transport = RecordingDescriptionTransport()
 class ProofView(checkpoint_view(View, sys.argv[3])):
     BINDINGS = [Binding('a', 'select_attention', priority=True),
