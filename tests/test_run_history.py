@@ -168,7 +168,9 @@ class RunsTests(unittest.TestCase):
                 published = self.memory.histories[-1]['1']['runs']
                 self.assertEqual(published[0]['denials'], denials)
                 self.assertNotIn('denials', published[1])
-                for width in (50, 60, 110):
+                # A two-digit denial suffix needs four cells beyond the 51-cell
+                # context threshold to retain its leading outcome character.
+                for width in (50, 55, 60, 110):
                     value, view = self.display(width=width)
                     table = list(view.renderables)[1]
                     self.assertEqual(len(table.rows), 2)
@@ -185,7 +187,7 @@ class RunsTests(unittest.TestCase):
                                 ('approved', ('needs-human',)), ('審査中' * 20, ())):
             with self.subTest(outcome=label, blockers=blockers):
                 self.plan(issue(labels=blockers), (outcome(outcome=label, handoff=None, denials=denials),))
-                for width in (50, 60, 110):
+                for width in (50, 54, 60, 110):
                     value, view = self.display(width=width)
                     self.assertEqual(len(value.splitlines()), 3)
                     self.assertTrue(value.splitlines()[-1].rstrip().endswith(' · 4 denied'))
@@ -237,7 +239,7 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(published[1]['usage'], {'tokens': 1200000})
         self.assertNotIn('usage', published[2])
         self.assertNotIn('usage', published[3])
-        for width in (50, 60, 110):
+        for width in (50, 54, 60, 110):
             with self.subTest(width=width):
                 value, view = self.display(width=width)
                 table = list(view.renderables)[1]

@@ -39,6 +39,11 @@ class RunsTable(Table):
             # those minimums and take any excess from text with room to spare.
             minimums = [width + self._get_padding_width(index) for index, width in
                         enumerate((*self.minimum_widths, self.columns[-1].width))]
+            # Preserve denial suffixes whenever space beyond the base minimums
+            # allows, without raising the context column's visibility threshold.
+            outcome_minimum = self._measure_column(console, options, self.columns[4]).minimum
+            spare = max(0, options.max_width - sum(minimums))
+            minimums[4] += min(spare, max(0, outcome_minimum - minimums[4]))
             widths = [max(width, minimum) for width, minimum in zip(widths, minimums)]
             excess = max(0, sum(widths) - options.max_width)
             for index in (2, 3, 4, 5):
