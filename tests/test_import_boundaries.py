@@ -4,7 +4,9 @@ import ast
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SOURCE = Path(__file__).resolve().parents[1] / 'src' / 'ub_agents'
@@ -30,12 +32,29 @@ def is_view(module):
 
 class ImportBoundaryTests(unittest.TestCase):
     def test_core_does_not_import_terminal_view(self):
-        for path in sorted(SOURCE.glob('*.py')):
-            if is_view(path.stem):
+        for path in sorted(SOURCE.rglob('*.py')):
+            relative = path.relative_to(SOURCE)
+            if relative.parts[0] == 'view':
                 continue
-            with self.subTest(module=path.stem):
+            with self.subTest(module=str(relative)):
                 forbidden = sorted(module for module in imported_modules(path.read_text()) if is_view(module))
-                self.assertEqual(forbidden, [], f'{path.name} imports terminal view modules: {forbidden}')
+                self.assertEqual(forbidden, [], f'{relative} imports terminal view modules: {forbidden}')
+
+    def test_core_scan_includes_setup_modules_and_excludes_view_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            for module, statement in (('core.py', 'import json'),
+                                      ('init/setup.py', 'from ..view.data import Session'),
+                                      ('view/ui.py', 'from . import view')):
+                path = source / module
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(statement)
+            result = unittest.TestResult()
+            with patch(__name__ + '.SOURCE', source):
+                ImportBoundaryTests('test_core_does_not_import_terminal_view').run(result)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(len(result.failures), 1)
+        self.assertIn('init/setup.py imports terminal view modules', result.failures[0][1])
 
     def test_log_format_and_json_do_not_import_each_other(self):
         formats = imported_modules((SOURCE / 'log_format.py').read_text())
@@ -45,7 +64,9 @@ class ImportBoundaryTests(unittest.TestCase):
 
     def test_import_scan_includes_local_and_aliased_imports(self):
         for statement in ('from .view.data import ELIGIBLE_LIMIT',
+                          'from ..view.data import ELIGIBLE_LIMIT',
                           'from .view import data',
+                          'from .. import view as data',
                           'from . import view as data',
                           'from ub_agents.view.data import Session',
                           'from ub_agents.view import data',

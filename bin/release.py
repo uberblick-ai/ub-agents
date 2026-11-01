@@ -24,6 +24,7 @@ WORKFLOW = "test.yml"
 STEPS = ("annotated tag created", "tag pushed", "GitHub release created",
          "tap PR opened", "formula tests passed", "formula test result posted")
 RESOURCE = re.compile(r'^  resource "([^"\n]+)" do\n(?:    [^\n]*\n|\n)*  end\n', re.M)
+VIEW_IMPORT = "from ub_agents.view.ui import View"
 
 
 class ReleaseError(Exception):
@@ -192,8 +193,13 @@ def resource_block(resource):
 def update_formula(formula, url, digest, resolved):
     if '  depends_on "python@3.14"' not in formula:
         raise ReleaseError("formula Python check: expected python@3.14")
+    formula, count = re.subn(
+        r'^    system libexec/"bin/python", "-c", "from ub_agents\.view(?:_ui|\.ui) import View"$',
+        lambda _: f'    system libexec/"bin/python", "-c", "{VIEW_IMPORT}"', formula, flags=re.M)
+    if count != 1:
+        raise ReleaseError("formula view import check: expected one terminal view import test")
     old = resources(formula)
-    # Only the two top-level fields change; resource fields have four spaces.
+    # Resource fields have four spaces, so only the top-level fields match.
     for field, value in (("url", url), ("sha256", digest)):
         formula, count = re.subn(rf'^  {field} "[^"\n]+"$', lambda _: f'  {field} "{value}"', formula, flags=re.M)
         if count != 1:
@@ -276,7 +282,7 @@ def test_formula(run, fetch, python, workspace, archive, formula, version):
     for args, expected_output in (([cli, "--version"], f"ub-agents {version}"),
                                  ([cli, "init", "--repository", "example/project"], None),
                                  ([cli, "doctor", "--offline"], "0 required failures"),
-                                 ([interpreter, "-c", "from ub_agents.view.ui import View"], None)):
+                                 ([interpreter, "-c", VIEW_IMPORT], None)):
         label = ' '.join(str(arg) for arg in args[1:])
         output = command(run, args, cwd=project).stdout.strip()
         if expected_output is not None and expected_output not in output:
