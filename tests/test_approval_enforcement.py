@@ -48,7 +48,7 @@ class EnforcementTests(unittest.TestCase):
         self.assertEqual((rows[0]['state'], rows[0]['attempts']), ('parked', 0))
         self.assertIn(reason, rows[0]['reason'])
         self.assertEqual(self.github.writes, before)  # status is always read-only
-        with patch('ub_agents.loop.supervise') as run:
+        with patch('ub_agents.assignment_run.supervise') as run:
             self.assertFalse(self.loop.tick())
         run.assert_not_called()
         if writes:
@@ -73,7 +73,7 @@ class EnforcementTests(unittest.TestCase):
             lease = self.loop.coordinator.history(context['assignment'])[-1]
             self.loop.coordinator.report(lease, 'success', 'Completed', outcome='done')
             return 0
-        with patch('ub_agents.loop.supervise', side_effect=run) as run_mock:
+        with patch('ub_agents.assignment_run.supervise', side_effect=run) as run_mock:
             self.assertTrue(self.loop.tick())
         run_mock.assert_called_once()
 
@@ -227,7 +227,7 @@ class EnforcementTests(unittest.TestCase):
                 self.github.timelines[1] = []
                 error = GitHubError('POST', 'synthetic', 'Write unavailable')
                 with patch.object(self.github, operation, side_effect=error) as write, \
-                        patch('ub_agents.loop.supervise') as run:
+                        patch('ub_agents.assignment_run.supervise') as run:
                     for _ in range(3):
                         self.assertFalse(self.loop.tick())
                 write.assert_called_once()
@@ -271,7 +271,7 @@ class EnforcementTests(unittest.TestCase):
                             self.loop.coordinator.update(lease, retry_after='2099-01-01T00:00:00Z')
                 self.github.timelines[1] = []
                 before = self.github.writes[:]
-                with patch('ub_agents.loop.supervise') as run:
+                with patch('ub_agents.assignment_run.supervise') as run:
                     self.assertFalse(self.loop.tick())
                 run.assert_not_called()
                 self.assertEqual(self.github.writes, before)
@@ -345,7 +345,7 @@ class EnforcementTests(unittest.TestCase):
             lease = original(*args, **kwargs)
             self.outside_edit()
             return lease
-        with patch.object(self.loop.coordinator, 'claim', side_effect=claim), patch('ub_agents.loop.supervise') as run:
+        with patch.object(self.loop.coordinator, 'claim', side_effect=claim), patch('ub_agents.assignment_run.supervise') as run:
             self.assertTrue(self.loop.tick())
         run.assert_not_called()
         history = self.loop.coordinator.history(1)
@@ -490,7 +490,7 @@ class EnforcementTests(unittest.TestCase):
             lease = original(*args, **kwargs)
             self.github.change(2, head='b' * 40)
             return lease
-        with patch.object(self.loop.coordinator, 'claim', side_effect=claim), patch('ub_agents.loop.supervise') as run:
+        with patch.object(self.loop.coordinator, 'claim', side_effect=claim), patch('ub_agents.assignment_run.supervise') as run:
             self.assertTrue(self.loop.tick())
         run.assert_not_called()
         history = self.loop.coordinator.history(2)
@@ -633,7 +633,7 @@ class EnforcementTests(unittest.TestCase):
             lease = original(*args, **kwargs)
             self.github.content_histories[1] = {'lastEditedAt': at(10), 'edits': []}
             return lease
-        with patch.object(self.loop.coordinator, 'claim', side_effect=claim), patch('ub_agents.loop.supervise') as run:
+        with patch.object(self.loop.coordinator, 'claim', side_effect=claim), patch('ub_agents.assignment_run.supervise') as run:
             self.assertTrue(self.loop.tick())
         run.assert_not_called()
         history = self.loop.coordinator.history(1)

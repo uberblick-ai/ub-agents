@@ -53,7 +53,7 @@ class TransitionTests(unittest.TestCase):
             if callback:
                 callback(outcome)
             return exit_code
-        with patch('ub_agents.loop.supervise', side_effect=supervise):
+        with patch('ub_agents.assignment_run.supervise', side_effect=supervise):
             return self.loop.tick()
 
     def labels_changed(self):
@@ -113,7 +113,7 @@ class TransitionTests(unittest.TestCase):
         self.assertTrue(outcome['transition']['started'])
         self.assertFalse(outcome.get('transition_complete'))
         self.now += 61
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(self.new_loop().tick())
         self.assertIn('outside-input', self.github.item(2).labels)
         self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
@@ -173,7 +173,7 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.loop.coordinator.history(2), [])
         self.now += 61
         with patch('ub_agents.coordination.shutil.which', return_value='installed'), \
-                patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+                patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.new_loop().tick()
         copied, = self.loop.coordinator.history(2)
         self.assertTrue(copied['accepted'])
@@ -196,7 +196,7 @@ class TransitionTests(unittest.TestCase):
             self.assertEqual(self.reviewer_plan(reviewer).state, 'blocked')
             self.now += 61
             self.assertEqual(self.reviewer_plan(reviewer).state, 'blocked')
-            with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+            with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
                 self.new_loop(self.agent, reviewer).tick()
             plan = self.reviewer_plan(reviewer)
         self.assertEqual((plan.state, plan.runtime), ('ready', reviewer.runtimes[1]))
@@ -259,7 +259,7 @@ class TransitionTests(unittest.TestCase):
                                        'changes': {'add': ('needs-changes',), 'remove': ()}})
         self.github.items = {1: replace(pr(1, labels=('ready-to-merge', 'unrelated')), mergeable=False)}
         self.loop = self.new_loop()
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('agent started')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('agent started')):
             self.assertTrue(self.loop.tick())
         self.assertEqual(self.github.item(1).labels, {'needs-changes', 'unrelated'})
         lease, outcome = self.loop.coordinator.history(1)
@@ -300,7 +300,7 @@ class TransitionTests(unittest.TestCase):
                 self.assertEqual(self.labels_changed(), [])
                 self.github.change(number, labels=self.github.item(number).labels - {'needs-human'})
                 self.now += 61
-                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+                with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
                     self.assertFalse(self.new_loop().tick())
                 self.assertEqual(self.labels_changed(), [])
 
@@ -314,7 +314,7 @@ class TransitionTests(unittest.TestCase):
         self.assertIn('paused', self.loop.coordinator.history(1)[1]['rejected'])
         self.github.change(2, labels=frozenset())
         self.now += 61
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.new_loop().tick()
         self.assertFalse(self.loop.coordinator.history(1)[1]['accepted'])
         self.assertEqual(self.labels_changed(), [])
@@ -343,7 +343,7 @@ class TransitionTests(unittest.TestCase):
         self.now += 61
         changed = replace(self.agent, outcomes={'new': {'add': ('wrong',), 'remove': ()}})
         restarted = self.new_loop(changed)
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)
         self.assertTrue(history[1]['accepted'])
@@ -359,7 +359,7 @@ class TransitionTests(unittest.TestCase):
         self.now += 61
         changed = replace(self.agent, triggers=('needs-changes', 'different'),
                           outcomes={'new': {'add': ('wrong',), 'remove': ()}})
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(self.new_loop(changed).tick())
         self.assertEqual(self.github.item(1).labels, {'unrelated'})
         self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
@@ -379,7 +379,7 @@ class TransitionTests(unittest.TestCase):
         self.assertFalse(outcome['accepted'])
         self.now += 61
         restarted = self.new_loop()
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             restarted.tick()
         self.assertEqual(self.github.item(1).labels, {'unrelated', 'needs-human'})
         self.assertEqual(self.github.item(2).labels, {'unrelated', 'needs-review'})
@@ -409,7 +409,7 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(execute.call_args.args[0].item.number, 3)
         self.assertFalse(restarted.coordinator.history(1)[1]['accepted'])
         self.github.change(3, labels=frozenset({'urgent'}))
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)
         self.assertTrue(history[1]['accepted'])
@@ -427,7 +427,7 @@ class TransitionTests(unittest.TestCase):
                 self.execute(handoff=2)
         self.assertEqual(self.loop.coordinator.history(1)[0]['state'], 'running')
         self.now += 61
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.new_loop().tick()
         self.assertTrue(self.loop.coordinator.history(1)[1]['accepted'])
 
@@ -478,7 +478,7 @@ class TransitionTests(unittest.TestCase):
                 self.now += 61
                 restarted = self.new_loop()
                 self.assertEqual(restarted.plans()[0].state, 'recover')
-                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must recover without rerunning')):
+                with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must recover without rerunning')):
                     self.assertTrue(restarted.tick())
                 history = restarted.coordinator.history(1)
                 self.assertTrue(history[1]['accepted'])
@@ -594,7 +594,7 @@ class TransitionTests(unittest.TestCase):
                         self.github.add_labels(1, (label,))
                         restarted = self.new_loop()
                     self.assertEqual(restarted.plans()[0].state, 'recover')
-                    with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not reexecute')):
+                    with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not reexecute')):
                         self.assertTrue(restarted.tick())
                     history = restarted.coordinator.history(1)
                     self.assertTrue(history[1]['accepted'])
@@ -626,7 +626,7 @@ class TransitionTests(unittest.TestCase):
         previous_writes = self.labels_changed()
         self.now += 61
         restarted = self.new_loop(self.agent, reviewer)
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)
         outcome = history[1]
@@ -660,7 +660,7 @@ class TransitionTests(unittest.TestCase):
                 self.claim_and_report(handoff=2)
                 self.github.change(2, **changes)
                 self.now += 61
-                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+                with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
                     self.new_loop().tick()
                 history = self.loop.coordinator.history(1)
                 self.assertEqual(history[-2]['result'], 'blocked')
@@ -683,7 +683,7 @@ class TransitionTests(unittest.TestCase):
         self.github.change(1, head='b' * 40)
         self.now += 61
         restarted = self.new_loop()
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)
         self.assertTrue(history[1]['accepted'])
@@ -727,7 +727,7 @@ class TransitionTests(unittest.TestCase):
         restarted = self.new_loop()
         self.assertEqual(restarted.plans()[0].state, 'blocked')
         self.assertEqual(len(attempts(restarted.coordinator.history(1), self.agent.name, self.now)), 1)
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not retry')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not retry')):
             self.assertFalse(restarted.tick())
 
     def test_retry_blocked_timeout_and_interrupt_change_no_labels(self):
@@ -794,7 +794,7 @@ class TransitionTests(unittest.TestCase):
             self.report()
             return 0
         with patch('ub_agents.coordination.shutil.which', return_value='/bin/true'), \
-                patch('ub_agents.loop.supervise', side_effect=execute):
+                patch('ub_agents.assignment_run.supervise', side_effect=execute):
             self.loop.tick()
 
     def test_github_label_api_adds_only_named_labels_and_handles_empty_delete(self):
@@ -833,7 +833,7 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(execute.call_args.args[0].item.number, 3)
         self.assertFalse(restarted.coordinator.history(1)[1]['accepted'])
         self.github.change(3, labels=frozenset({'urgent'}))
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)
         self.assertTrue(history[1]['accepted'])

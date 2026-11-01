@@ -43,7 +43,7 @@ class StarterWorkflowTests(unittest.TestCase):
             self.loop.coordinator.report(lease, 'success', summary, outcome=outcome)
             return 0
 
-        with patch('ub_agents.loop.supervise', side_effect=supervise) as executed:
+        with patch('ub_agents.assignment_run.supervise', side_effect=supervise) as executed:
             self.loop.execute(plan)
         executed.assert_called_once()
         report = self.loop.coordinator.history(number)[-1]

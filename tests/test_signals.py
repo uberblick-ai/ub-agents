@@ -68,7 +68,7 @@ class SignalTests(unittest.TestCase):
                 self.assertEqual(main(["report", "--outcome", "done", "--summary", "Finished"]), 0)
             return code
 
-        with patch("ub_agents.loop.supervise", side_effect=run):
+        with patch("ub_agents.assignment_run.supervise", side_effect=run):
             result = self.launch()
         return result, marker
 
@@ -83,7 +83,7 @@ class SignalTests(unittest.TestCase):
             # Model an owned private worktree reaching its actual cleanup hook.
             self.assertTrue(before_remove())
 
-        with patch("ub_agents.loop.Workspace.cleanup", autospec=True, side_effect=cleanup) as cleanup:
+        with patch("ub_agents.assignment_run.Workspace.cleanup", autospec=True, side_effect=cleanup) as cleanup:
             result, marker = self.run_signals([signal.SIGTERM])
         self.assertEqual(result, 0)
         self.assertTrue(marker.is_file())
@@ -205,8 +205,8 @@ class SignalTests(unittest.TestCase):
             return release(*args, **kwargs)
 
         try:
-            with patch("ub_agents.loop.supervise", side_effect=run), \
-                    patch("ub_agents.loop.Workspace.cleanup", autospec=True, side_effect=cleanup), \
+            with patch("ub_agents.assignment_run.supervise", side_effect=run), \
+                    patch("ub_agents.assignment_run.Workspace.cleanup", autospec=True, side_effect=cleanup), \
                     patch.object(self.loop.coordinator, "release", side_effect=finish_release):
                 self.assertEqual(self.launch(), 130)
             self.assertEqual(group_members(groups[0]), [])
@@ -251,7 +251,7 @@ class SignalTests(unittest.TestCase):
             return result
 
         with patch.object(self.github, "item", side_effect=item), \
-                patch("ub_agents.loop.supervise") as execution:
+                patch("ub_agents.assignment_run.supervise") as execution:
             self.assertEqual(self.launch(), 0)
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
@@ -271,7 +271,7 @@ class SignalTests(unittest.TestCase):
             return finalize(*args)
 
         with patch.object(Settlement, "finalize", autospec=True, side_effect=finish), \
-                patch("ub_agents.loop.supervise") as execution:
+                patch("ub_agents.assignment_run.supervise") as execution:
             self.assertEqual(self.launch(), 0)
         execution.assert_not_called()
         history = self.loop.coordinator.history(1)
@@ -286,5 +286,5 @@ class SignalTests(unittest.TestCase):
             signal.raise_signal(signal.SIGTERM)
             raise CleanupError("Unconfirmed process cleanup")
 
-        with patch("ub_agents.loop.supervise", side_effect=fail):
+        with patch("ub_agents.assignment_run.supervise", side_effect=fail):
             self.assertEqual(self.launch(), 1)

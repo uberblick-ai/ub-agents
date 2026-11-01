@@ -68,7 +68,7 @@ class SubIssueTests(unittest.TestCase):
             self.loop.coordinator.report(lease, 'success', 'Split', outcome='split')
             return 0
         with patch.object(self.github, 'add_labels', side_effect=label_writer or self.label), \
-                patch('ub_agents.loop.supervise', side_effect=execute):
+                patch('ub_agents.assignment_run.supervise', side_effect=execute):
             self.assertTrue(self.loop.tick())
 
     def approval(self, number=2, **kwargs):
@@ -90,7 +90,7 @@ class SubIssueTests(unittest.TestCase):
                         lease = self.loop.coordinator.history(number)[0]
                         self.loop.coordinator.report(lease, 'success', 'Done', outcome='done')
                         return 0
-                    with patch('ub_agents.loop.supervise', side_effect=execute):
+                    with patch('ub_agents.assignment_run.supervise', side_effect=execute):
                         self.assertTrue(self.loop.tick())
                     self.assertEqual(self.loop.coordinator.history(number)[0]['result'], 'success')
 
@@ -180,7 +180,7 @@ class SubIssueTests(unittest.TestCase):
         self.assertNotIn('outside-input', self.github.item(3).labels)
         self.now += 61
         with patch.object(self.github, 'add_labels', side_effect=self.label), \
-                patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+                patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(self.new_loop().tick())
         for number in (2, 3):
             self.assertIn('outside-input', self.github.item(number).labels)
@@ -234,7 +234,7 @@ class SubIssueTests(unittest.TestCase):
         self.cfg = replace(self.cfg, agents=(replace(self.worker, outcomes={'done': {'add': (), 'remove': ()}}),))
         with patch.object(self.github, 'sub_issues', side_effect=AssertionError('must not resolve again')), \
                 patch.object(self.github, 'add_labels', side_effect=self.label), \
-                patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+                patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(self.new_loop().tick())
         self.assertIn('needs-preparation', self.github.item(2).labels)
         self.assertNotIn('needs-preparation', self.github.item(3).labels)
@@ -250,7 +250,7 @@ class SubIssueTests(unittest.TestCase):
         self.github.login = 'second'
         self.github.roles['second'] = 'write'
         with patch.object(self.github, 'add_labels', side_effect=self.label), \
-                patch('ub_agents.loop.supervise', side_effect=AssertionError('must not rerun')):
+                patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not rerun')):
             self.assertTrue(self.new_loop(actor='second').tick())
         for number in (2, 3, 4):
             self.assertTrue(self.approval(number).allowed)

@@ -411,7 +411,7 @@ class ObservationTests(unittest.TestCase):
             loop.coordinator.report(lease, 'success', 'Human follow-up needed', outcome='done',
                                     action='Maintainer: choose A or B; recommend A.')
             return 0
-        with patch('ub_agents.loop.supervise', side_effect=finish):
+        with patch('ub_agents.assignment_run.supervise', side_effect=finish):
             self.assertTrue(loop.tick())
         self.assertEqual(github.items[1].labels, frozenset({'needs-human'}))
         self.assertFalse(loop.tick())
@@ -642,7 +642,7 @@ class ObservationTests(unittest.TestCase):
                     lease = next(r for r in loop.coordinator.history(2) if r["kind"] == "lease")
                     loop.coordinator.report(lease, "success", "Finished", outcome="done")
                     return 0
-                with patch("ub_agents.loop.supervise", side_effect=finish), \
+                with patch("ub_agents.assignment_run.supervise", side_effect=finish), \
                         patch.object(loop, '_replan_finished_item', side_effect=refresh):
                     loop.launch(once=True)
             results.append((polling_reads, github.writes[:], deepcopy(github.items),
@@ -704,7 +704,7 @@ class ObservationTests(unittest.TestCase):
         def finish(*args, **kwargs):
             loop.coordinator.report(loop.github.lease, 'success', 'Prepared', outcome='prepared')
             return 0
-        with patch('ub_agents.loop.supervise', side_effect=finish), \
+        with patch('ub_agents.assignment_run.supervise', side_effect=finish), \
                 patch.object(loop.coordinator, 'release', side_effect=released):
             self.assertTrue(loop.tick())
         refreshed_reads = github.reads[len(reads):]
@@ -763,7 +763,7 @@ class ObservationTests(unittest.TestCase):
                     def finish(*args, **kwargs):
                         loop.coordinator.report(loop.github.lease, 'success', 'Finished', outcome='done')
                         return 0
-                    with patch('ub_agents.loop.supervise', side_effect=finish), \
+                    with patch('ub_agents.assignment_run.supervise', side_effect=finish), \
                             patch.object(loop.coordinator, 'release', side_effect=released), \
                             patch.object(loop.github, 'wait') as wait, patch.object(loop, 'wait') as delay:
                         self.assertTrue(loop.tick())
@@ -849,7 +849,7 @@ class ObservationTests(unittest.TestCase):
                     lease = next(r for r in loop.coordinator.history(2) if r["kind"] == "lease")
                     loop.coordinator.report(lease, "success", "Finished", outcome="done")
                     return 0
-                with patch("ub_agents.loop.supervise", side_effect=finish), \
+                with patch("ub_agents.assignment_run.supervise", side_effect=finish), \
                         patch.object(loop, '_replan_finished_item', side_effect=refresh):
                     self.assertEqual(loop.launch(number=2, agent_name="worker"), 0)
             results.append((polling_reads, github.writes[:], deepcopy(github.items),
@@ -918,7 +918,7 @@ class ObservationTests(unittest.TestCase):
                                     action="Maintainer: choose A or B; recommend A.")
             self.assertEqual(self.memory.snapshots[-1]["outcomes"][0]["acceptance"], "unaccepted")
             return 0
-        with patch("ub_agents.loop.supervise", side_effect=execute):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute):
             loop.launch(once=True)
         assignments = [s["assignment"] for s in self.memory.snapshots if s["assignment"]]
         self.assertTrue(any(a["process"] == "claiming" and a["run"] for a in assignments))
@@ -944,7 +944,7 @@ class ObservationTests(unittest.TestCase):
                                     action="Maintainer: choose A or B; recommend A.")
             github.change(1, labels=frozenset({"ready", "needs-human"}))
             return 0
-        with patch("ub_agents.loop.supervise", side_effect=execute):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute):
             loop.launch(once=True)
         row = self.memory.snapshots[-1]["outcomes"][0]
         self.assertEqual((row["acceptance"], row["result"], row["report_result"]),
@@ -962,7 +962,7 @@ class ObservationTests(unittest.TestCase):
         other.coordinator.report(lease, "success", "Recovered step", outcome="done")
         loop = self.loop(github)
         loop.coordinator.clock = lambda: now + 61
-        with patch("ub_agents.loop.supervise") as execution:
+        with patch("ub_agents.assignment_run.supervise") as execution:
             loop.launch(once=True)
         execution.assert_not_called()
         rows = self.memory.snapshots[-1]["outcomes"]
@@ -1242,7 +1242,7 @@ class PublisherTests(unittest.TestCase):
         (local / "sessions").write_text("not a writable directory")
         observer = Observations(config(self.root), "operator", None, self.publisher())
         loop = Loop(config(self.root), PollGitHub(issue()), "operator", observer=observer, output=lambda *_: None)
-        with patch("ub_agents.loop.supervise", return_value=0):
+        with patch("ub_agents.assignment_run.supervise", return_value=0):
             loop.launch(once=True)
         self.wait_for(lambda: self.lines)
         self.assertEqual(len(self.lines), 1)
@@ -1273,7 +1273,7 @@ class PublisherTests(unittest.TestCase):
                     loop.coordinator.report(lease, "success", "Accepted despite writer", outcome="done")
                     return 0
                 started = time.monotonic()
-                with patch("ub_agents.loop.supervise", side_effect=finish), \
+                with patch("ub_agents.assignment_run.supervise", side_effect=finish), \
                         patch("ub_agents.loop.refresh_checkout"), \
                         patch("ub_agents.loop.load_config", return_value=reloaded):
                     loop.launch(once=True)
@@ -1302,7 +1302,7 @@ class PublisherTests(unittest.TestCase):
         loop.coordinator.clock = lambda: now + 61
         loop.observer = observer
         started = time.monotonic()
-        with patch("ub_agents.loop.supervise") as execution:
+        with patch("ub_agents.assignment_run.supervise") as execution:
             loop.launch(once=True)
         self.assertLess(time.monotonic() - started, 0.5)
         execution.assert_not_called()

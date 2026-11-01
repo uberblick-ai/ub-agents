@@ -181,7 +181,7 @@ class LoopTests(unittest.TestCase):
                     return 0
 
                 plan = next(p for p in loop.plans() if p.item.number == number)
-                with patch("ub_agents.loop.supervise", side_effect=execute) as executed:
+                with patch("ub_agents.assignment_run.supervise", side_effect=execute) as executed:
                     loop.execute(plan)
                 executed.assert_called_once()
 
@@ -190,7 +190,7 @@ class LoopTests(unittest.TestCase):
             lease = self.loop.coordinator.history(1)[0]
             self.loop.coordinator.report(lease, "success", "Requirements investigated", outcome="done")
             return 0
-        with patch("ub_agents.loop.supervise", side_effect=execute):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute):
             self.assertTrue(self.loop.tick())
         history = self.loop.coordinator.history(1)
         self.assertEqual(history[0]["state"], "released")
@@ -200,13 +200,13 @@ class LoopTests(unittest.TestCase):
         self.assertTrue((self.root / ".ub-agents" / "runs" / history[0]["run"] / "events.jsonl").is_file())
 
     def test_exit_zero_without_outcome_is_retry_not_completion(self):
-        with patch("ub_agents.loop.supervise", return_value=0):
+        with patch("ub_agents.assignment_run.supervise", return_value=0):
             self.loop.tick()
         lease, outcome = self.loop.coordinator.history(1)
         self.assertEqual((lease["result"], outcome["status"], outcome["accepted"]), ("retry", "retry", False))
 
     def test_nonzero_without_report_retries_and_logs_exit_code(self):
-        with patch("ub_agents.loop.supervise", return_value=1):
+        with patch("ub_agents.assignment_run.supervise", return_value=1):
             self.loop.tick()
         lease, outcome = self.loop.coordinator.history(1)
         self.assertEqual((lease["result"], outcome["status"]), ("retry", "retry"))
@@ -222,7 +222,7 @@ class LoopTests(unittest.TestCase):
             self.loop.coordinator.update(lease, state="released", expires=iso(timestamp()), result="blocked")
             self.last_writes = list(self.github.writes)
             raise LostOwnership("Owner replaced")
-        with patch("ub_agents.loop.supervise", side_effect=lose), self.assertRaises(LostOwnership):
+        with patch("ub_agents.assignment_run.supervise", side_effect=lose), self.assertRaises(LostOwnership):
             self.loop.tick()
         self.assertEqual(self.github.writes, self.last_writes)
 
@@ -247,7 +247,7 @@ class LoopTests(unittest.TestCase):
                     loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Done", handoff=2, outcome="done")
                     return 0
 
-                with patch("ub_agents.loop.supervise", side_effect=execute):
+                with patch("ub_agents.assignment_run.supervise", side_effect=execute):
                     self.assertTrue(loop.tick())
                 lease, outcome = loop.coordinator.history(1)
                 self.assertEqual(lease["result"], "blocked" if draft else "success")
@@ -268,7 +268,7 @@ class LoopTests(unittest.TestCase):
                 loop.coordinator.update(lease, state="running", started=True)
                 loop.coordinator.report(lease, "success", "Done", handoff=2, outcome="done")
                 now += 61
-                with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+                with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
                     self.assertTrue(loop.tick())
                 source, outcome, recovery, verdict = loop.coordinator.history(1)
                 self.assertEqual(source["state"], "running")
@@ -324,8 +324,8 @@ class LoopTests(unittest.TestCase):
                     workspace.branch = issue_branch(workspace.lease)
                     github.change(2, branch=workspace.branch)
                     return self.root
-                with patch("ub_agents.loop.Workspace.prepare", prepare), \
-                        patch("ub_agents.loop.supervise", return_value=1):
+                with patch("ub_agents.assignment_run.Workspace.prepare", prepare), \
+                        patch("ub_agents.assignment_run.supervise", return_value=1):
                     self.assertTrue(loop.tick())
                 self.assertEqual(loop.coordinator.history(1)[0]['result'], 'retry')
                 loop = Loop(config(self.root, self.agent), github, "operator", output=lambda *_: None)
@@ -338,7 +338,7 @@ class LoopTests(unittest.TestCase):
                     loop.coordinator.report(lease, "success", "Handed off", handoff=handoff, outcome="done")
                     return 0
 
-                with patch("ub_agents.loop.supervise", side_effect=execute):
+                with patch("ub_agents.assignment_run.supervise", side_effect=execute):
                     self.assertTrue(loop.tick())
                 lease, outcome = loop.coordinator.history(1)[-2:]
                 self.assertEqual((lease["result"], outcome["accepted"]), ("success" if accepted else "blocked", accepted))
@@ -386,7 +386,7 @@ class LaunchOutputTests(unittest.TestCase):
         self.assertEqual(self.github.writes, writes)
 
         co.release(lease, "retry", "Interrupted", attempt_effect="unchanged")
-        with patch("ub_agents.loop.supervise", return_value=1):
+        with patch("ub_agents.assignment_run.supervise", return_value=1):
             self.assertTrue(self.loop.tick())
         self.assertTrue(any(text.startswith("#1 worker: claimed ") for text in self.lines))
         self.now += 60
@@ -406,7 +406,7 @@ class LaunchOutputTests(unittest.TestCase):
         self.assertEqual(self.github.writes, writes)
 
         self.now += 60
-        with patch("ub_agents.loop.supervise", return_value=1):
+        with patch("ub_agents.assignment_run.supervise", return_value=1):
             self.assertTrue(self.loop.tick())
         self.assertTrue(any(text.startswith("#1 worker: claimed ") for text in self.lines))
         self.poll()
@@ -833,7 +833,7 @@ class QueueTests(unittest.TestCase):
         self.github.change(1, labels=frozenset({"ready", "low"}))
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
                          [(2, "recover"), (1, "ready")])
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(self.loop.tick())
         self.assertTrue(co.history(2)[1]["accepted"])
         recovery = next(r for r in co.history(2) if r.get("mode") == "recovery")
@@ -1046,7 +1046,7 @@ class MilestoneGateTests(unittest.TestCase):
         self.github.change(1, labels=frozenset({"ready", "low"}))
         self.assertEqual([(p.item.number, p.state) for p in self.loop.plans()],
                          [(2, "recover"), (1, "ready")])
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(self.loop.tick())
         self.assertTrue(co.history(2)[1]["accepted"])
         recovery = next(r for r in co.history(2) if r.get("mode") == "recovery")
@@ -1093,7 +1093,7 @@ class RecoveryTests(unittest.TestCase):
                     loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Early report", outcome="done")
                     raise error
 
-                with patch("ub_agents.loop.supervise", side_effect=execute):
+                with patch("ub_agents.assignment_run.supervise", side_effect=execute):
                     if isinstance(error, KeyboardInterrupt):
                         with self.assertRaises(KeyboardInterrupt):
                             loop.tick()
@@ -1122,7 +1122,7 @@ class RecoveryTests(unittest.TestCase):
                     github.change(1, labels=frozenset(), state=state)
                     raise RetryableExecutionError("Execution timed out")
 
-                with patch("ub_agents.loop.supervise", side_effect=execute):
+                with patch("ub_agents.assignment_run.supervise", side_effect=execute):
                     loop.tick()
                 rows = status_rows(self.loop(github))
                 if state == "closed":
@@ -1142,7 +1142,7 @@ class RecoveryTests(unittest.TestCase):
             loop.coordinator.report(loop.coordinator.history(1)[0], "blocked", "Need a decision", action="Maintainer: choose A or B; recommend A.")
             return 0
 
-        with patch("ub_agents.loop.supervise", side_effect=execute):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute):
             loop.tick()
         self.assertEqual(loop.plans()[0].state, "blocked")
         self.assertIn("Need a decision", loop.plans()[0].reason)
@@ -1166,7 +1166,7 @@ class RecoveryTests(unittest.TestCase):
             return 0
 
         with patch.object(github, "item", side_effect=read), \
-                patch("ub_agents.loop.supervise", side_effect=execute):
+                patch("ub_agents.assignment_run.supervise", side_effect=execute):
             with self.assertRaisesRegex(AgentError, "GitHub 502"):
                 loop.tick()
         lease, outcome = loop.coordinator.history(1)
@@ -1176,7 +1176,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(github.writes, self.last_writes)
         restarted = self.loop(github)
         restarted.coordinator.clock = lambda: timestamp() + 120
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(restarted.tick())
         history = restarted.coordinator.history(1)
         self.assertTrue(history[1]["accepted"])
@@ -1202,7 +1202,7 @@ class RecoveryTests(unittest.TestCase):
             self.assertFalse(history[1]["accepted"])
         now += 61
         self.assertEqual(len(attempts(history, self.agent.name, now)), 0)
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.tick())
         self.assertTrue(loop.coordinator.history(1)[1]["accepted"])
         self.assertEqual(loop.plans(), [])
@@ -1218,7 +1218,7 @@ class RecoveryTests(unittest.TestCase):
             loop.coordinator.report(latest, "success", "Finished subsequent assignment", outcome="done")
             return 0
 
-        with patch("ub_agents.loop.supervise", side_effect=execute):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute):
             loop.tick()
         self.assertEqual(loop.plans(), [])
         github.change(1, labels=frozenset({"ready"}))
@@ -1236,7 +1236,7 @@ class RecoveryTests(unittest.TestCase):
         recovery = loop.coordinator.claim(loop.plans()[0], recovery=True)
         self.assertEqual(recovery["recovered_lease_id"], source["id"])
         now += 61
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.tick())
         self.assertTrue(loop.coordinator.history(1)[1]["accepted"])
         self.assertEqual(loop.plans(), [])
@@ -1262,9 +1262,9 @@ class RecoveryTests(unittest.TestCase):
             loop.coordinator.report(loop.coordinator.history(2)[0], "success", "Reviewed", outcome="done")
             return 0
 
-        with patch("ub_agents.loop.Workspace.prepare", prepare), patch("ub_agents.loop.Workspace.cleanup"), \
+        with patch("ub_agents.assignment_run.Workspace.prepare", prepare), patch("ub_agents.assignment_run.Workspace.cleanup"), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise", side_effect=execute):
+                patch("ub_agents.assignment_run.supervise", side_effect=execute):
             self.assertTrue(loop.tick())
 
     def test_unconfirmed_cleanup_after_report_never_promotes_report_on_expiry(self):
@@ -1275,13 +1275,13 @@ class RecoveryTests(unittest.TestCase):
             loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Early completion", outcome="done")
             raise CleanupError("Cannot confirm owned helper termination")
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), self.assertRaises(CleanupError):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), self.assertRaises(CleanupError):
             loop.tick()
         lease, outcome = loop.coordinator.history(1)
         self.assertEqual((lease["state"], lease["cleanup"]), ("running", "unconfirmed"))
         self.assertFalse(outcome["accepted"])
         loop.coordinator.clock = lambda: timestamp() + 120
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertFalse(loop.tick())
         self.assertEqual(loop.plans()[0].state, "blocked")
         self.assertFalse(loop.coordinator.history(1)[1]["accepted"])
@@ -1300,7 +1300,7 @@ class RecoveryTests(unittest.TestCase):
                     finally:
                         raise CleanupError("Could not verify group termination")
 
-                with patch("ub_agents.loop.supervise", side_effect=execute), self.assertRaises(CleanupError):
+                with patch("ub_agents.assignment_run.supervise", side_effect=execute), self.assertRaises(CleanupError):
                     loop.tick()
                 self.assertEqual(github.writes, self.last_writes)
 

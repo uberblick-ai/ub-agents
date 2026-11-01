@@ -128,8 +128,8 @@ class FinalizationTests(unittest.TestCase):
                     stack.enter_context(patch.object(github, name, side_effect=wrap(name, operation)))
             stack.enter_context(patch.object(loop, 'tick', side_effect=pass_once))
             stack.enter_context(patch.object(loop.stop_event, 'wait', side_effect=wait))
-            stack.enter_context(patch('ub_agents.loop.collect_denials', return_value={'denials': []}))
-            supervise = stack.enter_context(patch('ub_agents.loop.supervise', side_effect=execute))
+            stack.enter_context(patch('ub_agents.assignment_run.collect_denials', return_value={'denials': []}))
+            supervise = stack.enter_context(patch('ub_agents.assignment_run.supervise', side_effect=execute))
             error = None
             try:
                 loop.launch(once=once)

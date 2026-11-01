@@ -83,11 +83,11 @@ class RunPromptCharacterizationTests(unittest.TestCase):
                 patch("ub_agents.coordination.uuid.uuid4", return_value=SimpleNamespace(hex="characterized-run")), \
                 patch.object(loop.queue_planner, "input_check", return_value=ApprovalCheck(True, "Approved", snapshot=snapshot)), \
                 patch.object(loop.coordinator, "feedback", side_effect=lambda *args: events.append("feedback") or feedback), \
-                patch("ub_agents.loop.earlier_branches", side_effect=lambda *args: events.append("earlier_branches") or earlier), \
-                patch("ub_agents.loop.launcher_report_command", return_value="/launcher/python -I /launcher/report_command.py"), \
-                patch("ub_agents.loop.Workspace.prepare", prepare), \
+                patch("ub_agents.assignment_run.earlier_branches", side_effect=lambda *args: events.append("earlier_branches") or earlier), \
+                patch("ub_agents.assignment_run.launcher_report_command", return_value="/launcher/python -I /launcher/report_command.py"), \
+                patch("ub_agents.assignment_run.Workspace.prepare", prepare), \
                 patch.object(Path, "write_text", write), \
-                patch("ub_agents.loop.supervise", side_effect=execute) as executed:
+                patch("ub_agents.assignment_run.supervise", side_effect=execute) as executed:
             self.assertTrue(loop._claim_execute(plan, "Role procedure", shared_instructions="Shared merge policy"))
         executed.assert_called_once()
         self.assertEqual(events, ["feedback", "earlier_branches", "context.json", "run.json", "execute"])

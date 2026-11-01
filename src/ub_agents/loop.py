@@ -1,7 +1,6 @@
 """One serial observe → claim → execute → observe → release loop."""
 
 import json
-import os
 import socket
 import threading
 from contextlib import contextmanager, nullcontext
@@ -10,27 +9,24 @@ from dataclasses import replace
 
 from .agent_health import AgentHealth
 from .approvals import ApprovalCheck, pr_author_exclusions
+from .assignment_run import AssignmentRun
 from .labels import OUTSIDE_INPUT
 from .config import instruction_text, load_config, resolve_config_path
 from .checkout_setup import discard_unused_baseline, preserve_baseline, run_setup
 from .coordination import Coordinator, Plan
-from .denials import collect_denials
 from .discovery import Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
-from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, ExecutionStopped, GitHubError, LostOwnership, RecordError,
-                     RetryableExecutionError, TransitionPaused, UnsupportedConfiguration, ValidationError)
-from .execution import ScratchDirectory, Workspace, command_for, git, repository_checks, supervise
+from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, RecordError,
+                     TransitionPaused, UnsupportedConfiguration, ValidationError)
+from .execution import git, repository_checks
 from .events import EventHooks
 from .finalization import FinalizationReads
-from .report_command import launcher_report_command
-from .launcher_code import descriptors as code_descriptors
 from .launcher_lock import configuration_pause_summary, publish_configuration_pause
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .pass_messages import PassMessages
 from .queue_planner import COMMENT_RECOVERY_SECONDS, QueuePlanner
 from .poll_now import PollNow
-from .hooks import run_hook
 from .notices import ACTION_MARKER
 from .records import iso, latest_leases, lease_by_id, lease_summary, seconds, timestamp
 from .status import refusal_reason
@@ -39,16 +35,13 @@ from .renewal import LeaseRenewal
 from .request_stats import DiscoveryPass, PassOutput, request_counts, request_delta
 from .runtime_updates import RuntimeMaintenance
 from .runtime_usage import RuntimeUsage
-from .usage_output import UsageOutput, collect_usage
-from .run_usage import usage_fields
-from .run_branches import earlier_branches
 from .settlement import Settlement
 from .uberblick import workspace_binding
 from .trust import LauncherTrust
 from .run_planning import ObservationReads, RunPlanning
-from .run_config import record_process_group, run_config, run_directory
-from .run_prompt import run_context, run_environment, run_prompt
-from .worktree_setup import confirm_worktree_setup_stopped, run_worktree_setup
+from .run_config import run_directory
+from .run_prompt import run_prompt
+from .worktree_setup import confirm_worktree_setup_stopped
 
 POLL_RETRY_BASE_SECONDS = 5
 POLL_RETRY_MAX_SECONDS = 60
@@ -879,7 +872,7 @@ class Loop:
             return self._claim_execute(replace(plan, runtime=runtime), instructions, reservation,
                                        shared_instructions=shared)
 
-    def _claim_execute(self, plan, instructions, reservation=None, *, shared_instructions=""):  # noqa: C901, PLR0912, PLR0915
+    def _claim_execute(self, plan, instructions, reservation=None, *, shared_instructions=""):  # noqa: C901
         def confirm_stopped(history):
             # An expired setup has no agent outcome to recover. Use the claim's
             # fresh history to confirm local groups before starting another run.
@@ -944,290 +937,8 @@ class Loop:
                 return True
         if plan.agent.on_conflict and fresh.mergeable is False and fresh.head == plan.item.head:
             return self._route_conflict(plan, lease, fresh)
-        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals)
-        plan = replace(plan, item=replace(plan.item, head_repository=fresh.head_repository,
-                                         base_branch=fresh.base_branch))
-        run_dir = run_directory(self.config.root.resolve(), lease["run"])
-        scratch = ScratchDirectory(self.config.root, self.config.repository, lease["run"])
-        preserve_scratch = False
-        workspace = Workspace(self.config, plan.agent, plan.item, lease, self.github, output=self.output)
-        self.output(f"#{plan.item.number} {plan.agent.name}: claimed {lease['run']} ({lease['runtime']})")
-        self.output(f"Logs: {run_dir}")
-
-        def diagnostic(event, **details):
-            self._diagnostic(run_dir, event, **details)
-
-        def record_uncertainty(exc):
-            diagnostic("cleanup-unconfirmed", error=str(exc))
-            cause = exc
-            while cause is not None:
-                if isinstance(cause, (LostOwnership, GitHubError)):
-                    return  # GitHub failures and ownership loss forbid further writes.
-                cause = cause.__context__
-            try:
-                self.coordinator.assert_owned(lease)
-                self.coordinator.update(lease, cleanup="unconfirmed", summary=str(exc), action_needed=True)
-            except (AgentError, KeyboardInterrupt) as failure:
-                if isinstance(failure, KeyboardInterrupt):
-                    self.interrupt_event.set()
-                    self.stop_event.set()
-                diagnostic("cleanup-verdict-unrecorded", error=str(failure))
-
-        hook_attempted = False
-
-        def cleanup_workspace(record=True):  # noqa: C901
-            nonlocal preserve_scratch
-            def before_remove():  # noqa: C901
-                nonlocal hook_attempted
-                if hook_attempted:
-                    return False
-                try:
-                    reported = self.coordinator.outcome(lease)
-                except GitHubError:
-                    if record:
-                        raise
-                    reported = outcome
-                except (AgentError, KeyboardInterrupt) as exc:
-                    if isinstance(exc, KeyboardInterrupt):
-                        self.interrupt_event.set()
-                        self.stop_event.set()
-                    reported = outcome
-                hook_attempted = True
-                failure = run_hook(self.config, lease, workspace.private, reported, branch=workspace.branch,
-                                   expires=(lambda: self.coordinator.deadline(lease)) if record else None,
-                                   pass_fds=reservation.descriptors if reservation is not None else ())
-                if failure:
-                    if record:
-                        try:
-                            self.coordinator.assert_owned(lease)
-                            self.coordinator.update(lease, cleanup_hook_error=failure)
-                        except (LostOwnership, GitHubError):
-                            raise
-                        except (AgentError, KeyboardInterrupt) as exc:
-                            if isinstance(exc, KeyboardInterrupt):
-                                self.interrupt_event.set()
-                                self.stop_event.set()
-                            diagnostic("cleanup-hook-verdict-unrecorded", error=str(exc))
-                    return False
-                return True
-            try:
-                workspace.cleanup(before_remove)
-            except CleanupError as exc:
-                preserve_scratch = True
-                if record:
-                    record_uncertainty(exc)
-                else:
-                    diagnostic("cleanup-unconfirmed", error=str(exc))
-                raise
-
-        def cleanup_after_failure():
-            try:
-                cleanup_workspace()
-            except (LostOwnership, GitHubError):
-                self._renewal.close()
-                cleanup_workspace(record=False)
-                raise
-
-        def record_process(pid):
-            self.coordinator.assert_owned(lease)
-            record_process_group(self.config.root, lease["run"], pid)
-            self.coordinator.assert_owned(lease)
-
-        def process_started(pid):
-            if reservation is not None:
-                reservation.started()
-            record_process(pid)
-            self.observe("process", "running", "Supervision recorded a live process")
-
-        def setup_process_started(pid):
-            record_process(pid)
-            self.observe("process", "running", "Checkout setup running in worktree")
-
-        interrupted = False
-        stopped = False
-        completing = False
-        setup = True
-        effect = "failure"
-        result, summary = "retry", "Assignment ended without a validated outcome"
-        outcome = None
-        usage_output = None
-        diagnostics = {}
-        try:
-            run_dir.mkdir(parents=True, exist_ok=True)
-            self.coordinator.assert_owned(lease)
-            self.coordinator.update(lease, state="running", started=True,
-                                    attempt_effect="pending", host=socket.gethostname())
-            self.events.emit(self.config, lease, "started")
-            scratch.prepare()
-            cwd = workspace.prepare()
-            if workspace.created and not workspace.fork and self.config.checkout_setup is not None:
-                run_worktree_setup(self.config, cwd, run_dir, self.interrupt_event, self.output,
-                                   lambda state: self.observe("activity", state),
-                                   expires=lambda: self.coordinator.execution_deadline(lease),
-                                   process_started=setup_process_started,
-                                   pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()),
-                                   observe_output=lambda **_: self._poll_updates())
-                self.observe("process", "exited", "Supervision confirmed worktree setup has ended")
-                self.observe("activity", "running assignment")
-            current = self.github.item(plan.item.number, plan.item.kind)
-            self.coordinator.observe_execution_item(lease, current)
-            self.coordinator.execution_deadline(lease)
-            if current.state != "open" or not current.labels.intersection(plan.agent.triggers):
-                raise AgentError("State or trigger changed before execution")
-            if current.head != plan.item.head:
-                raise AgentError("Candidate changed before execution")
-            self.coordinator.assert_owned(lease)
-            report_command = launcher_report_command()
-            context = run_context(
-                self.config.repository, plan, lease, approval.snapshot,
-                feedback=self.coordinator.feedback(plan.item, plan.agent.name),
-                scratch=scratch.path, report_command=report_command, branch=workspace.branch,
-                earlier_branches=earlier_branches(self.coordinator, plan.item, plan.agent, lease["run"]))
-            context_path = run_dir / "context.json"
-            context_path.write_text(json.dumps(context, indent=2))
-            run_config_path = run_dir / "run.json"
-            run_config_path.write_text(json.dumps(run_config(self.config, plan.agent, lease)))
-            env = run_environment(os.environ.copy(), context, lease["id"], context_path, run_config_path)
-            diagnostic("started", cwd=str(cwd))
-            setup = False
-            command = command_for(plan.agent, plan.runtime, scratch.path, report_command)
-            if reservation is not None and reservation.executable is not None:
-                command[0] = reservation.executable
-            if plan.runtime:
-                usage_output = UsageOutput(plan.runtime.cli, run_dir, self.usage, env)
-            def observe_output(final=False):
-                self._poll_updates()
-                if usage_output:
-                    usage_output.poll(final=final)
-            try:
-                code = supervise(command, cwd, env, run_dir,
-                                 plan.agent.timeout_seconds, self.interrupt_event,
-                                 self.prompt_for(plan, lease, context, instructions,
-                                                 shared_instructions=shared_instructions) if plan.runtime else None,
-                                 expires=lambda: self.coordinator.execution_deadline(lease), process_started=process_started,
-                                 process_exited=lambda: self.coordinator.execution_finished(lease),
-                                 observe_output=observe_output if usage_output or self.updates else None,
-                                 pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()))
-            finally:
-                self.coordinator.execution_finished(lease)
-                cli = plan.runtime.cli if plan.runtime else None
-                diagnostics = (collect_denials(cli, run_dir / "process.log")
-                               | collect_usage(cli, run_dir / "process.log"))
-            self.coordinator.execution_deadline(lease)
-            if usage_output:
-                usage_output.poll(final=True)
-            self.observe("process", "exited", "Supervision confirmed execution has ended")
-            diagnostic("execution-exited", code=code)
-            self.github.begin_finalization()
-            # No acceptance or release until all attributable execution has ended.
-            cleanup_workspace()
-            completing = True
-            self._finalizing = True
-            self.coordinator.assert_owned(lease)
-            outcome = self.coordinator.outcome(lease)
-            if outcome is not None and diagnostics:
-                self.coordinator.update_outcome(lease, outcome, **diagnostics)
-            if outcome is None:
-                result = "retry"
-                summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
-            else:
-                result, summary, effect = settlement.reported_verdict(lease, plan, outcome, lease, "completion")
-        except CleanupError as exc:
-            self.observe("process", "unknown", str(exc))
-            preserve_scratch = True
-            record_uncertainty(exc)
-            raise
-        except LostOwnership as exc:
-            diagnostic("ownership-lost", error=str(exc))
-            self._renewal.close()
-            cleanup_workspace(record=False)
-            # Do not report, release, or accept after losing ownership.
-            raise
-        except GitHubError as exc:
-            diagnostic("github-failed", error=str(exc))
-            self._renewal.close()
-            cleanup_workspace(record=False)
-            # The lease and any stored report remain for expiry recovery.
-            raise
-        except KeyboardInterrupt as exc:
-            if completing:
-                diagnostic("transition-interrupted", outcome=outcome["id"] if outcome else None)
-                cleanup_after_failure()
-                # A request can be interrupted after GitHub applied its write,
-                # before our in-memory outcome reflects it. Even a read before
-                # transition start must preserve the report for expiry recovery.
-                raise
-            interrupted = True
-            effect = "unchanged"
-            summary = "Launcher interrupted; attributable execution terminated"
-            if isinstance(exc, CheckoutSetupInterrupted):
-                summary += f"; {exc}"
-            cleanup_after_failure()
-        except ExecutionStopped as exc:
-            stopped = True
-            result, summary, effect = "blocked", str(exc), "unchanged"
-            self.coordinator.execution_finished(lease)
-            # Persist the supervision verdict before cleanup so an early report
-            # cannot become recoverable if cleanup or release is interrupted.
-            # Closure needs no action notice, including after a launcher restart.
-            try:
-                self.coordinator.assert_owned(lease)
-                self.coordinator.update(lease, result=result, summary=summary,
-                                        attempt_effect=effect, unreported=True,
-                                        **({"action_needed": False} if exc.item_closed else {}))
-            except (LostOwnership, GitHubError):
-                self._renewal.close()
-                cleanup_workspace(record=False)
-                raise
-            cleanup_after_failure()
-        except TransitionPaused as exc:
-            result, summary, effect = "blocked", str(exc), "unchanged"
-            cleanup_after_failure()
-        except Exception as exc:
-            if completing and not isinstance(exc, ValidationError):
-                raise  # Keep completed reports recoverable; never invent a failure verdict.
-            result = ("retry" if isinstance(exc, RetryableExecutionError)
-                      or (setup and isinstance(exc, (AgentError, OSError))
-                          and not isinstance(exc, (RecordError, ValidationError))) else "blocked")
-            summary = str(exc)
-            cleanup_after_failure()
-        finally:
-            if not preserve_scratch:
-                try:
-                    scratch.cleanup()
-                except AgentError as exc:
-                    # Scratch removal cannot invalidate confirmed process termination
-                    # or prevent release of a completed run's lease.
-                    diagnostic("scratch-removal-failed", path=str(scratch.path), error=str(exc))
-                    self.output(f"Scratch removal failed: {exc}")
-        if usage_output and usage_output.reached and effect != "reset" and not interrupted and not stopped:
-            result, effect = "retry", "unchanged"
-            summary = usage_output.summary
-            completing = False  # This supervision verdict supersedes an early report.
-        self.github.begin_finalization()
-        if outcome is None:
-            # A report can precede a timeout/interruption. Keep that report
-            # unaccepted and persist the supervisor's actual verdict on the lease.
-            outcome = self.coordinator.outcome(lease)
-        if stopped:
-            if outcome is not None and usage_fields(diagnostics):
-                self.coordinator.update_outcome(lease, outcome, **usage_fields(diagnostics))
-            self.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True,
-                                     **usage_fields(diagnostics))
-        else:
-            settlement.settle(plan, lease, lease["attempt"], result, summary, effect, outcome, diagnostics,
-                              completed=completing)
-        self.github.end_finalization()
-        self._renewal.close()
-        diagnostic("released", result=result, summary=summary,
-                   github_requests=request_delta(request_counts(self.github), requests_before))
-        self._replan_finished_item(plan)
-        self.output(f"#{plan.item.number} {plan.agent.name}: {result} — {summary}")
-        if result == "blocked":
-            self.pass_messages.released_blocker(plan, summary)
-        if interrupted or self.interrupt_event.is_set():
-            raise KeyboardInterrupt
-        return True
+        return AssignmentRun(self).execute(plan, lease, fresh, approval, instructions, requests_before, reservation,
+                                           shared_instructions=shared_instructions)
 
     def _route_conflict(self, plan, lease, current):
         """Record the agent's on-conflict outcome without starting it.

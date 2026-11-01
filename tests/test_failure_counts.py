@@ -55,7 +55,7 @@ class FailureCountTests(unittest.TestCase):
             if change:
                 change()
             return exit_code
-        with patch('ub_agents.loop.supervise', side_effect=execute):
+        with patch('ub_agents.assignment_run.supervise', side_effect=execute):
             return self.loop.execute(self.plan(number))
 
     def finish_backoff(self):
@@ -71,7 +71,7 @@ class FailureCountTests(unittest.TestCase):
             self.assertEqual(seconds(latest['retry_after']) - self.now, 10 * 2 ** (expected - 1))
             self.assertEqual(self.plan().state, 'blocked' if expected == self.agent.max_attempts else 'backoff')
             self.finish_backoff()
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.assertFalse(self.loop.tick())
         self.assertEqual(status_rows(self.loop)[0]['attempts'], 3)
         with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
@@ -150,7 +150,7 @@ class FailureCountTests(unittest.TestCase):
         source = self.start()
         self.loop.coordinator.report(source, 'success', 'Completed', outcome='done')
         self.now += 61
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.assertTrue(self.loop.tick())
         self.assertEqual(self.count(), 0)
         self.github.change(1, labels=frozenset({'ready'}))
@@ -179,7 +179,7 @@ class FailureCountTests(unittest.TestCase):
                 self.github.change(1, labels=frozenset({'ready'}))
                 self.loop = self.restart()
                 self.assertEqual(self.plan().state, 'blocked')
-                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
                     self.assertFalse(self.loop.tick())
 
     def test_issue_pr_and_agents_have_independent_counts_and_resets(self):
@@ -229,7 +229,7 @@ class FailureCountTests(unittest.TestCase):
                 self.assertEqual(self.count(), count)
                 self.now += 61
                 self.loop = self.restart()
-                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
                     self.assertTrue(self.loop.tick())
                 self.assertEqual((self.count(), self.plan().state), (count, state))
                 self.assertEqual(recovery['recovered_lease_id'], source['id'])
@@ -241,7 +241,7 @@ class FailureCountTests(unittest.TestCase):
         self.loop.coordinator.report(source, 'retry', 'Reported before crash')
         self.now += 61
         self.loop = self.restart()
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.assertTrue(self.loop.tick())
         recovery = self.loop.coordinator.history(1)[-2]
         self.assertEqual(recovery['recovered_lease_id'], source['id'])
@@ -263,12 +263,12 @@ class FailureCountTests(unittest.TestCase):
                 self.assertEqual((self.count(), self.plan().state), (1, state))
                 if state == 'blocked':
                     self.now += 10000
-                    with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                    with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
                         self.assertFalse(self.loop.tick())
 
     def test_setup_failure_counts_and_retries(self):
-        with patch('ub_agents.loop.Workspace.prepare', side_effect=AgentError('Git setup failed')), \
-                patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+        with patch('ub_agents.assignment_run.Workspace.prepare', side_effect=AgentError('Git setup failed')), \
+                patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.loop.tick()
         self.assertEqual((self.count(), self.plan().state), (1, 'backoff'))
 
@@ -277,8 +277,8 @@ class FailureCountTests(unittest.TestCase):
         self.finish_backoff()
         writes = list(self.github.writes)
         with patch('ub_agents.loop.refresh_instructions', side_effect=AgentError('Refresh failed')), \
-                patch('ub_agents.loop.Workspace.prepare') as prepare, \
-                patch('ub_agents.loop.supervise') as supervise:
+                patch('ub_agents.assignment_run.Workspace.prepare') as prepare, \
+                patch('ub_agents.assignment_run.supervise') as supervise:
             with self.assertRaisesRegex(AgentError, 'Refresh failed'):
                 self.loop.tick()
         prepare.assert_not_called()
@@ -303,9 +303,9 @@ class FailureCountTests(unittest.TestCase):
                     self.github.change(1, **changes)
                     return self.root
 
-                with patch('ub_agents.loop.Workspace.prepare', side_effect=prepare), \
-                        patch('ub_agents.loop.Workspace.cleanup') as cleanup, \
-                        patch('ub_agents.loop.supervise') as supervise:
+                with patch('ub_agents.assignment_run.Workspace.prepare', side_effect=prepare), \
+                        patch('ub_agents.assignment_run.Workspace.cleanup') as cleanup, \
+                        patch('ub_agents.assignment_run.supervise') as supervise:
                     self.assertTrue(self.loop.execute(self.plan()))
                 supervise.assert_not_called()
                 cleanup.assert_called_once()
@@ -343,9 +343,9 @@ class FailureCountTests(unittest.TestCase):
             self.github.change(1, **change)
             return self.root
 
-        with patch('ub_agents.loop.Workspace.prepare', side_effect=prepare), \
-                patch('ub_agents.loop.Workspace.cleanup') as cleanup, \
-                patch('ub_agents.loop.supervise') as supervise:
+        with patch('ub_agents.assignment_run.Workspace.prepare', side_effect=prepare), \
+                patch('ub_agents.assignment_run.Workspace.cleanup') as cleanup, \
+                patch('ub_agents.assignment_run.supervise') as supervise:
             self.assertTrue(self.loop.execute(self.plan()))
         supervise.assert_not_called()
         cleanup.assert_called_once()
@@ -363,7 +363,7 @@ class FailureCountTests(unittest.TestCase):
         self.now += 10000
         self.loop = self.restart()
         self.assertEqual(self.plan().state, 'blocked')
-        with patch('ub_agents.loop.supervise') as supervise:
+        with patch('ub_agents.assignment_run.supervise') as supervise:
             self.assertFalse(self.loop.tick())
         supervise.assert_not_called()
         with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
@@ -375,14 +375,14 @@ class FailureCountTests(unittest.TestCase):
         self.assertEqual((self.plan().state, self.count()), ('ready', 0))
 
     def test_unconfirmed_cleanup_counts_even_with_success_report_and_never_recovers(self):
-        with patch('ub_agents.loop.Workspace.cleanup', side_effect=CleanupError('Termination unknown')):
+        with patch('ub_agents.assignment_run.Workspace.cleanup', side_effect=CleanupError('Termination unknown')):
             with self.assertRaises(CleanupError):
                 self.execute('success', exit_code=1)
         self.assertEqual(self.count(), 1)
         self.now += 61
         self.loop = self.restart()
         self.assertEqual(self.plan().state, 'blocked')
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.assertFalse(self.loop.tick())
         self.assertFalse(self.loop.coordinator.history(1)[1]['accepted'])
 
@@ -393,8 +393,8 @@ class FailureCountTests(unittest.TestCase):
             self.loop.coordinator.renew(lease, self.github)
             kwargs['expires']()
 
-        with patch('ub_agents.loop.supervise', side_effect=close), \
-                patch('ub_agents.loop.Workspace.cleanup', side_effect=CleanupError('Termination unknown')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=close), \
+                patch('ub_agents.assignment_run.Workspace.cleanup', side_effect=CleanupError('Termination unknown')):
             with self.assertRaisesRegex(CleanupError, 'Termination unknown'):
                 self.loop.tick()
         lease, = self.loop.coordinator.history(1)
@@ -431,7 +431,7 @@ class FailureCountTests(unittest.TestCase):
                             self.loop.coordinator.renew(lease, self.github)
                             kwargs['expires']()
                         raise AgentError('Unclassified supervision error')
-                    with patch('ub_agents.loop.supervise', side_effect=execute), \
+                    with patch('ub_agents.assignment_run.supervise', side_effect=execute), \
                             patch.object(self.loop.coordinator, 'release', side_effect=AgentError('Release failed')):
                         with self.assertRaisesRegex(AgentError, 'Release failed'):
                             self.loop.tick()
@@ -446,7 +446,7 @@ class FailureCountTests(unittest.TestCase):
                     self.assertIsNone(self.loop.coordinator.pending_completion(history, self.agent.name, self.now))
                     self.assertFalse(any(r.get('accepted') for r in history))
                     if state == 'blocked':
-                        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
                             self.assertFalse(self.loop.tick())
                     if ending == 'closed':
                         self.assertFalse(any(c['body'].startswith(ACTION_MARKER) for c in self.github.comments(1)))
@@ -462,19 +462,19 @@ class FailureCountTests(unittest.TestCase):
         self.now += 61
         self.loop = self.restart()
         self.assertEqual((self.count(), self.plan().state), (0, 'recover'))
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.assertTrue(self.loop.tick())
 
     def test_log_directory_setup_failure_is_a_durable_retry(self):
         # A file where the run directory belongs makes mkdir fail before execution.
         (self.root / '.ub-agents').mkdir()
         (self.root / '.ub-agents' / 'runs').write_text('not a directory')
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.assertTrue(self.loop.tick())
         self.assertEqual((self.count(), self.plan().state), (1, 'backoff'))
 
     def test_unexpected_setup_error_is_unsafe_and_parks(self):
-        with patch('ub_agents.loop.Workspace.prepare', side_effect=RuntimeError('Unexpected setup error')):
+        with patch('ub_agents.assignment_run.Workspace.prepare', side_effect=RuntimeError('Unexpected setup error')):
             self.assertTrue(self.loop.tick())
         self.assertEqual((self.count(), self.plan().state), (1, 'blocked'))
 
@@ -510,7 +510,7 @@ class FailureCountTests(unittest.TestCase):
         self.assertEqual(self.count(), 1)
         row = status_rows(self.loop)[0]
         self.assertEqual((row['state'], row['attempts']), ('blocked', 1))
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.assertFalse(self.loop.tick())
 
     def test_many_successful_pr_revisions_do_not_exhaust_limit_of_one(self):
@@ -536,6 +536,6 @@ class FailureCountTests(unittest.TestCase):
         self.assertEqual(self.count(), 0)
         self.now += 61
         self.loop = self.restart()
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.assertTrue(self.loop.tick())
         self.assertEqual(self.count(), 0)

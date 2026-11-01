@@ -60,7 +60,7 @@ class WorktreeSetupTests(unittest.TestCase):
                          if r["kind"] == "lease")
             loop.coordinator.report(lease, "success", "done", outcome="done")
             return 0
-        with patch("ub_agents.loop.supervise", side_effect=execution) as execution:
+        with patch("ub_agents.assignment_run.supervise", side_effect=execution) as execution:
             self.assertTrue(loop.tick())
         execution.assert_called_once()
 
@@ -175,7 +175,7 @@ class WorktreeSetupTests(unittest.TestCase):
                 if mode == "start":
                     loop.config = replace(loop.config, checkout_setup=replace(loop.config.checkout_setup,
                                                                              command=("/missing/install",)))
-                with patch("ub_agents.loop.supervise") as execution:
+                with patch("ub_agents.assignment_run.supervise") as execution:
                     self.assertTrue(loop.tick())
                 execution.assert_not_called()
                 lease, directory, worktree = self.artifacts()
@@ -198,7 +198,7 @@ class WorktreeSetupTests(unittest.TestCase):
             kwargs["process_started"] = interrupt
             return supervise(*args, **kwargs)
         with patch("ub_agents.worktree_setup.supervise", side_effect=setup), \
-                patch("ub_agents.loop.supervise") as execution, self.assertRaises(KeyboardInterrupt):
+                patch("ub_agents.assignment_run.supervise") as execution, self.assertRaises(KeyboardInterrupt):
             loop.tick()
         execution.assert_not_called()
         lease, directory, worktree = self.artifacts()
@@ -222,7 +222,7 @@ class WorktreeSetupTests(unittest.TestCase):
                     self.github.change(1, **change)
                     return code
                 with patch("ub_agents.worktree_setup.supervise", side_effect=setup), \
-                        patch("ub_agents.loop.supervise") as execution:
+                        patch("ub_agents.assignment_run.supervise") as execution:
                     self.assertTrue(loop.tick())
                 execution.assert_not_called()
                 lease, directory, worktree = self.artifacts()
@@ -237,7 +237,7 @@ class WorktreeSetupTests(unittest.TestCase):
             (directory / "pid").write_text("123456")
             raise CleanupError("cannot inspect process group", next_step="make ps usable")
         with patch("ub_agents.worktree_setup.supervise", side_effect=uncertain), \
-                patch("ub_agents.loop.supervise") as execution, self.assertRaises(CleanupError):
+                patch("ub_agents.assignment_run.supervise") as execution, self.assertRaises(CleanupError):
             loop.tick()
         execution.assert_not_called()
         lease, directory, worktree = self.artifacts()
@@ -255,7 +255,7 @@ class WorktreeSetupTests(unittest.TestCase):
             kwargs["process_started"] = lost
             return supervise(*args, **kwargs)
         with patch("ub_agents.worktree_setup.supervise", side_effect=setup), \
-                patch("ub_agents.loop.supervise") as execution, self.assertRaises(LostOwnership):
+                patch("ub_agents.assignment_run.supervise") as execution, self.assertRaises(LostOwnership):
             loop.tick()
         execution.assert_not_called()
         lease, directory, worktree = self.artifacts()
@@ -288,7 +288,7 @@ class WorktreeSetupTests(unittest.TestCase):
 
         with patch("ub_agents.loop.LeaseRenewal", ManualRenewal), \
                 patch("ub_agents.worktree_setup.supervise", side_effect=setup), \
-                patch("ub_agents.loop.supervise") as execution:
+                patch("ub_agents.assignment_run.supervise") as execution:
             self.assertTrue(loop.tick())
         execution.assert_not_called()
         lease, = loop.coordinator.history(1)
@@ -306,8 +306,8 @@ class WorktreeSetupTests(unittest.TestCase):
 
     def test_local_process_record_failure_stops_setup_child(self):
         loop = self.loop("import time; time.sleep(30)")
-        with patch("ub_agents.loop.record_process_group", side_effect=OSError("disk full")), \
-                patch("ub_agents.loop.supervise") as execution:
+        with patch("ub_agents.assignment_run.record_process_group", side_effect=OSError("disk full")), \
+                patch("ub_agents.assignment_run.supervise") as execution:
             self.assertTrue(loop.tick())
         execution.assert_not_called()
         lease, directory, worktree = self.artifacts()

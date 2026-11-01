@@ -364,7 +364,7 @@ class DependencyTests(unittest.TestCase):
             co.report(lease, "success", "Completed started work", outcome="done")
             return 0
 
-        with patch("ub_agents.loop.supervise", side_effect=execute):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute):
             self.assertTrue(self.loop.execute(plan))
         history = self.loop.coordinator.history(1)
         self.assertEqual(history[0]["result"], "success")
@@ -381,7 +381,7 @@ class DependencyTests(unittest.TestCase):
         co.report(lease, "success", "Started work completed", outcome="done")
         now += 61
         self.assertEqual(self.plans()[1].state, "recover")
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(self.loop.tick())
         self.assertTrue(co.history(1)[1]["accepted"])
         self.assertEqual(co.history(1)[2]["result"], "success")

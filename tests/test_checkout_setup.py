@@ -246,8 +246,8 @@ class CheckoutSetupTests(unittest.TestCase):
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.launch_checks"), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise") as role, \
-                patch("ub_agents.loop.Workspace.prepare") as prepare, \
+                patch("ub_agents.assignment_run.supervise") as role, \
+                patch("ub_agents.assignment_run.Workspace.prepare") as prepare, \
                 patch.object(self.loop.stop_event, "wait") as wait, \
                 redirect_stderr(errors), redirect_stdout(output):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"),
@@ -386,7 +386,7 @@ class CheckoutSetupTests(unittest.TestCase):
         from ub_agents.loop import _GracefulStop
         with patch("ub_agents.checkout_setup.supervise", side_effect=drained), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise") as role, self.assertRaises(_GracefulStop):
+                patch("ub_agents.assignment_run.supervise") as role, self.assertRaises(_GracefulStop):
             self.loop.tick()
         role.assert_not_called()
         self.assertEqual(self.github.writes, [])
