@@ -18,12 +18,13 @@ from .denials import collect_denials
 from .discovery import Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, ExecutionStopped, GitHubError, LostOwnership, RecordError,
-                     RetryableExecutionError, TransitionPaused, ValidationError)
-from .execution import ScratchDirectory, Workspace, command_for, repository_checks, supervise
+                     RetryableExecutionError, TransitionPaused, UnsupportedConfiguration, ValidationError)
+from .execution import ScratchDirectory, Workspace, command_for, git, repository_checks, supervise
 from .events import EventHooks
 from .finalization import FinalizationReads
 from .report_command import launcher_report_command
 from .launcher_code import descriptors as code_descriptors
+from .launcher_lock import configuration_pause_summary, publish_configuration_pause
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .pass_messages import PassMessages
@@ -68,6 +69,7 @@ class Loop:
         self.observer = observer
         self._observer_lock = threading.RLock()
         self._continuous = False
+        self.configuration_pause = None
         self._run_planning = None
         self._planning_rate_until = None
         self._planning_workers = []
@@ -688,13 +690,7 @@ class Loop:
             raise _GracefulStop
         self.before_claim()
 
-    def _execute(self, plan):  # noqa: C901, PLR0912, PLR0915
-        plan = self.queue_planner.health_plan(plan, announce=True)
-        if plan.health_wait:
-            self._observe_plan(plan, self.discovery)
-            if self._targeted_pass:
-                self._refuse_plan(plan)
-            return False
+    def _refresh_policy(self, agent=None):
         # Between supervised runs and cleanup hooks, before any assignment writes.
         # Refresh errors belong to the operator, not to an assignment attempt.
         self._refreshing_checkout = True
@@ -712,7 +708,7 @@ class Loop:
                         self.updates.fetched(default, before, head)
                 options["on_fetch"] = fetched
             if self.config_path is None:
-                instructions = refresh_instructions(self.config, plan.agent, self.github, **options)
+                instructions = refresh_instructions(self.config, agent, self.github, **options)
                 shared = instruction_text(self.config.root, self.config.shared_instructions, "shared-instructions")
             else:
                 previous = refresh_checkout(self.config, self.github, **options)
@@ -723,26 +719,71 @@ class Loop:
             self._refreshing_checkout = False
         self.before_claim()
         if self.config_path is not None:
-            try:
-                path = (resolve_config_path(root=self.config_path.parent) if self.default_config
-                        else self.config_path)
-                config = load_config(path)
-                shared = instruction_text(config.root, config.shared_instructions, "shared-instructions")
-                texts = {a.name: instruction_text(config.root, a.instructions, f"{a.name} instructions")
-                         for a in config.agents}
-            except AgentError as exc:
-                # Configuration errors stop with the same diagnostic as check,
-                # without entering discovery retries or writing an assignment.
-                raise _InvalidReload(str(exc)) from exc
-            if config.repository != self.github.repository:
-                for _, error in repository_checks(config):
-                    if error is not None:
-                        raise error
-                self.github.repository = config.repository
-            self.config = config
-            self.observe("configure", config, self.coordinator.actor, path)
-            self.coordinator.reconfigure(config, pr_author_exclusions(
-                config.trusted_pr_authors, self.approvals, self.github))
+            texts, shared = self._reload_configuration()
+        else:
+            texts = {agent.name: instructions}
+        return previous, texts, shared
+
+    def _reload_configuration(self):
+        try:
+            path = (resolve_config_path(root=self.config_path.parent) if self.default_config
+                    else self.config_path)
+            config = load_config(path)
+            shared = instruction_text(config.root, config.shared_instructions, "shared-instructions")
+            texts = {a.name: instruction_text(config.root, a.instructions, f"{a.name} instructions")
+                     for a in config.agents}
+        except (AgentError, OSError, UnicodeError) as exc:
+            raise _InvalidReload(str(exc)) from exc
+        if config.repository != self.github.repository:
+            for _, error in repository_checks(config):
+                if error is not None:
+                    raise error
+            self.github.repository = config.repository
+        self.config = config
+        self.observe("configure", config, self.coordinator.actor, path)
+        self.coordinator.reconfigure(config, pr_author_exclusions(
+            config.trusted_pr_authors, self.approvals, self.github))
+        return texts, shared
+
+    def _configuration_paused(self, error):
+        commit = git(self.config.root, "rev-parse", "HEAD")
+        step = "Correct the configuration or instruction files"
+        if isinstance(error.__cause__, UnsupportedConfiguration):
+            step += " or upgrade ub-agents"
+        pause = {"error": " ".join(str(error).split()), "commit": commit,
+                 "next_step": step + "; retrying automatically on each poll (r polls now)"}
+        if pause != self.configuration_pause:
+            self.output(configuration_pause_summary(pause))
+            self._publish_configuration_pause(pause)
+
+    def _publish_configuration_pause(self, pause):
+        self.configuration_pause = pause
+        self.observe("configuration_pause", pause)
+        try:
+            publish_configuration_pause(self.config.root, pause)
+        except OSError as exc:
+            self.output(f"Cannot publish configuration pause in launcher owner record: {exc}")
+
+    def _retry_configuration(self):
+        # No discovery, recoveries or assignment writes may use the old policy.
+        # Keep the normal GitHub reservation and refresh failure policy.
+        with self.github_pass() as ready:
+            if not ready:
+                return False
+            self._refresh_policy()
+        commit = git(self.config.root, "rev-parse", "HEAD")
+        self._publish_configuration_pause(None)
+        self.output(f"Configuration valid at {commit}; resuming claims")
+        return True
+
+    def _execute(self, plan):  # noqa: C901, PLR0912, PLR0915
+        plan = self.queue_planner.health_plan(plan, announce=True)
+        if plan.health_wait:
+            self._observe_plan(plan, self.discovery)
+            if self._targeted_pass:
+                self._refuse_plan(plan)
+            return False
+        previous, texts, shared = self._refresh_policy(plan.agent)
         self._refreshing_checkout = True
         try:
             if self.config_path is not None and self.config.checkout_setup is None:
@@ -774,7 +815,7 @@ class Loop:
                     detail = f": {plan.state} — {plan.reason}" if plan is not None else ""
                     self.declined(previous_plan, f"Re-plan after refresh is no longer ready{detail}")
                 return False
-            instructions = texts[plan.agent.name]
+        instructions = texts[plan.agent.name]
         self.maintain_runtimes()
         if not self.github_ready():
             return False
@@ -1301,11 +1342,19 @@ class Loop:
             self._pass_started = monotonic()
             requests_before = self._requests_before = self.github.quota_requests
             try:
-                worked = (self.tick() if self._launch_number is None else
-                          self.tick_item(self._launch_number, self._launch_agent))
+                if self.configuration_pause is not None and not self._retry_configuration():
+                    worked = False
+                else:
+                    worked = (self.tick() if self._launch_number is None else
+                              self.tick_item(self._launch_number, self._launch_agent))
             except _GracefulStop:
                 return
-            except (_InvalidReload, CleanupError, RecordError):
+            except _InvalidReload as exc:
+                if once:
+                    raise
+                self._configuration_paused(exc)
+                worked = False
+            except (CleanupError, RecordError):
                 raise
             except AgentError as exc:
                 if self.interrupt_event.is_set():
@@ -1384,4 +1433,6 @@ class Loop:
             raise KeyboardInterrupt
 
     def idle_message(self):
+        if self.configuration_pause is not None:
+            return "Claims paused for invalid configuration"
         return self.queue_planner.idle_message()

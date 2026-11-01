@@ -327,6 +327,8 @@ def run(args):
         return read_run(args)
     if args.command == "doctor":
         return doctor_run(args)
+    if args.command == "status" and paused_launcher_status(args):
+        return
     config = load_config(args.config)
     _validate_launch_agent(args, config)
     github = GitHub(config.repository)
@@ -410,6 +412,19 @@ def retry_run(args, config, github, actor, coordinator):
     print(f"Reset {args.agent} attempts on #{item.number}: {created['url']}")
     print(retry_labels(github, item, agent, config.stop_labels))
     return
+
+
+def paused_launcher_status(args):
+    launcher = running_launcher(Path(args.config).resolve().parent)
+    if launcher is None or not launcher.get("configuration_pause"):
+        return False
+    # The current files may be precisely what stopped validation. Do not parse
+    # them or plan work under a cached configuration.
+    if args.json:
+        print(json.dumps({"assignments": [], "launcher": launcher}, indent=2))
+    else:
+        print(launcher_summary(launcher))
+    return True
 
 
 def status_run(args, config, loop):

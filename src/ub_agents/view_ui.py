@@ -29,7 +29,7 @@ from .view_spinner import SPINNER_FPS
 from .view_status import (StatusStyles, empty_log_message, footer, header, key_hints, log_mode,
                           log_notices, pane_line, paused_pill, run_status_line)
 from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
-from .view_widgets import (HealthBanner, ItemHeader, ItemTabs, KeyHelp, RawAccess, SIZE_WARNING,
+from .view_widgets import (ConfigurationPause, HealthBanner, ItemHeader, ItemTabs, KeyHelp, RawAccess, SIZE_WARNING,
                            UpdateBanner)
 from .view_worker import LocalWorker, Request
 from .view_work import RecentActivity, WorkTree, assignment_elapsed
@@ -54,6 +54,7 @@ class View(App):
         scrollbar-background-active: transparent;
     }
     #update, #health_notice { height: 1; padding: 0 1; background: $view-warning; color: $background; display: none; overflow: hidden; }
+    #configuration_pause { height: auto; padding: 0 1; background: $view-warning; color: $background; display: none; }
     #body { height: 1fr; }
     #size_warning { height: 1fr; content-align: center middle; text-wrap: nowrap; text-overflow: ellipsis; display: none; }
     #shutdown { height: 1fr; content-align: center middle; text-align: center; display: none; }
@@ -172,6 +173,7 @@ class View(App):
         yield Static(Text(SIZE_WARNING, no_wrap=True, overflow='ellipsis'), id='size_warning')
         yield UpdateBanner()
         yield HealthBanner()
+        yield ConfigurationPause()
         with Horizontal(id='body'):
             with Vertical(id='work_pane'):
                 yield WorkTree('Work', id='work')
@@ -227,7 +229,7 @@ class View(App):
         if pane is None:
             return
         if self.shutdown is not None:
-            for selector in ('#body', '#status', '#size_warning', '#update', '#health_notice'):
+            for selector in ('#body', '#status', '#size_warning', '#update', '#health_notice', '#configuration_pause'):
                 self.query_one(selector).display = False
             self.query_one('#shutdown').display = True
             self.update_shutdown()
@@ -257,6 +259,8 @@ class View(App):
         banner.display = not too_small and bool(text(banner.banner.get('text'), ''))
         health = self.query_one(HealthBanner)
         health.display = not too_small and bool(text(health.banner.get('text'), ''))
+        pause = self.query_one(ConfigurationPause)
+        pause.display = not too_small and bool(pause.pause)
         if changed:
             tree = self.query_one(WorkTree)
             tree._invalidate()
@@ -450,6 +454,7 @@ class View(App):
                 self._window_title = self.title
             self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
             self.query_one(HealthBanner).set_banner({'text': self.session.data.get('health_notice')})
+            self.query_one(ConfigurationPause).set_pause(self.session.data.get('configuration_pause'))
             # A person may pick a row while this read is in flight. Retain that
             # selection from the pane we last drew, using the returned snapshot.
             pane = (result.pane if result.token == self.token and result.chosen == self.chosen else

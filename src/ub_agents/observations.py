@@ -427,6 +427,10 @@ class Observations:
         self.state["health_notice"] = line[:MAX_TEXT]
         self.emit()
 
+    def configuration_pause(self, pause):
+        self.state["configuration_pause"] = pause
+        self.emit()
+
     def runtime_pauses(self, pauses):
         self.state["runtime_pauses"] = dict(pauses)
         self.emit()

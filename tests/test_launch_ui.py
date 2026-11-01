@@ -208,7 +208,7 @@ sys.stdin = sys.__stdin__  # importing tests detaches stdin; this launcher owns 
 from ub_agents.cli import main
 from ub_agents.config import Runtime
 from ub_agents.execution import supervise
-from ub_agents.errors import AgentError, GitHubError
+from ub_agents.errors import AgentError, GitHubError, UnsupportedConfiguration
 from ub_agents.loop import Loop
 from ub_agents.launch_ui import ui_command
 root = pathlib.Path(sys.argv[2])
@@ -268,7 +268,12 @@ def check_setup(*args):
                   "time.sleep(30)")
         subprocess.run([sys.executable, '-c', script], check=True, timeout=35)
         raise AssertionError('Setup was not interrupted')
-with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.loop.load_config', return_value=cfg), \\
+def reread(*args):
+    if mode in {'q-paused', 'term-paused'}:
+        raise UnsupportedConfiguration('Unknown configuration keys: future-key')
+    return cfg
+with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.loop.load_config', side_effect=reread), \\
+     patch('ub_agents.loop.git', return_value='a' * 40), \\
      patch('ub_agents.cli.GitHub', return_value=github), patch('ub_agents.cli.Loop', side_effect=create), \\
      patch.object(Loop, 'launch', launch), patch('ub_agents.cli.launch_checks', side_effect=check_setup), \\
      patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.loop.refresh_checkout'), \\
@@ -377,6 +382,27 @@ class LaunchTerminalTests(unittest.TestCase):
 
     def test_view_crash_keeps_launch_running(self):
         self.check_launch_form('crash', '--once')
+
+    def test_q_and_sigterm_while_configuration_paused_exit_promptly_without_claims(self):
+        for mode in ('q-paused', 'term-paused'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as state:
+                root = Path(directory)
+                shim = root / 'claude'
+                shim.write_text('#!/bin/sh\nexit 0\n')
+                shim.chmod(0o700)
+                env = {'XDG_STATE_HOME': state, 'NO_COLOR': None,
+                       'PATH': str(root) + os.pathsep + os.environ['PATH']}
+                repository = Path(__file__).resolve().parents[1]
+                with Terminal(HARNESS, repository, root, mode, env=env) as terminal:
+                    terminal.expect(b'Claims paused at', b'upgrade ub-agents', timeout=8)
+                    if mode == 'q-paused':
+                        terminal.send(b'q')
+                    else:
+                        terminal.process.send_signal(signal.SIGTERM)
+                    terminal.wait_exit(0, timeout=3)
+                    result = json.loads((root / 'result.json').read_text())
+                    self.assertEqual(result, {'exit': 0, 'history': [], 'labels': ['ready']})
+                    wait_for_observation_worker(root)
 
     def test_interrupt_stops_the_launch(self):
         self.check_launch_form('interrupt', '116')

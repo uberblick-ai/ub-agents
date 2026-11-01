@@ -7,7 +7,7 @@ import re
 
 import yaml
 
-from .errors import AgentError, InstructionError
+from .errors import AgentError, InstructionError, UnsupportedConfiguration
 from .github import REPOSITORY, REQUEST_TIMEOUT_SECONDS
 
 DEFAULT_CONFIG = "ub-agents.yaml"
@@ -71,7 +71,7 @@ def mapping(value, allowed, where):
         raise AgentError(f"{where} must be a mapping")
     unknown = value.keys() - allowed
     if unknown:
-        raise AgentError(f"Unknown {where} keys: {', '.join(sorted(unknown))}")
+        raise UnsupportedConfiguration(f"Unknown {where} keys: {', '.join(sorted(unknown))}")
     return value
 
 
@@ -324,7 +324,7 @@ def _parse_config(data, root, *, planned=()):
         project_path(root, str(shared), "shared-instructions", planned=planned)
     approvals = data.get("approvals")
     if "approvals" in data and (not isinstance(approvals, str) or approvals not in {"on", "off"}):
-        raise AgentError("approvals must be on or off")
+        raise UnsupportedConfiguration("approvals must be on or off")
     trusted_bots = bot_logins(data.get("trusted-bots", []))
     trusted_pr_authors = bot_logins(data.get("trusted-pr-authors", []), "trusted-pr-authors")
     launchers = _parse_launchers(data)
@@ -374,6 +374,8 @@ def _parse_runtime_updates(data, root):
             if isinstance(policy, str) and policy in {"auto", "off"}:
                 policies[cli] = policy
             else:
+                if isinstance(policy, str):
+                    raise UnsupportedConfiguration(f"runtime-updates {cli} must be a mapping")
                 command = mapping(policy, {"command"}, f"runtime-updates {cli}")
                 args = argv(command.get("command"), f"runtime-updates {cli} command")
                 if Path(args[0]).name in {"sudo", "su", "doas", "pkexec"}:
@@ -406,7 +408,7 @@ def _parse_events(data):
         subscribed = argv(hook.get("on"), "events on")
         for event in subscribed:
             if event not in {"started", "outcome"}:
-                raise AgentError(f"Unknown events on event: {event!r}; expected started or outcome")
+                raise UnsupportedConfiguration(f"Unknown events on event: {event!r}; expected started or outcome")
         timeout = number(hook.get("timeout-seconds", 10), "events timeout-seconds")
         if timeout > 60:
             raise AgentError("events timeout-seconds must be at most 60")
@@ -435,10 +437,10 @@ def _parse_queue(data):
     queue = mapping(data.get("queue", {}), {"milestones", "priority", "dependencies"}, "queue")
     milestones = queue.get("milestones", "ignore")
     if milestones not in ("strict-gate", "gate", "order", "ignore"):
-        raise AgentError("queue milestones must be strict-gate, gate, order or ignore")
+        raise UnsupportedConfiguration("queue milestones must be strict-gate, gate, order or ignore")
     dependencies = queue.get("dependencies", "wait")
     if dependencies not in ("wait", "ignore"):
-        raise AgentError("queue dependencies must be wait or ignore")
+        raise UnsupportedConfiguration("queue dependencies must be wait or ignore")
     priority = Priority()
     if "priority" in queue:
         settings = mapping(queue["priority"], {"labels", "default"}, "queue priority")
@@ -479,7 +481,7 @@ def _parse_agent_execution(name, item, root, runtime_defaults, planned):
             raise AgentError(f"{name}: runtime must be cli:model:effort")
         cli, model, effort = parts
         if cli not in CLIS:
-            raise AgentError(f"{name}: runtime cli must be one of {', '.join(CLIS)}")
+            raise UnsupportedConfiguration(f"{name}: runtime cli must be one of {', '.join(CLIS)}")
         runtimes.append(Runtime(cli, model, effort))
     # Retain the configured path, including symlinks, for validation on each run.
     instruction = (root / string(item["instructions"], f"{name} instructions")
@@ -567,7 +569,7 @@ def _parse_agent(name, definition, definitions, root, runtime_defaults, limits, 
     different = _parse_different_runtime(name, item, definitions, command)
     kind = item.get("kind", "either")
     if kind not in ("issue", "pr", "either"):
-        raise AgentError(f"{name}: kind must be issue, pr, or either")
+        raise UnsupportedConfiguration(f"{name}: kind must be issue, pr, or either")
     worktree = item.get("worktree", False)
     if not isinstance(worktree, bool):
         raise AgentError(f"{name}: worktree must be boolean")
@@ -624,7 +626,7 @@ def runtime_arguments(value, clis, name=None):
         for cli, arguments in value.items():
             where = f"{prefix}runtime-args {cli}"
             if cli not in CLIS:
-                raise AgentError(f"{where}: key must be one of {', '.join(CLIS)}")
+                raise UnsupportedConfiguration(f"{where}: key must be one of {', '.join(CLIS)}")
             if cli not in clis:
                 raise AgentError(f"{where}: key names no CLI in the agent's runtime list")
             result[cli] = argv(arguments, where, empty=True)
@@ -641,7 +643,7 @@ def validate_runtime_args(arguments, clis, name, *, key=None):
     for arg in arguments:
         for placeholder in re.findall(r"\{[a-zA-Z0-9_-]+\}", arg):
             if placeholder not in {"{scratch}", "{report_command}"}:
-                raise AgentError(f"{prefix}unknown {label} placeholder {placeholder}")
+                raise UnsupportedConfiguration(f"{prefix}unknown {label} placeholder {placeholder}")
     # Provenance records cli:model:effort and independence checks trust it; sessions start fresh.
     forbidden = {"--model", "-m", "--effort", "--resume", "-r", "resume", "--continue",
                  "model", "model_provider", "model_reasoning_effort"}
