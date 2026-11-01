@@ -6,6 +6,7 @@ runtime-updates:
   claude: auto
   codex: auto
   ub-agents: auto
+  ub: auto
 queue:
   milestones: order
   priority:
