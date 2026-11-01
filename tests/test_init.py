@@ -562,8 +562,7 @@ class InitTests(unittest.TestCase):
                 text = self.path.read_text()
                 self.assertEqual(text.count('# runtime-args:'), 1)
                 comment = (f'# {grant}: '
-                           'https://github.com/uberblick-ai/ub-agents/blob/main/docs/'
-                           'configuration.md#runtime-permissions')
+                           'https://agents.uberblick.ai/docs/configuration/permissions.html')
                 self.assertIn(comment, text)
                 self.assertIn("An agent's runtime-args list or mapping replaces these defaults entirely", text)
                 if runtime.startswith('claude:'):

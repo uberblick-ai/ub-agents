@@ -9,7 +9,7 @@ GitHub.
 ## What the view reads
 
 The view runs in its own process on the launcher's host. It reads the launcher's
-[session snapshot and item history files](session-snapshots.md), run logs and run context from the
+[session snapshot and item history files](https://github.com/uberblick-ai/ub-agents/blob/main/docs/session-snapshots.md), run logs and run context from the
 control checkout. If the snapshot is missing, stale, ended or from another
 ub-agents version, the launcher prints one line and continues with plain output.
 The view opens before the startup checks and shows `checking setup`. Quitting then
@@ -19,8 +19,7 @@ Everything comes from local files except an item's description and its
 action-needed comment. The view reads those with your existing `gh` login, and
 only when:
 
-- you open Issue (with `2`, a click, or by selecting another row while Issue is
-  open) and no description is available locally or from an earlier read;
+- you open Issue (with `2`, a click, or by selecting another row while Issue is open) and no description is available locally or from an earlier read;
 - you open Unblock and the snapshot has no notice for the item;
 - you press `g` on Issue or Unblock.
 
@@ -37,7 +36,7 @@ The view is part of every install: `brew install uberblick-ai/tap/ub-agents`, or
 
 ## Using the view
 
-### Layout
+## Layout
 
 At **110 columns × 32 rows** and above, you see two panes side by side. Work is
 on the left, one third of the width within 46 to 64 columns. The selected item's
@@ -52,25 +51,16 @@ Ctrl-C still work.
 
 Banners can appear above the panes:
 
-- **Update.** For an installed release, the launcher checks GitHub at startup and
-  at most once a day, and the banner names the upgrade command. For an editable
-  install from the control checkout, the banner asks you to restart when the
-  launcher's normal fetch finds commits its running code lacks. The view reads the
-  result from the snapshot. Restart the launcher to clear it.
-- **Health.** The latest [agent health check](configuration.md#project-health-checks)
-  failure or recovery.
-- **Configuration.** A wrapped error, checkout commit and next step when refreshed
-  files are invalid. Claims, including recoveries, pause until validation succeeds
-  on a later poll or `r`. Unknown keys or values offer file correction or upgrading
-  ub-agents. `q` stops as it does while idle. See
-  [configuration pauses](operations.md#when-things-go-wrong).
+- **Update.** For an installed release, the launcher checks GitHub at startup and at most once a day, and the banner names the upgrade command. For an editable install from the control checkout, the banner asks you to restart when the launcher's normal fetch finds commits its running code lacks. The view reads the result from the snapshot. Restart the launcher to clear it.
+- **Health.** The latest [agent health check](/docs/configuration/agents.html#health-check) failure or recovery.
+- **Configuration.** A wrapped error, checkout commit and next step when refreshed files are invalid. Claims, including recoveries, pause until validation succeeds on a later poll or `r`. Unknown keys or values offer file correction or upgrading ub-agents. `q` stops as it does while idle. See [configuration pauses](/docs/guides/running-launchers.html#when-things-go-wrong).
 
 The default theme is dark, with a purple accent, blue Running, red Needs
 attention and green Eligible. Colors follow the Textual theme, so `textual-light`
 also works. `NO_COLOR=1` renders the view in monochrome. The terminal title shows
 `ub-agents launch — OWNER/REPOSITORY`.
 
-### Work
+## Work
 
 The Work pane lists this launcher's work from the snapshot in three sections.
 Running always shows. Empty sections are hidden.
@@ -82,7 +72,7 @@ Running always shows. Empty sections are hidden.
 | Eligible | Up to ten items in claim order: ready and recovery plans first, then delayed plans |
 
 Eligible's heading counts every eligible item, for example
-`Eligible · 23 · showing 10`. [Selection order](coordination.md#selection-order)
+`Eligible · 23 · showing 10`. [Selection order](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#selection-order)
 defines claim order. Plans claimed by other launchers and plans waiting for
 blockers do not appear in Work. Runs by other launchers still show in an item's
 Runs tab.
@@ -137,7 +127,7 @@ starts. Your selection, tab, focus and log position survive refreshes. A
 selected row that leaves Work stays in the right pane as an earlier observation
 until you select another.
 
-### Item tabs
+## Item tabs
 
 The right pane has `1 Agent`, `2 Issue` and `3 Runs`, plus `4 Unblock` while the
 selected row is in Needs attention. Every tab starts with the same header. The
@@ -148,7 +138,7 @@ Click `#N` or `⌥N` in the header to open the issue or PR in your browser. This
 needs a terminal that passes mouse clicks to the app. The inert
 `Formatted  Raw (u)` indicator beside the tabs shows the log mode.
 
-#### Agent
+### Agent
 
 Agent shows the selected run's local `process.log` and follows new output.
 Scrolling up or pressing `f` pauses. The page then stays still while output keeps
@@ -157,8 +147,7 @@ arriving, and a pill at the bottom shows `⏸ PAUSED` with the unread count. Pre
 
 - `h` reads an older page, back toward the start of the file.
 - `g` reloads the log at its end and follows it.
-- `p` shows the full file path and byte diagnostics. Open that file in a pager to
-  read everything.
+- `p` shows the full file path and byte diagnostics. Open that file in a pager to read everything.
 - `u` switches between formatted and raw output.
 
 Formatted mode turns Claude and Codex output into a compact transcript:
@@ -174,18 +163,10 @@ Formatted mode turns Claude and Codex output into a compact transcript:
  07:43:32 ✓ run finished
 ```
 
-- Times are local. `~07:42:30` marks a supervisor observation time for a record
-  without its own timestamp (including Codex), or the view's capture time for
-  live output. These times remain available when reopening a run, paging back
-  with `h` or reloading with `g`. Runs supervised before timing was recorded have
-  no historical times. Producer timestamps appear without `~`; continuation
-  lines keep a blank time column.
-- `▸` is a tool call with its main argument. Edit and Write add green `+N` and
-  red `-N` line counts. `· 1m` is a Claude call's elapsed time.
-- Assistant text is italic. A dim `·` line is a thinking summary, an unfamiliar
-  record type, or a notice about skipped or omitted output.
-- A red `✗` line is a failed tool call, command or run, with its first error
-  line. `✓ run finished` marks a successful end.
+- Times are local. `~07:42:30` marks a supervisor observation time for a record without its own timestamp (including Codex), or the view's capture time for live output. These times remain available when reopening a run, paging back with `h` or reloading with `g`. Runs supervised before timing was recorded have no historical times. Producer timestamps appear without `~`; continuation lines keep a blank time column.
+- `▸` is a tool call with its main argument. Edit and Write add green `+N` and red `-N` line counts. `· 1m` is a Claude call's elapsed time.
+- Assistant text is italic. A dim `·` line is a thinking summary, an unfamiliar record type, or a notice about skipped or omitted output.
+- A red `✗` line is a failed tool call, command or run, with its first error line. `✓ run finished` marks a successful end.
 
 Successful tool output, IDs and usage appear only in raw mode. Other runtimes
 show raw lines.
@@ -193,7 +174,7 @@ show raw lines.
 Below the log, a status line shows the agent, its process or plan state and the
 reported result, with `N earlier runs` at the right.
 
-#### Issue
+### Issue
 
 Issue shows the row's state and reason, then the item's description as Markdown.
 Links, images and HTML stay as text, and nothing opens or loads from them. A
@@ -205,7 +186,7 @@ has it. Otherwise the view [reads GitHub](#what-the-view-reads). A dim line name
 the source and its age. For a Needs attention row, Issue also shows the Unblock
 content below the description, fully expanded.
 
-#### Runs
+### Runs
 
 Runs reads the selected item's local history file and shows every known run,
 oldest first, including runs by other launchers. A dim line above the table gives `closes #N` for a PR, `filed by
@@ -214,16 +195,12 @@ the issue and when.
 
 Each run row has:
 
-- when: the outcome time, or the claim time while running, as `just now`,
-  `N min ago`, `N h ago`, `yesterday`, `N days ago`, then a date;
-- a green `✓` for success, a red `✗` for a failed, rejected, blocked or abandoned
-  run, or a spinner while it runs or awaits acceptance;
+- when: the outcome time, or the claim time while running, as `just now`, `N min ago`, `N h ago`, `yesterday`, `N days ago`, then a date;
+- a green `✓` for success, a red `✗` for a failed, rejected, blocked or abandoned run, or a spinner while it runs or awaits acceptance;
 - the agent and summary;
 - `this machine`, or the other host's short name;
-- the outcome, with `BLOCKED: …` for human blockers and `· N denied` when the run
-  recorded [permission denials](coordination.md);
-- tokens, using an exact count below 1,000, rounded `Nk` below 1M and `N.NM` from
-  1M, or a blank cell when no usage was recorded.
+- the outcome, with `BLOCKED: …` for human blockers and `· N denied` when the run recorded [permission denials](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md);
+- tokens, using an exact count below 1,000, rounded `Nk` below 1M and `N.NM` from 1M, or a blank cell when no usage was recorded.
 
 Token usage comes from the GitHub coordination record, including for other
 launchers' runs. GitHub result lines also show cost when the CLI reports it. On a
@@ -234,7 +211,7 @@ Every row fits on one line. The run count matches the run rows shown, excluding
 the filing row. Histories have no run limit and are outside the snapshot's size
 budget.
 
-#### Unblock
+### Unblock
 
 Unblock appears while the selected row is in Needs attention. Its header line
 adds the agent, state, a red `waiting …` and `since HH:MM`. It shows the first
@@ -243,8 +220,7 @@ available source, the same one that sets the Work row's reason and waiting time:
 1. The item's latest trusted action-needed notice since the last claim or reset.
 2. The finished outcome that added a stop label still on the item.
 3. The approval gate's reason, with no waiting time.
-4. For a blocked or failed plan, the last finished run's reported actions or
-   summary.
+4. For a blocked or failed plan, the last finished run's reported actions or summary.
 
 `ub-agents status` uses the same rule. Only notices from accounts the launcher
 already trusts for coordination records count.
@@ -252,8 +228,7 @@ already trusts for coordination records count.
 A notice shows its reason, asks and numbered options, with the recommended
 option first. Its resume steps sit in a collapsed fold:
 
-- on a pull request, the visible line "Merging or closing #N finishes this item;
-  nothing else is needed." and a **To send it back to AGENT instead** fold;
+- on a pull request, the visible line "Merging or closing #N finishes this item; nothing else is needed." and a **To send it back to AGENT instead** fold;
 - on an issue, a **To resume AGENT** fold.
 
 Approval-gate notices keep their resume steps visible. Supporting detail sits in
@@ -271,14 +246,14 @@ several blocked agents, their commands share one **To resume these agents** fold
 or **To send it back to these agents instead** on a PR. The fallback stays while a
 read is pending, and when GitHub has no trusted notice or the read fails.
 
-### Footer
+## Footer
 
 The footer's left side shows the launcher's version, repository and activity:
 `ub-agents v0.2.1 · uberblick-ai/ub-agents · next poll 26s`. Activity is
 `checking setup`, `polling`, `running assignment`, `stopping`, or a `next poll Ns`
 countdown while waiting. Stale, ended and malformed snapshots are labelled there
 too. Each active usage pause adds a segment such as `claude paused for 1d 4h`.
-[Usage limits](https://agents.uberblick.ai/docs/configuration/runtimes.html#usage-limits)
+[Usage limits](/docs/configuration/runtimes.html#usage-limits)
 explains pauses. The right side lists the main keys for the current pane and tab.
 
 `r` starts the next poll now, or refreshes the queue during a continuous launch's
@@ -291,32 +266,29 @@ assertion, and display sleep stays allowed. It starts off at every launch, and
 `☕` appears in the footer while it is on. It ends when you toggle it off or the
 launcher exits.
 
-### Keys
+## Keys
 
 Press `?` for every key. `Escape` or `?` closes it. Open a fold by clicking its
 title, or focus it and press `Enter`.
 
 `q` stops the launcher after the current run, and Ctrl-C stops it now.
-[Stopping and restarting](operations.md#stopping-and-restarting) covers both.
+[Stopping and restarting](/docs/guides/running-launchers.html#stopping-and-restarting) covers both.
 
 Drag with the mouse to select text. Releasing copies it through OSC 52, and `y`
 copies the selection again. In tmux, OSC 52 needs the setting in
-[On a server](https://agents.uberblick.ai/docs/guides/add-a-launcher.html#on-a-server).
+[On a server](/docs/guides/add-a-launcher.html#on-a-server).
 On macOS, when neither `SSH_CONNECTION` nor `SSH_TTY` is set, the view also
 copies with `pbcopy`. Option-drag uses the terminal's own selection.
 
-### Limits and exit
+## Limits and exit
 
 The snapshot bounds what the view can show: ten Eligible items, 20 recent
 outcomes and shortened text. The Runs tab lists every run the launcher knows for
 the selected item.
-[Session snapshots](session-snapshots.md) gives the limits and what is trimmed
+[Session snapshots](https://github.com/uberblick-ai/ub-agents/blob/main/docs/session-snapshots.md) gives the limits and what is trimmed
 first.
 
 Launcher lines keep appending to `.ub-agents/launch.log` while the view is open.
 When the launcher exits, the view closes, restores the terminal and leaves the
 final launcher message visible. If the view crashes, the launcher prints one line
 and continues with plain output.
-
-The real-terminal tests are in `tests/test_view_terminal.py` and
-`tests/test_view_unblock_terminal.py`.

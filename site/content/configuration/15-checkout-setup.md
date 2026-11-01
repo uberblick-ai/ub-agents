@@ -30,4 +30,14 @@ If control-checkout setup fails, launch stops before a claim and charges no atte
 ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"
 ```
 
-See the [checkout-setup reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#checkout-setup) for the details.
+See the [checkout setup contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#checkout-setup) for comparison baselines, pending setup and worktree failures.
+
+## Key reference
+
+`checkout-setup` is an optional mapping; without it, no setup command runs.
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `command` | Required argv list | Runs without a shell in the checkout being set up, before the agent starts. Runtime permissions do not apply. |
+| `when-changed` | Optional non-empty list | Literal repository-relative file paths. Absolute paths, directories, `..`, an empty list and `null` are rejected. Omit it to run after every refresh. |
+| `timeout-seconds` | Number, `600` | Positive, at most 3600. |

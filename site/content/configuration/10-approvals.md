@@ -65,3 +65,17 @@ The PR body is always withheld from assignment context and `read N`, because it 
 Outside comments and reviews need clearance to become input but do not suspend the PR. The author bot's feedback needs `trusted-bots` to count without clearance. Listing a PR author gives it no authority to start other work, approve heads, clear input or act as a launcher.
 
 Fork PRs and issues keep their normal rules. With approvals off, the key has no effect and bodies remain input. Supervised runs pin the list for `read N`. See the [full approval rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/approvals.md#trusted-pr-authors).
+
+## Key reference
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `approvals` | `on` or `off`, quoted or unquoted | When unset, resolved each discovery pass from visibility: `on` for public, `off` for private and internal. |
+| `trusted-bots` | List, `[]` | GitHub logins, unique ignoring case, without `@` or surrounding whitespace. |
+| `trusted-pr-authors` | List, `[]` | Same login validation as `trusted-bots`. |
+
+Bot login matching ignores an optional `[bot]` suffix and requires GitHub's account
+type to be `Bot`. Copilot posts inline feedback as `Copilot`; list both
+`copilot-pull-request-reviewer` and `Copilot` to trust reviews and inline feedback.
+
+The [approval contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/approvals.md) defines authority, clearance and pinned run policy.

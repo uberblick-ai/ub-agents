@@ -4,17 +4,11 @@ This is the contract for who can start agent work, which PR heads are eligible a
 which GitHub text reaches agents. The [approvals page](https://agents.uberblick.ai/docs/configuration/approvals.html)
 explains it for users.
 
-The top-level `approvals` key in `ub-agents.yaml` accepts `on` or `off`, quoted or
-unquoted. When unset, approvals are **on for public repositories** and **off for
-private and internal repositories**, using GitHub's repository visibility. The
-launcher resolves this default at the start of each discovery pass, including a
-targeted `launch N` pass, so a repository that becomes public is checked from the
+Configuration keys and defaults live on the [approvals page](https://agents.uberblick.ai/docs/configuration/approvals.html#key-reference).
+When the setting is implicit, the launcher resolves repository visibility at the
+start of each discovery pass, including a targeted `launch N` pass, so a repository that becomes public is checked from the
 next pass. If visibility cannot be read, the pass fails without claims or parking
 writes. An explicit setting needs no visibility read.
-
-```yaml
-approvals: on
-```
 
 ## With approvals off
 
@@ -104,10 +98,7 @@ add, copy or list it.
 
 ## Reading other issues and PRs
 
-```sh
-ub-agents read 123
-ub-agents read 123 --config workflow.yaml
-```
+Command usage is on [read](https://agents.uberblick.ai/docs/commands/loop-internal.html#read).
 
 `read N` prints one open or closed issue or PR from the configured repository as
 JSON. It changes no labels, claims, notices or records, and resolves the effective
@@ -148,17 +139,8 @@ is not information either.
 
 ## Trusted bots
 
-```yaml
-trusted-bots: [copilot-pull-request-reviewer, Copilot, "github-actions[bot]"]
-```
-
-This optional top-level list defaults to empty. Entries are GitHub account logins,
-matched case-insensitively, with no `@` prefix or surrounding whitespace. The
-optional `[bot]` suffix is ignored when matching. A listed login is trusted only
-when GitHub reports its account type as `Bot`; listing a human adds no trust.
-Copilot posts inline review comments as `Copilot`, so list both
-`copilot-pull-request-reviewer` and `Copilot` to trust its reviews and inline
-feedback.
+The [trusted-bots configuration](https://agents.uberblick.ai/docs/configuration/approvals.html#trusted-bots)
+defines login syntax and matching.
 
 Listed bots' comments, reviews and review comments are trusted like `write`+
 feedback in assignment context and `read`, with approvals on or off. This trust
@@ -168,15 +150,8 @@ Unlisted bots' feedback is outside.
 
 ## Trusted PR authors
 
-```yaml
-trusted-pr-authors: [dependabot]
-```
-
-This optional top-level list defaults to empty and uses the same login matching
-and validation as `trusted-bots`: case-insensitive, ignoring an optional `[bot]`
-suffix, and only for accounts GitHub reports as `Bot`. Listing a human adds no
-trust. Duplicate logins ignoring case and non-list values are configuration errors,
-including in `doctor --offline`.
+The [trusted-pr-authors configuration](https://agents.uberblick.ai/docs/configuration/approvals.html#trusted-pr-authors)
+defines the allowlist and validation.
 
 With approvals on, a listed bot's PR whose head repository is the base repository
 counts as trusted-authored. Any account can apply its configured trigger label;
@@ -237,7 +212,7 @@ A `write` account, including the launcher account, cannot start work by applying
 labels, except through an inherited start.
 
 An issue can inherit a start from its native parent through a declared
-[`sub-issues: {add: [...]}` outcome](configuration.md#outcomes-and-transitions).
+[`sub-issues: {add: [...]}` outcome](https://agents.uberblick.ai/docs/configuration/outcomes.html).
 The outcome records the open, same-repository sub-issues authored by the lease's
 launcher account after its claim. The parent record must name the sub-issue and
 trigger label, match its source lease's declaration, be accepted and complete, and

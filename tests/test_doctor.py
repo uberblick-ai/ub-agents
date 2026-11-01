@@ -775,7 +775,7 @@ launchers: [operator]
         self.assertIn('Agents without runtime-args: worker, reviewer;', check['message'])
         self.assertNotIn('command', check['message'])
         self.assertNotIn('configured', check['message'])
-        url = 'https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions'
+        url = 'https://agents.uberblick.ai/docs/configuration/permissions.html'
         self.assertIn(url, check['remedy'])
         code, output = self.cli()
         self.assertEqual(code, 0)

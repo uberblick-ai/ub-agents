@@ -20,10 +20,10 @@ project.
 - A successful outcome's transition removes the agent's triggers, so the item runs
   again only when someone reapplies one. An accepted success resets that agent's
   count on that item, including through outcome-only recovery.
-- `ub-agents retry N --reason TEXT [--agent NAME]` resets that agent's failure count
+- A [retry](https://agents.uberblick.ai/docs/commands/retry.html) resets that agent's failure count
   and rounds on the item to 0 and clears its failure block and backoff. It keeps
   history, refuses a live lease and does not clear approval parking. See
-  [retry](https://agents.uberblick.ai/docs/commands/retry.html) for its label changes.
+  the command page for its label changes.
 
 An outcome's optional `max-rounds` limits accepted handoffs separately from
 failures. A round is one accepted record of that outcome by that agent on that item
@@ -54,7 +54,7 @@ tentative claim without a report counts as a crash. Outcome-only recovery claims
 cost nothing; the source run counts once, by its recorded outcome and the recovery
 verdict. Pending success validation charges nothing until a verdict is known.
 
-Retry backoff follows the [limits](configuration.md#limits). For a crash without a
+Retry backoff follows the [limits](https://agents.uberblick.ai/docs/configuration/limits.html). For a crash without a
 report, the delay starts at lease expiry; otherwise it starts at release after
 confirmed cleanup. An interrupt adds no delay. Every lease records an
 `attempt_effect` (`pending`, `failure`, `reset` or `unchanged`), so restart
@@ -79,7 +79,7 @@ need `ub-agents retry`.
    except for new issues in milestone `gate` or `strict-gate` mode. Existing work (PR assignments,
    owned runs and recovery) keeps priority order, ignores milestones and precedes the
    next new issue at equal or higher priority. Dependency waits never hold it back.
-3. New issues must pass the [dependency gate](configuration.md#queue), checked
+3. New issues must pass the [dependency gate](https://agents.uberblick.ai/docs/configuration/queue.html), checked
    during planning, again at claim time and before approval parking. Milestones choose among
    eligible issues; `strict-gate` parks otherwise-ready issues outside the current
    milestone, preserving blocked and parked issues' own reasons.
@@ -97,8 +97,21 @@ need `ub-agents retry`.
 5. Creation time, then item number, break remaining ties. Agents on the same item
    keep configuration order.
 
-The [queue reference](configuration.md#queue) covers priority labels, milestone
-lists and dependency inheritance. `launch N` and `status N` skip priority and
+Queue keys and usage live on [Queue](https://agents.uberblick.ai/docs/configuration/queue.html).
+A PR takes the highest priority of its own labels and each open local issue its
+body closes; each reference needs a closing keyword, such as `Closes #21`.
+Closed issues and other repositories do not count. Issues with several priority
+labels take their highest; without a label or configured default they rank below
+all configured labels. The launcher never changes priority labels.
+
+With dependency waits enabled, open local blockers inherit the highest priority
+of their open local dependents, directly or transitively, and in milestone modes
+their earliest milestone. Cycles share what they reach. Open blockers in other
+repositories also hold a new issue start, but do not inherit local rank. Failed
+dependency reads stop selection. With dependencies ignored, links are not read.
+`strict-gate` counts every open milestone, including empty ones; `order` and `gate`
+count open milestones with open issues or PRs. Unreadable milestone lists or items
+stop selection; with milestones ignored, lists are not read. `launch N` and `status N` skip priority and
 milestone selection but apply every other gate, so later-milestone work can run.
 `launch --agent NAME` plans, claims, recovers and reconciles notices only for that
 agent, under the same rules.
@@ -138,7 +151,7 @@ and approval input but are not parsed. Every lease requires `attempt_effect`. A 
 v4 record blocks its item.
 
 By default, records count when the comment author's current repository role is
-`write`, `maintain` or `admin`. [`launchers`](configuration.md#launcher-accounts)
+`write`, `maintain` or `admin`. [`launchers`](https://agents.uberblick.ai/docs/configuration/launchers.html)
 narrows trust to listed accounts, matched ignoring case, which still need `write` or
 higher. Any trusted account, including a person with write access, can post records
 that count; this adds little authority, because that person can already change
@@ -185,7 +198,7 @@ minimized. Unconfirmed process cleanup still requires action and gets a notice.
 A notice leads with the agent's asks, or with the summary's first sentence (one
 line, at most 300 characters) and numbered options. Resume steps follow. The full
 summary, the candidate's review decision and CI rollup, links and diagnostics are
-collapsed. The [terminal view](terminal-view.md#unblock) describes the layout.
+collapsed. The [terminal view](https://agents.uberblick.ai/docs/guides/terminal-view.html#unblock) describes the layout.
 
 Notices start with a `<!-- ub-agents:action-needed ` marker and are not coordination
 records: they never affect routing authority, verdicts or attempt counts. A later
@@ -207,10 +220,9 @@ lowest GitHub comment ID among unexpired live leases wins. A loser edits only it
 comment to withdraw and never starts a runtime. The winner marks its record running
 before execution.
 
-A lease lasts 30 minutes by default. The supervising launcher renews it every 10
-minutes while it owns the work, from setup through cleanup and recovery, including
-rate-limit waits. Set both with `lease-minutes` and `lease-renew-minutes` under
-top-level [`limits`](configuration.md#limits). A dead launcher's claim stays live
+A lease lasts for the configured [claim timing](https://agents.uberblick.ai/docs/configuration/limits.html#claims).
+The supervising launcher renews it while it owns the work, from setup through
+cleanup and recovery, including rate-limit waits. A dead launcher's claim stays live
 until its recorded expiry, and the supervisor stops a run whose last confirmed
 expiry has passed by wall clock, including after sleep. Renewal moves only
 `expires` forward, after a fresh ownership read. Release and withdrawal expire the
@@ -239,7 +251,7 @@ head or vanished trigger found after setup but before execution counts as a laun
 setup failure. A stop label or closed or merged item found at that point cancels the
 run without changing its count. `ub-agents retry` resumes a stopped open item; a closed
 item needs no further action. Run branches and worktrees are removed as
-[stale artifact cleanup](configuration.md#stale-artifact-cleanup) describes.
+[stale artifact cleanup](#stale-artifact-cleanup) describes.
 
 GitHub comment writes are not compare-and-swap. The election does **not** give
 exactly-once execution, strict consistency, instant loss detection or write fencing.
@@ -256,7 +268,7 @@ Rate limits during claims, ownership checks and completion reads wait under the
 [rate-limit rules](polling.md#quota-and-failure-handling) while renewal continues.
 Ownership is lost only when the last confirmed expiry passes or another claim owns
 the item; an ownership read that still fails after those waits stops the run. See
-[Stopping and restarting](operations.md#stopping-and-restarting) for signals.
+[Stopping and restarting](https://agents.uberblick.ai/docs/guides/running-launchers.html#stopping-and-restarting) for signals.
 
 ## Handoff PRs
 
@@ -285,6 +297,10 @@ also supplied as `UB_AGENTS_REPORT`, which runs the launcher's own installation.
 invalid or does not match `UB_AGENTS_REPOSITORY` and `UB_AGENTS_RUN`, the command
 fails before any GitHub request. Outside a run, only `read N` works, using local
 configuration.
+
+`run.json` pins `repository`, `run`, `assignment`, `lease_id`, `agent`, `approvals`,
+`trusted-bots`, `trusted-pr-authors`, `triggers` and `retrospectives`, plus
+`launchers` and `sub-issue-labels` when configured.
 
 `report` verifies the run's current ownership and creates one versioned outcome
 comment. `--outcome NAME` reports a declared outcome with status `success`;
@@ -381,9 +397,7 @@ label event; a pending parent transition makes it wait without approval parking.
 
 A report starts with `accepted: false`. Once the process group has ended, the
 launcher reads current history and items, validates ownership and the exact reported
-candidate SHA, and applies the [handoff checks](#handoff-prs). It then applies the
-transition as the [configuration reference](configuration.md#outcomes-and-transitions)
-describes:
+candidate SHA, and applies the [handoff checks](#handoff-prs). It then applies the transition:
 
 1. Check both items with the same reads. A missing trigger blocks and a stop label
    pauses, each with a durable rejection.
@@ -392,6 +406,15 @@ describes:
 4. Remove the assignment labels, then add the destination labels.
 5. Persist `transition_complete: true`.
 6. Accept the outcome, update its handoff copy and release the lease.
+
+The destination is the handoff PR when one is named, otherwise the assignment.
+Assignment removals include all of the agent's triggers and explicit `remove`
+labels; destination additions use `add`. Other labels stay. When both items are
+the same and a label appears in both lists, addition wins. A stop label on either
+item pauses an unstarted transition without label changes; a label added after
+the transition starts stays, and the transition completes. A paused outcome is
+never applied later; an operator restores labels or uses `retry`. Interruptions
+after a transition starts finish through [recovery](#recovery).
 
 A report made before a nonzero exit is kept and, after confirmed cleanup, validated
 and applied as after exit zero. Agent output is never interpreted. The lease's
@@ -459,10 +482,11 @@ died.
 
 ## Runtime independence and candidate provenance
 
-`different-runtime-from: NAME` works on issues and PRs. On an issue, the source
-runtime comes from `NAME`'s **latest accepted successful outcome on that issue**.
+The [runtime independence setting](https://agents.uberblick.ai/docs/configuration/agents.html#different-runtime-from)
+works on issues and PRs. On an issue, each named source agent's runtime comes from
+its **latest accepted successful outcome on that issue**.
 A newer accepted preparation or revision replaces the previous source runtime;
-issue body revisions are not tracked. On a PR, an accepted report from `NAME`
+issue body revisions are not tracked. On a PR, an accepted report from the source agent
 identifies the source runtime for the **current PR head**. In both cases, a
 successful source release or outcome recovery must back the report; invalid source
 provenance blocks.
@@ -479,9 +503,8 @@ stays, and recovery repairs it without running the source again. Planning reread
 the source outcome and lease, so a rejected report or a reset that abandons the
 handoff stops a stale copy from blocking.
 
-The setting also accepts a nonempty list, such as
-`different-runtime-from: [implementer, reviewer]`. Each identified source excludes
-runtimes that share its CLI or model. If every runtime is excluded, planning blocks
+Each identified source excludes runtimes that share its CLI or model.
+If every runtime is excluded, planning blocks
 with `No runtime has a different CLI and model from the candidate author`.
 
 Without an accepted report from any named agent on the issue or for the current PR
@@ -592,7 +615,7 @@ SIGKILL release it too. Agents and helpers do not inherit it. `status` and `doct
 including `doctor --offline`, report this checkout's live holder or none; this is
 informational and does not affect doctor's checks. Builds without this lock and
 launchers on other hosts sharing network storage are outside this boundary. See
-[Stopping and restarting](operations.md#stopping-and-restarting) for signals.
+[Stopping and restarting](https://agents.uberblick.ai/docs/guides/running-launchers.html#stopping-and-restarting) for signals.
 
 Each process gets a new POSIX session and process group. Termination sends TERM,
 then KILL, and checks that no group members remain. If that check fails, the launcher
@@ -600,6 +623,134 @@ reports uncertainty, keeps artifacts, stops the loop and leaves expiry as the
 recovery authority. Private worktree removal applies only to a directory this run
 created, with a guard against path redirection.
 
+The [command-agent environment](https://agents.uberblick.ai/docs/configuration/command-agents.html#environment)
+lists run variables. `TMPDIR` is unchanged. The launcher creates scratch with mode `0700` and removes it
+once the run's processes are confirmed stopped. A removal failure records
+`scratch-removal-failed` in `events.jsonl` without changing the result. Run logs stay
+for the [7-day retention](#stale-artifact-cleanup).
+
 Helpers that detach into another session or group escape this supervision. This
 framework cannot reliably fence a launcher killed with SIGKILL, detached helpers or
 malicious executions.
+
+## Project health checks
+
+Keys and operator usage live on [Agents](https://agents.uberblick.ai/docs/configuration/agents.html#health-check).
+Health checks run in the control checkout only when an agent has otherwise-ready
+work, before any claim, with a fixed 60-second timeout and a pass cached for up to
+five minutes. Failed checks hold that agent's ready items without claims, attempts
+or label changes; other agents keep working and active runs are not interrupted.
+`status` runs the check too; `doctor` never does.
+
+## Checkout setup
+
+See [Checkout setup](https://agents.uberblick.ai/docs/configuration/checkout-setup.html)
+for keys, defaults, validation and usage.
+
+**Control checkout.** With `when-changed`, before each new run, after the refresh, the
+launcher compares the watched files with the last commit where setup succeeded, or
+before any success, with the HEAD before the fast-forward. If any differ, setup runs
+once before claiming. In this mode, pulls made by hand are not detected. Without
+`when-changed`, setup runs after every refresh. A failure in either mode stops launch
+before a claim and charges no attempt. Setup then stays pending and runs on every
+launch until it succeeds. Its state and logs live under
+`$XDG_STATE_HOME/ub-agents/checkouts/` (default
+`~/.local/state/ub-agents/checkouts/`).
+
+**Private worktrees.** With `worktree: true`, setup runs once in each new private
+worktree, whatever `when-changed` says, except fork PR worktrees. A same-repository PR
+installs from its head, so the head's install scripts run. Output goes to
+`checkout-setup/process.log` in the run's log directory. A failure ends the run before
+the agent starts, removes the worktree and counts toward the attempt limit.
+
+## Project cleanup hook
+
+Keys, the hook's context fields and usage live on [Cleanup hook](https://agents.uberblick.ai/docs/configuration/cleanup.html).
+
+The hook runs before the launcher removes a private worktree it owns, including after
+a timeout, interruption or lost ownership, and before each removal in the
+[startup sweep](#stale-artifact-cleanup). It starts only after the agent's processes
+are confirmed stopped; a requested stop does not skip it. Shared working directories
+have no hook. If the run's claim expires during the hook, the hook is stopped and the
+worktree kept for recovery.
+
+Exit zero permits removal. A nonzero exit, start failure or timeout keeps the worktree
+and branch and logs `cleanup-hook-failed` in the run's `events.jsonl`. The outcome and
+labels stand, and a later sweep retries.
+
+## Stale artifact cleanup
+
+Operator usage and recovery are on [Cleanup hook](https://agents.uberblick.ai/docs/configuration/cleanup.html#leftovers).
+
+Every `ub-agents launch`, including `--agent`, `NUMBER` and `--once`, sweeps leftovers
+once in the background after its startup checks. There is no periodic sweep. It looks
+at worktrees under this checkout's `.ub-agents/worktrees/`, local branches named
+`ub-agents/<agent>/<number>/<run>` or the older `ub-agent/...`, and fork PR head refs
+left by interrupted runs. It removes each one unless:
+
+1. its run has a live claim on this host;
+2. the branch heads an open PR, or is checked out in a worktree the sweep keeps; or
+3. the run's processes may still be running, for example after unconfirmed cleanup.
+
+Claims on other hosts, missing claims, ended runs, uncommitted changes and locked
+worktrees do not prevent removal. If the coordination scan or PR lookup fails, the
+affected artifacts stay. Other tools' worktrees and remote branches are never touched.
+A crashed run's claim stays live until it expires, so a quick restart keeps its
+worktree until a later launch.
+
+The cleanup hook runs before each worktree removal; a failed hook keeps the worktree
+and branch. Decisions go only to `.ub-agents/sessions/<session>.cleanup.log`; without
+a writable log, the sweep removes nothing. Before deleting a branch whose tip no
+fetched `origin` branch or merged PR head contains, the log records its
+`unpushed tip SHA`. Restore it with `git branch <name> <sha>`.
+
+At run end, the launcher deletes the run's local branch only if an `origin` branch
+contains its tip; otherwise it keeps and logs the branch.
+
+The sweep also prunes run directories under `.ub-agents/runs/` and ended session files
+older than 7 days, unless a live claim, possibly running process, kept worktree or
+unreadable diagnostics protect them. The cleanup log reports counts and space freed.
+Pruning never follows symlinks. Retention is fixed.
+
+## Loop events hook
+
+Keys, event fields and examples live on [Loop events](https://agents.uberblick.ai/docs/configuration/events.html).
+
+Each launcher emits only for runs it owns. `started` is queued once the claim has won
+and the run is recorded as started, before worktree setup. This includes a PR routed
+to its `on-conflict` outcome. Withdrawn claims send nothing, including election losers,
+approval parking and failed outside-input label writes. Recovery claims send no
+`started` event.
+
+`outcome` is queued once the launcher releases a run with its verdict, after applying
+any transition. It includes agent reports, launcher verdicts such as timeouts or rejected
+reports, and recovery runs. Its status and summary describe the released verdict even
+when supervision superseded an earlier agent report.
+
+Delivery is advisory and asynchronous: the launcher continues execution and claims
+without waiting for the hook. A missing command, start failure, nonzero exit or timeout
+prints an `Events hook:` notice and changes no verdict, labels, claim, lease or cleanup.
+A timeout stops the hook's process group. Each launcher runs one hook process at a
+time in event order, so a run's `started` reaches the command before its `outcome`.
+On exit, it drains queued and running hooks within one timeout budget (the largest
+timeout among those hooks, at most 60 seconds), then stops remaining hook processes
+and discards undelivered events. Background children are stopped even after a successful
+hook. No hook process is left running when shutdown completes.
+
+Make the command tolerate missing and repeated events: a crash between recording a
+step and sending its event can lose or repeat delivery. The queue is local to the
+launcher and is not a durable delivery log. Filtering belongs in the project command.
+
+## Runtime usage pauses
+
+Operator behavior is on [Runtimes](https://agents.uberblick.ai/docs/configuration/runtimes.html#usage-limits).
+
+When a run reports a usage limit, its launcher pauses new runs on that CLI until the
+reported reset plus one minute. A missing or past reset, or one more than seven days
+away, pauses for 15 minutes. Pauses live in memory, per launcher; a restart clears
+them. Claude limits come from a rejected `rate_limit_event`, `error: rate_limit` or
+`api_error_status: 429`. Codex limits come from limit snapshots or
+`usage_limit_exceeded`, or the run's own session file under `$CODEX_HOME/sessions/`.
+A run that ends at a limit without an outcome is released as `retry`, with no attempt
+charged. Alternatives skip paused CLIs; an item with all runtimes paused stays
+`waiting`.

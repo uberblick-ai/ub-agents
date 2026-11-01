@@ -36,21 +36,9 @@ In a terminal, launch opens a live view of what is running, what needs a person,
 - `u` switches the log between formatted and raw.
 - `c` keeps your Mac awake while the launcher runs. It starts off each time, and the display can still sleep.
 
-The Runs tab lists every run the launcher knows for the selected item, oldest
-first, including failures and runs by other launchers. It reads private local
-history files without accessing GitHub. Its tokens column shows an exact count
-below 1,000, rounded `Nk` below 1M and `N.NM` from 1M, with a blank cell when no
-usage was recorded. Counts come from GitHub coordination records, including for
-other launchers. GitHub result lines also show a dollar figure when the CLI
-reports a cost. On a Claude subscription, this is what the run would have cost
-at API prices, not a charge. Codex reports no cost.
-
-Formatted Claude and Codex logs show local times. A `~` marks when the supervisor
-observed output without a producer timestamp, including output written before
-you opened the view. Earlier runs without recorded timing have no historical
-times; live output uses the view's capture time when needed.
-
-The footer shows usage pauses and launcher activity, such as `claude paused for 1d 4h · next poll 26s`. Outside a terminal, or with `--no-ui`, launch prints plain lines instead. See the [terminal-view reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/terminal-view.md#using-the-view).
+The [terminal view guide](/docs/guides/terminal-view.html) explains layouts, tabs,
+formatted logs, usage pauses and keys. Outside a terminal, or with `--no-ui`,
+launch prints plain lines; see [Running launchers](/docs/guides/running-launchers.html).
 
 ## Before each run
 
@@ -74,7 +62,7 @@ Each launch first clears worktrees and run branches that earlier runs left on th
 
 ## Logs
 
-Launch writes to `.ub-agents/launch.log`, and each run keeps its log under `.ub-agents/runs/` for 7 days. [Launch output](https://github.com/uberblick-ai/ub-agents/blob/main/docs/operations.md#launch-output) explains the lines.
+Launch writes to `.ub-agents/launch.log`, and each run keeps its log under `.ub-agents/runs/` for 7 days. [Launch output](/docs/guides/running-launchers.html#launch-output) explains the lines.
 
 ```text
 {{help launch}}

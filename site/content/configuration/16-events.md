@@ -11,6 +11,8 @@ events:
 
 ## Command and subscriptions
 
+`events` is an optional mapping; without it, no hook runs.
+
 `command` is a required argument list, run without a shell in the control checkout.
 `on` is a required non-empty list containing `started`, `outcome`, or both. The timeout
 defaults to 10 seconds and must be positive, finite, and at most 60 seconds.
@@ -21,14 +23,11 @@ secret store; keep webhook URLs and tokens out of the configuration.
 
 ## Events
 
-`started` is sent after winning the claim and recording the run as started, before
-worktree setup. This includes automatic `on-conflict` routing. Election losers,
-withdrawn claims, approval parking, failed outside-input label writes, and recovery
-claims send no start event.
-
-`outcome` is sent when the launcher releases a run, after applying any transition.
-It covers agent reports, launcher verdicts such as timeouts and rejected reports,
-and recovery runs. Each launcher emits only for runs it owns.
+`started` announces a new run before worktree setup. `outcome` announces the
+released result after any transition, including launcher failures and recovery.
+It describes the released verdict even when supervision superseded an early report.
+Each launcher emits only for runs it owns. See the [event contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#loop-events-hook)
+for exact emission and recovery rules.
 
 | Field on every event | Value |
 |---|---|
@@ -58,12 +57,8 @@ Filter in your command: post `started` only when `agent` is `issue-preparer`, or
 [Run a command on loop events](/docs/guides/loop-events.html) walks through a
 complete example.
 
-Hooks run asynchronously, one process at a time per launcher, in event order. A slow,
-missing or failing command only prints an `Events hook:` notice. It cannot change the
-run's verdict, labels, claim, lease or cleanup, or hold up further claims. Timeouts
-stop the hook's process group, and successful commands cannot leave background children.
-
-On exit, the launcher drains hooks within one timeout budget, at most 60 seconds,
-then stops remaining processes and discards queued events. No hook process outlives
-shutdown. A crash can lose or repeat an event, so tolerate both. Your command can use
-`(repository, run, event)` to recognize duplicates.
+Delivery runs asynchronously. Slow or failing hooks print an `Events hook:`
+notice and leave the run's result unchanged. Events may be lost or repeated;
+make your command tolerate both and use `(repository, run, event)` to recognize
+duplicates. The [delivery contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#loop-events-hook)
+defines ordering, timeout and shutdown guarantees.
