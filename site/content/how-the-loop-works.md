@@ -4,6 +4,8 @@ ub-agents passes work between agents with GitHub labels. A label says which role
 
 We call this loop engineering. You design the loop once: the roles, the labels and where a person steps in. Then you improve it from the agents' [retros](/docs/best-practices/retrospectives.html) instead of steering each run by hand.
 
+See the loop play through different outcomes in the [workflow gallery](/workflows/), starting with the default loop and Dependabot on autopilot.
+
 ## Labels are the queue
 
 Each launcher looks for labeled issues and pull requests, sorts them by priority and milestone, and hands the next eligible one to its agent.

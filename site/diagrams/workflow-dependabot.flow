@@ -1,0 +1,62 @@
+flow v0
+# Dependabot updates: small bumps merge on their own, majors wait for a person.
+
+columns rework main stop
+
+box dependabot col=main title=Dependabot "opens a pull request"
+pill dependencies tone=agent
+box integrator "reads the title and the diff, runs the gates"
+pill needs-changes col=rework row=integrator tone=rework
+box implementer col=rework "one fix round, then a review"
+end merged col=main "Merged · minor or patch"
+
+panel human col=stop row=integrator span=2 tone=stop
+  pill needs-human
+  strong "A person decides"
+
+dependabot --> dependencies
+dependencies --> integrator : trigger
+integrator --> merged : gates green
+integrator --> needs-changes tone=rework from=left.1 : a gate failed
+needs-changes --> implementer tone=rework
+implementer --> integrator tone=rework from=right to=left.2
+integrator --> human tone=stop : major, or still failing
+
+legend
+  pill tone=done "GitHub label" sample=dependencies
+  box "agent role"
+  panel tone=stop "a person decides"
+
+play "Clean merge"
+  tempo 1.8s
+  step dependabot actor="Dependabot files" "Bump vite from 7.1.2 to 7.1.5"
+  step dependencies actor="Loop picks" "Trusted bot, fast path to the integrator"
+  step integrator 2.6s actor="Integrator" "No conflicts, tests pass, no gate prevents merging"
+  step merged 3s actor="Merged" "PR merged, nobody had to step in"
+
+play "Tests failing"
+  tempo 1.8s
+  step dependabot actor="Dependabot files" "Bump zod from 4.4.3 to 4.6.6"
+  step dependencies actor="Loop picks" "Trusted bot, fast path to the integrator"
+  step integrator 2.4s actor="Integrator" "A test fails on the new version, so it gets one fix round"
+  step needs-changes actor="Loop hands back" "Labels it needs-changes"
+  step implementer 2.8s actor="Implementer" "Fixes two assertions; a reviewer checks the fix"
+  step integrator 2.2s actor="Integrator" "Tests pass now, no gate prevents merging"
+  step merged 3s actor="Merged" "PR merged after one fix round"
+
+play "Fix fails"
+  tempo 1.8s
+  step dependabot actor="Dependabot files" "Bump zod from 4.4.3 to 4.6.6"
+  step dependencies actor="Loop picks" "Trusted bot, fast path to the integrator"
+  step integrator 2.4s actor="Integrator" "A test fails on the new version, so it gets one fix round"
+  step needs-changes actor="Loop hands back" "Labels it needs-changes"
+  step implementer 2.6s actor="Implementer" "Adapts the code; a reviewer checks the fix"
+  step integrator 2.4s actor="Integrator" "Still failing after the one round, so no second try"
+  step human 3s actor="Needs a human" "A person decides: fix by hand, pin the old version or close it"
+
+play "Major release"
+  tempo 1.8s
+  step dependabot actor="Dependabot files" "Bump a package to a new major version"
+  step dependencies actor="Loop picks" "Trusted bot, fast path to the integrator"
+  step integrator 2.6s actor="Integrator" "Tests pass, but a major can change behaviour"
+  step human 3s actor="Needs a human" "A person reads the changelog, then merges or closes the PR"

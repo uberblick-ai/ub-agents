@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="ab" viewBox="0 0 807 366" width="807" height="366" role="img" aria-label="Flow: implementer, needs-review, human, reviewer, needs-changes, ready-to-merge, The integrator picks it up. Legend: GitHub label, like ready, human involved">
-<style>.ab{--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--agent:var(--ab-agent,#0b6b67);--agent-bg:var(--ab-agent-bg,#dff1ee);--rework:var(--ab-rework,#a65f0c);--rework-bg:var(--ab-rework-bg,#fbefdc);--stop:var(--ab-stop,#b2382f);--stop-bg:var(--ab-stop-bg,#f9e2df);--done:var(--ab-done,#2a7845);--done-bg:var(--ab-done-bg,#e0f1e5);}@media (prefers-color-scheme:dark){.ab{--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--agent:var(--ab-agent,#5cc5bb);--agent-bg:var(--ab-agent-bg,#12302d);--rework:var(--ab-rework,#e3a250);--rework-bg:var(--ab-rework-bg,#33250f);--stop:var(--ab-stop,#ef7f73);--stop-bg:var(--ab-stop-bg,#3a1916);--done:var(--ab-done,#72cf91);--done-bg:var(--ab-done-bg,#142e1d);}}
+<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" viewBox="0 0 808 366" width="808" height="366" role="img" aria-label="Flow: implementer, needs-review, human, reviewer, needs-changes, ready-to-merge, The integrator picks it up. Legend: GitHub label, like ready, human involved">
+<style>.ab.ab-auto{--bg:var(--ab-bg,#ffffff);--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--neutral:var(--ab-neutral,#59616c);--neutral-bg:var(--ab-neutral-bg,#e1e3e6);--agent:var(--ab-agent,#3e6563);--agent-bg:var(--ab-agent-bg,#e7eeed);--system:var(--ab-system,#4f5d76);--system-bg:var(--ab-system-bg,#ebedf3);--rework:var(--ab-rework,#806752);--rework-bg:var(--ab-rework-bg,#f3f0eb);--stop:var(--ab-stop,#815f5a);--stop-bg:var(--ab-stop-bg,#ede6e5);--done:var(--ab-done,#536e5a);--done-bg:var(--ab-done-bg,#e8ede9);}@media (prefers-color-scheme:dark){.ab.ab-auto{--bg:var(--ab-bg,#171c24);--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--neutral:var(--ab-neutral,#b6bbc3);--neutral-bg:var(--ab-neutral-bg,#303640);--agent:var(--ab-agent,#85aaa5);--agent-bg:var(--ab-agent-bg,#232d2b);--system:var(--ab-system,#98a5bf);--system-bg:var(--ab-system-bg,#262a31);--rework:var(--ab-rework,#b29d87);--rework-bg:var(--ab-rework-bg,#2c2720);--stop:var(--ab-stop,#ac8c88);--stop-bg:var(--ab-stop-bg,#2b2221);--done:var(--ab-done,#95b09c);--done-bg:var(--ab-done-bg,#222a24);}}
 .ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
 .ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 .ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
@@ -8,31 +8,40 @@
 .ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
 .ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
 .ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
-.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .knockout{fill:none;stroke:var(--bg);stroke-width:5.6}.ab .knockout-band{stroke:var(--band)}
+.ab .arrow{fill:none;stroke:none}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-neutral{fill:var(--neutral)}.ab .e-neutral{stroke:var(--neutral)}.ab .k-neutral{fill:var(--neutral-bg);stroke:var(--neutral);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-system{fill:var(--system)}.ab .e-system{stroke:var(--system)}.ab .k-system{fill:var(--system-bg);stroke:var(--system);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
 .ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}</style>
 <defs>
 <marker id="limit-rounds-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
 <marker id="limit-rounds-rework" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-rework"/></marker>
 <marker id="limit-rounds-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
 </defs>
-<path d="M380,56 L380,115" class="e e-ink" marker-end="url(#limit-rounds-ink)"/>
-<path d="M381,161 L381,214" class="e e-ink" marker-end="url(#limit-rounds-ink)"/>
-<path d="M381,248 L381,278" class="e e-ink" marker-end="url(#limit-rounds-ink)"/>
-<path d="M278,138 L171,138" class="e e-rework" marker-end="url(#limit-rounds-rework)"/>
-<path d="M106,121 L106,62" class="e e-rework" marker-end="url(#limit-rounds-rework)"/>
-<path d="M196,39 L319,39" class="e e-rework" marker-end="url(#limit-rounds-rework)"/>
-<path d="M483,138 L549,138" class="e e-stop" marker-end="url(#limit-rounds-stop)"/>
+<path d="M380,56 L380,115" class="e e-ink"/>
+<path d="M380,161 L380,214" class="e e-ink"/>
+<path d="M380,248 L380,278" class="e e-ink"/>
+<path d="M277,138 L171,138" class="e e-rework"/>
+<path d="M106,121 L106,62" class="e e-rework"/>
+<path d="M196,39 L319,39" class="e e-rework"/>
+<path d="M482,138 L549,138" class="e e-stop"/>
+<path d="M380,56 L380,115" class="arrow" marker-end="url(#limit-rounds-ink)"/>
+<path d="M380,161 L380,214" class="arrow" marker-end="url(#limit-rounds-ink)"/>
+<path d="M380,248 L380,278" class="arrow" marker-end="url(#limit-rounds-ink)"/>
+<path d="M277,138 L171,138" class="arrow" marker-end="url(#limit-rounds-rework)"/>
+<path d="M106,121 L106,62" class="arrow" marker-end="url(#limit-rounds-rework)"/>
+<path d="M196,39 L319,39" class="arrow" marker-end="url(#limit-rounds-rework)"/>
+<path d="M482,138 L549,138" class="arrow" marker-end="url(#limit-rounds-stop)"/>
 <g><rect x="319" y="22" width="122" height="34" rx="17" class="pill"/>
 <circle cx="333" cy="39" r="5" class="t-agent"/>
 <text x="345" y="43" class="m s12">needs-review</text></g>
 <g>
-<rect x="278" y="115" width="205" height="46" rx="8" class="k-agent"/>
-<text x="381" y="134" text-anchor="middle" class="m s13 b t-agent">reviewer</text>
-<text x="381" y="151" text-anchor="middle" class="s11 muted">reviews the exact head commit</text>
+<rect x="277" y="115" width="205" height="46" rx="8" class="k-agent"/>
+<text x="380" y="134" text-anchor="middle" class="m s13 b t-agent">reviewer</text>
+<text x="380" y="151" text-anchor="middle" class="s11 muted">reviews the exact head commit</text>
 </g>
-<g><rect x="312" y="214" width="137" height="34" rx="17" class="pill"/>
-<circle cx="326" cy="231" r="5" class="t-done"/>
-<text x="338" y="235" class="m s12">ready-to-merge</text></g>
+<g><rect x="311" y="214" width="137" height="34" rx="17" class="pill"/>
+<circle cx="325" cy="231" r="5" class="t-done"/>
+<text x="337" y="235" class="m s12">ready-to-merge</text></g>
 <rect x="273" y="278" width="214" height="34" rx="17" class="k-done"/>
 <text x="380" y="299" text-anchor="middle" class="s12 b t-done">The integrator picks it up</text>
 <g>
@@ -43,16 +52,16 @@
 <g><rect x="41" y="121" width="130" height="34" rx="17" class="pill"/>
 <circle cx="55" cy="138" r="5" class="t-rework"/>
 <text x="67" y="142" class="m s12">needs-changes</text></g>
-<g><rect x="549" y="92" width="242" height="92" rx="10" class="k-stop panel"/>
-<rect x="613" y="104" width="115" height="30" rx="15" class="pill"/>
-<circle cx="627" cy="119" r="5" class="t-stop"/>
-<text x="639" y="123" class="m s12">needs-human</text>
-<text x="670" y="153" text-anchor="middle" class="s12 b">A person decides</text>
-<text x="670" y="171" text-anchor="middle" class="s11 muted">ub-agents retry resets the count</text></g>
-<text x="391" y="192" class="m s11">approved, any round</text>
-<text x="268" y="131" text-anchor="end" class="m s11 t-rework">rounds 1 to 3</text>
-<text x="493" y="131" class="m s11 t-stop">round 4</text>
-<line x1="8" y1="328" x2="799" y2="328" class="rule"/>
+<g><rect x="549" y="92" width="243" height="92" rx="10" class="k-stop panel"/>
+<rect x="614" y="104" width="115" height="30" rx="15" class="pill"/>
+<circle cx="628" cy="119" r="5" class="t-stop"/>
+<text x="640" y="123" class="m s12">needs-human</text>
+<text x="671" y="153" text-anchor="middle" class="s12 b">A person decides</text>
+<text x="671" y="171" text-anchor="middle" class="s11 muted">ub-agents retry resets the count</text></g>
+<text x="390" y="192" class="m s11">approved, any round</text>
+<text x="267" y="131" text-anchor="end" class="m s11 t-rework">rounds 1 to 3</text>
+<text x="492" y="131" class="m s11 t-stop">round 4</text>
+<line x1="8" y1="328" x2="800" y2="328" class="rule"/>
 <g><rect x="16" y="342" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="348" r="3" class="t-done"/><text x="46" y="352" class="s11 muted">GitHub label, like ready</text></g>
 <g><rect x="212" y="342" width="24" height="12" rx="3" class="k-stop panel"/><text x="242" y="352" class="s11 muted">human involved</text></g>
 </svg>
