@@ -6,6 +6,10 @@ class InstructionError(AgentError):
     """A configured instruction file is invalid or unreadable."""
 
 
+class UnsupportedConfiguration(AgentError):
+    """A configuration key or value may require a newer launcher."""
+
+
 class CheckoutRefreshError(AgentError):
     """An actionable control checkout refresh failure."""
 

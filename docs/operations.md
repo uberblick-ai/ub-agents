@@ -116,10 +116,22 @@ not block launch.
 
 **Launch stops before a run.** Before each new run, the launcher fetches `origin`,
 fast-forwards the control checkout and rereads the configuration and instructions.
-An unsafe checkout, Git failure, invalid configuration or unreadable instruction file
-stops it. Fix the checkout or file and restart; `ub-agents doctor --offline` shows
-configuration errors. No attempt is charged. See
+An unsafe checkout or Git failure stops it. Fix the checkout and restart.
+Startup validation, `launch --once` and `launch N` also stop on invalid configuration
+or unreadable instructions, with the same errors as `ub-agents doctor --offline`.
+No attempt is charged. See
 [execution boundaries](coordination.md#execution-boundaries).
+
+**Claims paused for invalid configuration.** Continuous launch, including `--agent`,
+stays running when configuration or instructions fail validation after a refresh.
+It claims no new runs or recoveries and charges no attempt. The terminal banner,
+plain output, `launch.log` and `status` show the error, checkout commit and next step.
+Correct the configuration or instruction files; for unknown keys or values, upgrading
+ub-agents is another fix. Every poll, and `r`, fetches, fast-forwards and rereads even
+with an empty queue. Valid files resume claims automatically without a restart;
+a restarted launcher validates at startup as usual. `q` and `SIGTERM` stop promptly
+while waiting. The log records the pause starting, its error or commit changing,
+and claims resuming, rather than repeating the error every poll.
 
 **Control-checkout setup fails.** Read the log the message names, fix the install in
 the control checkout and launch again. Setup runs on every launch until it succeeds.
@@ -136,7 +148,7 @@ first error; run them again later. `doctor --verbose` shows the remaining quota.
 [quota and failure handling](polling.md#quota-and-failure-handling).
 
 **Launch stops with "ub-agents does not retry this error."** Authentication failures,
-other HTTP 4xx errors and configuration errors are not retried. Fix the cause, for
+other HTTP 4xx errors are not retried. Fix the cause, for
 example with `gh auth login`, and restart. The restarted launcher recovers any claim
 it left open.
 

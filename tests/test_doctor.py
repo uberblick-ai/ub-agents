@@ -1040,8 +1040,8 @@ launchers: [operator]
                 with self.subTest(owner=owner, offline=offline):
                     content = starter.replace('@org/maintainers', owner)
                     # Reflow the section while preserving its Markdown heading boundaries.
-                    content = content.replace('by squash, once the checks above and any required CI\nchecks',
-                                              'by\n squash, once the checks above\n and any required CI checks')
+                    content = content.replace('by squash, once the checks above and every CI check',
+                                              'by\n squash, once the checks above\n and every CI check')
                     policy.write_text(content)
                     result = self.diagnose(offline=offline)
                     self.assertTrue(result['ok'])
@@ -1064,7 +1064,7 @@ launchers: [operator]
         self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
         starter = files('ub_agents').joinpath('templates/ub_agents.md').read_text().replace('@org/maintainers', '@owner')
         project_policy = Path(__file__).resolve().parents[1] / '.agents/ub_agents.md'
-        for text in (starter.replace('any required CI\nchecks', 'the required Test result\ncheck'),
+        for text in (starter.replace('every CI check', 'the required Test result\ncheck'),
                      project_policy.read_text(), 'Custom policy without a Merging section'):
             with self.subTest(text=text):
                 policy.write_text(text)

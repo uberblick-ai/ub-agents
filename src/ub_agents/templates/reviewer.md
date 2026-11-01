@@ -18,6 +18,8 @@ inaccurate entry for a user-facing change is a required correction. So is a chec
 it runs in, such as unsetting a variable or skipping a test.
 
 Apply the shared policy's review focus. Never edit the candidate during review.
+Read earlier reviews first: a settled finding stays settled unless this head changed
+the affected code or you have new, reproducible evidence.
 Write a review body naming the assigned SHA, concrete findings and the checks run.
 In the review body, list each acceptance criterion as checked by running, checked by
 reading, or not checked, with a reason for any gap. A missing tool or service does not

@@ -212,12 +212,20 @@ class StatusTextTests(unittest.TestCase):
         value = Text('界界界', style='bold')
         self.assertEqual(pane_line(value, 5).plain, '界界…')
         self.assertEqual(value.plain, '界界界')
-        for width in (1, 5, 20):
+        for width in (0, 1, 5, 20):
             with self.subTest(width=width):
                 line = header(None, None, None, width, STYLES, clickable=False,
                               unblock=False, action=None, now=NOW.timestamp())
                 self.assertEqual(len(line.plain.split('\n')), 3)
                 self.assertTrue(all(Text(part).cell_len <= width for part in line.plain.split('\n')))
+
+    def test_pane_line_is_empty_at_nonpositive_widths(self):
+        for value in ('abc', Text('abc', style='bold')):
+            for width in (0, -1):
+                with self.subTest(value=value, width=width):
+                    line = pane_line(value, width, STYLES.muted)
+                    self.assertEqual(line.plain, '')
+                    self.assertEqual(line.cell_len, 0)
 
     def test_log_notices_preserve_order_and_only_show_for_local_logs(self):
         state = reading(page=SimpleNamespace(generation=1), latest=SimpleNamespace(generation=2),
@@ -255,6 +263,15 @@ class StatusTextTests(unittest.TestCase):
         self.assertEqual(lines[0].get_style_at_offset(Console(), 0).color, STYLES.muted.color)
         line = run_status_line(self.row, self.session, 30, STYLES, 0)
         self.assertEqual(line.plain.split('\n')[1], '⠋ implementer … 2 earlier runs')
+
+    def test_run_status_hides_left_column_when_earlier_count_fills_width(self):
+        self.session.data['outcomes'] = [{'item': 114, 'run': 'earlier'}, {'item': 114, 'run': 'other'}]
+        for width, expected in ((0, ''), (2, ' …'), (14, ' 2 earlier ru…'), (15, ' 2 earlier runs')):
+            with self.subTest(width=width):
+                line = run_status_line(self.row, self.session, width, STYLES, 0)
+                parts = line.plain.split('\n')
+                self.assertEqual(parts[1], expected)
+                self.assertTrue(all(Text(part).cell_len <= width for part in parts))
 
     def test_idle_and_stopping_run_status_do_not_spin(self):
         line = run_status_line(None, Session(Path('session.json'), {}), 80, STYLES, 0.1)

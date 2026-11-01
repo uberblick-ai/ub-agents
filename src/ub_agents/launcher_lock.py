@@ -51,8 +51,35 @@ def _lock(path, *, create=True, blocking=False):
 def launcher_summary(owner):
     if owner is None:
         return "No launcher running on this checkout"
-    return (f"Launcher running on this checkout: pid {owner['pid']} on {owner['host']}, "
-            f"started {owner['started_at']}")
+    summary = (f"Launcher running on this checkout: pid {owner['pid']} on {owner['host']}, "
+               f"started {owner['started_at']}")
+    if owner.get("configuration_pause"):
+        summary += "\n" + configuration_pause_summary(owner["configuration_pause"])
+    return summary
+
+
+def configuration_pause_summary(pause):
+    return (f"Claims paused at {pause['commit']}: {pause['error']}; "
+            f"{pause['next_step']}")
+
+
+def publish_configuration_pause(root, pause):
+    """Update only this process's live owner record under the metadata guard."""
+    directory = root.resolve() / ".ub-agents"
+    with _lock(directory / "launcher.guard", create=False, blocking=True) as guard:
+        if guard is None:
+            return  # Embedded loops need not hold a launcher lock.
+        owner = _owner(directory)
+        if owner["pid"] != os.getpid():
+            return
+        if pause is None:
+            owner.pop("configuration_pause", None)
+        else:
+            owner["configuration_pause"] = pause
+        descriptor = os.open(directory / "launcher.lock", os.O_WRONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(owner))
+            stream.truncate()
 
 
 def _owner(directory):

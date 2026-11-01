@@ -29,7 +29,7 @@ from textual.geometry import Size
 from textual.widgets import Collapsible, Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
 from ub_agents.view_log_pane import LogPane, MAX_RENDER_LINES
 from ub_agents.view_ui import RecentActivity, View, WorkTree
-from ub_agents.view_widgets import HealthBanner, ItemTabs, KeyHelp, RawAccess, UpdateBanner, pane_line
+from ub_agents.view_widgets import ConfigurationPause, HealthBanner, ItemTabs, KeyHelp, RawAccess, UpdateBanner, pane_line
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_data import Session, item_history, work_pane
 from ub_agents.view_theme import theme_style
@@ -1563,6 +1563,33 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.selected, selected)
             self.assertIs(app.focused, focus)
             self.assertEqual(transport.calls, [])
+
+    async def test_configuration_pause_banner_wraps_error_commit_and_remedy_and_clears(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(70, 32)) as pilot:
+            await self.ready(app, pilot)
+            banner = app.query_one(ConfigurationPause)
+            self.assertFalse(banner.display)
+            selected, focus = app.selected, app.focused
+            pause = {'error': 'Unknown configuration keys: future-key', 'commit': 'a' * 40,
+                     'next_step': 'Correct the configuration files or upgrade ub-agents; retrying on each poll'}
+            self.state['configuration_pause'] = pause
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: banner.pause == pause and banner.size.height > 1)
+            for value in pause.values():
+                self.assertIn(value, banner.render().plain)
+            self.assertFalse(banner.can_focus)
+            self.assertEqual(app.selected, selected)
+            self.assertIs(app.focused, focus)
+            await pilot.resize_terminal(59, 15)
+            await pilot.pause()
+            self.assertFalse(banner.display)
+            await pilot.resize_terminal(110, 32)
+            await pilot.pause()
+            self.assertTrue(banner.display)
+            self.state['configuration_pause'] = None
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: not banner.display)
 
     async def test_health_banner_shows_failure_changes_and_recovery_in_one_inert_row(self):
         app = View(self.root, self.path)
@@ -3644,7 +3671,6 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             while not app.worker.results.empty():
                 app.worker.results.get_nowait()
             now = datetime(2026, 10, 5, 20, 0, tzinfo=timezone.utc)
-            status_text = None
             for tick, glyph in enumerate('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋'):
                 with self.subTest(tick=tick):
                     later = now + timedelta(milliseconds=100 * tick)
@@ -3654,6 +3680,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     table = list(app.query_one('#runs_text', Static).content.renderables)[1]
                     results = table.columns[1]._cells
                     self.assertEqual([cell.plain for cell in results], ['✓', '✓', glyph])
+            # The hidden Agent tab has zero width; lay it out before reading its status.
+            await pilot.press('1')
+            status_text = None
+            for tick, glyph in enumerate('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋'):
+                with self.subTest(tick=tick):
+                    later = now + timedelta(milliseconds=100 * tick)
                     # Patch only this synchronous render, keeping Textual's timers live.
                     with patch('ub_agents.view_ui.time.monotonic', return_value=later.timestamp()):
                         app.update_status()

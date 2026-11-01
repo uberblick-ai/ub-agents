@@ -13,6 +13,12 @@ and start time, or says none is running. Each checkout allows one launcher acros
 all [`launch`](/docs/commands/launch.html) modes; stop the current launcher before
 starting another, or use [`retry`](/docs/commands/retry.html) to hand it an item.
 
+When that launcher has paused claims because refreshed configuration or instructions
+are invalid, status shows the error, checkout commit and next step. Correct the file;
+unknown keys or values can also require upgrading ub-agents. The launcher rereads on
+each poll and resumes automatically. During this pause, status reports the launcher
+without loading invalid files or planning assignments, including for `status NUMBER`.
+
 ## One item
 
 `status 143` explains one item with the same checks as [`launch 143`](/docs/commands/launch.html#one-agent-or-one-item). For a claimed item it shows who holds it, on which machine and until when.
@@ -38,6 +44,11 @@ starting another, or use [`retry`](/docs/commands/retry.html) to hand it an item
 is `{"pid": 1234, "host": "machine", "started_at": "2026-10-25T11:00:00Z"}`
 for the launcher holding this checkout's lock, or `null` when none is running.
 Leftover owner records do not count as running launchers.
+
+While configuration is invalid, `launcher` also contains `configuration_pause` with
+`error`, `commit` (the full checkout SHA) and `next_step`; `assignments` is empty.
+The field is removed when claims resume. This reports the live launcher's validation
+result even when the configuration cannot be parsed by the status command.
 
 Assignments have one object per row: `number`, `kind`, `agent`, `state`, `reason`, `attempts`, `priority`, `priority_inherited_from`, `priority_from_issue`, `milestone`, `milestone_inherited_from`, `open_blockers`, `runtime`, `candidate_sha`, `result`, `lease`, `process`, `process_reason`, `outcome`, `notice_url`, `waiting_since`, `stop_labels` and `attention_reason`. Unknown values are `null`. The top level adds `milestone_skips` when `gate` passed over a milestone, and `explanation` when `status NUMBER` has no row for the item.
 

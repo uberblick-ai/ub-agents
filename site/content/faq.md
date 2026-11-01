@@ -8,6 +8,12 @@ The loop merges as quickly or as cautiously as you define. Your merge policy in 
 
 When an agent is unsure, it stops with `needs-human` and asks, instead of guessing. Its instructions live in your repository and change through pull requests, and its [retros](/docs/best-practices/retrospectives.html) show where they fall short. See [How the loop works](/docs/how-the-loop-works.html).
 
+## Are agents kept running between steps?
+
+No. The launcher stays running and starts a fresh, one-shot agent session for each step, including implementation, review and revision. Each session reads the GitHub issue or pull request, recorded outcomes and repository Markdown, plus [Uberblick](/docs/guides/with-uberblick.html) if configured, then records its own outcome before exiting.
+
+An individual job can take time. One-shot means its conversation ends with the job. The next step starts a new conversation and picks up from the recorded work. See [Runtimes](/docs/configuration/runtimes.html#what-runs).
+
 ## What does it cost?
 
 ub-agents is free and MIT licensed. Agents run with the logins your Claude Code or Codex CLI already has: a seat or an API key set in the launcher's environment. Check your provider's terms for unattended use. When a seat reaches its usage limit, only that CLI pauses until the limit resets.
@@ -27,6 +33,12 @@ Outside issues, comments and pull requests reach agents only after a maintainer 
 ## What if a run hangs or a launcher dies?
 
 A run that goes past its [timeout](/docs/configuration/limits.html#timeout) is stopped and retried. If a launcher dies, another launcher picks up its work once the claim expires. If the last run already opened a pull request, the next run continues it instead of starting over. After repeated failures the item stops and waits for you; see [Unstick an item](/docs/guides/stuck-items.html).
+
+## What if two launchers want the same issue?
+
+Each launcher posts a claim comment and reads the issue again. The first claim posted wins; the other launcher edits its comment to withdraw and tries its next item without starting an agent.
+
+By default, a claim lasts 30 minutes and the launcher renews it every 10 minutes while it works; see [claim timing](/docs/configuration/limits.html#claims). If a launcher dies, another can take the issue once its claim expires. This is a cooperative claim, not a lock or a guarantee of exactly-once execution, and launchers need reasonably synchronized clocks. See the [coordination contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#claim-election) for details.
 
 ## How do I stop or step in?
 
