@@ -35,7 +35,8 @@ AREAS = {
     "machine": ("python", "platform", "git", "gh", "process-inspection", "local-state", "local-state-ignored"),
     "configuration": ("config", "instructions", "policy-placeholder", "policy-merging",
                       "repository-root", "repository-remote", "approvals",
-                      "control-checkout", "control-checkout-branch", "control-checkout-dirty", "control-checkout-origin"),
+                      "control-checkout", "control-checkout-branch", "control-checkout-dirty", "control-checkout-origin",
+                      "launcher-installation"),
     "GitHub": ("github-auth", "github-repository", "github-permissions", "github-labels", "github-label",
                "github-launcher-role", "github-launcher-listed", "github-launcher-account", "github-rate-limit",
                "github-retrospectives"),
@@ -137,6 +138,7 @@ class Doctor:
         self._instructions(config)
         self._repository(config, git_ready)
         self.config = config
+        self._launcher_installation(config)
         if offline:
             self.offline(config)
         else:
@@ -221,6 +223,16 @@ class Doctor:
         else:
             for id in ("repository-root", "repository-remote"):
                 self.add(id, "skip", "configuration unavailable" if not config else "git unavailable")
+
+    def _launcher_installation(self, config):
+        from .self_updates import installation
+        install, reason = installation()
+        policy = (config.runtime_updates.policies.get("ub-agents", "off")
+                  if config and config.runtime_updates else "off")
+        self.add("launcher-installation", "skip" if reason else "ok",
+                 f"ub-agents: {reason}" if reason else
+                 f"ub-agents: uberblick-ai/tap Homebrew formula at {install.cellar}; automatic updates: {policy}",
+                 required=False)
 
     def _read_git(self, root, *args):
         return self.probe(["git", "-C", str(root), *args], root).strip()
@@ -612,7 +624,10 @@ def render(result, json_output=False, verbose=False):
     else:
         groups = {area: [] for area in AREAS}
         for check in result["checks"]:
-            groups[CHECK_AREAS[check["id"].split(":", 1)[0]]].append(check)
+            if check["id"] == "launcher-installation":
+                render_check(check)
+            else:
+                groups[CHECK_AREAS[check["id"].split(":", 1)[0]]].append(check)
         for area, checks in groups.items():
             render_area(area, checks)
     render_counts(result)

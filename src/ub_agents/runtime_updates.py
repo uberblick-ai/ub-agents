@@ -95,7 +95,7 @@ class RuntimeMaintenance:
     def stopped(self):
         return self.stop_event is not None and self.stop_event.is_set()
 
-    def _run(self, command, env, timeout, cancellable=True):
+    def _run(self, command, env, timeout, cancellable=True, output_limit=4096):
         if cancellable and self.stopped():
             raise MaintenanceFailure("shutdown requested")
         with tempfile.TemporaryFile() as output:
@@ -116,7 +116,7 @@ class RuntimeMaintenance:
                 if process.returncode:
                     raise MaintenanceFailure(f"command exited {process.returncode}")
                 output.seek(0)
-                return output.read(4096).decode("utf-8", errors="replace").strip()
+                return output.read(output_limit).decode("utf-8", errors="replace").strip()
             finally:
                 stop_group(process)
 
@@ -176,7 +176,8 @@ class RuntimeMaintenance:
         used = {"gh"} | {runtime.cli for agent in config.agents for runtime in agent.runtimes}
         if workspace_binding(config.root) is not None:
             used.add("ub")
-        policies = settings.policies if settings is not None else {}
+        policies = ({cli: policy for cli, policy in settings.policies.items() if cli != "ub-agents"}
+                    if settings is not None else {})
         for cli in sorted(used | policies.keys(), key=lambda cli: (cli != "gh", cli)):
             if self.stopped():
                 return

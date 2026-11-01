@@ -145,7 +145,7 @@ class ConfigurationPauseTests(unittest.TestCase):
 
     def test_unknown_values_offer_file_correction_and_upgrade(self):
         for setting in ('queue: {milestones: future}', 'approvals: future',
-                        'runtime-updates: {codex: future}'):
+                        'runtime-updates: {codex: future}', 'runtime-updates: {ub-agents: future}'):
             with self.subTest(setting=setting):
                 self.setUp()
                 self.publish(self.valid + setting + '\n')

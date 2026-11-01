@@ -119,7 +119,7 @@ def instruction_text(root, path, where):
 
 
 CLIS = ("codex", "claude")
-UPDATE_CLIS = (*CLIS, "gh", "ub")
+UPDATE_CLIS = (*CLIS, "gh", "ub", "ub-agents")
 
 
 @dataclass(frozen=True)
@@ -374,6 +374,8 @@ def _parse_runtime_updates(data, root):
             if isinstance(policy, str) and policy in {"auto", "off"}:
                 policies[cli] = policy
             else:
+                if cli == "ub-agents":
+                    raise UnsupportedConfiguration("runtime-updates ub-agents must be auto or off")
                 if isinstance(policy, str):
                     raise UnsupportedConfiguration(f"runtime-updates {cli} must be a mapping")
                 command = mapping(policy, {"command"}, f"runtime-updates {cli}")

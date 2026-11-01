@@ -118,6 +118,8 @@ class Loop:
         self._github_waiting = False
         self._github_reservation = None
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
+        from .self_updates import SelfUpdates
+        self.self_updates = SelfUpdates(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
         self.queue_planner = QueuePlanner(
             lambda: self.config, lambda: self.github, lambda: self.coordinator, approvals,
@@ -280,7 +282,7 @@ class Loop:
         if self.observer is not None:
             self.observe("activity", "waiting", iso(self.coordinator.clock() + delay), reason)
         if self.poll_now is not None and reason == "next poll or runtime pause":
-            self.poll_now.wait(event, delay, self._poll_updates if self.updates is not None else None,
+            self.poll_now.wait(event, delay, self._idle_updates if self.updates is not None else None,
                                on_request=on_request)
         elif self.updates is None:
             event.wait(delay)
@@ -292,8 +294,33 @@ class Loop:
                     break
                 remaining -= interval
                 self._poll_updates()
+                if reason == "next poll or runtime pause":
+                    self.maintain_launcher()
         self.observe("activity", "running assignment" if self.github.lease else "polling")
         return requested
+
+    def _idle_updates(self):
+        self._poll_updates()
+        self.maintain_launcher()
+
+    def maintain_launcher(self):
+        # Restart validates files at startup; invalid files would exit instead
+        # of keeping the launcher alive to retry the configuration.
+        if (not self._continuous or self._launch_number is not None or self.github.lease is not None
+                or self._refreshing_checkout or self._maintaining or self._finalizing
+                or self.configuration_pause is not None):
+            return
+        self.before_claim()
+        self._maintaining = True
+        self._maintenance_graceful_stop = False
+        try:
+            self.self_updates.stop_event = self.stop_event
+            self.self_updates.boundary(self.config, self.updates)
+        finally:
+            self._maintaining = False
+        if self._maintenance_graceful_stop and self.interrupt_event is self.stop_event:
+            raise _GracefulStop
+        self.before_claim()
 
     def _poll_updates(self):
         banner = self.updates.banner if self.updates is not None else None
@@ -675,6 +702,7 @@ class Loop:
                 self._github_reservation = None
 
     def maintain_runtimes(self):
+        self.maintain_launcher()
         self.before_claim()
         self._maintenance_graceful_stop = False
         self._maintaining = True
