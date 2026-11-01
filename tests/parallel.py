@@ -143,6 +143,8 @@ def supervise(requested, jobs, timeout, outcomes, durations, directory):
             worker.phase = 'test execution'
         elif kind == 'finished':
             outcome = event['outcome']
+            if 'test_stalled_publisher_does_not_delay' in event['name']:
+                sys.stderr.write(worker.diagnostics.read_text())
             previous = timeout_outcomes.pop(worker.process.pid, None)
             if previous is not None:
                 # The test may finish during the diagnostic grace period. Keep
