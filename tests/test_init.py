@@ -204,8 +204,8 @@ class InitTests(unittest.TestCase):
                         'changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` and any '
                         '`AGENTS.md` or `CLAUDE.md`',
                         'Only for the setup, CI or release tooling rule, a change limited to a verified minor '
-                        "or patch version bump of an existing dependency or workflow's `uses:` pin does not "
-                        'trigger that rule.',
+                        'or patch version bump of an existing dependency does not trigger that rule.',
+                        'Changes to CI workflows, including their `uses:` pins, always go to a maintainer.',
                         'All other maintainer-merge rules still apply.',
                         'If the release level cannot be verified, leave the merge to a maintainer.',
                         'adds a runtime dependency',

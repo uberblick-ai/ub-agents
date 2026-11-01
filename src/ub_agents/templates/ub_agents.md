@@ -21,9 +21,10 @@ protection or publishes a release. Leave the merge to `@org/maintainers` when th
   beyond what the closing issue asks for.
 
 Only for the setup, CI or release tooling rule, a change limited to a verified minor
-or patch version bump of an existing dependency or workflow's `uses:` pin does not
-trigger that rule. All other maintainer-merge rules still apply. If the release
-level cannot be verified, leave the merge to a maintainer.
+or patch version bump of an existing dependency does not trigger that rule. Changes
+to CI workflows, including their `uses:` pins, always go to a maintainer. All other
+maintainer-merge rules still apply. If the release level cannot be verified, leave
+the merge to a maintainer.
 
 ## Human decisions
 
