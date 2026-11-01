@@ -49,11 +49,17 @@ class SignalTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             return main(["--config", str(self.root / "ub-agents.yaml"), "launch"])
 
-    def run_signals(self, signals):
+    def run_signals(self, signals, *, signal_sent=None):
         marker = self.root / ".ub-agents" / "finished"
 
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
-            script = "import os,signal,time; " + "; ".join(
+            script = "import os,signal,time; "
+            if signal_sent is not None:
+                # The same monotonic clock is shared by parent and child. Send
+                # its timestamp before the signal can terminate the child.
+                script += f"os.write({signal_sent}, str(time.monotonic()).encode()); "
+                kwargs["pass_fds"] = (*kwargs.get("pass_fds", ()), signal_sent)
+            script += "; ".join(
                 f"os.kill(os.getppid(), {int(sig)}); time.sleep(0.3)" for sig in signals)
             script += f"; open({str(marker)!r}, 'w').write('finished')"
             code = supervise([sys.executable, "-c", script], cwd, env, run_dir, 5, stop,
@@ -122,10 +128,16 @@ class SignalTests(unittest.TestCase):
             while not (self.root / "writer-entered").exists():
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(0.01)
-            started = time.monotonic()
-            with patch("ub_agents.observations.Publisher", return_value=publisher):
-                result, marker = self.run_signals([sig])
-            self.assertLess(time.monotonic() - started, 1)
+            # Exclude launcher setup and child startup; keep all signal handling,
+            # active-run draining, reporting and launcher shutdown in the bound.
+            reader, writer = os.pipe()
+            with os.fdopen(reader, "rb") as received, os.fdopen(writer, "wb") as sent:
+                with patch("ub_agents.observations.Publisher", return_value=publisher):
+                    result, marker = self.run_signals([sig], signal_sent=sent.fileno())
+                exited = time.monotonic()
+                sent.close()
+                started = float(received.read())
+            self.assertLess(exited - started, 1)
             self.assertEqual(result, 0 if sig == signal.SIGTERM else 130)
             self.assertEqual(marker.exists(), sig == signal.SIGTERM)
             lease, outcome = self.loop.coordinator.history(1)
