@@ -1,6 +1,5 @@
 # Optional responsive Textual UI. Imported only by the view process.
 
-from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,7 +32,7 @@ from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
 from .view_widgets import (HealthBanner, ItemHeader, ItemTabs, KeyHelp, RawAccess, SIZE_WARNING,
                            UpdateBanner)
 from .view_worker import LocalWorker, Request
-from .view_work import RecentActivity, WorkTree, assignment_elapsed, work_lines
+from .view_work import RecentActivity, WorkTree, assignment_elapsed
 from .view_theme import VIEW_THEME, item_reference, theme_style, variable_defaults
 from .poll_now import COOLDOWN_SECONDS
 from .log_format import inert
@@ -147,9 +146,7 @@ class View(App):
         self.unblock_details_key = None
         self.session = None
         self.pane = None
-        self.rows, self.nodes, self.groups = {}, {}, {}
-        self._work_values = {}
-        self.idle_node = None
+        self.rows = {}
         self.selected = None
         self.chosen = False  # a person picked a row; the view stops following the run
         self.readings = {}
@@ -309,8 +306,8 @@ class View(App):
         self.item_view = False
         self.update_layout(self.size)
         tree, recent = self.query_one(WorkTree), self.query_one(RecentActivity)
-        if self.selected in self.nodes:
-            tree.move_cursor(self.nodes[self.selected])
+        if self.selected in tree.nodes:
+            tree.move_cursor(tree.nodes[self.selected])
             tree.focus(scroll_visible=False)
         elif self.selected in {row.key for row in recent.rows}:
             recent.cursor = self.selected
@@ -474,10 +471,7 @@ class View(App):
         tree = self.query_one(WorkTree)
         second = int(time.monotonic())
         if second != self._tree_second:
-            if self.idle_node is not None:
-                label = self.idle_label(self.pane)
-                if self.idle_node.label != label:
-                    self.idle_node.set_label(label)
+            tree.refresh_idle(self.pane)
             tree.refresh()
             self._tree_second = second
         else:
@@ -513,12 +507,7 @@ class View(App):
                 label = Text(f'Idle · {reason}', style='dim')
         return label
 
-    def populate(self, pane):  # noqa: C901, PLR0912, PLR0915
-        tree = self.query_one('#work', Tree)
-        recent = self.query_one(RecentActivity)
-        recent.populate(pane.recent)
-        cursor = tree.cursor_node
-        cursor_row = self.rows.get(cursor.data) if cursor else None
+    def migrate_reading(self, pane):
         if pane.selected != self.selected:
             replacement = (related_assignment(pane.rows, self.rows.get(self.selected)) or
                            related_plan(pane.rows, self.rows.get(self.selected)))
@@ -526,87 +515,35 @@ class View(App):
                 if self.selected in self.readings:
                     self.readings[replacement.key] = self.readings.pop(self.selected)
                 self.selected = replacement.key
+
+    def populate(self, pane):
+        tree = self.query_one(WorkTree)
+        recent = self.query_one(RecentActivity)
+        recent.populate(pane.recent)
+        cursor = tree.cursor_node
+        cursor_row = self.rows.get(cursor.data) if cursor else None
+        self.migrate_reading(pane)
         self.rows = {row.key: row for row in pane.rows}
-        tree.remember_claims(self.rows)
-        stopping = mapping(self.session.data.get('activity')).get('state') == 'stopping'
-        # Compare both snapshots at the same instant so clock changes alone
-        # stay with tick, while a changed waiting_since still repaints its row.
-        now = datetime.fromtimestamp(self.descriptions.clock(), timezone.utc)
-
-        def displayed(value):
-            row, next_row, stopping, claimed_at = value
-            return work_lines(row, tree.scrollable_content_region.width, next_row=next_row,
-                              stopping=stopping, now=now, claimed_at=claimed_at,
-                              app=self, pauses=runtime_pauses(self.session.data, now))[:tree.row_height]
-
-        work_values = {}
-        live = {row.key for section in pane.sections for row in section.rows}
-        for key in tuple(self.nodes):
-            if key not in live:
-                self.nodes.pop(key).remove()
-        previous = None
-        for section in pane.sections:
-            name = section.name
-            group = self.groups.get(name)
-            if group is None:
-                group = self.groups[name] = tree.root.add(
-                    Text(name), after=previous, before=0 if previous is None else None,
-                    expand=True)
-            previous = group
-            if group.label.plain != section.label:
-                group.set_label(Text(section.label))
-            if not group.is_expanded:
-                group.expand()
-            if name == 'Running':
-                if not section.idle and self.idle_node is not None:
-                    self.idle_node.remove()
-                    self.idle_node = None
-                elif section.idle:
-                    label = self.idle_label(pane)
-                    if self.idle_node is None:
-                        self.idle_node = group.add_leaf(label)
-                    elif self.idle_node.label != label:
-                        self.idle_node.set_label(label)
-            for index, row in enumerate(section.rows):
-                value = (row, row.key == pane.next, stopping, tree.claim_times.get(row.key))
-                old_value = self._work_values.get(row.key)
-                changed = value != old_value
-                # WorkRow is frozen, but its data dictionaries are mutable.
-                work_values[row.key] = (deepcopy(row), *value[1:]) if changed else old_value
-                node = self.nodes.get(row.key)
-                if node is not None and (node.parent is not group or group.children[index] is not node):
-                    node.remove()
-                    node = None
-                if node is None:
-                    node = self.nodes[row.key] = group.add_leaf(Text(row.label()), data=row.key, before=index)
-                elif changed and (old_value is None or displayed(old_value) != displayed(value)):
-                    node.set_label(Text(row.label()))
-        for name, group in tuple(self.groups.items()):
-            if not group.children:
-                group.remove()
-                del self.groups[name]
+        nodes = tree.populate(pane)
         self.pane = pane
-        self._work_values = work_values
-        if not tree.root.is_expanded:
-            tree.root.expand()
         work = self.query_one('#work_pane')
         title = Text(pane.title)
         if work.border_title != title.markup:
             work.border_title = title
         if pane.selected != self.selected:
             self.select(pane.selected, chosen=False)
-            if self.selected in self.nodes:
-                tree.move_cursor(self.nodes[self.selected])
+            if self.selected in nodes:
+                tree.move_cursor(nodes[self.selected])
             else:
                 recent.cursor = self.selected
                 recent.focus()
         elif cursor:
-            target = self.nodes.get(cursor.data)
+            target = nodes.get(cursor.data)
             if target is None:
                 replacement = (related_assignment(pane.rows, cursor_row) or
                                related_plan(pane.rows, cursor_row))
-                target = self.nodes.get(replacement.key) if replacement else None
-            target = target or self.nodes.get(self.selected)
+                target = nodes.get(replacement.key) if replacement else None
+            target = target or nodes.get(self.selected)
             if target is not None:
                 # Even a reused node can now occupy a different cursor line.
                 tree.get_node_at_line(0)

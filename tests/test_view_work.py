@@ -1,13 +1,154 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import io
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, PropertyMock, patch
 
 from rich.console import Console
+from rich.text import Text
+from textual.geometry import Region
 
-from ub_agents.view_data import WorkRow
-from ub_agents.view_work import work_lines
-from ub_agents.view_theme import theme_style
+from ub_agents.view_data import Pane, Section, WorkRow
+from ub_agents.view_work import WorkTree, work_lines
+from ub_agents.view_theme import VIEW_THEME, theme_style
+
+
+class WorkTreeTests(unittest.TestCase):
+    """Reconcile real Tree nodes without starting a Textual app or workers."""
+
+    def setUp(self):
+        self.now = datetime(2026, 10, 5, 20, tzinfo=timezone.utc)
+        self.app = SimpleNamespace(
+            narrow=False, session=SimpleNamespace(data={}),
+            descriptions=SimpleNamespace(clock=lambda: self.now.timestamp()),
+            idle_label=Mock(return_value=Text('    Idle · polling', style='dim')),
+            theme_variables={**VIEW_THEME.to_color_system().generate(), **VIEW_THEME.variables})
+        self.tree = WorkTree('Work')
+        self.enterContext(patch.object(WorkTree, 'app', new_callable=PropertyMock, return_value=self.app))
+        self.enterContext(patch.object(WorkTree, 'scrollable_content_region', new_callable=PropertyMock,
+                                      return_value=Region(0, 0, 80, 20)))
+
+    def row(self, item, group='Eligible', **data):
+        return WorkRow(f'plan:{item}', group, item, 'worker', 'ready', '',
+                       {'title': f'Item {item}', **data})
+
+    def pane(self, *work, recent=(), hidden=(), selected=None):
+        sections = []
+        for name in ('Running', 'Needs attention', 'Eligible'):
+            grouped = tuple(row for row in work if row.group == name)
+            if grouped or name == 'Running':
+                sections.append(Section(name, f'{name} · {len(grouped)}', grouped,
+                                        idle=name == 'Running' and not grouped,
+                                        next=grouped[0].key if name == 'Eligible' and grouped else None))
+        return Pane(tuple(sections), recent, (*work, *recent, *hidden), selected, 'Work')
+
+    def test_sections_rows_and_idle_reconcile_without_selecting_a_row(self):
+        first, second = self.row(1), self.row(2)
+        pane = self.pane(first, second, recent=(self.row(3, 'Recent activity'),),
+                         hidden=(replace(self.row(4), hidden=True),), selected=second.key)
+        self.assertIs(self.tree.populate(pane), self.tree.nodes)
+        self.assertEqual(list(self.tree.nodes), [first.key, second.key])
+        running, eligible = self.tree.root.children
+        idle = self.tree.idle_node
+        node = self.tree.nodes[second.key]
+        self.assertEqual([group.label.plain for group in self.tree.root.children],
+                         ['Running · 0', 'Eligible · 2'])
+        self.assertEqual(idle.label.plain, '    Idle · polling')
+        self.assertIsNone(self.tree.cursor_node)
+
+        attention = self.row(5, 'Needs attention')
+        eligible.collapse()
+        self.tree.root.collapse()
+        self.tree.populate(self.pane(attention, second))
+        self.assertEqual([group.label.plain for group in self.tree.root.children],
+                         ['Running · 0', 'Needs attention · 1', 'Eligible · 1'])
+        self.assertIs(self.tree.groups['Running'], running)
+        self.assertIs(self.tree.groups['Eligible'], eligible)
+        self.assertIs(self.tree.idle_node, idle)
+        self.assertIs(self.tree.nodes[second.key], node)
+        self.assertNotIn(first.key, self.tree.nodes)
+        self.assertTrue(eligible.is_expanded)
+        self.assertTrue(self.tree.root.is_expanded)
+
+        moved = replace(second, group='Needs attention')
+        self.tree.populate(self.pane(moved, attention))
+        self.assertNotIn('Eligible', self.tree.groups)
+        self.assertIsNot(self.tree.nodes[second.key], node)
+        self.assertEqual([child.data for child in self.tree.groups['Needs attention'].children],
+                         [second.key, attention.key])
+        self.assertEqual(list(node.parent.children), [])
+
+        own = replace(self.row(6, 'Running'), key='assignment:own', run='own')
+        self.tree.populate(self.pane(own))
+        self.assertIsNone(self.tree.idle_node)
+        self.assertEqual(list(self.tree.groups), ['Running'])
+        self.assertEqual([child.data for child in running.children], [own.key])
+        self.tree.populate(self.pane())
+        self.assertEqual(self.tree.nodes, {})
+        self.assertIsNotNone(self.tree.idle_node)
+        self.assertEqual(self.tree._work_values, {})
+
+    def test_render_cache_detects_mutation_and_ignores_invisible_changes(self):
+        row = self.row(1)
+        pane = self.pane(row)
+        self.tree.populate(pane)
+        node = self.tree.nodes[row.key]
+        updates = node._updates
+        self.tree.populate(pane)
+        self.assertEqual(node._updates, updates)
+
+        row.data['process_reason'] = 'An invisible diagnostic'
+        self.tree.populate(pane)
+        self.assertEqual(node._updates, updates)
+        row.data['title'] = 'Changed title'
+        self.tree.populate(pane)
+        self.assertIs(self.tree.nodes[row.key], node)
+        self.assertEqual(node._updates, updates + 1)
+        self.tree.populate(pane)
+        self.assertEqual(node._updates, updates + 1)
+
+        self.app.narrow = True
+        row.data['priority'] = 'high'
+        self.tree.populate(pane)
+        self.assertEqual(node._updates, updates + 1)
+        self.app.narrow = False
+        row.data['priority'] = 'urgent'
+        self.tree.populate(pane)
+        self.assertEqual(node._updates, updates + 2)
+        self.app.session.data['activity'] = {'state': 'stopping'}
+        self.tree.populate(pane)
+        self.assertEqual(node._updates, updates + 3)
+
+    def test_claim_time_survives_a_report_and_is_pruned_when_row_leaves(self):
+        own = replace(self.row(1, 'Running', claimed_at=self.now.isoformat()),
+                      key='assignment:own', run='own')
+        self.tree.populate(self.pane(own))
+        self.assertEqual(self.tree.claim_times, {own.key: self.now})
+        reported = replace(own, data={'history': {'runs': [
+            {'agent': 'worker', 'time': (self.now + timedelta(minutes=3)).isoformat(),
+             'acceptance': 'unaccepted'}]}})
+        self.tree.populate(self.pane(reported))
+        self.assertEqual(self.tree.claim_times, {own.key: self.now})
+        self.tree.populate(self.pane())
+        self.assertEqual(self.tree.claim_times, {})
+
+    def test_idle_refresh_reuses_the_leaf_and_only_relabels_on_change(self):
+        pane = self.pane()
+        self.tree.populate(pane)
+        idle = self.tree.idle_node
+        updates = idle._updates
+        self.tree.refresh_idle(pane)
+        self.assertEqual(idle._updates, updates)
+        self.app.idle_label.return_value = Text('    Idle · nothing eligible for this launcher', style='dim')
+        self.tree.refresh_idle(pane)
+        self.assertIs(self.tree.idle_node, idle)
+        self.assertEqual(idle.label.plain, '    Idle · nothing eligible for this launcher')
+        self.assertEqual(idle._updates, updates + 1)
+        self.tree.populate(self.pane(self.row(1, 'Running')))
+        self.app.idle_label.reset_mock()
+        self.tree.refresh_idle(pane)
+        self.app.idle_label.assert_not_called()
 
 
 class WorkLineTests(unittest.TestCase):
