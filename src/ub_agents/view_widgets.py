@@ -52,9 +52,10 @@ class ConfigurationPause(Static):
         self.pause = None
 
     def set_pause(self, pause):
-        self.pause = pause
-        self.display = bool(pause) and not self.app.too_small and self.app.shutdown is None
-        self.update(Text(configuration_pause_summary(pause)) if pause else '')
+        pause = mapping(pause)
+        self.pause = pause if all(isinstance(pause.get(key), str) for key in ('error', 'commit', 'next_step')) else None
+        self.display = bool(self.pause) and not self.app.too_small and self.app.shutdown is None
+        self.update(Text(configuration_pause_summary(self.pause)) if self.pause else '')
 
 
 class ItemHeader(Static):

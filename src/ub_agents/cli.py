@@ -670,6 +670,15 @@ def _retry_number(args, command_parser):
         command_parser.error(f"{args.command} requires a positive item number")
 
 
+def _config_exists_or_paused(args):
+    if args.config.exists():
+        return True
+    if args.command == "status":
+        launcher = running_launcher(args.config.parent)
+        return launcher is not None and bool(launcher.get("configuration_pause"))
+    return False
+
+
 def _prepare_args(command_line, args):
     command_parser = command_line.commands()[args.command]
     command_config = getattr(args, "command_config", None)
@@ -693,7 +702,7 @@ def _prepare_args(command_line, args):
     needs_config = args.command in {"status", "launch", "retry", "read"}
     if args.command == "read" and "UB_AGENTS_RUN" in os.environ:
         needs_config = False  # Supervised reads use the launcher's pinned input policy.
-    if needs_config and not args.config.exists():
+    if needs_config and not _config_exists_or_paused(args):
         name = DEFAULT_CONFIG if args.default_config else str(args.config)
         raise AgentError(f"No {name} here; run ub-agents init to set up a project")
 

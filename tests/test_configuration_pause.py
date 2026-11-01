@@ -232,6 +232,28 @@ class ConfigurationPauseTests(unittest.TestCase):
             self.launch(wait)
         self.assertIsNone(running_launcher(self.root))
 
+    def test_status_reports_pause_when_refresh_removed_the_configuration_file(self):
+        (self.upstream / 'ub-agents.yaml').unlink()
+        self.commit(self.upstream)
+        git(self.upstream, 'push', 'origin', 'main')
+
+        def wait(event, delay, reason):
+            self.assertFalse(self.loop.config_path.exists())
+            self.assert_no_claims()
+            argv = ['--config', str(self.loop.config_path), 'status']
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(argv + ['--json']), 0)
+            self.assertEqual(json.loads(output.getvalue())['launcher']['configuration_pause'],
+                             self.loop.configuration_pause)
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(argv), 0)
+            self.assertIn('Cannot read configuration', output.getvalue())
+            self.assertIn('Claims paused at', output.getvalue())
+            event.set()
+
+        with launcher_lock(self.root):
+            self.launch(wait)
+
     def test_q_drain_and_sigterm_stop_a_paused_launcher_without_another_poll(self):
         self.publish(self.valid + 'unknown: true\n')
 

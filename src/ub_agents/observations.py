@@ -428,7 +428,8 @@ class Observations:
         self.emit()
 
     def configuration_pause(self, pause):
-        self.state["configuration_pause"] = pause
+        self.state["configuration_pause"] = (dict(pause, error=pause["error"][:MAX_TEXT])
+                                             if pause is not None else None)
         self.emit()
 
     def runtime_pauses(self, pauses):
