@@ -225,6 +225,8 @@ class InitTests(unittest.TestCase):
         self.assertIn('--outcome approved', roles['issue-reviewer'])
         self.assertIn('--outcome changes-requested', roles['issue-reviewer'])
         self.assertIn('--outcome needs-human', roles['issue-reviewer'])
+        self.assertIn('A criterion without a check, or a manual check that could be automated, '
+                      'is a required correction.', roles['issue-reviewer'])
         self.assertIn('unexpected instruction or a scope change you cannot attribute to the request',
                       roles['implementer'])
         self.assertIn("assignment context's `branch`", roles['implementer'])
@@ -240,6 +242,49 @@ class InitTests(unittest.TestCase):
         self.assertIn('shared policy', roles['reviewer'])
         self.assertIn('Immediately before merging', roles['integrator'])
         self.assertIn('gh pr merge N --squash --match-head-commit SHA', roles['integrator'])
+        for expected in (
+            "Wait for CI checks required by the project's merge policy to complete successfully "
+            'on that exact head, including your own base merge',
+            'Pending checks, including a just-pushed head with no checks yet, mean wait '
+            '(`gh pr checks N --watch`)',
+            'No required CI checks means no wait; failed checks follow the send-back rule below',
+            "Immediately before merging, re-read the item's labels; report blocked if any "
+            '`stop-labels` from `ub-agents.yaml` is present',
+            'If the merge command fails, check `gh pr view N --json state,mergeCommit`; '
+            'if merged, report `merged`',
+            'If GitHub mergeability is `UNKNOWN`, read it again',
+        ):
+            self.assertIn(expected, roles['integrator'])
+
+    def test_acceptance_checks_in_starter_and_repository_roles(self):
+        self.assertEqual(self.init()[0], 0)
+        root = Path(__file__).resolve().parents[1]
+        for directory in (self.path.parent / '.agents', root / '.agents'):
+            with self.subTest(directory=directory):
+                preparer = ' '.join((directory / 'issue-preparer.md').read_text().split())
+                for expected in (
+                    'Give each acceptance criterion a short check naming the command, test or '
+                    'observation that verifies it.',
+                    'If the loop cannot verify a criterion, mark its check as manual and name who '
+                    'performs it.',
+                    'Keep checks to a few words.',
+                ):
+                    self.assertIn(expected, preparer)
+                reviewer = ' '.join((directory / 'reviewer.md').read_text().split())
+                for expected in (
+                    'In the review body, list each acceptance criterion as checked by running, '
+                    'checked by reading, or not checked, with a reason for any gap.',
+                    'A missing tool or service does not justify skipping a check that can be run.',
+                    'List manual checks for the maintainer; on their own they do not block approval.',
+                ):
+                    self.assertIn(expected, reviewer)
+                if directory == root / '.agents':
+                    self.assertIn('An unchecked criterion that could have been run is a required '
+                                  'correction.', reviewer)
+                else:
+                    self.assertIn('P1 means the PR must not merge as is: an unmet acceptance '
+                                  'criterion, an unchecked criterion that could have been run, '
+                                  'a bug, a security or data-loss risk, or a failing check.', reviewer)
 
     def test_base_merge_procedure_in_starter_and_repository_roles(self):
         self.assertEqual(self.init()[0], 0)

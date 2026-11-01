@@ -5,6 +5,7 @@ import json
 import re
 
 from .errors import AgentError, RecordError
+from .run_usage import usage_suffix
 
 MARKER = "<!-- ub-agents:v4 -->"
 # All coordination markers are excluded from assignment and approval input;
@@ -107,14 +108,14 @@ def body(record):
     if len(note) > 240:
         note = note[:237] + "…"
     runtime = f" · {record['runtime']}" if record.get("runtime") else ""
-    line = f"{icon} {record['agent']} {state}{candidate}{runtime} — {note}"
+    line = f"{icon} {record['agent']} {state}{candidate}{runtime}{usage_suffix(record)} — {note}"
     # The comment author is the actor; empty fields are omitted.
     shown = {k: v for k, v in record.items() if v is not None and k != "actor"}
     return (f"{MARKER}\n{line}\n\n<details>\n<summary>Coordination record</summary>\n\n"
             f"```json\n{json.dumps(shown, indent=2, sort_keys=True, ensure_ascii=False)}\n```\n\n</details>\n")
 
 
-def records(comments, actor=None, *, trusted=None):
+def records(comments, actor=None, *, trusted=None):  # noqa: C901, PLR0912
     """Parse marked records, checking author trust before parsing their payloads."""
     result = []
     for comment in comments:
@@ -301,6 +302,22 @@ def resolve_transition(transition, triggers, stop_labels):
 
 
 def validate(record):
+    _validate_record_identity(record)
+    if ((record.get("kind") == "lease" or "attempt_effect" in record)
+            and record.get("attempt_effect") not in {"pending", "failure", "reset", "unchanged"}):
+        raise ValueError("invalid attempt effect")
+    if record.get("kind") == "lease":
+        _validate_lease(record)
+    elif record.get("kind") == "outcome":
+        _validate_outcome(record)
+    elif record.get("kind") == "reset":
+        if not isinstance(record.get("summary"), str) or not record["summary"].strip():
+            raise ValueError("reset requires a reason")
+    else:
+        raise ValueError("unknown record kind")
+
+
+def _validate_record_identity(record):
     for field in ("agent", "actor", "created"):
         if not isinstance(record.get(field), str) or not record[field]:
             raise ValueError(f"missing {field}")
@@ -311,72 +328,80 @@ def validate(record):
         if value is not None and (not isinstance(value, str) or not value):
             raise ValueError(f"invalid {field}")
     seconds(record["created"])
-    if ((record.get("kind") == "lease" or "attempt_effect" in record)
-            and record.get("attempt_effect") not in {"pending", "failure", "reset", "unchanged"}):
-        raise ValueError("invalid attempt effect")
-    if record.get("kind") == "lease":
-        for field in ("run", "runtime"):
-            if not isinstance(record.get(field), str) or not record[field]:
-                raise ValueError(f"missing {field}")
-        if "outcome_rounds" in record:
-            rounds = record["outcome_rounds"]
-            if (not isinstance(rounds, dict) or not rounds
-                    or any(not isinstance(name, str) or not name.strip() or not isinstance(value, dict)
-                           or set(value) != {"used", "limit"}
-                           or type(value["used"]) is not int or value["used"] < 0
-                           or not positive_int(value["limit"]) for name, value in rounds.items())):
-                raise ValueError("invalid outcome rounds")
-        validate_labels(record.get("triggers"))
-        if record.get("state") not in LEASE_STATES:
-            raise ValueError("invalid lease state")
-        if not positive_int(record.get("attempt")):
-            raise ValueError("invalid attempt")
-        if type(record.get("started")) is not bool:
-            raise ValueError("invalid started flag")
-        if "cleanup" in record and record["cleanup"] != "unconfirmed":
-            raise ValueError("invalid cleanup state")
-        if "cleanup_hook_error" in record and not isinstance(record["cleanup_hook_error"], str):
-            raise ValueError("invalid cleanup hook diagnostic")
-        if record.get("mode") == "recovery":
-            if (not positive_int(record.get("recovered_lease_id"))
-                    or not isinstance(record.get("recovered_run"), str) or not record["recovered_run"]):
-                raise ValueError("invalid recovered lease identity")
-        if "recovery_reason" in record:
-            if (record.get("mode") != "recovery" or not isinstance(record["recovery_reason"], str)
-                    or not record["recovery_reason"].strip()):
-                raise ValueError("invalid operator recovery reason")
-        seconds(record.get("expires"))
-        if "retry_after" in record:
-            seconds(record["retry_after"])
-    elif record.get("kind") == "outcome":
-        validate_outcome_actions(record)
-        if record.get("status") not in OUTCOMES or not isinstance(record.get("summary"), str):
-            raise ValueError("invalid outcome")
-        if type(record.get("lease_id")) is not int:
-            raise ValueError("missing lease_id")
-        if type(record.get("accepted")) is not bool:
-            raise ValueError("invalid accepted flag")
-        if "outcome" in record and (not isinstance(record["outcome"], str) or not record["outcome"].strip()):
-            raise ValueError("invalid named outcome")
-        if "transition_complete" in record and type(record["transition_complete"]) is not bool:
-            raise ValueError("invalid transition completion flag")
-        if "rejected" in record and not isinstance(record["rejected"], str):
-            raise ValueError("invalid rejected outcome")
-        if "transition" in record:
-            validate_transition(record["transition"], started=True)
-        if "sub_issues" in record:
-            children = record["sub_issues"]
-            if (not isinstance(children, list) or any(not positive_int(n) for n in children)
-                    or len(set(children)) != len(children) or record["assignment"] in children
-                    or "sub-issues" not in record.get("transition", {})):
-                raise ValueError("invalid resolved sub-issues")
-        if record.get("handoff") is not None and not positive_int(record["handoff"]):
-            raise ValueError("invalid handoff")
-    elif record.get("kind") == "reset":
-        if not isinstance(record.get("summary"), str) or not record["summary"].strip():
-            raise ValueError("reset requires a reason")
-    else:
-        raise ValueError("unknown record kind")
+
+
+def _validate_lease(record):
+    for field in ("run", "runtime"):
+        if not isinstance(record.get(field), str) or not record[field]:
+            raise ValueError(f"missing {field}")
+    _validate_outcome_rounds(record)
+    validate_labels(record.get("triggers"))
+    if record.get("state") not in LEASE_STATES:
+        raise ValueError("invalid lease state")
+    if not positive_int(record.get("attempt")):
+        raise ValueError("invalid attempt")
+    if type(record.get("started")) is not bool:
+        raise ValueError("invalid started flag")
+    if "cleanup" in record and record["cleanup"] != "unconfirmed":
+        raise ValueError("invalid cleanup state")
+    if "cleanup_hook_error" in record and not isinstance(record["cleanup_hook_error"], str):
+        raise ValueError("invalid cleanup hook diagnostic")
+    _validate_recovery(record)
+    seconds(record.get("expires"))
+    if "retry_after" in record:
+        seconds(record["retry_after"])
+
+
+def _validate_outcome_rounds(record):
+    if "outcome_rounds" in record:
+        rounds = record["outcome_rounds"]
+        if (not isinstance(rounds, dict) or not rounds
+                or any(not isinstance(name, str) or not name.strip() or not isinstance(value, dict)
+                       or set(value) != {"used", "limit"}
+                       or type(value["used"]) is not int or value["used"] < 0
+                       or not positive_int(value["limit"]) for name, value in rounds.items())):
+            raise ValueError("invalid outcome rounds")
+
+
+def _validate_recovery(record):
+    if record.get("mode") == "recovery":
+        if (not positive_int(record.get("recovered_lease_id"))
+                or not isinstance(record.get("recovered_run"), str) or not record["recovered_run"]):
+            raise ValueError("invalid recovered lease identity")
+    if "recovery_reason" in record:
+        if (record.get("mode") != "recovery" or not isinstance(record["recovery_reason"], str)
+                or not record["recovery_reason"].strip()):
+            raise ValueError("invalid operator recovery reason")
+
+
+def _validate_outcome(record):
+    validate_outcome_actions(record)
+    if record.get("status") not in OUTCOMES or not isinstance(record.get("summary"), str):
+        raise ValueError("invalid outcome")
+    if type(record.get("lease_id")) is not int:
+        raise ValueError("missing lease_id")
+    if type(record.get("accepted")) is not bool:
+        raise ValueError("invalid accepted flag")
+    if "outcome" in record and (not isinstance(record["outcome"], str) or not record["outcome"].strip()):
+        raise ValueError("invalid named outcome")
+    if "transition_complete" in record and type(record["transition_complete"]) is not bool:
+        raise ValueError("invalid transition completion flag")
+    if "rejected" in record and not isinstance(record["rejected"], str):
+        raise ValueError("invalid rejected outcome")
+    _validate_outcome_transition(record)
+
+
+def _validate_outcome_transition(record):
+    if "transition" in record:
+        validate_transition(record["transition"], started=True)
+    if "sub_issues" in record:
+        children = record["sub_issues"]
+        if (not isinstance(children, list) or any(not positive_int(n) for n in children)
+                or len(set(children)) != len(children) or record["assignment"] in children
+                or "sub-issues" not in record.get("transition", {})):
+            raise ValueError("invalid resolved sub-issues")
+    if record.get("handoff") is not None and not positive_int(record["handoff"]):
+        raise ValueError("invalid handoff")
 
 
 def payload(record):

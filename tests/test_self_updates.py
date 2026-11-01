@@ -279,6 +279,25 @@ class SelfUpdateTests(unittest.TestCase):
         self.assertEqual(loop.github.writes, [])
         self.assertEqual(self.current, self.target)
 
+    def test_idle_wait_restarts_on_peer_upgrade_with_and_without_poll_now(self):
+        self.put_keg(self.target)
+        for poll_now in (False, True):
+            with self.subTest(poll_now=poll_now):
+                self.manager.checked = None
+                loop = Loop(self.settings, FakeGitHub(), "operator", output=self.lines.append)
+                loop._continuous = True
+                loop.self_updates, loop.updates = self.manager, self.updates
+                if poll_now:
+                    loop.enable_poll_now()
+                with self.assertRaises(RestartLauncher) as result:
+                    loop.wait(loop.stop_event, 3, "next poll or runtime pause")
+                self.assertEqual(result.exception.executable, self.install.current())
+                self.assertEqual(loop.github.writes, [])
+                self.assertFalse(loop._maintaining)
+                if poll_now:
+                    self.assertIsNone(loop.poll_now.waiter)
+        self.assertFalse(any("upgrade" in call for call in self.calls))
+
     def test_exec_preserves_pid_arguments_and_waits_until_resources_are_closed(self):
         path = self.root / "ub-agents.yaml"
         path.touch()

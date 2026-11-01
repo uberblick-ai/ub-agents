@@ -2,7 +2,7 @@ from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ub_agents.approvals import filter_input
 from ub_agents.errors import AgentError, LostOwnership, RecordError, ValidationError
@@ -10,7 +10,7 @@ from ub_agents.github import Dependency, GitHub, SubIssue
 from ub_agents.loop import Loop
 from ub_agents.read_input import read_item, read_policy
 from ub_agents.records import body, iso, payload, records, timestamp
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import settlement, FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class SubIssueTests(unittest.TestCase):
@@ -107,8 +107,55 @@ class SubIssueTests(unittest.TestCase):
         for reference in ('#3', '#4', '#5', 'org/elsewhere#6', '#8'):
             self.assertIn(reference, outcome['summary'])
         with patch.object(self.github, 'add_labels', side_effect=self.label):
-            self.loop.apply_transition(lease, outcome)
+            settlement(self.loop).apply_transition(lease, outcome)
         self.assertEqual([w[1] for w in self.github.writes if w[0] == 'add-labels'], [2])
+
+    def test_report_checks_ownership_around_sub_issue_resolution_before_writing_and_observing(self):
+        calls = Mock()
+
+        def trace(lease):
+            coordinator = self.loop.coordinator
+            for target, name in ((coordinator, 'assert_owned'), (self.github, 'sub_issues'),
+                                 (self.github, 'create_comment'), (coordinator, 'observed')):
+                wrapped = self.enterContext(patch.object(target, name, wraps=getattr(target, name)))
+                calls.attach_mock(wrapped, name)
+
+        lease, outcome = self.claim_and_report(trace)
+        self.assertEqual([call[0] for call in calls.mock_calls],
+                         ['assert_owned', 'sub_issues', 'assert_owned', 'create_comment', 'observed'])
+        self.assertEqual(calls.assert_owned.call_args_list[0].args, (lease,))
+        self.assertEqual(calls.assert_owned.call_args_list[1].args, (lease,))
+        self.assertEqual(calls.observed.call_args.args, (outcome,))
+        written = records([{'id': outcome['id'], 'user': {'login': 'operator'},
+                            'body': calls.create_comment.call_args.args[1]}])[0]
+        self.assertEqual(written['sub_issues'], [2])
+
+    def test_sub_issue_read_failure_or_expiry_prevents_outcome_write_and_observation(self):
+        for failure in ('read', 'expiry'):
+            with self.subTest(failure=failure):
+                self.reset()
+                coordinator = self.loop.coordinator
+                sub_issues = self.github.sub_issues
+
+                def resolve(number):
+                    if failure == 'read':
+                        raise AgentError('Sub-issue read failed')
+                    self.now += 61
+                    return sub_issues(number)
+
+                def interrupt(lease):
+                    self.enterContext(patch.object(self.github, 'sub_issues', side_effect=resolve))
+                    self.write = self.enterContext(patch.object(self.github, 'create_comment',
+                                                               wraps=self.github.create_comment))
+                    self.observe = self.enterContext(patch.object(coordinator, 'observed', wraps=coordinator.observed))
+
+                error = AgentError if failure == 'read' else LostOwnership
+                message = 'Sub-issue read failed' if failure == 'read' else 'expired'
+                with self.assertRaisesRegex(error, message):
+                    self.claim_and_report(interrupt)
+                self.write.assert_not_called()
+                self.observe.assert_not_called()
+                self.assertEqual([record['kind'] for record in coordinator.history(1)], ['lease'])
 
     def test_outside_input_copies_to_children_only_with_approvals_on(self):
         for approvals in ('on', 'off'):
@@ -128,7 +175,7 @@ class SubIssueTests(unittest.TestCase):
             self.label(number, labels)
         with patch.object(self.github, 'add_labels', side_effect=interrupt), \
                 self.assertRaisesRegex(AgentError, 'Label write failed'):
-            self.loop.apply_transition(lease, outcome)
+            settlement(self.loop).apply_transition(lease, outcome)
         self.assertIn('outside-input', self.github.item(2).labels)
         self.assertNotIn('outside-input', self.github.item(3).labels)
         self.now += 61
@@ -145,7 +192,7 @@ class SubIssueTests(unittest.TestCase):
             self.label(number, labels)
             self.github.update_comment(lease['id'], body(payload(lease) | {'state': 'withdrawn'}))
         with patch.object(self.github, 'add_labels', side_effect=lose_lease), self.assertRaises(LostOwnership):
-            self.loop.apply_transition(lease, outcome)
+            settlement(self.loop).apply_transition(lease, outcome)
         self.assertIn('needs-preparation', self.github.item(2).labels)
         self.assertNotIn('needs-preparation', self.github.item(3).labels)
 
@@ -175,7 +222,7 @@ class SubIssueTests(unittest.TestCase):
         unresolved = outcome.copy()
         del unresolved['sub_issues']
         with self.assertRaisesRegex(ValidationError, 'not resolved'):
-            self.loop.apply_transition(lease, unresolved)
+            settlement(self.loop).apply_transition(lease, unresolved)
         self.assertFalse(any(w[0] in {'add-labels', 'remove-label'} for w in self.github.writes))
 
     def test_record_before_transition_recovers_same_targets_after_native_links_change(self):
@@ -213,7 +260,7 @@ class SubIssueTests(unittest.TestCase):
     def test_pending_parent_does_not_park_child_before_acceptance_or_release(self):
         lease, outcome = self.claim_and_report()
         with patch.object(self.github, 'add_labels', side_effect=self.label):
-            self.loop.apply_transition(lease, outcome)
+            settlement(self.loop).apply_transition(lease, outcome)
         for accepted in (False, True):
             if accepted:
                 self.loop.coordinator.accept(lease, outcome)

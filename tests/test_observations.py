@@ -765,7 +765,7 @@ class ObservationTests(unittest.TestCase):
                         return 0
                     with patch('ub_agents.loop.supervise', side_effect=finish), \
                             patch.object(loop.coordinator, 'release', side_effect=released), \
-                            patch.object(loop.github, 'wait') as wait, patch.object(loop, '_wait') as delay:
+                            patch.object(loop.github, 'wait') as wait, patch.object(loop, 'wait') as delay:
                         self.assertTrue(loop.tick())
                         github.change(2, labels=frozenset({'needs-changes'}))
                         github.timelines.pop(2, None)
@@ -1007,7 +1007,7 @@ class ObservationTests(unittest.TestCase):
     def test_wait_deadlines_and_rate_limit_use_existing_clock_only(self):
         loop = self.loop(PollGitHub())
         with patch.object(loop.stop_event, "wait"):
-            loop._wait(loop.stop_event, 15, "runtime pause")
+            loop.wait(loop.stop_event, 15, "runtime pause")
             loop.wait_rate_limit(GitHubError("GET", "user", "limit", rate_limited=True,
                                             reset_at=loop.coordinator.clock() + 60))
         waits = [s["activity"] for s in self.memory.snapshots if s["activity"]["state"] == "waiting"]
@@ -1177,7 +1177,10 @@ class PublisherTests(unittest.TestCase):
             observer.plan(plan)
         observer.complete_pass()
         state = self.wait_for(lambda: self.read(observer.state["session"]))
-        self.wait_for(lambda: self.read(observer.state["session"])["latest_pass"]["state"] == "complete")
+        # Large snapshots also write a history file per item; allow slow CI disks
+        # to finish without imposing a publication speed requirement.
+        self.wait_for(lambda: self.read(observer.state["session"])["latest_pass"]["state"] == "complete",
+                      timeout=30)
         state = self.read(observer.state["session"])
         path = self.root / ".ub-agents" / "sessions" / f"{state['session']}.json"
         self.assertLessEqual(path.stat().st_size, MAX_BYTES)
@@ -1257,6 +1260,10 @@ class PublisherTests(unittest.TestCase):
                 publisher = self.publisher(observation_writer_command(body))
                 observer = Observations(config(self.root), "operator", None, publisher)
                 self.wait_for(lambda: (self.root / "writer-entered").exists())
+                if "raise" in body:
+                    # Receive the writer diagnostic before more snapshots can
+                    # race it with a transport failure on the closed socket.
+                    self.wait_for(lambda: self.lines)
                 loop = Loop(config(self.root), PollGitHub(issue()), "operator", observer=observer,
                             output=lambda *_: None)
                 loop.config_path = self.root / "ub-agents.yaml"

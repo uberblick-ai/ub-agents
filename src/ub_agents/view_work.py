@@ -1,5 +1,6 @@
 """Independent live-work and retained-outcome scrolling."""
 
+from copy import deepcopy
 from datetime import datetime, timezone
 
 from rich.style import Style
@@ -67,7 +68,7 @@ def failure_count(data):
             if type(failures) is int and failures > 0 and type(maximum) is int else '')
 
 
-def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None, app=None,
+def work_lines(row, width, *, next_row=False, stopping=False, now=None, claimed_at=None, app=None,  # noqa: C901, PLR0912, PLR0915
                pauses=None):
     """Two cell-bounded lines for one logical live-work row."""
     if width <= 0:
@@ -148,8 +149,82 @@ class WorkTree(ScrollbarVisibility, Tree):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.auto_expand = False
+        self.nodes, self.groups = {}, {}
+        self.idle_node = None
+        self._work_values = {}
         self.claim_times = {}
         self._spacer_lines = set()
+
+    def populate(self, pane):  # noqa: C901, PLR0912
+        """Reconcile Work nodes and return them for the app's cursor decisions."""
+        self.remember_claims({row.key: row for row in pane.rows})
+        stopping = mapping(self.app.session.data.get('activity')).get('state') == 'stopping'
+        # Compare both snapshots at the same instant so clock changes alone
+        # stay with tick, while a changed waiting_since still repaints its row.
+        now = datetime.fromtimestamp(self.app.descriptions.clock(), timezone.utc)
+
+        def displayed(value):
+            row, next_row, stopping, claimed_at = value
+            return work_lines(row, self.scrollable_content_region.width, next_row=next_row,
+                              stopping=stopping, now=now, claimed_at=claimed_at,
+                              app=self.app, pauses=runtime_pauses(self.app.session.data, now))[:self.row_height]
+
+        work_values = {}
+        live = {row.key for section in pane.sections for row in section.rows}
+        for key in tuple(self.nodes):
+            if key not in live:
+                self.nodes.pop(key).remove()
+        previous = None
+        for section in pane.sections:
+            name = section.name
+            group = self.groups.get(name)
+            if group is None:
+                group = self.groups[name] = self.root.add(
+                    Text(name), after=previous, before=0 if previous is None else None,
+                    expand=True)
+            previous = group
+            if group.label.plain != section.label:
+                group.set_label(Text(section.label))
+            if not group.is_expanded:
+                group.expand()
+            if name == 'Running':
+                if not section.idle and self.idle_node is not None:
+                    self.idle_node.remove()
+                    self.idle_node = None
+                elif section.idle:
+                    label = self.app.idle_label(pane)
+                    if self.idle_node is None:
+                        self.idle_node = group.add_leaf(label)
+                    elif self.idle_node.label != label:
+                        self.idle_node.set_label(label)
+            for index, row in enumerate(section.rows):
+                value = (row, row.key == pane.next, stopping, self.claim_times.get(row.key))
+                old_value = self._work_values.get(row.key)
+                changed = value != old_value
+                # WorkRow is frozen, but its data dictionaries are mutable.
+                work_values[row.key] = (deepcopy(row), *value[1:]) if changed else old_value
+                node = self.nodes.get(row.key)
+                if node is not None and (node.parent is not group or group.children[index] is not node):
+                    node.remove()
+                    node = None
+                if node is None:
+                    node = self.nodes[row.key] = group.add_leaf(Text(row.label()), data=row.key, before=index)
+                elif changed and (old_value is None or displayed(old_value) != displayed(value)):
+                    node.set_label(Text(row.label()))
+        for name, group in tuple(self.groups.items()):
+            if not group.children:
+                group.remove()
+                del self.groups[name]
+        self._work_values = work_values
+        if not self.root.is_expanded:
+            self.root.expand()
+        return self.nodes
+
+    def refresh_idle(self, pane):
+        if self.idle_node is not None:
+            label = self.app.idle_label(pane)
+            if self.idle_node.label != label:
+                self.idle_node.set_label(label)
 
     def check_action(self, action, parameters):
         if action in {'toggle_node', 'toggle_expand_all', 'cursor_parent',
@@ -161,7 +236,7 @@ class WorkTree(ScrollbarVisibility, Tree):
         if (self.app.session is None
                 or mapping(self.app.session.data.get('activity')).get('state') == 'stopping'):
             return
-        for key, node in self.app.nodes.items():
+        for key, node in self.nodes.items():
             row = self.app.rows[key]
             if key.startswith('assignment:') and row.state != 'earlier observation':
                 # _refresh_node also sees inert spacer copies of the node in our
@@ -185,7 +260,7 @@ class WorkTree(ScrollbarVisibility, Tree):
         previous = None
         for line in self._tree_lines_cached:
             if previous is not None and (
-                    line.node in (self.app.groups.get('Needs attention'), self.app.groups.get('Eligible'))
+                    line.node in (self.groups.get('Needs attention'), self.groups.get('Eligible'))
                     or self.row_height == 2 and previous.node.data is not None and line.node.data is not None
                     and previous.node.parent is line.node.parent):
                 # Keep Textual's line cache intact, but make this copy inert.
@@ -252,7 +327,7 @@ class WorkTree(ScrollbarVisibility, Tree):
                                now=now,
                                claimed_at=self.claim_times.get(row.key), app=self.app,
                                pauses=runtime_pauses(self.app.session.data, now))[line_no != node._line]
-        elif node is self.app.idle_node:
+        elif node is self.idle_node:
             label_style += theme_style(self.app, 'view-muted', dim=True)
             value = self.app.idle_label(self.app.pane, width)
             value.truncate(width, overflow='ellipsis')

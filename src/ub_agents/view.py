@@ -104,7 +104,7 @@ class LauncherConnection:
             self.thread.join(timeout=0.15)
 
 
-def main(argv=None):
+def main(argv=None):  # noqa: C901, PLR0912
     parser = argparse.ArgumentParser(description='Read-only terminal view of one local launcher.')
     parser.add_argument('control_checkout', type=Path, nargs='?')
     parser.add_argument('--session', help='Exact session ID (required when launched by ub-agents)')
@@ -139,7 +139,7 @@ def main(argv=None):
         if connection is not None:
             # Textual's POSIX driver draws to __stderr__. The launcher's UI
             # surface is stdout; ordinary error output stays off that surface.
-            sys.__stderr__ = sys.__stdout__
+            setattr(sys, '__stderr__', sys.__stdout__)
             handlers = {sig: signal.signal(sig, connection.request_exit)
                         for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
         app.run()
@@ -152,7 +152,7 @@ def main(argv=None):
             print(f'Terminal view unavailable: {detail}')
         return 1
     finally:
-        sys.__stderr__ = driver_output
+        setattr(sys, '__stderr__', driver_output)
         for sig, handler in handlers.items():
             signal.signal(sig, handler)
         if connection is not None:

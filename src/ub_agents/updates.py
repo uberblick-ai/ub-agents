@@ -152,7 +152,7 @@ class Updates:
     def git(self, *args):
         return self.runner(['git', '-C', str(self.root), *args])
 
-    def run(self):
+    def run(self):  # noqa: C901, PLR0912
         try:
             method = self.detect(self.root)
             if method is None:

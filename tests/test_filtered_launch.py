@@ -338,7 +338,7 @@ class FilteredLaunchTests(unittest.TestCase):
         with patch("ub_agents.loop.supervise", side_effect=self.report_success) as run, \
                 patch("ub_agents.loop.refresh_instructions", return_value="Instructions"), \
                 patch("ub_agents.loop.monotonic", return_value=0), \
-                patch.object(self.loop, "_wait", side_effect=wait):
+                patch.object(self.loop, "wait", side_effect=wait):
             self.loop.launch(agent_name="triage")
         run.assert_called_once()
         self.assertEqual(len(waits), 2)

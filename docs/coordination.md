@@ -41,6 +41,8 @@ NAME` starts a fresh set of rounds.
 | Accepted success at completion or through outcome-only recovery | Reset to 0 | Normal transition |
 | Approval fails at pickup or after claiming | Unchanged | Parked until approved, without `retry` |
 | Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
+| Stop label detected before the agent process exits | Unchanged | No outcome or label changes; parked by the stop label until resumed with `retry` |
+| Closed issue or closed or merged PR detected before the agent process exits | Unchanged | No outcome or label changes; the closed item needs no further action |
 | Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves or an operator uses `retry`; issues need `retry` |
 | Transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
@@ -175,6 +177,11 @@ run exhausts `max-attempts` and parks. When a transition parks a handoff PR, the
 notice goes on that PR. [Approval gates](approvals.md#with-approvals-on) post their
 own notice, once per gate.
 
+A run cancelled because its issue closed or its PR closed or merged posts no action
+notice. The lease records that no action is needed before cleanup, so later passes
+and restarted launchers do not recreate the notice. Superseded records are still
+minimized. Unconfirmed process cleanup still requires action and gets a notice.
+
 A notice leads with the agent's asks, or with the summary's first sentence (one
 line, at most 300 characters) and numbered options. Resume steps follow. The full
 summary, the candidate's review decision and CI rollup, links and diagnostics are
@@ -212,15 +219,26 @@ starts only with enough time left for its 20-second request timeout. If retryabl
 GitHub failures prevent renewal until expiry, continuous launch stops the owned
 process and returns to polling without further writes for that lease.
 
+From claim until the agent process exits, each renewal also rereads the assignment's
+labels and state, even when no stop labels are configured. A configured stop label,
+a closed issue or a closed or merged PR cancels execution, discards any early report
+and releases the run without an outcome or a failed attempt. The launcher preserves
+the item's labels and cleans up its worktree and scratch as after a timeout. The
+lease summary and launcher output name the stop label or say the item was closed or
+merged. A label removed or an item reopened before the check does not cancel the run.
+Outcome application after process exit uses the normal transition checks; renewal
+no longer cancels execution during completion or recovery.
+
 Each GitHub request is bounded to 20 seconds and each Git operation to 120 seconds.
 `agent-timeout-minutes` bounds only execution; worktree preparation comes first, and
 ownership is checked again before execution starts.
 
 Every lease names the actor, agent, run, configured CLI, model and effort, expiry,
-attempt and input candidate SHA for a PR. Branches are derived when needed. A changed head, closed item or
-vanished trigger found after setup but before execution counts as a launcher setup
-failure. A stop label found at that point parks the item without changing its count;
-clearing that state needs `ub-agents retry`. Run branches and worktrees are removed as
+attempt and input candidate SHA for a PR. Branches are derived when needed. A changed
+head or vanished trigger found after setup but before execution counts as a launcher
+setup failure. A stop label or closed or merged item found at that point cancels the
+run without changing its count. `ub-agents retry` resumes a stopped open item; a closed
+item needs no further action. Run branches and worktrees are removed as
 [stale artifact cleanup](configuration.md#stale-artifact-cleanup) describes.
 
 GitHub comment writes are not compare-and-swap. The election does **not** give
@@ -296,6 +314,23 @@ run, runtime and original assignment SHA come from the outcome's source lease,
 identified by `lease_id` in its `assignment`'s history, including for handoff copies.
 Outcomes retain `agent` and `assignment` for history filtering.
 
+After execution exits, the launcher adds optional `usage` to the released lease
+and its outcome, including handoff copies: `{"tokens": 412000, "total_cost_usd": 1.84}`.
+Claude's final `result` supplies input, cache creation, cache read and output tokens
+and, when reported, `total_cost_usd`. Codex's `turn.completed` events supply input
+plus output tokens summed over the run; cached input is already included in input
+and is not added again. Codex reports no cost. Missing or malformed usage is omitted,
+including runs without a completed usage event and command agents without a runtime.
+
+Usage is display-only: it never changes claims, attempts, results, transitions,
+acceptance or usage-limit decisions. Readers ignore malformed values. The marker
+remains `v4`; older launchers ignore unknown fields and preserve them on rewrites,
+so no coordinated restart is needed. GitHub lease lines show usage after the runtime;
+outcome lines show it after the SHA. Counts below 1,000 are exact, below 1M round
+to `Nk`, and from 1M use `N.NM`. Reported dollars use two decimals. On a Claude
+subscription, the dollar figure is what the run would have cost at API prices,
+not a charge.
+
 The lease stores run ownership: `agent`, `assignment`, `run`, `runtime`, `created`,
 `expires`, `state`, `attempt`, `attempt_effect`, `started` and `triggers` (the labels
 present at claim time). A PR lease also stores `assignment_sha`. A running lease has
@@ -303,9 +338,9 @@ present at claim time). A PR lease also stores `assignment_sha`. A running lease
 and issue branches are derived from the run identity; PR branches come from the PR.
 Neither absolute local paths nor these derived fields are published in the record.
 Optional lease fields record outcome rounds, cleanup diagnostics, recovery identity,
-result, summary, unreported execution and retry timing. The comment author supplies
-the actor. Reset records contain only `kind`, `agent`, `assignment`, `created` and
-`summary`.
+result, summary, unreported execution, action notice suppression and retry timing.
+The comment author supplies the actor. Reset records contain only `kind`, `agent`,
+`assignment`, `created` and `summary`.
 
 The running agent's outcome declarations are held in local `run.json` for `report`
 and listed in its prompt. They are not copied into the lease. Removing the agent's

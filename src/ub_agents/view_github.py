@@ -54,6 +54,47 @@ class Response:
             object.__setattr__(self, field, getattr(description, field))
 
 
+def rate_limit_reset(headers, now):
+    resets = []
+    try:
+        resets.append(float(headers['x-ratelimit-reset']))
+    except (KeyError, ValueError):
+        pass
+    retry = headers.get('retry-after', '')
+    try:
+        resets.append(now + float(retry))
+    except ValueError:
+        try:
+            resets.append(parsedate_to_datetime(retry).timestamp())
+        except (ValueError, TypeError, OverflowError):
+            pass
+    resets = [stamp for stamp in resets if math.isfinite(stamp) and stamp > now]
+    return max(resets) if resets else now + 60
+
+
+def action_response(item, authors):
+    comments = item['comments']['nodes']
+    if not isinstance(comments, list):
+        raise ValueError('Invalid comments')
+    candidates, reasons = [], []
+    for comment in comments[-100:]:
+        if not isinstance(comment, dict) or not isinstance(comment.get('body'), str) or not comment['body'].startswith(ACTION_MARKER):
+            continue
+        author = mapping(comment.get('author')).get('login')
+        reason = trust_reason(author, authors or {})
+        if reason:
+            reasons.append(reason)
+        elif stamp(comment.get('createdAt')) is not None:
+            candidates.append(comment)
+    if not candidates:
+        reason = reasons[-1] if reasons else 'No trusted action-needed comment was found among the latest 100 comments.'
+        return Response(error=reason)
+    comment = max(candidates, key=lambda c: stamp(c['createdAt']))
+    return Response(action=ActionComment(body=comment_body(comment['body']), available=True,
+                                         created_at=comment['createdAt'], author=comment['author']['login'],
+                                         comment_id=str(comment.get('id') or '')))
+
+
 def parse_response(stdout, stderr, code, now, kind='issue', authors=None):
     raw = stdout.decode('utf-8', errors='replace').replace('\r\n', '\n')
     headers = {}
@@ -73,46 +114,13 @@ def parse_response(stdout, stderr, code, now, kind='issue', authors=None):
     limited = (' 429' in status or headers.get('x-ratelimit-remaining') == '0' or
                'rate limit' in detail.lower() or 'rate_limit' in str(errors).lower())
     if limited and (code or errors or ' 429' in status or ' 403' in status):
-        resets = []
-        try:
-            resets.append(float(headers['x-ratelimit-reset']))
-        except (KeyError, ValueError):
-            pass
-        retry = headers.get('retry-after', '')
-        try:
-            resets.append(now + float(retry))
-        except ValueError:
-            try:
-                resets.append(parsedate_to_datetime(retry).timestamp())
-            except (ValueError, TypeError, OverflowError):
-                pass
-        resets = [stamp for stamp in resets if math.isfinite(stamp) and stamp > now]
-        return Response(error='GitHub rate limit reached.', reset=max(resets) if resets else now + 60)
+        return Response(error='GitHub rate limit reached.', reset=rate_limit_reset(headers, now))
     if code or errors:
         return Response(error=detail.strip() or f'gh exited with status {code}.')
     try:
         item = data['data']['repository']['issueOrPullRequest']
         if kind == 'unblock':
-            comments = item['comments']['nodes']
-            if not isinstance(comments, list):
-                raise ValueError('Invalid comments')
-            candidates, reasons = [], []
-            for comment in comments[-100:]:
-                if not isinstance(comment, dict) or not isinstance(comment.get('body'), str) or not comment['body'].startswith(ACTION_MARKER):
-                    continue
-                author = mapping(comment.get('author')).get('login')
-                reason = trust_reason(author, authors or {})
-                if reason:
-                    reasons.append(reason)
-                elif stamp(comment.get('createdAt')) is not None:
-                    candidates.append(comment)
-            if not candidates:
-                reason = reasons[-1] if reasons else 'No trusted action-needed comment was found among the latest 100 comments.'
-                return Response(error=reason)
-            comment = max(candidates, key=lambda c: stamp(c['createdAt']))
-            return Response(action=ActionComment(body=comment_body(comment['body']), available=True,
-                                                 created_at=comment['createdAt'], author=comment['author']['login'],
-                                                 comment_id=str(comment.get('id') or '')))
+            return action_response(item, authors)
         if not isinstance(item['title'], str) or not isinstance(item['body'], str):
             raise ValueError('Invalid description')
         return Response(item['title'], item['body'])

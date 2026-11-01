@@ -215,6 +215,52 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
     created, edits = seconds(content["createdAt"]), content["edits"]
     timeline = github.timeline(number)
     roles = Roles(github, trusted_bots=trusted_bots, strict=read_only)
+    starts, renames, launcher_events = _input_events(timeline, trigger_labels, kind, sub_issue_labels, roles)
+    inherited, pending = inherited_starts(github, number, launcher_events, roles, launchers)
+    starts.extend(inherited)
+    renames.sort(key=lambda e: seconds(e["created_at"]))
+    groups = _input_groups(github, number, kind)
+    comments = groups["comments"]
+    outside_groups = _outside_input_groups(groups, roles)
+    cleared_groups = _cleared_input_groups(outside_groups, starts)
+    snapshot = _input_snapshot(content, groups, cleared_groups, roles, kind)
+    def verdict(allowed, reason, gate=None, evidence=None):
+        key = body_sha(json.dumps([kind, gate, evidence], sort_keys=True)) if gate else None
+        return ApprovalCheck(allowed, reason, cleared_groups["comments"],
+                             cleared_groups.get("reviews", frozenset()),
+                             cleared_groups.get("review_comments", frozenset()), snapshot, gate, key,
+                             outside_input)
+
+    trusted_author, outside_edits, blocked_fields, outside_input = _filter_content(
+        github, content, kind, roles, trusted_pr_authors, starts, renames, edits, created, cleared_groups, snapshot)
+    if read_only:
+        return verdict(True, "Filtered input; pickup authorization is not required")
+
+    approving_reviews = []
+    start_verdict = _pickup_start(kind, trusted_author, blocked_fields, outside_edits, starts, pending, verdict)
+    if start_verdict is not None:
+        return start_verdict
+    if kind == "pr":
+        approving_reviews = _approving_reviews(groups["reviews"], roles)
+        if not eligible_head(content["head"], number, approving_reviews, starts,
+                             comments, roles, actor, launchers=launchers,
+                             trusted_pr_authors=trusted_pr_authors,
+                             allow_revisions=not is_fork(content["head_repository"], github.repository)):
+            return verdict(False, "PR head is not approved; a maintainer must submit an approving review of the current head",
+                           "head", content["head"])
+    latest = max(starts + [at for at, _ in approving_reviews])
+    edit_verdict = _later_edit_verdict(renames, edits, created, max(starts), latest, roles, verdict)
+    if edit_verdict is not None:
+        return edit_verdict
+    feedback = {name: [c for c in rows if max(seconds(c["updated_at"]), seconds(c["created_at"])) >= latest]
+                for name, rows in outside_groups.items()}
+    if kind == "pr" and any(feedback.values()):
+        return verdict(False, "Outside PR feedback after approval; a maintainer must re-apply a trigger label",
+                       "input", [latest, feedback])
+    return verdict(True, "Maintainer start approved; no later outside input edits")
+
+
+def _input_events(timeline, trigger_labels, kind, sub_issue_labels, roles):
     starts, renames, launcher_events = [], [], []
     for event in timeline:
         if event["event"] not in {"labeled", "renamed"}:
@@ -229,13 +275,10 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
                 starts.append(at)
             elif kind == "issue" and event["label"]["name"] in sub_issue_labels:
                 launcher_events.append(event)
-    inherited, pending = inherited_starts(github, number, launcher_events, roles, launchers)
-    starts.extend(inherited)
-    renames.sort(key=lambda e: seconds(e["created_at"]))
-    comments = github.comments(number)
-    groups = {"comments": comments}
-    if kind == "pr":
-        groups |= {"reviews": github.reviews(number), "review_comments": github.review_comments(number)}
+    return starts, renames, launcher_events
+
+
+def _outside_input_groups(groups, roles):
     outside_groups = {}
     for name, rows in groups.items():
         outside_groups[name] = []
@@ -246,6 +289,18 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
             seconds(row["updated_at"])
             if not is_record(row) and not roles.feedback(row.get("user")):
                 outside_groups[name].append(row)
+    return outside_groups
+
+
+def _input_groups(github, number, kind):
+    comments = github.comments(number)
+    groups = {"comments": comments}
+    if kind == "pr":
+        groups |= {"reviews": github.reviews(number), "review_comments": github.review_comments(number)}
+    return groups
+
+
+def _cleared_input_groups(outside_groups, starts):
     cleared_groups = {}
     for name, rows in outside_groups.items():
         cleared = set()
@@ -254,6 +309,10 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
             if any(max(updated, seconds(comment["created_at"])) < start for start in starts):
                 cleared.add(comment["id"])
         cleared_groups[name] = frozenset(cleared)
+    return cleared_groups
+
+
+def _input_snapshot(content, groups, cleared_groups, roles, kind):
     snapshot = {"title": content["title"], "body": content["body"]}
     for name, rows in groups.items():
         snapshot[name] = [c | {"body": clean_outside_text(c["body"])}
@@ -264,13 +323,10 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
                                    for name, rows in groups.items()}
     if kind == "pr":
         snapshot["head"] = content["head"]
-    def verdict(allowed, reason, gate=None, evidence=None):
-        key = body_sha(json.dumps([kind, gate, evidence], sort_keys=True)) if gate else None
-        return ApprovalCheck(allowed, reason, cleared_groups["comments"],
-                             cleared_groups.get("reviews", frozenset()),
-                             cleared_groups.get("review_comments", frozenset()), snapshot, gate, key,
-                             outside_input)
+    return snapshot
 
+
+def _filter_content(github, content, kind, roles, trusted_pr_authors, starts, renames, edits, created, cleared_groups, snapshot):
     author = content.get("author")
     trusted_bot_author = (kind == "pr" and listed_bot(author, trusted_pr_authors)
                          and not is_fork(content["head_repository"], github.repository))
@@ -288,6 +344,53 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
                   if not trusted_edit(e.get("actor"))],
         "body": [(seconds(e["editedAt"]), e) for e in edits
                  if seconds(e["editedAt"]) > created and not trusted_edit(e.get("editor"))]}
+    blocked_fields = _filter_fields(snapshot, outside_edits, clearance, trusted_author, trusted_bot_author)
+    outside_input = (trusted_bot_author or any(cleared_groups.values()) or any(
+        (not trusted_author or outside_edits[name]) and isinstance(snapshot[name], str)
+        for name in ("title", "body")))
+    if trusted_bot_author:
+        # Upstream release notes in bot bodies are never assignment input,
+        # even after a maintainer start clears another account's body edit.
+        snapshot["body"] = {"withheld": True, "reason": "Body by a trusted bot author is not input"}
+    return trusted_author, outside_edits, blocked_fields, outside_input
+
+
+def _pickup_start(kind, trusted_author, blocked_fields, outside_edits, starts, pending, verdict):
+    if kind == "pr" and trusted_author:
+        for name in ("title", "body"):
+            if name in blocked_fields:
+                return verdict(False, blocked_fields[name], "input", outside_edits[name])
+        return verdict(True, "Trusted PR author; outside feedback requires clearance")
+    if not starts:
+        if pending:
+            return verdict(False, "Sub-issue start is pending completion of its parent outcome")
+        article = "an issue" if kind == "issue" else "a PR"
+        return verdict(False, f"No maintainer has applied {article} agent's trigger label", "start")
+
+
+def _approving_reviews(reviews, roles):
+    approving_reviews = []
+    for review in reviews:
+        if roles(review.get("user")) in MAINTAINERS and review["state"] == "APPROVED":
+            if not isinstance(review["commit_id"], str) or not re.fullmatch(r"[0-9a-f]{40}", review["commit_id"]):
+                raise ValueError("invalid reviewed head")
+            approving_reviews.append((seconds(review["created_at"]), review["commit_id"]))
+    return approving_reviews
+
+
+def _later_edit_verdict(renames, edits, created, clearance, latest, roles, verdict):
+    for event in renames:
+        if seconds(event["created_at"]) >= clearance and roles(event.get("actor")) not in TRUSTED:
+            return verdict(False, "Outside title edit after approval; a maintainer must re-apply a trigger label",
+                           "input", [latest, event])
+    for edit in edits:
+        at = seconds(edit["editedAt"])
+        if at > created and at >= clearance and roles(edit.get("editor")) not in TRUSTED:
+            return verdict(False, "Outside body edit after approval; a maintainer must re-apply a trigger label",
+                           "input", [latest, edit])
+
+
+def _filter_fields(snapshot, outside_edits, clearance, trusted_author, trusted_bot_author):
     blocked_fields = {}
     for name, changes in outside_edits.items():
         reason = None
@@ -303,55 +406,7 @@ def _check_input(github, number, trigger_labels, kind="issue", actor=None, launc
             snapshot[name] = {"withheld": True, "reason": reason}
         elif not trusted_author or trusted_bot_author or changes:
             snapshot[name] = clean_outside_text(snapshot[name])
-    outside_input = (trusted_bot_author or any(cleared_groups.values()) or any(
-        (not trusted_author or outside_edits[name]) and isinstance(snapshot[name], str)
-        for name in ("title", "body")))
-    if trusted_bot_author:
-        # Upstream release notes in bot bodies are never assignment input,
-        # even after a maintainer start clears another account's body edit.
-        snapshot["body"] = {"withheld": True, "reason": "Body by a trusted bot author is not input"}
-    if read_only:
-        return verdict(True, "Filtered input; pickup authorization is not required")
-
-    approving_reviews = []
-    if kind == "pr" and trusted_author:
-        for name in ("title", "body"):
-            if name in blocked_fields:
-                return verdict(False, blocked_fields[name], "input", outside_edits[name])
-        return verdict(True, "Trusted PR author; outside feedback requires clearance")
-    if not starts:
-        if pending:
-            return verdict(False, "Sub-issue start is pending completion of its parent outcome")
-        article = "an issue" if kind == "issue" else "a PR"
-        return verdict(False, f"No maintainer has applied {article} agent's trigger label", "start")
-    if kind == "pr":
-        for review in groups["reviews"]:
-            if roles(review.get("user")) in MAINTAINERS and review["state"] == "APPROVED":
-                if not isinstance(review["commit_id"], str) or not re.fullmatch(r"[0-9a-f]{40}", review["commit_id"]):
-                    raise ValueError("invalid reviewed head")
-                approving_reviews.append((seconds(review["created_at"]), review["commit_id"]))
-        if not eligible_head(content["head"], number, approving_reviews, starts,
-                             comments, roles, actor, launchers=launchers,
-                             trusted_pr_authors=trusted_pr_authors,
-                             allow_revisions=not is_fork(content["head_repository"], github.repository)):
-            return verdict(False, "PR head is not approved; a maintainer must submit an approving review of the current head",
-                           "head", content["head"])
-    latest = max(starts + [at for at, _ in approving_reviews])
-    for event in renames:
-        if seconds(event["created_at"]) >= clearance and roles(event.get("actor")) not in TRUSTED:
-            return verdict(False, "Outside title edit after approval; a maintainer must re-apply a trigger label",
-                           "input", [latest, event])
-    for edit in edits:
-        at = seconds(edit["editedAt"])
-        if at > created and at >= clearance and roles(edit.get("editor")) not in TRUSTED:
-            return verdict(False, "Outside body edit after approval; a maintainer must re-apply a trigger label",
-                           "input", [latest, edit])
-    feedback = {name: [c for c in rows if max(seconds(c["updated_at"]), seconds(c["created_at"])) >= latest]
-                for name, rows in outside_groups.items()}
-    if kind == "pr" and any(feedback.values()):
-        return verdict(False, "Outside PR feedback after approval; a maintainer must re-apply a trigger label",
-                       "input", [latest, feedback])
-    return verdict(True, "Maintainer start approved; no later outside input edits")
+    return blocked_fields
 
 
 def inherited_starts(github, number, events, roles, launchers):

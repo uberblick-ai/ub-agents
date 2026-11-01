@@ -16,7 +16,7 @@ from ub_agents.errors import AgentError, RetryableExecutionError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, body, iso, payload, seconds, timestamp
-from tests.support import stub_refresh, FakeGitHub, agent, config, issue, pr, run_environment
+from tests.support import settlement, stub_refresh, FakeGitHub, agent, config, issue, pr, run_environment
 
 
 class TransitionTests(unittest.TestCase):
@@ -74,12 +74,12 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(lease['result'], 'success')
         self.assertEqual(outcome['outcome'], 'handed-off')
         self.assertTrue(outcome['accepted'])
-        self.assertEqual(self.loop.validate_report(outcome)['remove'], ['needs-changes', 'old', 'ready'])
+        self.assertEqual(settlement(self.loop).validate_report(outcome)['remove'], ['needs-changes', 'old', 'ready'])
         copied, = self.loop.coordinator.history(2)
         self.assertTrue(copied['accepted'])
         self.assertTrue(copied['transition_complete'])
         self.assertEqual(copied['transition'], outcome['transition'])
-        self.assertEqual(self.loop.validate_report(copied), self.loop.validate_report(outcome))
+        self.assertEqual(settlement(self.loop).validate_report(copied), settlement(self.loop).validate_report(outcome))
         self.assertEqual(self.labels_changed(), [('remove-label', 1, 'needs-changes'),
                                                 ('remove-label', 1, 'old'), ('remove-label', 1, 'ready'),
                                                 ('add-labels', 2, ('needs-review',))])
@@ -138,7 +138,7 @@ class TransitionTests(unittest.TestCase):
             copied, = self.loop.coordinator.history(2)
             self.assertTrue(copied['transition']['started'])
             self.assertFalse(copied['accepted'])
-            resolved = self.loop.validate_report(copied)
+            resolved = settlement(self.loop).validate_report(copied)
             self.assertEqual(resolved['remove'], ['needs-changes', 'old', 'ready'])
             self.assertEqual(resolved['triggers'], ['ready', 'needs-changes'])
             self.assertEqual(resolved['stop_labels'], ['needs-human'])

@@ -1,9 +1,7 @@
-"""Optional responsive Textual UI. Imported only by the view process."""
+# Optional responsive Textual UI. Imported only by the view process.
 
-from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from math import ceil
 from pathlib import Path
 from queue import Empty
 import sys
@@ -11,371 +9,34 @@ import time
 from weakref import WeakKeyDictionary
 
 from rich.control import Control
-from rich.segment import Segment
 from rich.style import Style
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.geometry import Size
-from textual.scroll_view import ScrollView
-from textual.strip import Strip
-from textual.screen import ModalScreen
-from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tabs, Tree
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tree
 
 from .view_clipboard import copy_with_pbcopy, local_pbcopy
-from .view_data import (context_header, context_text, item_handoff, item_header, item_history, mapping,
-                        related_assignment, related_plan, run_status, text, work_pane)
+from .view_data import (context_header, context_text, item_header, item_history, mapping,
+                        related_assignment, related_plan, text, work_pane)
 from .view_github import DescriptionLoads
+from .view_log_pane import LogPane, MAX_RENDER_LINES, Reading
 from .view_markdown import description_parser
 from .view_unblock import (ActionComment, comment_sections, local_action, needs_attention,
-                           resume_section, trust_reason, unblock_body, unblock_metadata)
+                           resume_section, trust_reason, unblock_body)
 from .view_runs import run_status as history_status, runs_view
-from .view_spinner import SPINNER_FPS, spinner_frame
+from .view_spinner import SPINNER_FPS
+from .view_status import (StatusStyles, empty_log_message, footer, header, key_hints, log_mode,
+                          log_notices, pane_line, paused_pill, run_status_line)
 from .view_scroll import PaneScroll, ScrollbarVisibility, scroll_action
+from .view_widgets import (HealthBanner, ItemHeader, ItemTabs, KeyHelp, RawAccess, SIZE_WARNING,
+                           UpdateBanner)
 from .view_worker import LocalWorker, Request
-from .view_work import RecentActivity, WorkTree, assignment_elapsed, work_lines
-from .view_theme import VIEW_THEME, item_reference, log_style, theme_style, variable_defaults
-from .updates import release_age
+from .view_work import RecentActivity, WorkTree, assignment_elapsed
+from .view_theme import VIEW_THEME, item_reference, theme_style, variable_defaults
 from .poll_now import COOLDOWN_SECONDS
 from .log_format import inert
 from .view_time import deadline as poll_deadline, pause_status, plan_pauses, remaining_time, runtime_pauses
-
-MAX_RENDER_LINES = 400
-SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
-
-
-class UpdateBanner(Static):
-    """A single inert row; Rich measures truncation in terminal cells."""
-    def __init__(self, *, id='update'):
-        super().__init__('', id=id, markup=False)
-        self.banner = {}
-
-    def set_banner(self, banner):
-        banner = mapping(banner)
-        self.display = (not self.app.too_small and self.app.shutdown is None and bool(banner.get('text'))
-                        and isinstance(banner.get('text'), str))
-        if self.banner != banner:
-            self.banner = banner
-            self.refresh()
-
-    def render(self):
-        width = max(0, self.content_size.width)
-        line = Text(text(self.banner.get('text'), ''), no_wrap=True)
-        age = release_age(self.banner.get('released_at')) if width >= 60 else ''
-        room = max(0, width - len(age) - 2) if age else width
-        line.truncate(room, overflow='ellipsis')
-        if age:
-            line.append(' ' * max(2, width - line.cell_len - len(age)) + age)
-        return line
-
-
-class HealthBanner(UpdateBanner):
-    """The latest project health transition, including recovery, in one row."""
-    def __init__(self):
-        super().__init__(id='health_notice')
-
-
-def pane_line(value, width, style=''):
-    line = value.copy() if isinstance(value, Text) else Text(text(value, ''))
-    line.stylize_before(style)
-    line.truncate(max(0, width), overflow='ellipsis')
-    return line
-
-
-class ItemHeader(Static):
-    @property
-    def link_style(self):
-        # Decorate links without replacing the title and PR marker colors.
-        style = self.styles.link_style
-        # Textual gives the accent marker and number separate hover IDs.
-        if '@click' in self.hover_style.meta:
-            style += self.link_style_hover
-        return style
-
-
-class ItemTabs(TabbedContent):
-    """One header below the tab bar, shared even by subsequently added tabs."""
-
-    def compose(self):
-        for widget in super().compose():
-            yield widget
-            if isinstance(widget, Tabs):
-                yield Static('', id='log_mode', markup=False)
-                yield Static('', id='tab_rule', markup=False)
-                yield ItemHeader('', id='item_header', markup=False)
-
-
-class RawAccess(ModalScreen):
-    BINDINGS = [Binding('escape', 'dismiss', 'Close', priority=True)]
-    DEFAULT_CSS = '''
-    RawAccess { padding: 2 4; }
-    RawAccess VerticalScroll { background: $panel; padding: 1 2; }
-    #raw_status { height: 1; background: $panel; }
-    #raw_size_warning { height: 1fr; content-align: center middle; text-wrap: nowrap; text-overflow: ellipsis; display: none; }
-    RawAccess.floor { padding: 0; }
-    '''
-    footer_keys = 'Esc close ? keys q quit'
-
-    def __init__(self, message=None):
-        super().__init__()
-        self.message = message
-
-    def compose(self):
-        # Read the view's state now: updates that land between the push and
-        # this compose find no widgets to update.
-        yield Static(Text(SIZE_WARNING, no_wrap=True, overflow='ellipsis'), id='raw_size_warning')
-        with PaneScroll(id='raw_content'):
-            yield Static(Text(self.message if self.message is not None else self.app.raw_details()), id='raw_details')
-        yield Static(self.app.footer(self.app.size.width - self.styles.padding.width, self.footer_keys),
-                     id='raw_status', markup=False)
-
-    def set_floor(self, too_small):
-        self.set_class(too_small, 'floor')
-        self.query_one('#raw_size_warning').display = too_small
-        self.query_one('#raw_content').display = not too_small
-        self.query_one('#raw_status').display = not too_small
-
-    def on_mount(self):
-        self.set_floor(self.app.too_small)
-
-    def action_dismiss(self):
-        self.dismiss()
-
-
-class KeyHelp(RawAccess, inherit_bindings=False):
-    BINDINGS = [Binding('escape,question_mark', 'dismiss', 'Close', priority=True)]
-    footer_keys = 'Esc/? close q quit'
-
-    def __init__(self, unblock=False, attached=False, awake_supported=False):
-        unblock_keys = ('4 on Needs attention   Unblock\n'
-                        'g on Unblock   Load the action-needed comment or retry a failed read\n') if unblock else ''
-        poll_key = 'r   Poll GitHub now (attached launcher only; 10s cooldown)\n' if attached else ''
-        awake_key = ('c   Toggle keeping the launcher machine awake (macOS only'
-                     + (')\n' if awake_supported else '; unavailable on this platform)\n')) if attached else ''
-        super().__init__(
-            'Keys\n\n'
-            'Tab / arrows / Enter   Focus a pane and select a work row\n'
-            'Enter below 110×32   Open the selected item at full width\n'
-            'Esc below 110×32   Return to Work; close an overlay first\n'
-            '1 / 2 / 3   Agent / Issue / Runs\n'
-            + unblock_keys +
-            'g on Agent   Reload the selected local log at the end and follow it\n'
-            'g on Issue   Load a missing description or retry a failed read\n'
-            'f   Toggle follow/pause; resuming loads the latest generation\n'
-            'h   Read an older bounded page toward byte zero\n'
-            'u   Toggle formatted/raw projection of the same page\n'
-            'p   Show the full raw path and log diagnostics; Escape closes it\n'
-            + poll_key + awake_key +
-            'Page Up / Page Down / Home / End   Scroll; scrolling up pauses follow\n'
-            'Mouse drag   Copy selected text on release (OSC 52)\n'
-            'y   Copy the current selection again\n'
-            '?   Open or close this help; Escape also closes it\n'
-            'q   Stop after run; close a standalone view\n'
-            'Ctrl-C   Stop now; close a standalone view\n\n'
-            'Local macOS also uses pbcopy when available.\n'
-            'In iTerm2, enable "Applications in terminal may access clipboard" for OSC 52.\n'
-            'Terminal.app does not support OSC 52; local macOS uses pbcopy instead.\n'
-            "Option-drag selects with the terminal's own selection.")
-
-
-@dataclass
-class Reading:
-    page: object = None
-    follow: bool = True
-    raw: bool = False
-    anchor: tuple | None = None
-    seen: int = 0
-    notice: str = ''
-    latest: object = None
-    log: object = None
-    runtime: str = 'unknown'
-    empty_message: str = 'No local log cached for this row.'
-
-
-class LogPane(ScrollbarVisibility, ScrollView):
-    """A fixed retained page, with a logical entry anchor instead of RichLog redraw.
-
-    At most 400 wrapped lines are rendered. Accounting and older paging include
-    every entry inside that budget, even when its projection has no lines.
-    """
-    can_focus = True
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.reading = None
-        self.lines = []
-        self.positions = []
-        self.visible_refs = ()
-        self.hidden = 0
-        self.render_width = 0
-        self.held_anchor = None
-        self.held_y = None
-
-    def anchor(self):
-        y = int(self.scroll_y)
-        if self.held_anchor is not None and y == self.held_y:
-            return self.held_anchor
-        if self.positions and y < len(self.positions):
-            return self.positions[y]
-        return None
-
-    def _wrap_entry(self, ref, raw, width):
-        value = ref.value
-        rich = Text(value.display(raw), style=self.rich_style)
-        if raw or not value.compact:
-            return rich.wrap(self.app.console, width, overflow='fold')
-        for start, end, style in value.styles:
-            rich.stylize(log_style(self.app, style), start, end)
-        lines = []
-        for line in rich.split('\n') if rich.plain else ():
-            if any(span.style.italic for span in line.spans):
-                # Wrapped assistant continuations share the explicit LF indent.
-                column, body = line[:10], line[10:]
-                for index, part in enumerate(body.wrap(self.app.console, width - 10, overflow='fold')):
-                    lines.append((column if index == 0 else Text(' ' * 10, style=self.rich_style)) + part)
-            else:
-                suffixes = [span.start for span in line.spans
-                            if (line.plain[span.start:span.end][:1] in ('+', '-')
-                                and line.plain[span.start:span.end][1:].isdigit())
-                            or line.plain[span.start:span.end].startswith(' · ')]
-                if suffixes:
-                    start = min(suffixes)
-                    if line.plain[start:start + 3] != ' · ':
-                        start -= 1
-                    suffix = line[start:]
-                    line = line[:start]
-                    line.truncate(width - suffix.cell_len, overflow='ellipsis')
-                    line += suffix
-                else:
-                    line.truncate(width, overflow='ellipsis')
-                lines.append(line)
-        return lines
-
-    def set_reading(self, reading):
-        if self.reading is not None and self.app.query_one(TabbedContent).active == 'log':
-            self.reading.anchor = self.anchor()
-        self.reading = reading
-        self.reflow()
-
-    def reflow(self):
-        reading = self.reading
-        width = max(20, self.scrollable_content_region.width)
-        self.render_width = width
-        anchor = reading.anchor if reading else None
-        wrapped = []
-        if reading and reading.page:
-            for ref in reversed(reading.page.refs):
-                lines = self._wrap_entry(ref, reading.raw, width)
-                if sum(len(part[1]) for part in wrapped) + len(lines) > MAX_RENDER_LINES:
-                    break
-                wrapped.append((ref, lines))
-        wrapped.reverse()
-        target = anchor[0] if anchor else None
-        if reading and reading.page and anchor:
-            visible = [ref for ref in reading.page.refs if ref.value.display(reading.raw)]
-            if not any(ref.start == target for ref in visible) and visible:
-                # Keep the logical hidden anchor; display its next visible
-                # neighbor, or the last visible entry at the end of the page.
-                target = next((ref.start for ref in visible if ref.start > target), visible[-1].start)
-        if reading and reading.page and not reading.follow and anchor and not any(ref.start == target for ref, _ in wrapped):
-            # Raw text can wrap to more rows than its formatted projection. Keep
-            # the anchored entry even when it falls outside the tail line budget.
-            start = next((i for i, ref in enumerate(reading.page.refs) if ref.start == target), None)
-            if start is not None:
-                wrapped = []
-                count = 0
-                for ref in reading.page.refs[start:]:
-                    lines = self._wrap_entry(ref, reading.raw, width)
-                    if count + len(lines) > MAX_RENDER_LINES:
-                        break
-                    count += len(lines)
-                    wrapped.append((ref, lines))
-        self.visible_refs = tuple(ref for ref, _ in wrapped)
-        self.hidden = len(reading.page.refs) - len(self.visible_refs) if reading and reading.page else 0
-        self.lines, self.positions = [], []
-        for ref, lines in wrapped:
-            for index, line in enumerate(lines):
-                self.lines.append(Strip(Segment.apply_style(line.render(self.app.console), self.rich_style), line.cell_len))
-                self.positions.append((ref.start, index / max(1, len(lines))))
-        self.virtual_size = Size(width, len(self.lines))
-        self.call_after_refresh(self.restore, reading, anchor, target, reading.follow if reading else False)
-
-    def restore(self, reading, anchor, target, was_following):
-        if self.reading is not reading:
-            return
-        if reading and was_following and not reading.follow:
-            # A later pause or scroll owns the position, even while its anchor
-            # save is pending in the app's or pane's after-refresh queue.
-            return
-        self.held_anchor = self.held_y = None
-        # After a reflow, max_scroll_y can be current while the scrollbar
-        # flags still prohibit scrolling. Force the restore; bounds still clamp.
-        if reading and reading.follow:
-            self.scroll_end(animate=False, immediate=True, force=True)
-        elif anchor and self.positions:
-            candidates = [(index, position) for index, position in enumerate(self.positions) if position[0] == target]
-            if candidates:
-                y = min(candidates, key=lambda item: abs(item[1][1] - anchor[1]))[0]
-                self.scroll_to(y=y, animate=False, immediate=True, force=True)
-        elif not anchor:
-            self.scroll_home(animate=False, immediate=True, force=True)
-        if reading and not reading.follow and anchor and (target != anchor[0] or not self.positions):
-            self.held_anchor, self.held_y = anchor, int(self.scroll_y)
-        self.refresh()
-
-    def render_line(self, y):
-        index = y + int(self.scroll_y)
-        width = self.size.width
-        if not self.lines and y == 0 and self.reading:
-            value = pane_line(self.reading.empty_message, width)
-            return Strip([Segment(value.plain, self.rich_style)], value.cell_len).crop_extend(0, width, self.rich_style)
-        return (self.lines[index].crop_extend(0, width, self.rich_style) if index < len(self.lines)
-                else Strip.blank(width, self.rich_style))
-
-    def on_resize(self):
-        if self.reading and self.app.query_one(TabbedContent).active == 'log':
-            width = self.scrollable_content_region.width
-            if width > 0 and max(20, width) != self.render_width:
-                self.call_after_refresh(self.reflow_for_resize)
-            elif width > 0 and self.reading.follow:
-                self.scroll_end(animate=False, immediate=True)
-
-    def reflow_for_resize(self):
-        width = self.scrollable_content_region.width
-        if width <= 0 or max(20, width) == self.render_width:
-            return
-        # Height changes from notices and the pill do not change wrapping. For
-        # a width change, use the displayed position, including a pending scroll.
-        self.save_anchor()
-        self.reflow()
-
-    def watch_scroll_y(self, old, value):
-        super().watch_scroll_y(old, value)
-        if self.held_anchor is not None and int(value) != self.held_y:
-            self.held_anchor = self.held_y = None
-
-    def save_anchor(self):
-        if self.reading:
-            self.reading.anchor = self.anchor()
-
-    def on_mouse_scroll_up(self):
-        if self.reading and self.reading.follow:
-            self.app.action_follow()
-        self.call_after_refresh(self.save_anchor)
-
-    def on_mouse_scroll_down(self):
-        self.call_after_refresh(self.save_anchor)
-
-    def action_scroll_up(self):
-        if self.reading and self.reading.follow:
-            self.app.action_follow()
-        self.scroll_up(animate=False)
-        self.call_after_refresh(self.save_anchor)
-
-    def action_scroll_down(self):
-        self.scroll_down(animate=False)
-        self.call_after_refresh(self.save_anchor)
 
 
 class View(App):
@@ -485,9 +146,7 @@ class View(App):
         self.unblock_details_key = None
         self.session = None
         self.pane = None
-        self.rows, self.nodes, self.groups = {}, {}, {}
-        self._work_values = {}
-        self.idle_node = None
+        self.rows = {}
         self.selected = None
         self.chosen = False  # a person picked a row; the view stops following the run
         self.readings = {}
@@ -563,7 +222,7 @@ class View(App):
     def on_resize(self, event):
         self.update_layout(event.size)
 
-    def update_layout(self, size):
+    def update_layout(self, size):  # noqa: C901
         pane = self.query_one_optional('#work_pane')
         if pane is None:
             return
@@ -647,8 +306,8 @@ class View(App):
         self.item_view = False
         self.update_layout(self.size)
         tree, recent = self.query_one(WorkTree), self.query_one(RecentActivity)
-        if self.selected in self.nodes:
-            tree.move_cursor(self.nodes[self.selected])
+        if self.selected in tree.nodes:
+            tree.move_cursor(tree.nodes[self.selected])
             tree.focus(scroll_visible=False)
         elif self.selected in {row.key for row in recent.rows}:
             recent.cursor = self.selected
@@ -764,7 +423,7 @@ class View(App):
     def reading(self):
         return self.readings.setdefault(self.selected, Reading())
 
-    def tick(self):
+    def tick(self):  # noqa: C901, PLR0912
         # Textual clears is_running before removing screen widgets, while
         # refresh timers may still fire until teardown closes the message pump.
         if not self.is_running:
@@ -812,16 +471,13 @@ class View(App):
         tree = self.query_one(WorkTree)
         second = int(time.monotonic())
         if second != self._tree_second:
-            if self.idle_node is not None:
-                label = self.idle_label(self.pane)
-                if self.idle_node.label != label:
-                    self.idle_node.set_label(label)
+            tree.refresh_idle(self.pane)
             tree.refresh()
             self._tree_second = second
         else:
             tree.refresh_spinners()
 
-    def idle_label(self, pane, width=None):
+    def idle_label(self, pane, width=None):  # noqa: C901
         complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
         reason = 'nothing eligible for this launcher' if complete and pane.next is None else 'polling'
         if self.session.data.get('queue_agent'):
@@ -851,12 +507,7 @@ class View(App):
                 label = Text(f'Idle · {reason}', style='dim')
         return label
 
-    def populate(self, pane):
-        tree = self.query_one('#work', Tree)
-        recent = self.query_one(RecentActivity)
-        recent.populate(pane.recent)
-        cursor = tree.cursor_node
-        cursor_row = self.rows.get(cursor.data) if cursor else None
+    def migrate_reading(self, pane):
         if pane.selected != self.selected:
             replacement = (related_assignment(pane.rows, self.rows.get(self.selected)) or
                            related_plan(pane.rows, self.rows.get(self.selected)))
@@ -864,87 +515,35 @@ class View(App):
                 if self.selected in self.readings:
                     self.readings[replacement.key] = self.readings.pop(self.selected)
                 self.selected = replacement.key
+
+    def populate(self, pane):
+        tree = self.query_one(WorkTree)
+        recent = self.query_one(RecentActivity)
+        recent.populate(pane.recent)
+        cursor = tree.cursor_node
+        cursor_row = self.rows.get(cursor.data) if cursor else None
+        self.migrate_reading(pane)
         self.rows = {row.key: row for row in pane.rows}
-        tree.remember_claims(self.rows)
-        stopping = mapping(self.session.data.get('activity')).get('state') == 'stopping'
-        # Compare both snapshots at the same instant so clock changes alone
-        # stay with tick, while a changed waiting_since still repaints its row.
-        now = datetime.fromtimestamp(self.descriptions.clock(), timezone.utc)
-
-        def displayed(value):
-            row, next_row, stopping, claimed_at = value
-            return work_lines(row, tree.scrollable_content_region.width, next_row=next_row,
-                              stopping=stopping, now=now, claimed_at=claimed_at,
-                              app=self, pauses=runtime_pauses(self.session.data, now))[:tree.row_height]
-
-        work_values = {}
-        live = {row.key for section in pane.sections for row in section.rows}
-        for key in tuple(self.nodes):
-            if key not in live:
-                self.nodes.pop(key).remove()
-        previous = None
-        for section in pane.sections:
-            name = section.name
-            group = self.groups.get(name)
-            if group is None:
-                group = self.groups[name] = tree.root.add(
-                    Text(name), after=previous, before=0 if previous is None else None,
-                    expand=True)
-            previous = group
-            if group.label.plain != section.label:
-                group.set_label(Text(section.label))
-            if not group.is_expanded:
-                group.expand()
-            if name == 'Running':
-                if not section.idle and self.idle_node is not None:
-                    self.idle_node.remove()
-                    self.idle_node = None
-                elif section.idle:
-                    label = self.idle_label(pane)
-                    if self.idle_node is None:
-                        self.idle_node = group.add_leaf(label)
-                    elif self.idle_node.label != label:
-                        self.idle_node.set_label(label)
-            for index, row in enumerate(section.rows):
-                value = (row, row.key == pane.next, stopping, tree.claim_times.get(row.key))
-                old_value = self._work_values.get(row.key)
-                changed = value != old_value
-                # WorkRow is frozen, but its data dictionaries are mutable.
-                work_values[row.key] = (deepcopy(row), *value[1:]) if changed else old_value
-                node = self.nodes.get(row.key)
-                if node is not None and (node.parent is not group or group.children[index] is not node):
-                    node.remove()
-                    node = None
-                if node is None:
-                    node = self.nodes[row.key] = group.add_leaf(Text(row.label()), data=row.key, before=index)
-                elif changed and (old_value is None or displayed(old_value) != displayed(value)):
-                    node.set_label(Text(row.label()))
-        for name, group in tuple(self.groups.items()):
-            if not group.children:
-                group.remove()
-                del self.groups[name]
+        nodes = tree.populate(pane)
         self.pane = pane
-        self._work_values = work_values
-        if not tree.root.is_expanded:
-            tree.root.expand()
         work = self.query_one('#work_pane')
         title = Text(pane.title)
         if work.border_title != title.markup:
             work.border_title = title
         if pane.selected != self.selected:
             self.select(pane.selected, chosen=False)
-            if self.selected in self.nodes:
-                tree.move_cursor(self.nodes[self.selected])
+            if self.selected in nodes:
+                tree.move_cursor(nodes[self.selected])
             else:
                 recent.cursor = self.selected
                 recent.focus()
         elif cursor:
-            target = self.nodes.get(cursor.data)
+            target = nodes.get(cursor.data)
             if target is None:
                 replacement = (related_assignment(pane.rows, cursor_row) or
                                related_plan(pane.rows, cursor_row))
-                target = self.nodes.get(replacement.key) if replacement else None
-            target = target or self.nodes.get(self.selected)
+                target = nodes.get(replacement.key) if replacement else None
+            target = target or nodes.get(self.selected)
             if target is not None:
                 # Even a reused node can now occupy a different cursor line.
                 tree.get_node_at_line(0)
@@ -1056,7 +655,7 @@ class View(App):
         if url is not None:
             self.open_url(url)
 
-    def update_issue(self):
+    def update_issue(self):  # noqa: C901, PLR0912, PLR0915
         if self.local_description is None:
             return
         key = self.description_key()
@@ -1146,7 +745,7 @@ class View(App):
         self.descriptions.request(key, 'unblock', mapping(self.session.data.get('coordination_authors')))
         self.update_unblock()
 
-    def update_unblock(self):
+    def update_unblock(self):  # noqa: C901, PLR0915
         visible = needs_attention(self.rows.get(self.selected))
         tabs = self.query_one(ItemTabs)
         if visible != self.unblock_visible:
@@ -1260,130 +859,12 @@ class View(App):
         return unread, lag
 
     def footer(self, width, keys):
-        now = time.monotonic()
-        if now < max(self.copy_notice_until, self.awake_notice_until):
-            value = self.awake_notice if self.awake_notice_until > self.copy_notice_until else self.copy_notice
-            notice = Text(value, no_wrap=True, overflow='ellipsis')
-            notice.truncate(max(0, width), overflow='ellipsis')
-            notice.pad_right(max(0, width - notice.cell_len))
-            return notice
-        parts = ['' if self.narrow else 'ub-agents']
-        repository = ''
-        if self.session:
-            version = text(self.session.data.get('base_version'), '')
-            if version:
-                parts[0] += ('' if self.narrow else ' ') + f'v{version}'
-            repository = text(self.session.data.get('repository'), '')
-        if repository:
-            parts.append(repository)
-        if self.launcher is not None and self.awake_enabled:
-            parts.append('☕')
-        if self.session:
-            now = datetime.now(timezone.utc)
-            pauses = runtime_pauses(self.session.data, now)
-            labels = [f'{cli} paused {remaining_time(end, now)}' if self.narrow else
-                      pause_status({cli: end}, now) for cli, end in pauses.items()]
-            prefix = parts.copy()
-            if repository:
-                prefix[1] = '…'
-            if self.narrow and Text(' · '.join(prefix + labels)).cell_len + len(keys) + 1 > width:
-                labels = [f'{cli} {remaining_time(end, now)}' for cli, end in pauses.items()]
-            parts.extend(labels)
-        prefix_count = len(parts)
-        # Reserve an intact prefix, with at least an ellipsis for the repository.
-        prefix = parts.copy()
-        if repository:
-            prefix[1] = '…'
-        reserve = Text(' · '.join(part for part in prefix if part)).cell_len
-        if self.session:
-            if self.session.data.get('queue_agent'):
-                parts.append('agent ' + text(self.session.data['queue_agent']))
-            state = self.session.state()
-            if state == 'malformed':
-                parts.append('malformed: ' + text(self.session.error))
-            elif state in {'stale', 'ended'}:
-                parts.append(state)
-            activity = mapping(self.session.data.get('activity'))
-            control = mapping(self.session.data.get('poll_now')) | self.poll_feedback
-            value = text(activity.get('state'), '')
-            now = datetime.now(timezone.utc)
-            limited = None
-            if self.launcher is not None:
-                limited = control.get('rate_limit_until')
-                if activity.get('reason') == 'rate-limit reset':
-                    limited = limited or activity.get('until')
-            limited = poll_deadline(limited, now)
-            if value == 'waiting':
-                try:
-                    until = datetime.fromisoformat(activity['until'].replace('Z', '+00:00'))
-                    if until.tzinfo is not None:
-                        poll_label = 'poll' if self.narrow else 'next poll'
-                        value = f'{poll_label} {max(0, ceil((until - now).total_seconds()))}s'
-                except (KeyError, ValueError, TypeError, AttributeError, OverflowError):
-                    pass
-            if limited is not None:
-                label = f'rate limited for {remaining_time(limited, now)} · r unavailable'
-                value = f'{value} · {label}' if value == 'running assignment' else label
-            if value:
-                parts.append(value)
-            if limited is None:
-                if value == 'running assignment' and control.get('refreshing') is True:
-                    parts.append('polling')
-                elif self.launcher is not None:
-                    until = poll_deadline(control.get('cooldown_until'), now)
-                    if until is not None:
-                        parts.append(f'poll now available in {ceil((until - now).total_seconds())}s')
-        else:
-            parts.append('reading session')
-        left = Text(' · '.join(part for part in parts if part), no_wrap=True, overflow='ellipsis')
-        if self.launcher is not None:
-            poll_keys = keys.replace('? keys', 'r poll now ? keys')
-            if not self.narrow or len(poll_keys) + left.cell_len + 1 <= width:
-                keys = poll_keys
-        # Shorten paused keys only when they crowd out the version/activity.
-        if self.narrow and len(keys) + left.cell_len + 1 > width:
-            keys = keys.replace('g reload ', '')
-        if self.narrow and len(keys) + left.cell_len + 1 > width and keys.startswith('f follow'):
-            keys = 'f follow h older u raw PgUp/Dn ? keys q quit'
-            if len(keys) + left.cell_len + 1 > width:
-                keys = 'f follow h older u raw ? keys q quit'
-        if self.narrow and len(keys) + left.cell_len + 1 > width and keys.startswith('1-4 tabs f follow'):
-            keys = '1-4 tabs g load f follow h older u raw ? keys q quit'
-            if len(keys) + left.cell_len + 1 > width:
-                keys = '1-4 tabs g load f follow ? keys q quit'
-        # Add this hint only after retaining the existing poll/reload hints.
-        # It is the first hint to disappear as space becomes scarce.
-        if self.launcher is not None and self.awake_supported and 'r poll now' in keys:
-            awake_keys = keys.replace('? keys', 'c Stay awake ? keys')
-            if len(awake_keys) + left.cell_len + 1 <= width:
-                keys = awake_keys
-        right = Text(keys if self.narrow or width >= 110 else '? keys q quit')
-        if prefix_count == 1:
-            reserve = 0
-        right.truncate(max(0, width - reserve - 1), overflow='ellipsis')
-        room = max(0, width - right.cell_len - 1)
-        if repository:
-            # Keep a readable name before shortening activity, then let it grow
-            # when the full activity fits. Reserve a separator and activity ellipsis
-            # where possible without cutting the version or awake token.
-            other = Text(' · '.join(part for part in parts[:1] + parts[2:] if part))
-            fixed = Text(' · '.join(part for part in parts[:1] + parts[2:prefix_count] if part))
-            activity = Text(' · '.join(part for part in parts[prefix_count:] if part))
-            name = Text(repository)
-            name_room = max(1, room - fixed.cell_len - (3 if fixed else 0) - (4 if activity else 0))
-            preferred = max(min(24, name.cell_len), room - other.cell_len - (3 if other else 0))
-            name.truncate(min(name_room, preferred), overflow='ellipsis')
-            parts[1] = name.plain
-            left = Text(' · '.join(part for part in parts[:prefix_count] if part), no_wrap=True)
-            activity_room = max(0, room - left.cell_len - 3)
-            if activity and activity_room:
-                activity.truncate(activity_room, overflow='ellipsis')
-                left.append(' · ')
-                left.append_text(activity)
-        left.truncate(room, overflow='ellipsis')
-        left.append(' ' * max(0, width - left.cell_len - right.cell_len))
-        left.append_text(right)
-        return left
+        return footer(self.session, width, keys, now=datetime.now(timezone.utc), monotonic_now=time.monotonic(),
+                      narrow=self.narrow, launcher_attached=self.launcher is not None,
+                      awake_enabled=self.awake_enabled, awake_supported=self.awake_supported,
+                      poll_feedback=self.poll_feedback, copy_notice=self.copy_notice,
+                      copy_notice_until=self.copy_notice_until, awake_notice=self.awake_notice,
+                      awake_notice_until=self.awake_notice_until)
 
     def update_status(self):
         if not self.is_mounted:
@@ -1392,120 +873,50 @@ class View(App):
             self.update_shutdown()
             return
         reading = self.reading
+        styles = StatusStyles(theme_style(self, 'view-muted'), theme_style(self, 'view-accent'),
+                              theme_style(self, 'view-error'), theme_style(self, 'view-warning'))
         indicator = self.query_one('#log_mode', Static)
         tab_width = sum(tab.region.width for tab in self.query('#panes Tab') if tab.display)
         mode_width = self.query_one(ItemTabs).content_size.width - tab_width
-        mode = Text('│ ', style=theme_style(self, 'view-muted'), no_wrap=True)
-        mode.append('Formatted', style=theme_style(self, 'view-muted' if reading.raw else 'view-accent',
-                                                   underline=not reading.raw))
-        mode.append('  ' if len('│ Formatted  Raw u') <= mode_width else ' ')
-        mode.append('Raw', style=theme_style(self, 'view-accent' if reading.raw else 'view-muted',
-                                           reverse=reading.raw))
-        hint = ' (u)'
-        if mode.cell_len + len(hint) > mode_width:
-            hint = ' u'
-        mode.append(hint, style=theme_style(self, 'view-muted'))
+        mode = log_mode(reading, mode_width, styles)
         indicator.styles.offset = (tab_width, 0)
         indicator.styles.width = mode.cell_len
         self.update_static(indicator, mode, layout=False)
         rule = self.query_one('#tab_rule', Static)
         self.update_static(rule, '┄' * rule.content_size.width, layout=False)
-        page, log = reading.page, reading.log
         unread, lag = self.log_lag()
-        keys = ('f follow h older u raw PgUp/PgDn scroll ? keys q quit' if not reading.follow else
-                '1-3 tabs ? keys q quit')
-        if self.narrow:
-            if not self.item_view:
-                keys = '? keys q quit'
-            elif reading.follow:
-                keys = 'Esc back 1-3 tabs ? keys q quit'
-        if self.unblock_visible and (not self.narrow or self.item_view):
-            keys = keys.replace('1-3', '1-4')
-            if self.query_one(ItemTabs).active == 'unblock':
-                if '1-4 tabs' not in keys:
-                    keys = '1-4 tabs ' + keys
-                keys = keys.replace('? keys', 'g load ? keys')
-        if self.query_one(ItemTabs).active == 'log' and (not self.narrow or self.item_view):
-            keys = keys.replace('? keys', 'g reload ? keys')
+        keys = key_hints(reading, narrow=self.narrow, item_view=self.item_view,
+                         unblock_visible=self.unblock_visible, active_tab=self.query_one(ItemTabs).active)
         status = self.footer(self.size.width, keys)
         self.update_static(self.query_one('#status', Static), status, layout=False)
         if isinstance(self.screen, RawAccess):
-            for footer in self.screen.query('#raw_status').results(Static):
+            for raw_footer in self.screen.query('#raw_status').results(Static):
                 # Before its first layout the footer has no width; use the width compose used.
-                width = footer.size.width or self.size.width - self.screen.styles.padding.width
-                self.update_static(footer, self.footer(width, self.screen.footer_keys), layout=False)
+                width = raw_footer.size.width or self.size.width - self.screen.styles.padding.width
+                self.update_static(raw_footer, self.footer(width, self.screen.footer_keys), layout=False)
         pill = self.query_one('#log_state', Static)
-        pill.display = bool((page or log) and (not reading.follow or unread or lag))
-        parts = ['⏸ PAUSED' if not reading.follow else '↓ BEHIND']
-        if unread:
-            parts.append(f'{unread} new ↓')
-        if lag:
-            parts.append(f'{lag}B lag')
-        if reading.raw:
-            parts.append('RAW')
-        parts.append('f follow')
-        self.update_static(pill, Text(' ' + ' · '.join(parts) + ' ', style='reverse',
-                                     no_wrap=True, overflow='ellipsis'), layout=False)
+        pill.display, pill_text = paused_pill(reading, unread, lag)
+        self.update_static(pill, pill_text, layout=False)
         output = self.query_one('#output', LogPane)
         row = self.rows.get(self.selected)
-        header = self.query_one('#item_header', Static)
-        width = header.content_region.width
-        title, metadata = item_header(row, self.current_description(), self.session)
-        waiting = ''
-        if self.query_one(ItemTabs).active == 'unblock':
-            metadata, waiting = unblock_metadata(row, self.current_action(), self.session, self.descriptions.clock())
-        title_text, metadata_text = Text(title), Text(metadata)
-        if self.item_url() is not None:
-            title_text.stylize(Style(meta={'@click': 'app.open_reference'}), 0, len(str(row.item)) + 1)
-        accent = theme_style(self, 'view-accent')
-        if title.startswith('⌥'):
-            title_text.stylize(accent, 0, 1)
-        handoff = item_handoff(row, self.session)
-        if handoff is not None and self.query_one(ItemTabs).active != 'unblock':
-            offset = len(metadata) - len(f'⌥{handoff}')
-            metadata_text.stylize(accent, offset, offset + 1)
-        if waiting:
-            offset = metadata.find(waiting)
-            metadata_text.stylize(theme_style(self, 'view-error'), offset, offset + len(waiting))
-        header_text = Text()
-        header_text.append_text(pane_line(title_text, width, 'bold'))
-        header_text.append('\n').append_text(pane_line(metadata_text, width, theme_style(self, 'view-muted', dim=True)))
-        header_text.append('\n' + '┄' * width, style=theme_style(self, 'view-muted'))
-        self.update_static(header, header_text, layout=False)
+        item = self.query_one('#item_header', Static)
+        description = self.current_description()
+        unblock = self.query_one(ItemTabs).active == 'unblock'
+        action, now = None, None
+        if unblock:
+            action, now = self.current_action(), self.descriptions.clock()
+        header_text = header(row, description, self.session, item.content_region.width, styles,
+                             clickable=self.item_url() is not None, unblock=unblock, action=action, now=now)
+        self.update_static(item, header_text, layout=False)
         width = output.size.width
-        notices = []
-        if row and row.log:
-            if page and reading.latest and page.generation != reading.latest.generation:
-                notices.append('FILE CHANGED; paused earlier generation; f latest.')
-            elif page and page.generation:
-                notices.append('File replaced or changed generation.')
-            if log and log.error:
-                notices.append('Read error: ' + log.error)
-            if log and log.pending_bytes:
-                notices.append(f'Unfinished: {log.pending_bytes}B (raw preview)')
-            if reading.notice:
-                notices.append(reading.notice)
-            if reading.runtime not in ('claude', 'codex'):
-                notices.append(f'{reading.runtime}: plain/raw fallback')
         note = self.query_one('#log_note', Static)
-        note.display = bool(notices)
-        self.update_static(note, pane_line(' · '.join(notices), width,
-                                          theme_style(self, 'view-warning', bold=True)), layout=False)
-        empty_message = (row.reason if row and mapping(row.data.get('owner')) else
-                         'No local log cached for this row.' if not row or not row.log else 'No log output yet.')
+        note.display, note_text = log_notices(row, reading, width, styles)
+        self.update_static(note, note_text, layout=False)
+        empty_message = empty_log_message(row)
         if reading.empty_message != empty_message:
             reading.empty_message = empty_message
             output.refresh()
-        left, right, running = run_status(row, self.session)
-        if running:
-            left = spinner_frame(time.monotonic()) + ' ' + left
-        right_line = pane_line(right, max(0, width - 1))
-        left_line = pane_line(left, width - right_line.cell_len - (1 if right_line.cell_len else 0))
-        status_line = left_line
-        if right_line.cell_len:
-            status_line.append(' ' * max(1, width - left_line.cell_len - right_line.cell_len)).append_text(right_line)
-        run_note = Text('┄' * width + '\n', style=theme_style(self, 'view-muted'))
-        run_note.append_text(status_line)
+        run_note = run_status_line(row, self.session, width, styles, time.monotonic())
         self.update_static(self.query_one('#run_status', Static), run_note, layout=False)
         if isinstance(self.screen, RawAccess) and not isinstance(self.screen, KeyHelp):
             for details in self.screen.query('#raw_details').results(Static):

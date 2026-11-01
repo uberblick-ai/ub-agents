@@ -72,17 +72,9 @@ def release_range(pages, running, target):
     found_target = False
     for page in pages:
         for release in page:
-            if not isinstance(release, dict):
-                raise ValueError("release markers could not be read")
-            if release.get("draft") is True:
-                continue
-            if release.get("draft") is not False or not isinstance(release.get("prerelease"), bool):
-                raise ValueError("release markers could not be read")
-            tag = release.get("tag_name")
-            match = (re.fullmatch(r"v?(\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", tag)
-                     if isinstance(tag, str) else None)
+            match = _release_version(release)
             if match is None:
-                raise ValueError("release version could not be read")
+                continue
             candidate = version(match[1])
             # Both endpoints are stable versions. A prerelease with the same
             # core as running is older; one with the target's core precedes it.
@@ -94,14 +86,48 @@ def release_range(pages, running, target):
             found.add(identity)
             if candidate == version(target) and match[2] is None:
                 found_target = True
-            body = release.get("body")
-            markers = re.findall(MARKER, body) if isinstance(body, str) else []
-            if markers == ["coordinated"]:
-                raise ValueError(f"{release['tag_name']} requires every launcher to upgrade together")
-            if markers != ["independent"]:
-                raise ValueError(f"{release['tag_name']} has a missing or unreadable launcher-upgrade marker")
+            _independent_release(release)
     if not found_target:
         raise ValueError(f"release markers through {target} could not be read")
+
+
+def _release_version(release):
+    if not isinstance(release, dict):
+        raise ValueError("release markers could not be read")
+    if release.get("draft") is True:
+        return None
+    if release.get("draft") is not False or not isinstance(release.get("prerelease"), bool):
+        raise ValueError("release markers could not be read")
+    tag = release.get("tag_name")
+    match = (re.fullmatch(r"v?(\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", tag)
+             if isinstance(tag, str) else None)
+    if match is None:
+        raise ValueError("release version could not be read")
+    return match
+
+
+def _independent_release(release):
+    body = release.get("body")
+    markers = re.findall(MARKER, body) if isinstance(body, str) else []
+    if markers == ["coordinated"]:
+        raise ValueError(f"{release['tag_name']} requires every launcher to upgrade together")
+    if markers != ["independent"]:
+        raise ValueError(f"{release['tag_name']} has a missing or unreadable launcher-upgrade marker")
+
+
+def _installed(install, run):
+    executable = install.current()
+    output = run([executable, "--version"])
+    match = re.fullmatch(r"ub-agents (\d+\.\d+\.\d+)", output)
+    if not match:
+        raise ValueError("installed ub-agents version is unreadable")
+    return executable, match[1]
+
+
+def _release_markers(run, target):
+    data = run(["gh", "api", "--hostname", "github.com", "--method", "GET",
+                f"repos/{REPOSITORY}/releases?per_page=100", "--paginate", "--slurp"])
+    release_range(json.loads(data), __version__, target)
 
 
 class SelfUpdates:
@@ -155,7 +181,7 @@ class SelfUpdates:
             self.output(f"Launcher maintenance ub-agents: failed — {detail}; retry at next update check")
             self.skip(detail, updates)
 
-    def check(self, config, updates, install, latest, timeout):
+    def _command(self, timeout):
         deadline = self.clock() + timeout
         env = dict(os.environ, HOMEBREW_NO_INSTALL_CLEANUP="1", HOMEBREW_NO_SUDO="1",
                    HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK="1", HOMEBREW_NO_AUTO_UPDATE="1",
@@ -168,33 +194,24 @@ class SelfUpdates:
                 raise MaintenanceFailure(f"timed out after {timeout:g}s")
             return self.runner(command, env, remaining, cancellable=False)
 
-        def installed():
-            executable = install.current()
-            output = run([executable, "--version"])
-            match = re.fullmatch(r"ub-agents (\d+\.\d+\.\d+)", output)
-            if not match:
-                raise ValueError("installed ub-agents version is unreadable")
-            return executable, match[1]
+        return run
 
-        def markers(target):
-            data = run(["gh", "api", "--hostname", "github.com", "--method", "GET",
-                        f"repos/{REPOSITORY}/releases?per_page=100", "--paginate", "--slurp"])
-            release_range(json.loads(data), __version__, target)
+    def _restart(self, config, executable, target):
+        if self.stopped():
+            self.output("Launcher maintenance ub-agents: shutdown requested; exiting without restart")
+            return
+        self.output(f"Launcher maintenance ub-agents: restarting {__version__} → {target}")
+        raise RestartLauncher(executable, self.stop_event, config.root)
 
-        def restart(executable, target):
-            if self.stopped():
-                self.output("Launcher maintenance ub-agents: shutdown requested; exiting without restart")
-                return
-            self.output(f"Launcher maintenance ub-agents: restarting {__version__} → {target}")
-            raise RestartLauncher(executable, self.stop_event, config.root)
-
-        executable, current = installed()
+    def check(self, config, updates, install, latest, timeout):
+        run = self._command(timeout)
+        executable, current = _installed(install, run)
         if version(current) > version(__version__):
             if updates is not None and not updates.banner:
                 updates.banner = {"text": f"⬆ ub-agents {current} is installed · you run {__version__} · "
                                           "review release notes before restarting the launcher"}
-            markers(current)
-            restart(executable, current)
+            _release_markers(run, current)
+            self._restart(config, executable, current)
             return
         if latest is None or version(latest) <= version(__version__) or self.stopped():
             return
@@ -210,18 +227,18 @@ class SelfUpdates:
         if version(target) <= version(__version__):
             self.output("Launcher maintenance ub-agents: formula has no newer version; keeping running version")
             return
-        markers(target)
+        _release_markers(run, target)
         if self.stopped():
             return
         self.output(f"Launcher maintenance ub-agents: upgrading to {target}")
         run([install.brew, "upgrade", "--formula", FORMULA])
-        executable, current = installed()
+        executable, current = _installed(install, run)
         if version(current) <= version(__version__):
             self.output("Launcher maintenance ub-agents: version unchanged; keeping running version")
             return
         # Another Homebrew process can change opt/the tap while ours runs.
         # Never restart on an unverified version, even after a successful command.
         if version(current) != version(target):
-            markers(current)
+            _release_markers(run, current)
         self.output(f"Launcher maintenance ub-agents: upgrade succeeded ({current})")
-        restart(executable, current)
+        self._restart(config, executable, current)

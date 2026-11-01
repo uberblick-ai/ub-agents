@@ -198,6 +198,9 @@ mise run ci                 # optional: CI's checks on HEAD in a fresh worktree
 Without mise, `python3 -m venv .venv && .venv/bin/pip install -e .` sets up the
 same `.venv`.
 
+See [development checks](docs/development.md) for the pinned type and complexity
+checks used locally and in CI.
+
 The test runner uses every core by default. Pass test names to run a subset,
 `-j N` to set the worker count, `--durations N` to list the slowest tests and
 `--timeout SECONDS` to change the five-minute limit per test.

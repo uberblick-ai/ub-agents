@@ -102,7 +102,7 @@ GitHub = lambda repository: fixture
         with patch("ub_agents.cli.load_config", return_value=config(self.root)), \
                 patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.launch_checks"), patch.object(Loop, "_before_claim"), \
+                patch("ub_agents.cli.launch_checks"), patch.object(Loop, "before_claim"), \
                 patch.object(Loop, "launch", side_effect=launch), redirect_stdout(io.StringIO()):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 0)
         self.assertFalse(paths[0].exists())

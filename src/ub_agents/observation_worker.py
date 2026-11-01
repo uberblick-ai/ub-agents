@@ -38,7 +38,7 @@ def stale(state, now, host):
     return now - seconds(state["published_at"]) > STALE_SECONDS
 
 
-def prune(directory, own, now, host):
+def prune(directory, own, now, host):  # noqa: C901, PLR0912
     retained = []
     for path in directory.iterdir():
         if path.stem == own or path.suffix not in {".json", ".tmp"}:
@@ -104,7 +104,7 @@ def write_snapshot(directory, state):
     prune(directory, state["session"], timestamp(), state["host"])
 
 
-def run(root, receiver, life, errors, writer=write_snapshot):
+def run(root, receiver, life, errors, writer=write_snapshot):  # noqa: C901, PLR0912
     # A writer that never returns must not survive the launcher indefinitely.
     # The watchdog does no filesystem work and terminates only this helper.
     ended = threading.Event()

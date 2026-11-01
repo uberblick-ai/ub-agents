@@ -276,6 +276,7 @@ def parse_item(data, kind, endpoint=None):
                     and isinstance(data["user"].get("login"), str) else None,
                     data["comments"] if type(data.get("comments")) is int and data["comments"] >= 0 else None,
                     data.get("mergeable") if kind == "pr" and type(data.get("mergeable")) is bool else None,
+                    merged=kind == "pr" and data.get("merged_at") is not None,
                     head_repository=head_repository, base_branch=base_branch)
     except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
         if endpoint is not None:
@@ -303,19 +304,22 @@ class GitHub:
         self._comment_since = None
         self.comment_window_start = None
 
+    def request_pages(self, endpoint):
+        parts = urlsplit(endpoint)
+        query = dict(parse_qsl(parts.query)) | {"per_page": "100"}
+        items, page = [], 1
+        while True:
+            query["page"] = str(page)
+            address = urlunsplit(parts._replace(query=urlencode(query)))
+            batch = self.request(address, array=True)
+            items.extend(batch)
+            if len(batch) < 100:
+                return items
+            page += 1
+
     def request(self, endpoint, method="GET", data=None, paginate=False, array=False):
         if paginate:
-            parts = urlsplit(endpoint)
-            query = dict(parse_qsl(parts.query)) | {"per_page": "100"}
-            items, page = [], 1
-            while True:
-                query["page"] = str(page)
-                address = urlunsplit(parts._replace(query=urlencode(query)))
-                batch = self.request(address, array=True)
-                items.extend(batch)
-                if len(batch) < 100:
-                    return items
-                page += 1
+            return self.request_pages(endpoint)
         command = ["gh", "api", "--hostname", "github.com", "--method", method,
                    "-H", "Accept: application/vnd.github+json", "--include", endpoint]
         if data is not None:
@@ -327,19 +331,7 @@ class GitHub:
         cacheable = conditional and "since" not in dict(
             parse_qsl(urlsplit(endpoint).query, keep_blank_values=True))
         cached = self._etag_cache.get(endpoint) if cacheable else None
-        status, headers, payload = self._response(command, endpoint, method, data, cached)
-        if status == 304:
-            if not conditional:
-                raise GitHubError(method, endpoint, "Unexpected HTTP 304 for an unconditional operation")
-            if cached is None:
-                # A bodyless response cannot establish authority. Retry only once,
-                # with no validator, even if gh incorrectly returns another 304.
-                status, headers, payload = self._response(command, endpoint, method, data, None)
-                if status == 304:
-                    raise GitHubError(method, endpoint, "HTTP 304 without a stored response after refetch")
-            else:
-                etag, payload = cached
-                self._etag_cache[endpoint] = (headers.get("etag") or etag, payload)
+        status, headers, payload = self._conditional_response(command, endpoint, method, data, conditional, cached)
         if method == "DELETE" and not payload.strip():
             return None
         try:
@@ -355,6 +347,35 @@ class GitHub:
             else:
                 self._etag_cache.pop(endpoint, None)
         return value
+
+    def _conditional_response(self, command, endpoint, method, data, conditional, cached):
+        status, headers, payload = self._response(command, endpoint, method, data, cached)
+        if status == 304:
+            if not conditional:
+                raise GitHubError(method, endpoint, "Unexpected HTTP 304 for an unconditional operation")
+            if cached is None:
+                # A bodyless response cannot establish authority. Retry only once,
+                # with no validator, even if gh incorrectly returns another 304.
+                status, headers, payload = self._response(command, endpoint, method, data, None)
+                if status == 304:
+                    raise GitHubError(method, endpoint, "HTTP 304 without a stored response after refetch")
+            else:
+                etag, payload = cached
+                self._etag_cache[endpoint] = (headers.get("etag") or etag, payload)
+        return status, headers, payload
+
+    def _record_response_quota(self, status, headers, result, rest):
+        # GraphQL has its own quota; doctor reports the REST account quota.
+        if status == 304:
+            self.not_modified_responses += 1
+        if rest:
+            if status != 304 and (status is not None or result.returncode == 0):
+                self.quota_requests += 1
+            if "x-ratelimit-remaining" in headers:
+                self.quota_headers = headers
+        resource = headers.get("x-ratelimit-resource")
+        if resource in {"core", "graphql"}:
+            self.resource_quotas[resource] = headers
 
     def _response(self, command, endpoint, method, data, cached):
         if cached is not None:
@@ -385,17 +406,7 @@ class GitHub:
             status, headers, payload = response_parts(result.stdout)
         except ValueError as exc:
             raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
-        # GraphQL has its own quota; doctor reports the REST account quota.
-        if status == 304:
-            self.not_modified_responses += 1
-        if rest:
-            if status != 304 and (status is not None or result.returncode == 0):
-                self.quota_requests += 1
-            if "x-ratelimit-remaining" in headers:
-                self.quota_headers = headers
-        resource = headers.get("x-ratelimit-resource")
-        if resource in {"core", "graphql"}:
-            self.resource_quotas[resource] = headers
+        self._record_response_quota(status, headers, result, rest)
         # gh exits 1 for a 304 and writes "gh: HTTP 304" to stderr. The
         # server's freshness confirmation takes precedence over that exit code.
         if status == 304:
@@ -641,7 +652,7 @@ class GitHub:
         ordered = sorted(active, key=lambda milestone: milestone_title_key(milestone[0]))
         return {number: title for title, number in ordered}
 
-    def dependency_graph(self):
+    def dependency_graph(self):  # noqa: C901
         """List open issues and their links together for cold queue ranking."""
         owner, name = self.repository.split("/", 1)
         query = """query($owner:String!, $name:String!, $cursor:String) {
@@ -757,7 +768,7 @@ class GitHub:
             except (KeyError, TypeError, ValueError, AgentError) as exc:
                 raise GitHubError("POST", "graphql", "Unreadable PR reviews") from exc
 
-    def repository_comments(self, lookback_seconds=None):
+    def repository_comments(self, lookback_seconds=None):  # noqa: C901
         # Bound discovery's first scan; cleanup leaves lookback unset for a full
         # history. Later scans read edits/new comments incrementally. Capture the
         # cursor BEFORE scanning, with overlap.

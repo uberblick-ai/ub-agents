@@ -91,7 +91,7 @@ class Flow:
             self.t.cancelled(str(exc) or "Setup")
             return 1
 
-    def steps(self):
+    def steps(self):  # noqa: C901
         if self.unattended:
             self.repository = self.repository or infer_repository(self.path.parent)
             self.github = self.github_factory(self.repository)
@@ -144,7 +144,7 @@ class Flow:
         self.finish(plan, labels, extras, url, issue)
         return 0
 
-    def check(self):
+    def check(self):  # noqa: C901
         """Return False when the branch choice stops setup before files are written."""
         with self.t.spinner("Checking machine, GitHub, checkout and agents"):
             if not self.repository:
@@ -453,7 +453,7 @@ class Flow:
         self.t.rail()
         return None
 
-    def finish(self, plan, labels, extras, url=None, issue=None):
+    def finish(self, plan, labels, extras, url=None, issue=None):  # noqa: C901
         steps = next_steps(plan) + guidance_summary(plan)
         if url:
             steps[steps.index("Open a PR with these files and merge it")] = f"Review and merge the setup PR: {url}"

@@ -27,8 +27,9 @@ from ub_agents.view_data import POINTERS_LIMIT
 from textual import events, messages
 from textual.geometry import Size
 from textual.widgets import Collapsible, Markdown, Static, Tab, TabbedContent, TabPane, Tabs, Tree
-from ub_agents.view_ui import (HealthBanner, ItemTabs, KeyHelp, LogPane, MAX_RENDER_LINES, RecentActivity,
-                               RawAccess, UpdateBanner, View, pane_line)
+from ub_agents.view_log_pane import LogPane, MAX_RENDER_LINES
+from ub_agents.view_ui import RecentActivity, View, WorkTree
+from ub_agents.view_widgets import HealthBanner, ItemTabs, KeyHelp, RawAccess, UpdateBanner, pane_line
 from ub_agents.view_worker import LocalWorker
 from ub_agents.view_data import Session, item_history, work_pane
 from ub_agents.view_theme import theme_style
@@ -36,6 +37,19 @@ from ub_agents.view_unblock import ACTION_MARKER, ActionComment
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    def test_footer_reads_one_wall_clock_for_freshness_and_countdown(self):
+        now = datetime(2026, 10, 5, 20, tzinfo=timezone.utc)
+        self.state['published_at'] = now.isoformat()
+        self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=30)).isoformat()}
+        app = View(self.root, self.path)
+        app.session = Session(self.path, self.state)
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now + timedelta(seconds=4)
+            line = app.footer(160, '? keys q quit')
+            clock.now.assert_called_once_with(timezone.utc)
+        self.assertIn('next poll 26s', line.plain)
+        self.assertNotIn('stale', line.plain)
+
     def test_runtime_pause_footer_keeps_each_cli_and_time_at_narrow_widths(self):
         now = datetime.now(timezone.utc)
         self.state['runtime_pauses'] = {'claude': (now + timedelta(hours=28)).isoformat(),
@@ -78,10 +92,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                   patch('ub_agents.view_work.datetime', wraps=datetime) as row_clock):
                 clock.now.return_value = row_clock.now.return_value = now
                 async with app.run_test(size=(220, 40)) as pilot:
-                    await self.ready(app, pilot, lambda: app.idle_node is not None)
+                    await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node is not None)
                     status = app.query_one('#status', Static)
                     self.assertIn('claude paused for 1d 4h · codex paused for 35m · agent worker', status.render().plain)
-                    self.assertEqual(app.idle_node.label.plain,
+                    self.assertEqual(app.query_one(WorkTree).idle_node.label.plain,
                                      '    Idle · claude paused for 1d 4h, codex paused for 35m (usage limit)')
                     # Freeze filesystem input while retaining the normal refresh path.
                     app.worker.close()
@@ -92,7 +106,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     tree = app.query_one('#work', Tree)
 
                     def displayed(item):
-                        node = app.nodes[f'plan:{item}']
+                        node = app.query_one(WorkTree).nodes[f'plan:{item}']
                         strips = app.screen._compositor.render_strips()
                         y = tree.region.y + node._line - tree.scroll_offset.y
                         return strips[y].crop(tree.region.x, tree.region.x + tree.scrollable_content_region.width).text
@@ -102,7 +116,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     await pilot.resize_terminal(110, 32)
                     await pilot.pause(0.1)
                     strips = app.screen._compositor.render_strips()
-                    y = tree.region.y + app.idle_node._line - tree.scroll_offset.y
+                    y = tree.region.y + app.query_one(WorkTree).idle_node._line - tree.scroll_offset.y
                     idle = strips[y].crop(tree.region.x, tree.region.x + tree.scrollable_content_region.width).text
                     for part in ('Idle', 'claude', '1d 4h', 'codex', '35m'):
                         self.assertIn(part, idle)
@@ -114,13 +128,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         if remaining:
                             self.assertIn('codex paused for ' + remaining, status.render().plain)
                             self.assertTrue(displayed(22).endswith(remaining), displayed(22))
-                            self.assertIn('codex paused for ' + remaining, app.idle_node.label.plain)
+                            self.assertIn('codex paused for ' + remaining, app.query_one(WorkTree).idle_node.label.plain)
                         else:
                             self.assertNotIn('codex paused', status.render().plain)
-                            self.assertNotIn('codex paused', app.idle_node.label.plain)
+                            self.assertNotIn('codex paused', app.query_one(WorkTree).idle_node.label.plain)
                             self.assertTrue(displayed(22).endswith('waiting'), displayed(22))
                     self.assertNotIn('paused', status.render().plain)
-                    self.assertEqual(app.idle_node.label.plain, '    Idle · Queue has no claimable work')
+                    self.assertEqual(app.query_one(WorkTree).idle_node.label.plain, '    Idle · Queue has no claimable work')
                     self.assertTrue(displayed(21).endswith('waiting'), displayed(21))
                     # An active pause with no eligible item remains a footer segment only.
                     clock.now.return_value = row_clock.now.return_value = now
@@ -128,7 +142,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     app.populate(work_pane(app.session, self.root))
                     app.update_status()
                     self.assertIn('claude paused for 1d 4h', status.render().plain)
-                    self.assertNotIn('usage limit', app.idle_node.label.plain)
+                    self.assertNotIn('usage limit', app.query_one(WorkTree).idle_node.label.plain)
                     await pilot.press('q')
             app.worker.thread.join(2)
 
@@ -373,7 +387,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     check_footer('#status')
                     tree = app.query_one('#work', Tree)
                     tree.focus()
-                    tree.move_cursor(app.nodes[app.selected])
+                    tree.move_cursor(app.query_one(WorkTree).nodes[app.selected])
                     cursor = tree.cursor_node
                     await pilot.press('down')
                     self.assertIsNot(tree.cursor_node, cursor)
@@ -961,10 +975,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(160, 45)) as pilot:
             tree = app.query_one('#work', Tree)
-            await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
-                             'urgent' in tree.render_line(app.groups['Eligible'].children[0]._line + 1 -
+            await self.ready(app, pilot, lambda: 'Eligible' in app.query_one(WorkTree).groups and
+                             'urgent' in tree.render_line(app.query_one(WorkTree).groups['Eligible'].children[0]._line + 1 -
                                                          tree.scroll_offset.y).text)
-            group = app.groups['Eligible']
+            group = app.query_one(WorkTree).groups['Eligible']
             self.assertEqual(group.label.plain, 'Eligible · 23 · showing 10')
             self.assertEqual([app.rows[node.data].item for node in group.children],
                              [n for n in order if n != 18][:10])
@@ -1081,7 +1095,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 for strip in strips[pane.region.y + 1:pane.region.bottom - 1]:
                     self.assertEqual(strip.crop(pane.region.x + 1, pane.region.x + 3).text, '  ')
                     self.assertEqual(strip.crop(pane.region.right - 3, pane.region.right - 1).text, '  ')
-            work_row = strips[tree.region.y + app.nodes[app.selected]._line - int(tree.scroll_y)]
+            work_row = strips[tree.region.y + app.query_one(WorkTree).nodes[app.selected]._line - int(tree.scroll_y)]
             self.assertEqual(work_row.crop(work.region.x, work.region.x + 3).text, '│  ')
             self.assertIn(work_row.crop(work.region.x + 3, work.region.x + 4).text,
                           '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
@@ -1095,7 +1109,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(output.lines), 1)
             for heading, color in (('Running', '#6cb6ff'), ('Needs attention', '#ff8b7f'),
                                    ('Eligible', '#7ee2a0')):
-                line = tree.render_line(app.groups[heading]._line - int(tree.scroll_y))
+                line = tree.render_line(app.query_one(WorkTree).groups[heading]._line - int(tree.scroll_y))
                 self.assertTrue(any(heading in segment.text and segment.style.color.name == color
                                     for segment in line))
                 self.assertIn(color, svg)
@@ -1149,7 +1163,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot)
             app.select(next(k for k, row in app.rows.items() if row.group == 'Needs attention'))
             await self.ready(app, pilot, lambda: app.unblock_visible)
-            app.query_one(Tree).move_cursor(app.nodes[app.selected])
+            app.query_one(Tree).move_cursor(app.query_one(WorkTree).nodes[app.selected])
             panes = app.query_one(ItemTabs)
             indicator = app.query_one('#log_mode', Static)
             tabs = app.query_one('#panes Tabs', Tabs)
@@ -1224,9 +1238,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tree.region.y, 2)
             self.assertEqual(tree.region.width, 74)
             self.assertFalse(app.query_one(ItemTabs).display)
-            self.assertEqual(tree._get_label_region(app.nodes[app.selected]._line).height, 1)
+            self.assertEqual(tree._get_label_region(app.query_one(WorkTree).nodes[app.selected]._line).height, 1)
             self.assertEqual(tree.virtual_size.height, 5)  # Two headings, two rows, one separator.
-            line = tree.render_line(app.nodes[app.selected]._line - tree.scroll_offset.y).text
+            line = tree.render_line(app.query_one(WorkTree).nodes[app.selected]._line - tree.scroll_offset.y).text
             self.assertIn('#114', line)
             self.assertIn('…', line)
             self.assertRegex(line, r'\d\d:\d\d$')
@@ -1235,7 +1249,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tree.region.bottom, recent.region.y)
             self.assertLessEqual(abs(tree.size.height - recent.size.height), 1)
             tree.focus()
-            tree.move_cursor(app.nodes[app.selected])
+            tree.move_cursor(app.query_one(WorkTree).nodes[app.selected])
             await pilot.press('enter')
             self.assertTrue(app.item_view)
             self.assertFalse(app.query_one('#work_pane').display)
@@ -1261,7 +1275,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('?', 'escape')
             self.assertTrue(app.item_view)  # Escape closes help before returning
             await pilot.press('escape')
-            tree.move_cursor(app.nodes['plan:12'])
+            tree.move_cursor(app.query_one(WorkTree).nodes['plan:12'])
             await pilot.press('down')
             self.assertIs(app.focused, recent)
             await pilot.press('enter')
@@ -1392,18 +1406,18 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     if state == 'stopping':
                         tree = app.query_one(Tree)
                         tree.get_node_at_line(0)
-                        line = tree.render_line(app.nodes[app.selected]._line - tree.scroll_offset.y).text
+                        line = tree.render_line(app.query_one(WorkTree).nodes[app.selected]._line - tree.scroll_offset.y).text
                         self.assertTrue(line.startswith('■ #114'))
                         self.assertTrue(line.endswith('stopping'))
-                        node = app.nodes['plan:12']
+                        node = app.query_one(WorkTree).nodes['plan:12']
                         self.assertTrue(tree.render_line(node._line - tree.scroll_offset.y).text.endswith('held'))
                 self.state.update(assignment=None, outcomes=[], latest_pass={'state': 'complete', 'rows': []})
                 publish_snapshot(self.path, self.state)
-                await self.ready(app, pilot, lambda: app.idle_node is not None and not app.nodes)
+                await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node is not None and not app.query_one(WorkTree).nodes)
                 tree = app.query_one(Tree)
-                tree.move_cursor(app.idle_node)
+                tree.move_cursor(app.query_one(WorkTree).idle_node)
                 self.assertEqual(tree.virtual_size.height, 2)
-                self.assertIn('Idle · nothing eligible', tree.render_line(app.idle_node._line).text)
+                self.assertIn('Idle · nothing eligible', tree.render_line(app.query_one(WorkTree).idle_node._line).text)
                 await pilot.press('enter')
                 self.assertFalse(app.item_view)
                 await pilot.press('q')
@@ -2596,9 +2610,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             own = 'assignment:owned-run'
             def line(key, detail=False):
                 tree.get_node_at_line(0)
-                return tree.render_line(app.nodes[key]._line + int(detail) - tree.scroll_offset.y).text.rstrip()
+                return tree.render_line(app.query_one(WorkTree).nodes[key]._line + int(detail) - tree.scroll_offset.y).text.rstrip()
             def normal_work():
-                self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 5')
+                self.assertEqual(app.query_one(WorkTree).groups['Eligible'].label.plain, 'Eligible · 5')
                 self.assertIn(line(own)[0], '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
                 self.assertEqual(line(own, True), pane_line('  implementer · this launcher · attempt 3',
                                                           tree.scrollable_content_region.width).plain)
@@ -2618,9 +2632,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(line(own, True), expected_detail)
             self.assertNotIn('attempt', line(own, True))
             label = 'Eligible · 5 · not claimed while stopping'
-            self.assertEqual(app.groups['Eligible'].label.plain, label)
+            self.assertEqual(app.query_one(WorkTree).groups['Eligible'].label.plain, label)
             tree.get_node_at_line(0)
-            heading = tree.render_line(app.groups['Eligible']._line - tree.scroll_offset.y).text
+            heading = tree.render_line(app.query_one(WorkTree).groups['Eligible']._line - tree.scroll_offset.y).text
             self.assertEqual(heading, pane_line(label, tree.scrollable_content_region.width).plain)
             for item in (20, 21, 22):
                 self.assertTrue(line(f'plan:{item}').endswith('held'))
@@ -2639,7 +2653,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
             tree.get_node_at_line(0)
-            heading = tree.render_line(app.groups['Eligible']._line - tree.scroll_offset.y).text
+            heading = tree.render_line(app.query_one(WorkTree).groups['Eligible']._line - tree.scroll_offset.y).text
             self.assertTrue(heading.startswith(label))
             self.assertEqual(pane_line(heading, 1000).cell_len, tree.scrollable_content_region.width)
             await pilot.resize_terminal(110, 32)
@@ -3050,10 +3064,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot)
             tree = app.query_one(Tree)
             key = 'plan:12'
-            self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 2')
-            self.assertEqual([node.data for node in app.groups['Eligible'].children], ['plan:12', 'plan:20'])
+            self.assertEqual(app.query_one(WorkTree).groups['Eligible'].label.plain, 'Eligible · 2')
+            self.assertEqual([node.data for node in app.query_one(WorkTree).groups['Eligible'].children], ['plan:12', 'plan:20'])
             tree.get_node_at_line(0)
-            node = app.nodes[key]
+            node = app.query_one(WorkTree).nodes[key]
             first = tree.render_line(node._line - int(tree.scroll_y)).text.rstrip()
             detail = tree.render_line(node._line + 1 - int(tree.scroll_y)).text.rstrip()
             self.assertTrue(first.startswith('● ⌥12 Foreign candidate'))
@@ -3075,9 +3089,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: app.rows[key].agent == 'integrator' and
                              tree.render_line(node._line + 1 - tree.scroll_offset.y).text.rstrip() == '  integrator')
             self.assertEqual(app.selected, key)
-            self.assertIs(app.nodes[key], node)
+            self.assertIs(app.query_one(WorkTree).nodes[key], node)
             self.assertIs(tree.cursor_node, node)
-            self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 2')
+            self.assertEqual(app.query_one(WorkTree).groups['Eligible'].label.plain, 'Eligible · 2')
             self.assertEqual(app.query_one(TabbedContent).active, 'runs')
             self.assertEqual(markdown.source, description['text'])
             tree.get_node_at_line(0)  # Resolve the reordered rows before reading node._line.
@@ -3085,10 +3099,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['latest_pass']['rows'][1]['state'] = 'ready'
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: len(app.rows[key].eligible_plans) == 2 and
-                             tree.render_line(app.nodes[key]._line + 1 - tree.scroll_offset.y).text.rstrip() ==
+                             tree.render_line(app.query_one(WorkTree).nodes[key]._line + 1 - tree.scroll_offset.y).text.rstrip() ==
                              '  reviewer 1/3 failures, integrator')
             self.assertEqual(app.selected, key)
-            self.assertIs(tree.cursor_node, app.nodes[key])
+            self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes[key])
             self.assertEqual(sum(row.item == 12 for row in app.rows.values()), 1)
             # Returning from a per-agent attention row finds that agent even
             # when it is no longer first in the merged Eligible row.
@@ -3097,18 +3111,18 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             plans[1], plans[-1] = plans[-1], plans[1]
             publish_snapshot(self.path, self.state)
             attention = 'plan:12:attention'
-            await self.ready(app, pilot, lambda: attention in app.nodes)
+            await self.ready(app, pilot, lambda: attention in app.query_one(WorkTree).nodes)
             app.select(attention)
-            tree.move_cursor(app.nodes[attention])
+            tree.move_cursor(app.query_one(WorkTree).nodes[attention])
             await self.ready(app, pilot, lambda: app.pane.selected == attention)
             plans[-1]['state'] = 'ready'
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.selected == key and attention not in app.rows and
-                             tree.render_line(app.nodes[key]._line + 1 - tree.scroll_offset.y).text.rstrip() ==
+                             tree.render_line(app.query_one(WorkTree).nodes[key]._line + 1 - tree.scroll_offset.y).text.rstrip() ==
                              '  integrator, reviewer 1/3 failures')
-            self.assertIs(tree.cursor_node, app.nodes[key])
+            self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes[key])
             self.assertEqual([plan['agent'] for plan in app.rows[key].eligible_plans], ['integrator', 'reviewer'])
-            self.assertNotIn('Needs attention', app.groups)
+            self.assertNotIn('Needs attention', app.query_one(WorkTree).groups)
             await pilot.press('q')
         app.worker.thread.join(2)
         self.assertFalse(app.worker.thread.is_alive())
@@ -3123,16 +3137,16 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot, lambda: app.idle_node is not None)
+            await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node is not None)
             self.assertIn('agent triage', app.title)
             self.assertIn('agent triage', app.query_one('#status', Static).render().plain)
-            self.assertIn(self.state['queue_idle'], app.idle_node.label.plain)
+            self.assertIn(self.state['queue_idle'], app.query_one(WorkTree).idle_node.label.plain)
             self.state['queue_idle'] = 'Agent triage: no eligible work; waiting items: 2 parked'
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: self.state['queue_idle'] in app.idle_node.label.plain)
+            await self.ready(app, pilot, lambda: self.state['queue_idle'] in app.query_one(WorkTree).idle_node.label.plain)
             self.state['latest_pass']['state'] = 'partial'
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: app.idle_node.label.plain == '    Idle · polling for agent triage')
+            await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node.label.plain == '    Idle · polling for agent triage')
 
     async def test_idle_placeholder_is_one_dim_inert_line_and_running_stays_first(self):
         assignment = self.state['assignment']
@@ -3144,10 +3158,10 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot, lambda: app.idle_node is not None)
+            await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node is not None)
             tree = app.query_one('#work', Tree)
             tree.get_node_at_line(0)
-            idle = app.idle_node
+            idle = app.query_one(WorkTree).idle_node
             self.assertEqual([node.label.plain for node in tree.root.children], ['Running · 0'])
             self.assertFalse(tree.show_root)
             self.assertEqual(tree.virtual_size.height, 2)
@@ -3166,33 +3180,33 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(tree.cursor_node)
             self.assertIsNone(app.selected)
             self.assertEqual(app.rows, {})
-            self.assertEqual(app.nodes, {})
+            self.assertEqual(app.query_one(WorkTree).nodes, {})
             self.assertIsNone(app.reading.page)
             self.assertIsNone(app.pane.selected)
             self.assertIn('○ Idle · waiting for the next poll', app.query_one('#run_status', Static).render().plain)
             self.state['latest_pass']['state'] = 'partial'
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: app.idle_node.label.plain == '    Idle · polling')
-            self.assertIs(app.idle_node, idle)
+            await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node.label.plain == '    Idle · polling')
+            self.assertIs(app.query_one(WorkTree).idle_node, idle)
             self.state['latest_pass']['state'] = 'complete'
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: 'nothing eligible' in app.idle_node.label.plain)
+            await self.ready(app, pilot, lambda: 'nothing eligible' in app.query_one(WorkTree).idle_node.label.plain)
             await pilot.press('2', '3', '1')
             self.assertEqual(transport.calls, [])
             self.state['latest_pass']['rows'].append(
                 {'item': 21, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: 'Needs attention' in app.groups)
-            self.assertIs(app.idle_node, idle)
+            await self.ready(app, pilot, lambda: 'Needs attention' in app.query_one(WorkTree).groups)
+            self.assertIs(app.query_one(WorkTree).idle_node, idle)
             self.assertEqual([node.label.plain for node in tree.root.children],
                              ['Running · 0', 'Needs attention · 1'])
             self.state['assignment'] = assignment
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.selected == 'assignment:owned-run')
-            self.assertIsNone(app.idle_node)
+            self.assertIsNone(app.query_one(WorkTree).idle_node)
             self.assertEqual([node.label.plain for node in tree.root.children],
                              ['Running · 1', 'Needs attention · 1'])
-            self.assertEqual([node.data for node in app.groups['Running'].children], ['assignment:owned-run'])
+            self.assertEqual([node.data for node in app.query_one(WorkTree).groups['Running'].children], ['assignment:owned-run'])
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -3203,8 +3217,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot, lambda: app.idle_node is not None)
-            self.assertEqual(app.idle_node.label.plain, '    Idle · polling')
+            await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node is not None)
+            self.assertEqual(app.query_one(WorkTree).idle_node.label.plain, '    Idle · polling')
             self.assertEqual(app.pane.next, 'plan:12')
             await pilot.press('q')
         app.worker.thread.join(2)
@@ -3222,16 +3236,16 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
             self.assertEqual(app.selected, key)
-            self.assertNotIn(key, app.nodes)
-            self.assertEqual(app.groups['Running'].label.plain, 'Running · 0')
-            self.assertIsNotNone(app.idle_node)
+            self.assertNotIn(key, app.query_one(WorkTree).nodes)
+            self.assertEqual(app.query_one(WorkTree).groups['Running'].label.plain, 'Running · 0')
+            self.assertIsNotNone(app.query_one(WorkTree).idle_node)
             self.assertEqual(app.reading.page, page)
             self.state['assignment'] = dict(assignment, run='next-run')
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: 'assignment:next-run' in app.nodes)
+            await self.ready(app, pilot, lambda: 'assignment:next-run' in app.query_one(WorkTree).nodes)
             self.assertEqual(app.selected, key)
-            self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
-            self.assertEqual([node.data for node in app.groups['Running'].children], ['assignment:next-run'])
+            self.assertEqual(app.query_one(WorkTree).groups['Running'].label.plain, 'Running · 1')
+            self.assertEqual([node.data for node in app.query_one(WorkTree).groups['Running'].children], ['assignment:next-run'])
             self.assertEqual(app.reading.page, page)
             await pilot.press('q')
         app.worker.thread.join(2)
@@ -3268,7 +3282,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(app.chosen, chosen)
                         self.assertNotIn('assignment:claiming', app.rows)
                         self.assertEqual(app.rows[app.selected].state, 'running')
-                        self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
+                        self.assertEqual(app.query_one(WorkTree).groups['Running'].label.plain, 'Running · 1')
                         self.assertIs(app.focused, output)
                         self.assertTrue(app.reading.follow)
                         with self.log.open('ab') as stream:
@@ -3350,11 +3364,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['latest_pass']['rows'][1]['state'] = 'owned'
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation' and
-                             key not in app.nodes and list(app.groups) == ['Running'])
+                             key not in app.query_one(WorkTree).nodes and list(app.query_one(WorkTree).groups) == ['Running'])
             self.assertEqual(app.selected, key)
-            self.assertNotIn(key, app.nodes)
-            self.assertEqual(list(app.groups), ['Running'])
-            self.assertEqual(app.groups['Running'].label.plain, 'Running · 1')
+            self.assertNotIn(key, app.query_one(WorkTree).nodes)
+            self.assertEqual(list(app.query_one(WorkTree).groups), ['Running'])
+            self.assertEqual(app.query_one(WorkTree).groups['Running'].label.plain, 'Running · 1')
             await pilot.press('3')
             stream = io.StringIO()
             Console(file=stream, width=72, color_system=None).print(app.query_one('#runs_text', Static).content)
@@ -3363,13 +3377,13 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.state['latest_pass']['rows'] = []
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.session.data['latest_pass']['state'] == 'complete' and
-                             key not in app.nodes)
-            self.assertNotIn(key, app.nodes)
+                             key not in app.query_one(WorkTree).nodes)
+            self.assertNotIn(key, app.query_one(WorkTree).nodes)
             self.assertEqual(app.selected, key)
             self.state['latest_pass']['rows'] = [
                 {'item': 12, 'agent': 'reviewer', 'state': 'ready', 'reason': 'Trigger matched'}]
             publish_snapshot(self.path, self.state)
-            await self.ready(app, pilot, lambda: key in app.nodes and app.rows[key].state == 'ready')
+            await self.ready(app, pilot, lambda: key in app.query_one(WorkTree).nodes and app.rows[key].state == 'ready')
             self.assertEqual(app.selected, key)
             self.assertEqual(app.rows[key].state, 'ready')
             await pilot.press('q')
@@ -3664,7 +3678,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         key = 'plan:21'
                         app.select(key)
                         tree = app.query_one('#work', Tree)
-                        node = app.nodes[key]
+                        node = app.query_one(WorkTree).nodes[key]
                         tree.move_cursor(node)
                         await self.ready(app, pilot, lambda: app.pane.selected == key)
                         app.worker.close()
@@ -3687,8 +3701,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         for refreshed in (False, True):
                             if refreshed:
                                 await self.settled(app, tree)
-                            self.assertIs(tree.cursor_node, app.nodes[key])
-                            self.assertIs(tree.get_node_at_line(tree.cursor_line), app.nodes[key])
+                            self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes[key])
+                            self.assertIs(tree.get_node_at_line(tree.cursor_line), app.query_one(WorkTree).nodes[key])
                             self.assertEqual(app.selected, key)
                             self.assertIs(app.reading, reading)
                             self.assertFalse(reading.follow)
@@ -3696,7 +3710,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(output.anchor(), anchor)
                             self.assertIs(app.focused, focus)
                             self.assertEqual(tabs.active, tab)
-                        self.assertIs(app.nodes[key], node)
+                        self.assertIs(app.query_one(WorkTree).nodes[key], node)
                         self.assertNotEqual(node._line, line)
                         await pilot.press('q')
                     app.worker.thread.join(2)
@@ -3727,7 +3741,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.settled(app, output)
                 reading, page, anchor = app.reading, app.reading.page, output.anchor()
                 focus, tab = app.focused, app.query_one(TabbedContent).active
-                tree.move_cursor(app.nodes['plan:21'])
+                tree.move_cursor(app.query_one(WorkTree).nodes['plan:21'])
                 cases = [
                     ([(22, 'ready'), (21, 'ready'), (20, 'ready')], 'plan:21'),
                     ([(21, 'blocked'), (20, 'ready'), (22, 'ready')], 'plan:21:attention'),
@@ -3743,8 +3757,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         for refreshed in (False, True):
                             if refreshed:
                                 await self.settled(app, tree)
-                            self.assertIs(tree.cursor_node, app.nodes[highlighted])
-                            self.assertIs(tree.get_node_at_line(tree.cursor_line), app.nodes[highlighted])
+                            self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes[highlighted])
+                            self.assertIs(tree.get_node_at_line(tree.cursor_line), app.query_one(WorkTree).nodes[highlighted])
                             self.assertEqual(app.selected, selected)
                             self.assertIs(app.reading, reading)
                             self.assertEqual(reading.page, page)
@@ -3766,7 +3780,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             key = 'plan:21'
             app.select(key)
             tree = app.query_one('#work', Tree)
-            tree.move_cursor(app.nodes[key])
+            tree.move_cursor(app.query_one(WorkTree).nodes[key])
             old_node = tree.cursor_node
             reading = app.reading
             reading.follow, reading.raw = False, True
@@ -3776,8 +3790,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.populate(pane)
             # Assert before yielding to Textual's next layout or idle callback.
             key = 'plan:21:attention'
-            self.assertIsNot(old_node, app.nodes[key])
-            self.assertIs(tree.cursor_node, app.nodes[key])
+            self.assertIsNot(old_node, app.query_one(WorkTree).nodes[key])
+            self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes[key])
             self.assertIs(app.reading, reading)
             self.assertFalse(app.reading.follow)
             self.assertTrue(app.reading.raw)
@@ -3804,28 +3818,28 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: len(markdown.query('MarkdownH1')) == 1)
             self.assertEqual(markdown.source, description['text'])
             tree = app.query_one('#work', Tree)
-            app.move_cursor(app.nodes[key])
+            app.move_cursor(app.query_one(WorkTree).nodes[key])
             output.focus()
-            self.assertIs(tree.cursor_node, app.nodes[key])
+            self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes[key])
             self.state['latest_pass']['rows'] = [
                 {'item': 21, 'agent': 'worker', 'state': 'parked', 'reason': 'Approval required',
                  'description': description}]
             publish_snapshot(self.path, self.state)
             # The tree moves its cursor back to the kept node after the next refresh.
             key = 'plan:21:attention'
-            await self.ready(app, pilot, lambda: key in app.nodes and
-                             app.nodes[key].parent is app.groups.get('Needs attention')
-                             and tree.cursor_node is app.nodes[key])
+            await self.ready(app, pilot, lambda: key in app.query_one(WorkTree).nodes and
+                             app.query_one(WorkTree).nodes[key].parent is app.query_one(WorkTree).groups.get('Needs attention')
+                             and tree.cursor_node is app.query_one(WorkTree).nodes[key])
             self.assertEqual(app.selected, key)
             self.assertIs(app.focused, output)
             self.assertEqual(markdown.source, description['text'])
-            self.assertNotIn('Eligible', app.groups)
+            self.assertNotIn('Eligible', app.query_one(WorkTree).groups)
             self.assertEqual([node.label.plain for node in tree.root.children[:2]],
                              ['Running · 1', 'Needs attention · 1'])
             for reason in ('Waiting for blockers #31', 'Waiting for active milestone #10'):
                 self.state['latest_pass']['rows'][0]['reason'] = reason
                 publish_snapshot(self.path, self.state)
-                await self.ready(app, pilot, lambda: app.rows[key].hidden and key not in app.nodes
+                await self.ready(app, pilot, lambda: app.rows[key].hidden and key not in app.query_one(WorkTree).nodes
                                  and app.session.data['latest_pass']['rows'][0]['reason'] == reason)
                 self.assertEqual(app.selected, key)
                 self.assertIs(app.focused, output)
@@ -3881,7 +3895,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.ready(app, pilot, lambda: markdown.source == 'Cached body 21')
             await pilot.press('1')
             tree = app.query_one('#work', Tree)
-            app.move_cursor(app.nodes[key])
+            app.move_cursor(app.query_one(WorkTree).nodes[key])
             output.focus()
             async def publish():
                 snapshot = memory.snapshots[-1]
@@ -3889,9 +3903,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await self.ready(app, pilot, lambda: app.session.data['latest_pass'] == snapshot['latest_pass'])
                 self.assertEqual(app.selected, key)
                 self.assertIs(app.focused, output)
-                self.assertIs(tree.cursor_node, app.nodes[key])
+                self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes[key])
                 self.assertEqual(markdown.source, 'Cached body 21')
-                self.assertEqual(sum(row.group != 'Recent activity' for row in app.rows.values()), len(app.nodes))
+                self.assertEqual(sum(row.group != 'Recent activity' for row in app.rows.values()), len(app.query_one(WorkTree).nodes))
                 self.assertEqual(sum(row.item == 114 for row in app.rows.values()), 1)
                 history = item_history(app.rows[key], app.session, full=True)
                 self.assertEqual(history['runs'][0]['summary'], 'Cached history 21')
@@ -3907,14 +3921,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(all(f'plan:{n}' in app.rows for n in (20, 21, 22, 23)))
                 self.assertEqual(app.rows[key].state, 'ready')
                 self.assertIn('partial', app.query_one('#work_pane').border_title)
-            self.assertEqual([node.data for node in app.groups['Eligible'].children],
+            self.assertEqual([node.data for node in app.query_one(WorkTree).groups['Eligible'].children],
                              ['plan:20', key, 'plan:22', 'plan:23', 'plan:24'])
             observer.complete_pass()
             await publish()
             await self.ready(app, pilot, lambda: app.rows[key].state == 'earlier observation')
             self.assertNotIn('plan:22', app.rows)
             self.assertNotIn('partial', app.query_one('#work_pane').border_title)
-            self.assertEqual([node.data for node in app.groups['Eligible'].children if node.data != key],
+            self.assertEqual([node.data for node in app.query_one(WorkTree).groups['Eligible'].children if node.data != key],
                              ['plan:23', 'plan:24', 'plan:20'])
             app.select(own)
             await pilot.pause(0.3)
@@ -3941,12 +3955,12 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     {'item': n, 'agent': 'worker', 'state': 'ready', 'reason': 'Trigger matched'}
                     for n in range(1, 50)]
                 publish_snapshot(self.path, self.state)
-                await self.ready(app, pilot, lambda: 'Eligible' in app.groups and
-                                 len(app.groups['Eligible'].children) == 10 and
+                await self.ready(app, pilot, lambda: 'Eligible' in app.query_one(WorkTree).groups and
+                                 len(app.query_one(WorkTree).groups['Eligible'].children) == 10 and
                                  tree.virtual_size.height > tree.size.height and tree.max_scroll_y > 0 and
                                  tree.allow_vertical_scroll)
                 tree.get_node_at_line(0)
-                separators = {app.groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
+                separators = {app.query_one(WorkTree).groups[name]._line - 1 for name in ('Needs attention', 'Eligible')}
                 self.assertTrue(separators <= tree._spacer_lines)
                 tree.scroll_end(animate=False, immediate=True)
                 await self.ready(app, pilot, lambda: tree.scroll_y > 0)
@@ -3959,8 +3973,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.state['outcomes'] = []
                 app.select('outcome:previous-run')  # Retain only a right-pane outcome, not live work.
                 publish_snapshot(self.path, self.state)
-                await self.ready(app, pilot, lambda: list(app.groups) == ['Running'] and not recent.rows)
-                self.assertEqual(app.groups['Running'].label.plain, 'Running · 0')
+                await self.ready(app, pilot, lambda: list(app.query_one(WorkTree).groups) == ['Running'] and not recent.rows)
+                self.assertEqual(app.query_one(WorkTree).groups['Running'].label.plain, 'Running · 0')
                 self.assertEqual(recent.region.y, boundary)
                 self.assertTrue(recent.render().plain.startswith('Recent activity · showing 0'))
             await pilot.press('q')
@@ -4313,7 +4327,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     def assert_expanded():
                         tree.get_node_at_line(0)
                         self.assertTrue(tree.root.is_expanded)
-                        for group in app.groups.values():
+                        for group in app.query_one(WorkTree).groups.values():
                             self.assertTrue(group.is_expanded)
                             for child in group.children:
                                 self.assertIs(tree.get_node_at_line(child._line), child)
@@ -4339,22 +4353,22 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                             assert_expanded()
 
                     assert_expanded()
-                    for group in app.groups.values():
+                    for group in app.query_one(WorkTree).groups.values():
                         await click_label(group)
                     # A reused group is expanded again on the next snapshot too.
-                    app.groups['Needs attention'].collapse()
+                    app.query_one(WorkTree).groups['Needs attention'].collapse()
                     self.state['assignment'] = None
                     publish_snapshot(self.path, self.state)
-                    await self.ready(app, pilot, lambda: app.idle_node is not None and
-                                     app.groups['Needs attention'].is_expanded)
-                    tree.move_cursor(app.nodes['plan:22'])
+                    await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node is not None and
+                                     app.query_one(WorkTree).groups['Needs attention'].is_expanded)
+                    tree.move_cursor(app.query_one(WorkTree).nodes['plan:22'])
                     app.select('plan:22')
-                    for node in (*app.groups.values(), app.idle_node):
+                    for node in (*app.query_one(WorkTree).groups.values(), app.query_one(WorkTree).idle_node):
                         await click_label(node)
                     app.query_one(LogPane).focus()
                     tree.focus()
                     await pilot.pause()
-                    self.assertIs(tree.cursor_node, app.nodes['plan:22'])
+                    self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes['plan:22'])
                     assert_expanded()
                     await pilot.press('q')
                 app.worker.thread.join(2)
@@ -4378,7 +4392,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
                     tree.focus()
                     tree.get_node_at_line(0)
-                    items = sorted(app.nodes.values(), key=lambda node: node._line)
+                    items = sorted(app.query_one(WorkTree).nodes.values(), key=lambda node: node._line)
                     self.assertIs(tree.cursor_node, items[0])
                     await pilot.press('up')
                     self.assertIs(tree.cursor_node, items[0])
@@ -4406,16 +4420,16 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         self.assertIn(tree.cursor_node, items, action)
                     self.state['assignment'] = None
                     publish_snapshot(self.path, self.state)
-                    await self.ready(app, pilot, lambda: app.idle_node is not None)
+                    await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node is not None)
                     tree.get_node_at_line(0)
-                    first = app.groups['Needs attention'].children[0]
+                    first = app.query_one(WorkTree).groups['Needs attention'].children[0]
                     tree.move_cursor(first)
                     await pilot.press('up')
                     self.assertIs(tree.cursor_node, first)
                     # With only labels left, Up from Recent stays on an outcome.
                     self.state['latest_pass']['rows'] = []
                     publish_snapshot(self.path, self.state)
-                    await self.ready(app, pilot, lambda: not app.nodes)
+                    await self.ready(app, pilot, lambda: not app.query_one(WorkTree).nodes)
                     recent.cursor = recent.visible_rows[0].key
                     recent.focus()
                     await pilot.press('up')
@@ -4424,7 +4438,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     tree.focus()
                     await pilot.press('up', 'space', 'shift+space', 'home', 'end')
                     self.assertIsNone(tree.cursor_node)
-                    self.assertTrue(app.groups['Running'].is_expanded)
+                    self.assertTrue(app.query_one(WorkTree).groups['Running'].is_expanded)
                     await pilot.press('down')
                     self.assertIs(app.focused, recent)
                     await pilot.press('q')
@@ -4444,16 +4458,16 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
             tree.get_node_at_line(0)
             self.assertEqual(tree.virtual_size.height, 17)
-            groups = list(app.groups.values())
+            groups = list(app.query_one(WorkTree).groups.values())
             for index, group in enumerate(groups):
                 self.assertEqual(group.children[0]._line, group._line + 1)
                 if index + 1 < len(groups):
                     self.assertEqual(groups[index + 1]._line, group.children[-1]._line + 3)
             async def check_heading_separators():
                 tree.get_node_at_line(0)
-                self.assertEqual(app.groups['Running']._line, 0)
+                self.assertEqual(app.query_one(WorkTree).groups['Running']._line, 0)
                 for index, name in enumerate(('Needs attention', 'Eligible'), 1):
-                    heading = app.groups[name]
+                    heading = app.query_one(WorkTree).groups[name]
                     preceding = groups[index - 1].children[-1]
                     gap = heading._line - 1
                     self.assertEqual(gap, preceding._line + tree.row_height)
@@ -4483,7 +4497,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree.focus()
             await check_heading_separators()
             for name in ('Needs attention', 'Eligible'):
-                first, second = app.groups[name].children
+                first, second = app.query_one(WorkTree).groups[name].children
                 self.assertEqual(second._line, first._line + 3)
                 gap = first._line + 2
                 self.assertIsNone(tree.get_node_at_line(gap))
@@ -4523,9 +4537,9 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             tree.get_node_at_line(0)
             self.assertEqual(tree.virtual_size.height, 10)  # Three headings, five items, two separators.
-            self.assertEqual(tree._spacer_lines, {app.groups[name]._line - 1
+            self.assertEqual(tree._spacer_lines, {app.query_one(WorkTree).groups[name]._line - 1
                                                for name in ('Needs attention', 'Eligible')})
-            first, second = app.groups['Eligible'].children
+            first, second = app.query_one(WorkTree).groups['Eligible'].children
             self.assertEqual(second._line, first._line + 1)
             self.assertEqual(tree._get_label_region(first._line).height, 1)
             await check_heading_separators()
@@ -4546,29 +4560,29 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(140, 44)) as pilot:
-            await self.ready(app, pilot, lambda: 'plan:22' in app.nodes)
+            await self.ready(app, pilot, lambda: 'plan:22' in app.query_one(WorkTree).nodes)
             tree = app.query_one(Tree)
             app.select('plan:22')
             tree.focus()
-            tree.move_cursor(app.nodes['plan:22'])
+            tree.move_cursor(app.query_one(WorkTree).nodes['plan:22'])
             for size in ((140, 44), (80, 24), (140, 44)):
                 await pilot.resize_terminal(*size)
                 await pilot.pause()
                 for displayed in (False, True, False):
                     self.state['latest_pass']['rows'] = attention + eligible if displayed else eligible
                     publish_snapshot(self.path, self.state)
-                    await self.ready(app, pilot, lambda: ('Needs attention' in app.groups) == displayed)
+                    await self.ready(app, pilot, lambda: ('Needs attention' in app.query_one(WorkTree).groups) == displayed)
                     tree.get_node_at_line(0)
                     names = ['Running', 'Needs attention', 'Eligible'] if displayed else ['Running', 'Eligible']
                     self.assertEqual([node.label.plain.split(' · ')[0] for node in tree.root.children], names)
                     self.assertEqual(app.selected, 'plan:22')
-                    self.assertIs(tree.cursor_node, app.nodes['plan:22'])
+                    self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes['plan:22'])
                     self.assertIs(app.focused, tree)
-                    self.assertEqual(app.groups['Running']._line, 0)
-                    self.assertEqual(app.idle_node._line, 1)
-                    self.assertEqual(app.groups[names[1]]._line, 3)
+                    self.assertEqual(app.query_one(WorkTree).groups['Running']._line, 0)
+                    self.assertEqual(app.query_one(WorkTree).idle_node._line, 1)
+                    self.assertEqual(app.query_one(WorkTree).groups[names[1]]._line, 3)
                     self.assertIsNone(tree.get_node_at_line(2))
-                    self.assertEqual(tree._spacer_lines, {app.groups[name]._line - 1 for name in names[1:]})
+                    self.assertEqual(tree._spacer_lines, {app.query_one(WorkTree).groups[name]._line - 1 for name in names[1:]})
                     height = 4 + tree.row_height + (2 + tree.row_height if displayed else 0)
                     self.assertEqual(tree.virtual_size.height, height)
                     # Repeated snapshot refreshes rebuild from logical nodes, not prior spacers.
@@ -4577,22 +4591,22 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         await pilot.pause()
                         tree.get_node_at_line(0)
                         self.assertEqual(tree.virtual_size.height, height)
-                        self.assertEqual(tree._spacer_lines, {app.groups[name]._line - 1 for name in names[1:]})
+                        self.assertEqual(tree._spacer_lines, {app.query_one(WorkTree).groups[name]._line - 1 for name in names[1:]})
                         self.assertEqual(app.selected, 'plan:22')
-                        self.assertIs(tree.cursor_node, app.nodes['plan:22'])
+                        self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes['plan:22'])
                 # With both optional sections hidden, only Running and its idle line remain.
                 app.select('outcome:previous-run')
                 self.state['latest_pass']['rows'] = []
                 publish_snapshot(self.path, self.state)
-                await self.ready(app, pilot, lambda: list(app.groups) == ['Running'])
+                await self.ready(app, pilot, lambda: list(app.query_one(WorkTree).groups) == ['Running'])
                 tree.get_node_at_line(0)
                 self.assertEqual(tree.virtual_size.height, 2)
                 self.assertEqual(tree._spacer_lines, set())
                 self.state['latest_pass']['rows'] = eligible
                 publish_snapshot(self.path, self.state)
-                await self.ready(app, pilot, lambda: 'Eligible' in app.groups)
+                await self.ready(app, pilot, lambda: 'Eligible' in app.query_one(WorkTree).groups)
                 app.select('plan:22')
-                tree.move_cursor(app.nodes['plan:22'])
+                tree.move_cursor(app.query_one(WorkTree).nodes['plan:22'])
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -4630,7 +4644,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         ('plan:21:attention', '✗ #21', '', '  worker · failed 3/3'),
                         ('plan:22', '● ⌥22', 'ready', '  worker')]
             for key, prefix, status, detail in expected:
-                node = app.nodes[key]
+                node = app.query_one(WorkTree).nodes[key]
                 self.assertFalse(node.children)
                 self.assertIs(tree.get_node_at_line(node._line + 1), node)
                 first = tree.render_line(node._line - tree.scroll_offset.y)
@@ -4653,7 +4667,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     number = first.crop(3, 4)
                     self.assertEqual(next(iter(marker)).style.color, theme_style(app, 'view-accent').color)
                     self.assertNotEqual(next(iter(number)).style.color, theme_style(app, 'view-accent').color)
-            own, blocked = app.nodes['assignment:owned-run'], app.nodes['plan:20:attention']
+            own, blocked = app.query_one(WorkTree).nodes['assignment:owned-run'], app.query_one(WorkTree).nodes['plan:20:attention']
             tree.focus()
             tree.move_cursor(own)
             await pilot.press('down')
@@ -4681,7 +4695,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             await self.settled(app, tree)
             work, recent = app.query_one('#work_pane'), app.query_one(RecentActivity)
             lines = tree._tree_lines_cached
-            updates = {key: node._updates for key, node in app.nodes.items()}
+            updates = {key: node._updates for key, node in app.query_one(WorkTree).nodes.items()}
             with (patch.object(tree, 'refresh', wraps=tree.refresh) as refresh,
                   patch.object(tree, '_build', wraps=tree._build) as build,
                   patch.object(tree, '_invalidate', wraps=tree._invalidate) as invalidate,
@@ -4697,7 +4711,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 for call in (refresh, build, invalidate, clear, later, work_refresh, recent_refresh):
                     call.assert_not_called()
                 self.assertIs(tree._tree_lines_cached, lines)
-                self.assertEqual({key: node._updates for key, node in app.nodes.items()}, updates)
+                self.assertEqual({key: node._updates for key, node in app.query_one(WorkTree).nodes.items()}, updates)
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -4732,14 +4746,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 ]
                 for key, data, changes, offset, expected in cases:
                     with self.subTest(changes=changes):
-                        node = app.nodes[key]
+                        node = app.query_one(WorkTree).nodes[key]
                         data.update(changes)
                         app.session = Session(self.path, json.loads(json.dumps(self.state)))
                         pane = work_pane(app.session, self.root, app.pane, app.selected, app.chosen)
                         with patch.object(tree, '_refresh_node', wraps=tree._refresh_node) as refresh:
                             app.populate(pane)
                             await self.settled(app, tree)
-                            self.assertIs(app.nodes[key], node)
+                            self.assertIs(app.query_one(WorkTree).nodes[key], node)
                             self.assertEqual([call.args[0] for call in refresh.call_args_list], [node])
                         self.assertIn(expected, tree.render_line(node._line + offset - tree.scroll_offset.y).text)
                 # A changed diagnostic that is absent from work_lines stays inert.
@@ -4749,7 +4763,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
                     await self.settled(app, tree)
                     refresh.assert_not_called()
-                node = app.nodes['plan:20']
+                node = app.query_one(WorkTree).nodes['plan:20']
                 old_row = app.rows['plan:20']
                 self.state['latest_pass']['rows'] = [
                     row for row in self.state['latest_pass']['rows'] if row['item'] != 12]
@@ -4758,7 +4772,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(tree, '_refresh_node', wraps=tree._refresh_node) as refresh:
                     app.populate(pane)
                     await self.settled(app, tree)
-                    self.assertIs(app.nodes['plan:20'], node)
+                    self.assertIs(app.query_one(WorkTree).nodes['plan:20'], node)
                     self.assertEqual(app.rows['plan:20'], old_row)
                     self.assertIn(node, [call.args[0] for call in refresh.call_args_list])
                 self.assertTrue(tree.render_line(node._line - tree.scroll_offset.y).text.endswith('next'))
@@ -4767,7 +4781,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 app.populate(work_pane(app.session, self.root, app.pane, app.selected, app.chosen))
                 await self.settled(app, tree)
                 self.assertTrue(tree.render_line(node._line - tree.scroll_offset.y).text.endswith('held'))
-                own = app.nodes['assignment:owned-run']
+                own = app.query_one(WorkTree).nodes['assignment:owned-run']
                 self.assertTrue(tree.render_line(own._line - tree.scroll_offset.y).text.endswith('stopping'))
                 self.assertIn('finishing run', tree.render_line(own._line + 1 - tree.scroll_offset.y).text)
                 await pilot.press('q')
@@ -4830,7 +4844,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             while not app.worker.results.empty():
                 app.worker.results.get_nowait()
             tree = app.query_one('#work', Tree)
-            own = app.nodes['assignment:owned-run']
+            own = app.query_one(WorkTree).nodes['assignment:owned-run']
             app._tree_second = None
             with (patch.object(tree, '_refresh_line', wraps=tree._refresh_line) as line_refresh,
                   patch.object(tree, 'refresh', wraps=tree.refresh) as refresh,
@@ -4868,15 +4882,15 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
-            await self.ready(app, pilot, lambda: 'plan:20:attention' in app.nodes)
+            await self.ready(app, pilot, lambda: 'plan:20:attention' in app.query_one(WorkTree).nodes)
             app.worker.close()
             app.worker.thread.join(2)
             app.busy = True
             while not app.worker.results.empty():
                 app.worker.results.get_nowait()
             tree = app.query_one('#work', Tree)
-            node = app.nodes['plan:20:attention']
-            nodes = tuple(app.nodes.items())
+            node = app.query_one(WorkTree).nodes['plan:20:attention']
+            nodes = tuple(app.query_one(WorkTree).nodes.items())
             def displayed():
                 strips = app.screen._compositor.render_strips()
                 y = tree.region.y + node._line - tree.scroll_offset.y
@@ -4892,7 +4906,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     app.tick()
                 await pilot.pause(0.1)
                 self.assertTrue(displayed().endswith('1m'), displayed())
-                self.assertEqual(tuple(app.nodes.items()), nodes)
+                self.assertEqual(tuple(app.query_one(WorkTree).nodes.items()), nodes)
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -4920,17 +4934,17 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             tree.claim_times.clear()
             tree.remember_claims(app.rows)
             tree.focus()
-            tree.move_cursor(app.nodes[other])
+            tree.move_cursor(app.query_one(WorkTree).nodes[other])
             app.select(other)
             tree.scroll_to(y=1, animate=False, immediate=True)
             await pilot.pause()
             self.assertEqual(tree.scroll_y, 1)
-            nodes = tuple(app.nodes.items())
+            nodes = tuple(app.query_one(WorkTree).nodes.items())
             lines = tree._tree_lines_cached
             position = (app.selected, tree.cursor_node, tree.scroll_offset, app.focused, tree.virtual_size)
             self.assertEqual(tree.virtual_size.height, 34)  # Two headings, 11 items, ten gaps.
             def displayed(key=own, detail=False):
-                line = app.nodes[key]._line + int(detail) - tree.scroll_offset.y
+                line = app.query_one(WorkTree).nodes[key]._line + int(detail) - tree.scroll_offset.y
                 strips = app.screen._compositor.render_strips()
                 return strips[tree.region.y + line].crop(tree.region.x,
                                                         tree.region.x + tree.scrollable_content_region.width).text
@@ -4949,7 +4963,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(displayed(), '⠙' + first[1:])
                 self.assertEqual(displayed(detail=True), detail)
                 self.assertEqual((displayed(other), displayed(other, detail=True)), static)
-                self.assertEqual(tuple(app.nodes.items()), nodes)
+                self.assertEqual(tuple(app.query_one(WorkTree).nodes.items()), nodes)
                 self.assertIs(tree._tree_lines_cached, lines)
                 self.assertEqual((app.selected, tree.cursor_node, tree.scroll_offset, app.focused,
                                   tree.virtual_size), position)
@@ -5224,7 +5238,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         with patch('subprocess.Popen', side_effect=AssertionError('view invoked a process')):
             async with app.run_test(size=(110, 32)) as pilot:
                 await self.ready(app, pilot)
-                self.assertFalse(app.nodes[app.selected].children)
+                self.assertFalse(app.query_one(WorkTree).nodes[app.selected].children)
                 self.assertIn('Supervisor observed running', app.rows[app.selected].reason)
                 output = app.query_one('#output', LogPane)
                 for name in ('f', 'home', 'pagedown'):
@@ -5384,7 +5398,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                                      app.rows[key].state == 'earlier observation')
                     self.assertEqual(app.selected, key)
                     self.assertEqual(app.pane.selected, key)
-                    self.assertEqual(app.groups['Eligible'].label.plain, 'Eligible · 1')
+                    self.assertEqual(app.query_one(WorkTree).groups['Eligible'].label.plain, 'Eligible · 1')
                     self.assertIs(app.focused, output)
                     self.assertIsNone(app.reading.page)
                 await pilot.press('q')
@@ -5414,11 +5428,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.state['assignment']['run'] = 'next-run'
                     publish_snapshot(self.path, self.state)
                     release.set()
-                    await self.ready(app, pilot, lambda: 'assignment:next-run' in app.nodes)
+                    await self.ready(app, pilot, lambda: 'assignment:next-run' in app.query_one(WorkTree).nodes)
                     self.assertEqual(app.selected, key)
                     self.assertEqual(app.pane.selected, key)
                     self.assertEqual(app.rows[key].state, 'earlier observation')
-                    self.assertNotIn(key, app.nodes)
+                    self.assertNotIn(key, app.query_one(WorkTree).nodes)
                 await pilot.press('q')
         finally:
             release.set()
@@ -5465,7 +5479,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 output.focus()
                 selected = app.selected
                 tree = app.query_one('#work', Tree)
-                node = app.nodes[selected]
+                node = app.query_one(WorkTree).nodes[selected]
                 self.state['latest_pass']['state'] = 'complete'
                 self.state['assignment']['process'] = 'exited'
                 next_path = self.path.with_suffix('.next')
@@ -5473,7 +5487,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 next_path.replace(self.path)
                 await self.ready(app, pilot, lambda: app.rows[selected].state == 'exited')
                 self.assertEqual(app.selected, selected)
-                self.assertIs(app.nodes[selected], node)
+                self.assertIs(app.query_one(WorkTree).nodes[selected], node)
                 self.assertIs(app.focused, output)
                 original = app.worker.read
                 def slow_read(request):

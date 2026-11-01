@@ -216,7 +216,14 @@ Each run row has:
 - the agent and summary;
 - `this machine`, or the other host's short name;
 - the outcome, with `BLOCKED: …` for human blockers and `· N denied` when the run
-  recorded [permission denials](coordination.md).
+  recorded [permission denials](coordination.md);
+- tokens, using an exact count below 1,000, rounded `Nk` below 1M and `N.NM` from
+  1M, or a blank cell when no usage was recorded.
+
+Token usage comes from the GitHub coordination record, including for other
+launchers' runs. GitHub result lines also show cost when the CLI reports it. On a
+Claude subscription, that dollar figure is what the run would have cost at API
+prices, not a charge. Codex reports no cost.
 
 Every row fits on one line. The run count matches the run rows shown, excluding
 the filing row. Histories have no run limit and are outside the snapshot's size

@@ -9,7 +9,7 @@ import uuid
 from .approvals import ApprovalCheck
 from .config import Agent, Queue, Runtime, LEASE_SECONDS, LEASE_RENEW_SECONDS, LEASE_RENEW_MARGIN_SECONDS
 from .eligibility import AgentMatches, check_start, open_blockers
-from .errors import AgentError, GitHubError, LostOwnership, RecordError, RuntimePaused
+from .errors import AgentError, ExecutionStopped, GitHubError, LostOwnership, RecordError, RuntimePaused
 from .finalization import FinalizationReads
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
@@ -18,6 +18,7 @@ from .records import (MARKER, attempt_effect, attempts, backoff, body, display_p
                       outcome_declarations, outcome_rounds, payload, records, recovers, report_asks,
                       same_handoff, same_run, seconds, stop_report, timestamp)
 from .trust import LauncherTrust
+from .run_usage import usage_fields
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,8 @@ class Coordinator:
         self._lease_revision = 0
         self._lost = {}
         self._renewal_failures = {}
+        self._stop_labels = {}
+        self._execution_stops = {}
         # A failed POST may have created this record without returning its ID.
         # Keep only this launcher's uncertain claim; restarts use normal expiry.
         self.lost_claim = None
@@ -82,6 +85,15 @@ class Coordinator:
         self._report_context = {}
         # Display callbacks join provenance from reads already needed for coordination.
         self._observed_leases = {}
+
+    def reconfigure(self, config, trusted_pr_authors):
+        self.queue = config.queue
+        self.lease_seconds = config.lease_seconds
+        self.lease_renew_seconds = config.lease_renew_seconds
+        self.trust.trusted_bots = {login.casefold() for login in config.trusted_bots}
+        self.trust.trusted_pr_authors = {login.casefold() for login in trusted_pr_authors}
+        self.trust.launchers = (None if config.launchers is None else
+                               {login.casefold() for login in config.launchers})
 
     def observed(self, record):
         if self.on_record is not None:
@@ -170,9 +182,20 @@ class Coordinator:
         finished = [r for r in latest if r["state"] == "released"
                     or (r.get("result") and r.get("attempt_effect") in {"failure", "unchanged"})]
         attempt = len(previous) + 1
-        state, reason = "ready", "Trigger matched"
         runtime = None
         paused_clis = ()
+        state, reason, owner = self.plan_state(item, agent, history, start, now, latest, finished)
+        if state == "ready":
+            state, reason, runtime, paused_clis = self.plan_runtime(
+                item, agent, history, now, latest, finished, previous, attempt)
+        if state in {"ready", "recover"} and self.actor is not None:
+            if untrusted := self.trust.reason(self.actor):
+                state, reason, runtime = "blocked", untrusted, None
+        return Plan(item, agent, runtime, state, reason, attempt, owner=owner, matches=matches,
+                    paused_clis=paused_clis)
+
+    def plan_state(self, item, agent, history, start, now, latest, finished):
+        state, reason = "ready", "Trigger matched"
         owner = None
         owners = live_leases(history, now)
         if owners:
@@ -197,7 +220,13 @@ class Coordinator:
             state, reason = "blocked", (f"Last run blocked: {lease_summary(history, finished[-1])}; "
                                         f"inspect outcome and use ub-agents retry {item.number} "
                                         f"--agent {agent.name} --reason TEXT")
-        elif attempt > agent.max_attempts:
+        return state, reason, owner
+
+    def plan_runtime(self, item, agent, history, now, latest, finished, previous, attempt):
+        state, reason = "ready", "Trigger matched"
+        runtime = None
+        paused_clis = ()
+        if attempt > agent.max_attempts:
             state, reason = "blocked", ("Attempt limit exhausted; inspect failures and use "
                                         f"ub-agents retry {item.number} --agent {agent.name} --reason TEXT")
         elif finished and seconds(finished[-1].get("retry_after", finished[-1]["expires"])) > now:
@@ -216,11 +245,7 @@ class Coordinator:
                 paused_clis = exc.clis
             except AgentError as exc:
                 state, reason = "blocked", str(exc)
-        if state in {"ready", "recover"} and self.actor is not None:
-            if untrusted := self.trust.reason(self.actor):
-                state, reason, runtime = "blocked", untrusted, None
-        return Plan(item, agent, runtime, state, reason, attempt, owner=owner, matches=matches,
-                    paused_clis=paused_clis)
+        return state, reason, runtime, paused_clis
 
     @staticmethod
     def head_moved_since_block(item, history, lease):
@@ -380,6 +405,25 @@ class Coordinator:
             else:
                 self.output(f"{reason}; claiming no work")
             return None
+        observed = self._claim_input(plan, stop_labels, recovery)
+        if observed is None:
+            return None
+        current, matches, history, outcome = observed
+        if authorize is not None and not authorize(current, matches):
+            return None
+        if confirm_stopped is not None:
+            confirm_stopped(history)
+        now = self.clock()
+        record = self._claim_record(plan, current, history, outcome, recovery, now)
+        created = self._write_claim(plan, current, record, stop_labels, recovery, before_write)
+        if not self._claim_wins(plan, current, created, recovery):
+            return None
+        if self.clock() >= seconds(created["expires"]):
+            raise LostOwnership("Lease expired during claiming")
+        self.notices.resumed(current.number)
+        return created
+
+    def _claim_input(self, plan, stop_labels, recovery):
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -395,6 +439,7 @@ class Coordinator:
                                     fresh=replace(plan, item=current, state="parked", reason=start.reason,
                                                   matches=matches, history=(), owner=None))
         history = self.history(current.number)
+        outcome = None
         if recovery:
             outcome = self.pending_completion(history, plan.agent.name, self.clock())
             if outcome is None or any(r["id"] != outcome["lease_id"]
@@ -411,11 +456,9 @@ class Coordinator:
                         and self.queue.dependencies == "wait" else ())
             if not check_start(current, plan.agent, matches, stop_labels, self.queue, blockers).allowed:
                 return self.decline(plan, f"Open blockers: {', '.join(blockers)}")
-        if authorize is not None and not authorize(current, matches):
-            return None
-        if confirm_stopped is not None:
-            confirm_stopped(history)
-        now = self.clock()
+        return current, matches, history, outcome
+
+    def _claim_record(self, plan, current, history, outcome, recovery, now):
         record = {"kind": "lease", "run": uuid.uuid4().hex,
                   "agent": plan.agent.name, "assignment": current.number,
                   "assignment_sha": current.head,
@@ -434,6 +477,9 @@ class Coordinator:
         if recovery:
             record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
                        "recovered_run": lease_by_id(history, outcome["lease_id"])["run"]}
+        return record
+
+    def _write_claim(self, plan, current, record, stop_labels, recovery, before_write):
         if self.cleanup_control is not None:
             self.cleanup_control.protect(record, branch=current.branch if current.kind == "pr" else issue_branch(record))
         if before_write is not None:
@@ -446,9 +492,14 @@ class Coordinator:
             raise
         created = records([comment], self.actor)[0]
         self._report_context[created["id"]] = ({} if recovery else outcome_declarations(plan.agent), tuple(stop_labels), tuple(plan.agent.triggers))
+        if not recovery:
+            self._stop_labels[created["id"]] = tuple(stop_labels)
         self.observed(created)
         if self.on_claim is not None:
             self.on_claim(created)
+        return created
+
+    def _claim_wins(self, plan, current, created, recovery):
         contenders = live_leases(self.history(current.number), self.clock())
         # Earliest GitHub comment id wins. Each contender has its own record; no
         # read-modify-write race on a shared lease comment is passed off as CAS.
@@ -470,10 +521,7 @@ class Coordinator:
                                     fresh=replace(plan, state="blocked" if owner.get("cleanup") == "unconfirmed" else "owned",
                                                   reason="Claim election lost on shared branch",
                                                   history=(), owner=owner))
-        if self.clock() >= seconds(created["expires"]):
-            raise LostOwnership("Lease expired during claiming")
-        self.notices.resumed(current.number)
-        return created
+        return True
 
     def withdraw_lost_claim(self):
         """Resolve an uncertain claim POST before any new assignment planning."""
@@ -539,6 +587,36 @@ class Coordinator:
             lease["expires"] = current["expires"]
         return current
 
+    def observe_execution_item(self, lease, item):
+        with self._lease_lock:
+            if lease["id"] not in self._stop_labels:
+                return
+            stops = set(self._stop_labels[lease["id"]]).intersection(item.labels)
+            if item.state != "open":
+                kind = "Pull request" if item.kind == "pr" else "Issue"
+                state = "merged" if item.kind == "pr" and item.merged else "closed"
+                reason = f"{kind} {state}"
+            elif stops:
+                reason = f"Stop label {sorted(stops)[0]} added"
+            else:
+                return
+            self._execution_stops.setdefault(lease["id"], (reason, item.state != "open"))
+
+    def execution_deadline(self, lease):
+        """Check cancellation while keeping ownership available for cleanup and release."""
+        with self._lease_lock:
+            expiry = self.deadline(lease)
+            stop = self._execution_stops.get(lease["id"])
+            if stop is not None:
+                reason, item_closed = stop
+                raise ExecutionStopped(f"{reason}; attributable execution terminated", item_closed=item_closed)
+            return expiry
+
+    def execution_finished(self, lease):
+        """Ignore item reads that finish after the supervised process exits."""
+        with self._lease_lock:
+            self._stop_labels.pop(lease["id"], None)
+
     def assert_owned(self, lease):
         self.deadline(lease)
         try:
@@ -560,9 +638,12 @@ class Coordinator:
                 return False
             revision = self._lease_revision
             assignment = lease["assignment"]
+            watch_stops = lease["id"] in self._stop_labels
         try:
             # Pagination/role reads may outlast the lease. Keep deadlines and
             # local state edits available while those bounded requests finish.
+            if watch_stops:
+                self.observe_execution_item(lease, github.item(assignment))
             trusted = LauncherTrust(github, self.trust.launchers, trusted_bots=self.trust.trusted_bots,
                                     trusted_pr_authors=self.trust.trusted_pr_authors).observation()
             history = records(github.comments(assignment), trusted=trusted)
@@ -597,7 +678,7 @@ class Coordinator:
             return False
 
     def release(self, lease, result, summary, backoff=0, attempt_effect=None, parking_outcome=None,
-                max_attempts=None, *, unreported=False, stop_labels=None, triggers=None):
+                max_attempts=None, *, unreported=False, stop_labels=None, triggers=None, usage=None):
         self.assert_owned(lease)
         reported = self.outcome(lease)
         now = self.clock()
@@ -608,7 +689,11 @@ class Coordinator:
         # A released lease expires now; retry_after is only needed for a backoff.
         self.update(lease, state="released", result=result, summary=summary, expires=iso(now),
                     retry_after=iso(now + backoff) if backoff else None, attempt_effect=attempt_effect,
+                    **usage_fields({"usage": usage}),
                     **({"unreported": True} if unreported else {}))
+        with self._lease_lock:
+            self.execution_finished(lease)
+            self._execution_stops.pop(lease["id"], None)
         if self.on_release is not None:
             self.on_release(lease, parking_outcome or reported)
         _, claimed_stops, claimed_triggers = self._report_context.pop(lease["id"], ({}, (), ()))
@@ -626,13 +711,8 @@ class Coordinator:
             self.observed(matches[0])
         return matches[0] if matches else None
 
-    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, option=None, agent_report=True,
-               declarations=None, stop_labels=None):
-        if declarations is None:
-            declarations, claimed_stops = self._report_context.get(lease["id"], ({}, (), ()))[:2]
-            if stop_labels is None:
-                stop_labels = claimed_stops
-        stop_labels = stop_labels or ()
+    @staticmethod
+    def _report_transition(lease, status, outcome, declarations, stop_labels, action, option):
         transition = None
         if outcome is not None:
             if outcome not in declarations or status != "success":
@@ -645,6 +725,34 @@ class Coordinator:
                 transition = transition | {"add": [stop_labels[0]]}
                 if action is None and option is None:
                     action = "Maintainer: review the open findings and decide whether to allow more rounds."
+        return transition, action
+
+    def _report_sub_issues(self, lease, record):
+        assignment = self.github.item(lease["assignment"])
+        if assignment.kind != "issue":
+            raise AgentError("A sub-issues outcome requires an issue assignment")
+        children, skipped = [], []
+        for child in self.github.sub_issues(lease["assignment"]):
+            if (child.repository.casefold() == self.github.repository.casefold()
+                    and child.state == "open" and child.author is not None
+                    and child.author.casefold() == lease["actor"].casefold()
+                    and seconds(child.created_at) > seconds(lease["created"])):
+                children.append(child.number)
+            else:
+                skipped.append(child.reference(self.github.repository))
+        record["sub_issues"] = sorted(set(children))
+        if skipped:
+            record["summary"] += "\n\nSub-issues left unchanged (only open, same-repository sub-issues created by " \
+                                 "this run's launcher account after its claim qualify): " + ", ".join(sorted(set(skipped))) + "."
+
+    def report(self, lease, status, summary, handoff=None, outcome=None, action=None, *, option=None, agent_report=True,
+               declarations=None, stop_labels=None):
+        if declarations is None:
+            declarations, claimed_stops = self._report_context.get(lease["id"], ({}, (), ()))[:2]
+            if stop_labels is None:
+                stop_labels = claimed_stops
+        stop_labels = stop_labels or ()
+        transition, action = self._report_transition(lease, status, outcome, declarations, stop_labels, action, option)
         try:
             actions, options = report_asks(action, option, required=agent_report and stop_report(status, transition, stop_labels))
         except ValueError as exc:
@@ -663,24 +771,8 @@ class Coordinator:
             record["options"] = options
         if outcome is not None:
             record |= {"outcome": outcome, "transition": transition}
-            declaration = transition
-            if "sub-issues" in declaration:
-                assignment = self.github.item(lease["assignment"])
-                if assignment.kind != "issue":
-                    raise AgentError("A sub-issues outcome requires an issue assignment")
-                children, skipped = [], []
-                for child in self.github.sub_issues(lease["assignment"]):
-                    if (child.repository.casefold() == self.github.repository.casefold()
-                            and child.state == "open" and child.author is not None
-                            and child.author.casefold() == lease["actor"].casefold()
-                            and seconds(child.created_at) > seconds(lease["created"])):
-                        children.append(child.number)
-                    else:
-                        skipped.append(child.reference(self.github.repository))
-                record["sub_issues"] = sorted(set(children))
-                if skipped:
-                    record["summary"] += "\n\nSub-issues left unchanged (only open, same-repository sub-issues created by " \
-                                         "this run's launcher account after its claim qualify): " + ", ".join(sorted(set(skipped))) + "."
+            if "sub-issues" in transition:
+                self._report_sub_issues(lease, record)
         self.assert_owned(lease)
         reported = records([self.github.create_comment(lease["assignment"], body(record))], self.actor)[0]
         self.observed(reported)

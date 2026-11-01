@@ -1,10 +1,11 @@
-"""Detect reported limits and reset times from an owned run's output."""
+"""Read reported usage, limits and reset times from an owned run's output."""
 
 import json
 from pathlib import Path
 import uuid
 
 from .runtime_usage import number
+from .run_usage import token_count, usage_fields
 
 
 class JsonLines:
@@ -33,6 +34,34 @@ class JsonLines:
                 yield event
 
 
+def collect_usage(cli, path):
+    """Read completed usage events only from this run's process log."""
+    if cli not in {"claude", "codex"}:
+        return {}
+    result = {}
+    keys = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens") \
+        if cli == "claude" else ("input_tokens", "output_tokens")
+    for event in JsonLines(path).read(final=True):
+        if event.get("type") != ("result" if cli == "claude" else "turn.completed"):
+            continue
+        usage = event.get("usage")
+        if not isinstance(usage, dict) or not all(token_count(usage.get(key)) for key in keys):
+            if cli == "codex":
+                return {}  # A partial sum would understate the run's usage.
+            result = {}
+            continue
+        tokens = sum(usage[key] for key in keys)
+        if cli == "claude":
+            result = {"usage": {"tokens": tokens}}
+            if "total_cost_usd" in event:
+                result["usage"]["total_cost_usd"] = event["total_cost_usd"]
+            result = usage_fields(result)
+        else:
+            # cached_input_tokens is already included in input_tokens.
+            result = {"usage": {"tokens": tokens + result.get("usage", {}).get("tokens", 0)}}
+    return result
+
+
 class UsageOutput:
     def __init__(self, cli, run_dir, usage, env):
         self.cli, self.usage = cli, usage
@@ -44,7 +73,7 @@ class UsageOutput:
         self.reset_time = None
         self.summary = None
 
-    def poll(self, final=False):
+    def poll(self, final=False):  # noqa: C901
         for event in self.log.read(final):
             if self.cli == "codex" and self.thread is None and event.get("type") == "thread.started":
                 try:
@@ -67,7 +96,7 @@ class UsageOutput:
                     if event.get("type") == "event_msg" and isinstance(event.get("payload"), dict):
                         self.event(event["payload"])
 
-    def event(self, event):
+    def event(self, event):  # noqa: C901
         reached = False
         if self.cli == "claude":
             if event.get("type") == "rate_limit_event":

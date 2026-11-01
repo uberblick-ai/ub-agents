@@ -17,7 +17,7 @@ from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER, action_body, notice_reason
 from ub_agents.records import attempts, body, display_provenance, iso, payload, records, seconds
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import settlement, FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class NoticeTests(unittest.TestCase):
@@ -140,6 +140,17 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(self.github.item(1).labels, labels)
         self.assertEqual([w for w in self.github.writes if w[0] == "minimize"],
                          [("minimize", lease["id"], "OUTDATED")])
+
+    def test_release_without_action_notice_still_minimizes_superseded_records(self):
+        first = self.start()
+        earlier = self.co.report(first, "retry", "Transient failure")
+        self.co.release(first, "retry", "Transient failure")
+        latest = self.start()
+        self.co.report(latest, "blocked", "Early report", action="Maintainer: decide the next step.")
+        self.co.update(latest, action_needed=False)
+        self.co.release(latest, "blocked", "Issue closed", attempt_effect="unchanged", unreported=True)
+        self.assertEqual(self.github.minimized_ids, {first["id"], earlier["id"]})
+        self.assertEqual(self.notices(), [])
 
     def test_unreported_release_keeps_its_claim_expanded(self):
         lease = self.start()
@@ -803,7 +814,7 @@ class NoticeTests(unittest.TestCase):
         self.assertTrue(copied["accepted"])
         self.assertTrue(copied["transition_complete"])
         self.assertEqual(copied["assignment"], 1)
-        self.assertEqual(restarted.validate_report(copied)["triggers"], ["ready", "different"])
+        self.assertEqual(settlement(restarted).validate_report(copied)["triggers"], ["ready", "different"])
         recovery = next(r for r in restarted.coordinator.history(1)
                         if r["kind"] == "lease" and r.get("mode") == "recovery")
         self.assertNotIn("outcomes", recovery)

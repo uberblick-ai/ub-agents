@@ -13,7 +13,7 @@ from ub_agents.errors import RecordError
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import body, outcome_rounds, payload, records, timestamp
-from tests.support import FakeGitHub, agent, config, pr, stub_refresh
+from tests.support import settlement, FakeGitHub, agent, config, pr, stub_refresh
 
 
 class RoundTests(unittest.TestCase):
@@ -158,7 +158,7 @@ class RoundTests(unittest.TestCase):
             coordinator.update(lease, state='running', started=True)
             report = coordinator.report(lease, 'success', 'P1: still broken.', outcome='changes-requested')
             # Simulate a crash after labels were changed, before acceptance.
-            self.loop.apply_transition(lease, report)
+            settlement(self.loop).apply_transition(lease, report)
             self.assertEqual(self.count(), used)
             self.now += 61
             changed = replace(self.reviewer, outcomes={'new': {'add': ('wrong',), 'remove': ()}})

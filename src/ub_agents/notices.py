@@ -264,7 +264,7 @@ class Notices:
                      and lease["attempt"] >= max_attempts)
         if exhausted:
             summary = f"Attempt limit exhausted (max-attempts: {max_attempts}). {summary}"
-        if lease["result"] == "blocked" or parked or exhausted:
+        if lease.get("action_needed") is not False and (lease["result"] == "blocked" or parked or exhausted):
             self.advisory(f"Action needed post on #{target}",
                           lambda: self.post_action(target, lease, reported, summary, stops if parked else (),
                                                    triggers, rounds=rounds if parked else None))
