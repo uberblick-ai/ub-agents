@@ -22,9 +22,11 @@ class StatusStyles:
 
 
 def pane_line(value, width, style=''):
+    if width <= 0:
+        return Text()
     line = value.copy() if isinstance(value, Text) else Text(text(value, ''))
     line.stylize_before(style)
-    line.truncate(max(0, width), overflow='ellipsis')
+    line.truncate(width, overflow='ellipsis')
     return line
 
 
