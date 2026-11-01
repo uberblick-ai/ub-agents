@@ -25,6 +25,16 @@ where = ["src"]
 [tool.setuptools.package-data]
 ub_agents = ["templates/*.yaml", "templates/*.md"]
 
+[tool.coverage.run]
+source = ["ub_agents"]
+parallel = true
+patch = ["subprocess"]
+relative_files = true
+omit = ["*/startup_probe.py"]
+
+[tool.coverage.paths]
+source = ["src/ub_agents", "**/ub_agents"]
+
 [tool.ruff]
 target-version = "py311"
 
