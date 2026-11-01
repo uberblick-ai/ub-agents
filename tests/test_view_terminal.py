@@ -27,7 +27,7 @@ class TerminalViewTests(unittest.TestCase):
             proof = root / 'proof.json'
             script = '''
 import pathlib, sys
-from ub_agents.view_ui import View
+from ub_agents.view.ui import View
 class ProofView(checkpoint_view(View, sys.argv[3])):
     def proof_values(self):
         return {'ready': self.reading.page is not None,
@@ -57,7 +57,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             proof = root / 'proof.json'
             script = '''
 import pathlib, sys
-from ub_agents.view_ui import RawAccess, View
+from ub_agents.view.ui import RawAccess, View
 class ProofView(checkpoint_view(View, sys.argv[3])):
     copies = 0
     def copy_to_clipboard(self, value):
@@ -121,8 +121,8 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
             script = '''
 import pathlib, sys
 from tests.support import RecordingDescriptionTransport
-from ub_agents.view_github import DescriptionLoads
-from ub_agents.view_ui import LogPane, View
+from ub_agents.view.github import DescriptionLoads
+from ub_agents.view.ui import LogPane, View
 class ProofView(checkpoint_view(View, sys.argv[3])):
     def proof_values(self):
         output = self.query_one(LogPane)
@@ -197,7 +197,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]),
             script = '''
 import pathlib, sys
 from textual.widgets import TabbedContent, Tree
-from ub_agents.view_ui import LogPane, RecentActivity, View
+from ub_agents.view.ui import LogPane, RecentActivity, View
 class ProofView(checkpoint_view(View, sys.argv[3])):
     def proof_values(self):
         output, tree, recent = self.query_one(LogPane), self.query_one(Tree), self.query_one(RecentActivity)
@@ -364,7 +364,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 import pathlib, sys
 from textual.binding import Binding
 from textual.widgets import Tree
-from ub_agents.view_ui import RecentActivity, View
+from ub_agents.view.ui import RecentActivity, View
 class ProofView(checkpoint_view(View, sys.argv[3])):
     BINDINGS = [Binding('s', 'scroll_work', priority=True)]
     def action_scroll_work(self):
@@ -473,7 +473,7 @@ while not select.select([sys.stdin], [], [], 0.01)[0]:
 import pathlib, sys
 from textual.binding import Binding
 from textual.widgets import TabbedContent
-from ub_agents.view_ui import LogPane, UpdateBanner, View
+from ub_agents.view.ui import LogPane, UpdateBanner, View
 class ProofView(checkpoint_view(View, sys.argv[3])):
     BINDINGS = [Binding('i', 'item_focus', priority=True)]
     def action_item_focus(self):
@@ -645,16 +645,16 @@ while not select.select([sys.stdin], [], [], 0.01)[0]:
                 return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
             proof = root / 'proof.json'
             script = f'''
-import ub_agents.view_ui
-from ub_agents.view import main
-class ProofView(checkpoint_view(ub_agents.view_ui.View, {str(proof)!r})):
+import ub_agents.view.ui
+from ub_agents.view.main import main
+class ProofView(checkpoint_view(ub_agents.view.ui.View, {str(proof)!r})):
     def proof_values(self):
         return {{'tab': self.query_one('#panes').active, 'selected': self.selected,
                  'key': self.description_key(), 'pending': self.descriptions.pending,
                  'context': self.last_context, 'note': self.query_one('#issue_note').render().plain,
                  'body': self.query_one('#issue_body').source,
                  'follow': self.reading.follow}}
-ub_agents.view_ui.View = ProofView
+ub_agents.view.ui.View = ProofView
 raise SystemExit(main())
 '''
             try:
@@ -792,9 +792,9 @@ while True:
                 script = '''
 from pathlib import Path
 import sys
-import ub_agents.view_ui
-from ub_agents.view import main
-from ub_agents.view_ui import LogPane, View
+import ub_agents.view.ui
+from ub_agents.view.main import main
+from ub_agents.view.ui import LogPane, View
 proof_path = sys.argv.pop()
 class ProofView(checkpoint_view(View, proof_path)):
     def proof_values(self):
@@ -826,7 +826,7 @@ sys.exit(app.return_code or 1)
                     arguments = (root, path, proof)
                 else:
                     script += '''
-ub_agents.view_ui.View = ProofView
+ub_agents.view.ui.View = ProofView
 raise SystemExit(main())
 '''
                 with Terminal(script, *arguments, proof=proof, env={'NO_COLOR': None}) as terminal:
@@ -931,7 +931,7 @@ class TerminalRetentionTests(unittest.TestCase):
             script = '''
 import pathlib, sys
 from textual.binding import Binding
-from ub_agents.view_ui import LogPane, View
+from ub_agents.view.ui import LogPane, View
 class ProofView(checkpoint_view(View, sys.argv[3])):
     BINDINGS = [Binding('y', 'seek_failure', priority=True)]
     def action_seek_failure(self):
@@ -1140,7 +1140,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
 import pathlib, sys
 from textual.binding import Binding
 from textual.widgets import Static, Tree
-from ub_agents.view_ui import LogPane, View, RecentActivity
+from ub_agents.view.ui import LogPane, View, RecentActivity
 class ProofView(checkpoint_view(View, sys.argv[3])):
     BINDINGS = [Binding('r', 'recent_cursor', priority=True), Binding('s', 'plan_cursor', priority=True),
                 Binding('a', 'assignment_cursor', priority=True)]
@@ -1298,7 +1298,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                                                         'Eligible · 5 · not claimed while stopping'])
                 self.assertTrue(stopping['work_lines']['assignment:owned-run'].startswith('■ #114'))
                 self.assertTrue(stopping['work_lines']['assignment:owned-run'].endswith('stopping'))
-                from ub_agents.view_ui import pane_line
+                from ub_agents.view.ui import pane_line
                 self.assertEqual(stopping['work_details']['assignment:owned-run'].rstrip(),
                                  pane_line('  implementer · this launcher · finishing run',
                                            stopping['work_width']).plain)

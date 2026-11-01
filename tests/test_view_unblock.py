@@ -15,11 +15,11 @@ from textual.widgets import Collapsible, Markdown, Static, TabbedContent
 
 from tests.support import RecordingDescriptionTransport
 from tests.test_view_data import fixture, publish_snapshot
-from ub_agents.view_data import Description, Session, WorkRow, context_header
-from ub_agents.view_github import (CACHE_ITEMS, COMMENTS_QUERY, RESPONSE_BYTES, DescriptionLoads,
+from ub_agents.view.data import Description, Session, WorkRow, context_header
+from ub_agents.view.github import (CACHE_ITEMS, COMMENTS_QUERY, RESPONSE_BYTES, DescriptionLoads,
                                    GhTransport, Response, parse_response)
-from ub_agents.view_ui import ItemTabs, View, WorkTree, description_parser
-from ub_agents.view_unblock import (ACTION_MARKER, ActionComment, comment_body, local_action,
+from ub_agents.view.ui import ItemTabs, View, WorkTree, description_parser
+from ub_agents.view.unblock import (ACTION_MARKER, ActionComment, comment_body, local_action,
                                     comment_sections, needs_attention, resume_section, stamp, unblock_body, unblock_metadata)
 from ub_agents.notices import action_body, outcome_resume
 
@@ -454,7 +454,7 @@ class UnblockLoadTests(unittest.TestCase):
             return popen([sys.executable, '-c', 'import sys; sys.stdout.buffer.write(' +
                           repr(comments_reply(comment(body=NOTICE + 'x' * 9000))) + ')'], **kwargs)
         transport = GhTransport()
-        with patch('ub_agents.view_github.subprocess.Popen', side_effect=recording):
+        with patch('ub_agents.view.github.subprocess.Popen', side_effect=recording):
             transport.start(*self.key, 'unblock', AUTHORS)
             try:
                 deadline = time.monotonic() + 3
@@ -480,7 +480,7 @@ class UnblockLoadTests(unittest.TestCase):
                 return popen([sys.executable, '-c', code], **kwargs)
             now = [0]
             transport = GhTransport(clock=lambda: now[0])
-            with patch('ub_agents.view_github.subprocess.Popen', side_effect=recording):
+            with patch('ub_agents.view.github.subprocess.Popen', side_effect=recording):
                 transport.start(*self.key, 'unblock', AUTHORS)
                 owned = transport.process
                 try:

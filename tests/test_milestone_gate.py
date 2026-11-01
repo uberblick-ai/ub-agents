@@ -16,7 +16,7 @@ from ub_agents.loop import Loop
 from ub_agents.observations import Observations
 from ub_agents.records import iso, timestamp
 from ub_agents.run_planning import RunPlanning
-from ub_agents.view_data import Session, work_pane
+from ub_agents.view.data import Session, work_pane
 from tests.support import FakeGitHub, MemoryPublisher, PollGitHub, agent, config, issue, pr, stub_refresh
 
 

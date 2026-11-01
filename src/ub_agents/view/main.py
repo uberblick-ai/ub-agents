@@ -10,8 +10,8 @@ import sys
 import threading
 import time
 
-from . import __version__
-from .view_data import choose_session, load_session
+from .. import __version__
+from .data import choose_session, load_session
 
 
 def attach(root, session_id, base_version, wait=2):
@@ -134,7 +134,7 @@ def main(argv=None):  # noqa: C901, PLR0912
                 print('Specify --session ID. Available local sessions:')
                 print('\n'.join(listing) if listing else '(none)')
                 return 0
-        from .view_ui import View
+        from .ui import View
         app = View(root, path, launcher=connection)
         if connection is not None:
             # Textual's POSIX driver draws to __stderr__. The launcher's UI

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import unittest
 
-from ub_agents.view_time import deadline, plan_pauses, remaining_time, runtime_pauses
+from ub_agents.view.time import deadline, plan_pauses, remaining_time, runtime_pauses
 
 
 class ViewTimeTests(unittest.TestCase):

@@ -39,6 +39,7 @@ with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.cli.
      patch('ub_agents.observations.Publisher', side_effect=OSError('packaging fake')):
     assert main(['--config', str(root / 'ub-agents.yaml'), 'launch', '--no-ui', '--once']) == 0
 assert 'textual' not in sys.modules
+assert {name for name in sys.modules if name.startswith('ub_agents.init.')} == {'ub_agents.init.setup'}
 '''
     # No queue, network or operator checkout participates in this check.
     project = destination / 'project'
@@ -48,7 +49,8 @@ assert 'textual' not in sys.modules
     run(python, '-P', '-c', script, project)
     run(python, '-P', '-m', 'ub_agents.view', '--probe', '--base-version',
         __import__('tomllib').loads(Path('pyproject.toml').read_text())['project']['version'])
-    run(python, '-c', 'from ub_agents.view_ui import View')
+    run(python, '-c', 'from ub_agents.view.ui import View')
+    run(python, '-c', 'import ub_agents.init.setup, ub_agents.view.request, sys; assert "textual" not in sys.modules')
     print('Clean-wheel packaging checks passed')
 
 

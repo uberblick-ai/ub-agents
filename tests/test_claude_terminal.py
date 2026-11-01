@@ -19,7 +19,7 @@ class ClaudeTerminalTests(unittest.TestCase):
             proof = root / 'proof.json'
             script = '''
 import pathlib, sys
-from ub_agents.view_ui import LogPane, View
+from ub_agents.view.ui import LogPane, View
 class ProofView(checkpoint_view(View, sys.argv[3])):
     def proof_values(self):
         output = self.query_one(LogPane)

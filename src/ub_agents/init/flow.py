@@ -7,20 +7,20 @@ import subprocess
 
 from rich.text import Text
 
-from . import __version__
-from .doctor import public
-from .errors import AgentError
-from .execution import git
-from .github import REPOSITORY
-from .init_boards import Boards
-from .init_mcp import preview as mcp_preview
-from .init_probes import ACCOUNT_GUIDANCE, PROBE_ERRORS, Probes
-from .init_prompts import DIM, GREEN, RED, YELLOW, Cancelled, Option
-from .init_setup import (PERMISSIONS_GUIDE, ROLES, Choices, apply_plan, guidance_summary, infer_repository, make_plan, next_steps,
+from .. import __version__
+from ..doctor import public
+from ..errors import AgentError
+from ..execution import git
+from ..github import REPOSITORY
+from .boards import Boards
+from .mcp import preview as mcp_preview
+from .probes import ACCOUNT_GUIDANCE, PROBE_ERRORS, Probes
+from .prompts import DIM, GREEN, RED, YELLOW, Cancelled, Option
+from .setup import (PERMISSIONS_GUIDE, ROLES, Choices, apply_plan, guidance_summary, infer_repository, make_plan, next_steps,
                          priority_labels, recovery_content)
-from .init_tailoring import TITLE as TAILOR_TITLE, command as tailoring_command
-from .labels import configured_labels
-from .uberblick import WORKSPACE_FILE, workspace_binding
+from .tailoring import TITLE as TAILOR_TITLE, command as tailoring_command
+from ..labels import configured_labels
+from ..uberblick import WORKSPACE_FILE, workspace_binding
 
 RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", "codex:gpt-6.1-sol:high")}
 PRIORITIES = "prio:urgent, prio:high, prio:medium, prio:low"

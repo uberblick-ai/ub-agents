@@ -53,7 +53,8 @@ unmarked releases deliberately require manual upgrades.
 
 The task pushes an annotated `vX.Y.Z` tag, creates the GitHub release
 `ub-agents X.Y.Z` from the CHANGELOG section without its heading, and opens a PR on
-`uberblick-ai/homebrew-tap` that updates the formula. It then tests the tag and
+`uberblick-ai/homebrew-tap` that updates the archive, dependency resources and
+terminal view import test. It then tests the tag and
 the formula's exact resources in a fresh Python 3.14 virtualenv, without building
 a Homebrew bottle, and posts the result to the tap PR.
 

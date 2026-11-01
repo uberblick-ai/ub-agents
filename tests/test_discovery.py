@@ -15,7 +15,7 @@ from ub_agents.loop import COMMENT_RECOVERY_SECONDS, Loop
 from ub_agents.observations import Observations
 from ub_agents.records import attempts, iso, seconds
 from ub_agents.run_planning import PassEvents
-from ub_agents.view_data import Session, work_pane
+from ub_agents.view.data import Session, work_pane
 from tests.test_approvals import at
 from tests.support import MemoryPublisher, PollGitHub, agent, config, issue, pr, stub_refresh
 

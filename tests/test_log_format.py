@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from tests.test_log_reader import FIXTURE, progress, record, result, tool
 from ub_agents.log_format import ClaudeFormatter, MAX_TEXT, SHORTENED, with_elapsed
-from ub_agents.view_theme import log_style
+from ub_agents.view.theme import log_style
 
 
 class CompactClaudeTests(unittest.TestCase):

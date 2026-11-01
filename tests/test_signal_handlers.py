@@ -20,7 +20,7 @@ from ub_agents.cli import main
 from ub_agents.errors import AgentError
 from ub_agents.launch_ui import ViewProcess
 from ub_agents.signals import SignalRelay
-from ub_agents import view
+from ub_agents.view import main as view
 from tests import test_launch_setup
 
 
@@ -91,8 +91,8 @@ def held_view_signal(sig):
             assert exited.wait(2), "Signal did not exit the view"
 
     try:
-        with patch("ub_agents.view.attach", return_value=Path("session.json")), \
-                patch("ub_agents.view_ui.View", App):
+        with patch("ub_agents.view.main.attach", return_value=Path("session.json")), \
+                patch("ub_agents.view.ui.View", App):
             assert view.main([".", "--session", "own", "--base-version", __version__,
                               "--launcher-fd", str(child.detach())]) == 0
             assert sys.__stderr__ is driver_output, "View must restore the driver stream"

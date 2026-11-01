@@ -6,8 +6,8 @@ from pathlib import Path
 from queue import Empty, Full, Queue
 import threading
 
-from .view_data import Pane, context_text, local_description, load_session, mapping, rows, work_pane
-from .view_logs import ViewReader
+from .data import Pane, context_text, local_description, load_session, mapping, rows, work_pane
+from .logs import ViewReader
 
 
 @dataclass(frozen=True)
@@ -108,7 +108,7 @@ class LocalWorker:
             try:
                 result = self.read(request)
             except Exception as exc:
-                from .view_data import Session
+                from .data import Session
                 session = Session(self.session_path, {}, str(exc))
                 pane = work_pane(session, self.root, request.previous, request.key, request.chosen)
                 result = Result(session, pane, pane.selected, request.token,

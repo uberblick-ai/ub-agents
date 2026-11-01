@@ -8,9 +8,9 @@ import subprocess
 
 import yaml
 
-from .config import LOCAL_CONFIG, preview_config, load_config
-from .errors import AgentError
-from .labels import Label, LabelUse, configured_labels
+from ..config import LOCAL_CONFIG, preview_config, load_config
+from ..errors import AgentError
+from ..labels import Label, LabelUse, configured_labels
 
 ROLES = ("issue-preparer", "issue-reviewer", "implementer", "reviewer", "integrator")
 
@@ -285,7 +285,7 @@ def apply_labels(plan, github, remote_labels, result, pending):
 
 def apply_plan(plan, github, remote_labels=()):
     """Stop on partial failure; retain and describe successful effects, never roll back."""
-    from .doctor import Doctor, public
+    from ..doctor import Doctor, public
     result = Applied()
     pending = [f"Create {p}" for p in plan.targets]
     change_ignore = plan.ignore_after != (plan.ignore_before or b"")
@@ -300,7 +300,7 @@ def apply_plan(plan, github, remote_labels=()):
     try:
         plan.protect()
         if plan.choices.board_requests or plan.choices.retrospectives:
-            from .init_boards import Boards
+            from .boards import Boards
             boards = Boards(github, plan.config.repository)
             phase = "boards"
             apply_boards(plan, boards, result, pending)

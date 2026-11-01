@@ -17,10 +17,10 @@ from ub_agents.cli import main
 from ub_agents.config import load_config
 from ub_agents.doctor import Doctor
 from ub_agents.errors import AgentError
-from ub_agents.init_flow import Flow
-from ub_agents.init_inline import Question
-from ub_agents.init_prompts import DIM, Cancelled, LinePrompter, Option, Transcript
-from ub_agents.init_tailoring import BODY as TAILOR_BODY, TITLE as TAILOR_TITLE, command as tailoring_command
+from ub_agents.init.flow import Flow
+from ub_agents.init.inline import Question
+from ub_agents.init.prompts import DIM, Cancelled, LinePrompter, Option, Transcript
+from ub_agents.init.tailoring import BODY as TAILOR_BODY, TITLE as TAILOR_TITLE, command as tailoring_command
 
 
 def flat(output):
@@ -754,7 +754,7 @@ class TerminalTests(unittest.TestCase):
                 github = SetupGitHub()
                 with patch('ub_agents.cli.sys.stdin.isatty', return_value=stdin_tty), \
                         patch('ub_agents.cli.GitHub', return_value=github), \
-                        patch('ub_agents.init_prompts.InlinePrompter.run', side_effect=AssertionError('prompt')), \
+                        patch('ub_agents.init.prompts.InlinePrompter.run', side_effect=AssertionError('prompt')), \
                         patch('subprocess.run', side_effect=AssertionError('probe')), \
                         patch('builtins.input', side_effect=AssertionError('prompt')), \
                         patch.dict('os.environ', {'CI': ci}), redirect_stdout(io.StringIO()) as stdout:
@@ -775,7 +775,7 @@ import sys
 from unittest.mock import patch
 from tests.support import SetupGitHub
 from ub_agents.cli import main
-from ub_agents.init_flow import Flow
+from ub_agents.init.flow import Flow
 github = SetupGitHub()
 with patch('ub_agents.cli.GitHub', lambda repo: github), \\
         patch.object(Flow, 'check', lambda self: setattr(self, 'github', github)), \\
