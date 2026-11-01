@@ -37,6 +37,19 @@ from ub_agents.view_unblock import ACTION_MARKER, ActionComment
 
 
 class ViewUITests(unittest.IsolatedAsyncioTestCase):
+    def test_footer_reads_one_wall_clock_for_freshness_and_countdown(self):
+        now = datetime(2026, 10, 5, 20, tzinfo=timezone.utc)
+        self.state['published_at'] = now.isoformat()
+        self.state['activity'] = {'state': 'waiting', 'until': (now + timedelta(seconds=30)).isoformat()}
+        app = View(self.root, self.path)
+        app.session = Session(self.path, self.state)
+        with patch('ub_agents.view_ui.datetime', wraps=datetime) as clock:
+            clock.now.return_value = now + timedelta(seconds=4)
+            line = app.footer(160, '? keys q quit')
+            clock.now.assert_called_once_with(timezone.utc)
+        self.assertIn('next poll 26s', line.plain)
+        self.assertNotIn('stale', line.plain)
+
     def test_runtime_pause_footer_keeps_each_cli_and_time_at_narrow_widths(self):
         now = datetime.now(timezone.utc)
         self.state['runtime_pauses'] = {'claude': (now + timedelta(hours=28)).isoformat(),
