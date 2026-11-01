@@ -14,7 +14,7 @@ import time
 from .observations import (HEARTBEAT_SECONDS, MAX_BYTES, RETAINED_SESSIONS,
                            STALE_SECONDS, VERSION)
 from .records import iso, seconds, timestamp
-from .view_data import history_path
+from .observation_data import history_path
 
 
 def private_directory(path):
