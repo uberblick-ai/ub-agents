@@ -11,6 +11,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from rich.console import Console
+from rich.table import Table
 
 from ub_agents.coordination import Coordinator, Plan
 from ub_agents.observations import MAX_BYTES, MAX_OUTCOMES, MAX_TEXT, Observations
@@ -33,6 +34,9 @@ def outcome(run='run', created=1100, **fields):
             'created': iso(created), 'status': 'success', 'outcome': 'handed-off',
             'summary': 'Ready for review', 'accepted': True, 'transition_complete': True,
             'handoff': 2, **fields}
+
+
+CONTEXT = {'window': 200000, 'first': 1000, 'call_10': 10000, 'peak': 53000, 'compactions': 0}
 
 
 class RunsTests(unittest.TestCase):
@@ -164,7 +168,7 @@ class RunsTests(unittest.TestCase):
                 published = self.memory.histories[-1]['1']['runs']
                 self.assertEqual(published[0]['denials'], denials)
                 self.assertNotIn('denials', published[1])
-                for width in (54, 60, 110):
+                for width in (50, 60, 110):
                     value, view = self.display(width=width)
                     table = list(view.renderables)[1]
                     self.assertEqual(len(table.rows), 2)
@@ -181,7 +185,7 @@ class RunsTests(unittest.TestCase):
                                 ('approved', ('needs-human',)), ('審査中' * 20, ())):
             with self.subTest(outcome=label, blockers=blockers):
                 self.plan(issue(labels=blockers), (outcome(outcome=label, handoff=None, denials=denials),))
-                for width in (54, 60, 110):
+                for width in (50, 60, 110):
                     value, view = self.display(width=width)
                     self.assertEqual(len(value.splitlines()), 3)
                     self.assertTrue(value.splitlines()[-1].rstrip().endswith(' · 4 denied'))
@@ -233,7 +237,7 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(published[1]['usage'], {'tokens': 1200000})
         self.assertNotIn('usage', published[2])
         self.assertNotIn('usage', published[3])
-        for width in (54, 60, 110):
+        for width in (50, 60, 110):
             with self.subTest(width=width):
                 value, view = self.display(width=width)
                 table = list(view.renderables)[1]
@@ -255,6 +259,103 @@ class RunsTests(unittest.TestCase):
         self.assertNotIn('usage', runs[0])
         merge_record(runs, outcome(usage={'tokens': 200}), ())
         self.assertEqual(runs[0]['usage'], {'tokens': 200})
+
+    def test_context_from_outcomes_survives_history_files_for_all_launchers(self):
+        compacted = CONTEXT | {'peak': 160000, 'compactions': 1}
+        self.plan(history=(claim(context=CONTEXT | {'peak': 100000}), outcome(context=CONTEXT),
+                           claim('other', 1200, actor='other-launcher', agent='reviewer'),
+                           outcome('other', 1300, actor='other-launcher', agent='reviewer', context=compacted),
+                           claim('unknown', 1400, context=CONTEXT),
+                           outcome('bad', 1500, context=CONTEXT | {'window': 0})))
+        published = self.memory.histories[-1]['1']['runs']
+        self.assertEqual([run.get('context') for run in published], [CONTEXT, compacted, None, None])
+        value, view = self.display()
+        table = list(view.renderables)[1]
+        self.assertEqual(table.columns[6].header, 'context')
+        self.assertEqual(table.columns[6]._cells, ['27%', '80% ↻1', '', ''])
+        self.assertIn('27%', value)
+        self.assertIn('80% ↻1', value)
+
+        # A handoff copy carries the context even without a lease on this item.
+        self.plan(pr(), (outcome(context=compacted),))
+        value, _ = self.display(2)
+        self.assertIn('80% ↻1', value)
+
+    def test_context_updates_ignore_leases_and_clear_missing_or_malformed_outcomes(self):
+        runs = []
+        merge_record(runs, outcome(context=CONTEXT | {'future_detail': 'ignored'}), ())
+        merge_record(runs, claim(context=CONTEXT | {'peak': 100000}), ())
+        self.assertEqual(runs[0]['context'], CONTEXT)
+        for fields in ({}, {'context': None}, {'context': CONTEXT | {'peak': 'bad'}}):
+            merge_record(runs, outcome(context=CONTEXT), ())
+            merge_record(runs, outcome(**fields), ())
+            self.assertNotIn('context', runs[0])
+
+    def test_runs_context_formats_percent_compactions_and_blank_invalid_cells(self):
+        valid = [(CONTEXT, '27%'),
+                 (CONTEXT | {'peak': 52999}, '26%'),
+                 (CONTEXT | {'peak': 160000, 'compactions': 2}, '80% ↻2'),
+                 (CONTEXT | {'peak': 200000}, '100%'),
+                 (CONTEXT | {'peak': 240000}, '120%'),
+                 (dict.fromkeys(CONTEXT, 0) | {'window': 1}, '0%')]
+        invalid = [None, 'bad', [], {}, CONTEXT | {'window': 0}, CONTEXT | {'peak': 1}]
+        for key in CONTEXT:
+            invalid.append({name: value for name, value in CONTEXT.items() if name != key})
+            for value in (True, -1, '1', 1.5):
+                invalid.append(CONTEXT | {key: value})
+        rows = [outcome(context=context) for context, _ in valid]
+        rows += [outcome()] + [outcome(context=context) for context in invalid]
+        view = runs_view({}, None, now=self.now, history={'runs': rows})
+        table = list(view.renderables)[1]
+        self.assertEqual(table.columns[6]._cells, [value for _, value in valid] + [''] * (1 + len(invalid)))
+        stream = io.StringIO()
+        Console(file=stream, width=110, color_system=None).print(view)
+        self.assertEqual([line.rstrip()[-7:].strip() for line in stream.getvalue().splitlines()[2:8]],
+                         ['27%', '26%', '80% ↻2', '100%', '120%', '0%'])
+
+    def test_context_column_threshold_preserves_minimums_and_narrow_table(self):
+        filed = replace(issue(), author='bk-one')
+        for context, expected, threshold in ((CONTEXT, '27%', 51),
+                                             (CONTEXT | {'peak': 160000, 'compactions': 1234}, '80% ↻1234', 53)):
+            with self.subTest(context=context):
+                self.plan(filed, (outcome(context=CONTEXT),
+                                 outcome('later', 1200, context=context, summary='Long summary ' * 10,
+                                         host='a-very-long-foreign-host.example',
+                                         outcome='changes-requested', usage={'tokens': 2100000}),
+                                 outcome('missing', 1300)))
+                _, view = self.display()
+                table = list(view.renderables)[1]
+                # Preserve today's six-column table as the narrow-pane reference.
+                original = Table(box=None, padding=(0, 1), pad_edge=False, expand=True,
+                                 header_style=table.header_style)
+                original.columns = table.columns[:6]
+                original.rows = table.rows
+                for width in range(20, 121):
+                    stream = io.StringIO()
+                    console = Console(file=stream, width=width, color_system=None)
+                    console.print(table)
+                    lines = stream.getvalue().splitlines()
+                    self.assertEqual(len(lines), 5)  # Header, filing, three runs.
+                    self.assertTrue(all(len(line) <= width for line in lines))
+                    if width < threshold:
+                        baseline = io.StringIO()
+                        Console(file=baseline, width=width, color_system=None).print(original)
+                        self.assertEqual(stream.getvalue(), baseline.getvalue())
+                        self.assertNotIn('context', lines[0])
+                    else:
+                        self.assertTrue(lines[0].endswith('context'))
+                        self.assertTrue(lines[2].endswith('27%'))
+                        self.assertTrue(lines[3].endswith(expected))
+                        self.assertEqual(lines[1][-max(7, len(expected)):].strip(), '')
+                        self.assertEqual(lines[4][-max(7, len(expected)):].strip(), '')
+                        widths = table._calculate_column_widths(console, console.options)
+                        content_widths = [value - table._get_padding_width(index)
+                                          for index, value in enumerate(widths)]
+                        self.assertTrue(all(value >= minimum for value, minimum in
+                                            zip(content_widths, (11, 1, 1, 4, 9, 6, max(7, len(expected))))))
+                        if width == threshold:
+                            self.assertEqual(content_widths[2], 1)
+                            self.assertEqual(lines[3][16], '…')
 
     def test_every_run_survives_run_count_and_shared_byte_pressure(self):
         all_runs = [outcome(str(n), 1000 + n, summary='😀' * (MAX_TEXT + 20))

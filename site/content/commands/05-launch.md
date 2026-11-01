@@ -41,7 +41,11 @@ first, including failures and runs by other launchers. It reads private local
 history files without accessing GitHub. Its tokens column shows an exact count
 below 1,000, rounded `Nk` below 1M and `N.NM` from 1M, with a blank cell when no
 usage was recorded. Counts come from GitHub coordination records, including for
-other launchers. GitHub result lines also show a dollar figure when the CLI
+other launchers. When the pane is wide enough, a context column after tokens
+shows the run's peak context as a whole percent of its window, with ` ↻N` for N
+compactions. Missing or malformed context leaves the cell blank. Context comes
+from GitHub outcome records, including for other launchers' runs.
+GitHub result lines also show a dollar figure when the CLI
 reports a cost. On a Claude subscription, this is what the run would have cost
 at API prices, not a charge. Codex reports no cost.
 
