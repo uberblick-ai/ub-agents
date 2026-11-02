@@ -36,10 +36,17 @@ WORKFLOWS = [
     {'name': 'default', 'group': 0, 'hero': True, 'title': 'The default ub-agents loop',
      'intent': 'The loop every repository starts with after ub-agents init.',
      'intent_html': 'The loop every repository starts with after <code>ub-agents init</code>.',
+     'lede_html': 'The loop every repository starts with after <code>ub-agents init</code>: an issue is scoped, '
+                  'implemented, reviewed and merged by your own coding agents, handing off through GitHub labels.',
      'install': True, 'about': True},
     {'name': 'dependabot', 'group': 1, 'title': 'Dependabot on autopilot',
      'intent': "Patch and minor bumps merge on their own once the tests pass, without anyone opening the PR. "
                "Majors, and failures one fix round can't settle, wait for you.",
+     'lede_html': 'An addition to the <a href="../default/">default loop</a>: Dependabot pull requests skip '
+                  'preparation and go straight to the integrator. Patch and minor bumps merge once the required checks '
+                  "pass. Majors, and failures one fix round can't settle, wait for a person.",
+     'requires_html': 'Needs ub-agents 0.3.5 or newer, <code>trusted-pr-authors: [dependabot]</code> and '
+                      '<code>dependencies</code> as an integrator trigger. <code>max-rounds: 1</code> enforces the single fix round.',
      'article': ('Letting agents auto-merge Dependabot pull requests',
                  'https://uberblick.ai/blog/2026/agents-auto-merge-dependabot')},
 ]
@@ -382,6 +389,11 @@ def workflow_shell(here, title, description, body):
 def intent_html(workflow):
     return workflow.get('intent_html') or html.escape(workflow['intent'])
 
+def workflow_about(here):
+    """The line under an entry's lede that says what ub-agents is."""
+    return (f'<p class="workflow-about-line"><a href="{rel("index.html", here)}">ub-agents</a> is '
+            f'{html.escape(ABOUT_UB_AGENTS)}</p>')
+
 def workflow_via(here, extra=''):
     """The line under a diagram that names what it is built on and drawn with."""
     return (f'<p class="workflow-via{extra}">Built on <a href="{rel("index.html", here)}">ub-agents</a>, '
@@ -427,15 +439,17 @@ def workflow_adopt(workflow):
     if story := workflow.get('article'):
         article = (f'<div class="workflow-article"><span>Read the story</span>'
                    f'<a href="{story[1]}">{html.escape(story[0])} →</a></div>')
-    head = 'Try ub-agents' if workflow.get('install') else 'Adopt this workflow'
+    head = 'Ask your agent about trying ub-agents' if workflow.get('install') else 'Ask your agent about adopting this'
+    requires = (f'<p class="workflow-requires">{workflow["requires_html"]}</p>'
+                if workflow.get('requires_html') else '')
     return (f'<aside class="workflow-adopt" aria-label="{head}">'
-            f'<p class="workflow-adopt-head">{head}, discuss with</p>'
+            f'<p class="workflow-adopt-head">{head}</p>'
             f'{discuss(name, "")}'
-            '<p class="workflow-alt">No desktop app? Use '
-            f'<a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}" title="Opens the prompt on claude.ai">claude.ai</a> / '
-            '<a href="https://chatgpt.com/codex" title="Opens Codex on the web; paste the copied prompt">chatgpt.com</a></p>'
+            '<p class="workflow-alt">No desktop app? Open it on '
+            f'<a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}">claude.ai</a>, '
+            'or copy the prompt into <a href="https://chatgpt.com/codex">chatgpt.com/codex</a>.</p>'
             f'<button class="workflow-copy" type="button" data-prompt="{html.escape(prompt)}">Copy the prompt</button>'
-            f'{article}</aside>')
+            f'{requires}{article}</aside>')
 
 def workflow_entry(workflow, scenario=''):
     name = workflow['name']
@@ -443,22 +457,23 @@ def workflow_entry(workflow, scenario=''):
     _, story = markdown((CONTENT / 'workflows' / f'{name}.md').read_text())
     link = public_url(f'workflows/{name}/' + (f'{scenario}/' if scenario else ''))
     home = rel('index.html', here)
-    body = (f'<div class="workflow-top"><div><h1>{html.escape(workflow["title"])}</h1>'
-            f'<p>{intent_html(workflow)}'
-            + (f' <a href="{rel("docs/installation.html", here)}">Install ub-agents</a> to run it on yours.'
+    lede = workflow.get('lede_html') or intent_html(workflow)
+    if scenario:  # scenario URLs sit one level deeper than the lede's relative links
+        lede = lede.replace('href="../', 'href="../../')
+    body = (f'<a class="workflow-back" href="{rel("workflows/", here)}">\u2190 All workflows</a>'
+            f'<div class="workflow-top"><div><h1>{html.escape(workflow["title"])}</h1>'
+            f'<p>{lede}'
+            + (f' <a href="{rel("docs/installation.html", here)}">Install ub-agents</a> to run it on your repository.'
                if workflow.get('install') else '')
-            + '</p></div>'
+            + '</p>' + workflow_about(here) + '</div>'
             f'<div class="workflow-buttons"><button class="workflow-link" type="button" data-url="{link}" '
-            f'title="Copy link to this run" aria-label="Copy link to this run">{LINK_ICON}</button>'
-            f'<a class="workflow-close" href="{rel("workflows/", here)}">Close</a></div></div>'
+            f'title="Copy link to this run" aria-label="Copy link to this run">{LINK_ICON}</button></div></div>'
             + workflow_player(workflow, here, scenario)
-            + workflow_via(here)
             + f'<div class="workflow-story"><div class="workflow-prose">{fix_links(story, here)}</div>'
             + workflow_adopt(workflow) + '</div>'
-            '<p class="workflow-footnote">Drawn with the <a href="https://skills.uberblick.ai/skills/ub-agents-flow">'
-            "ub-agents-flow skill</a>, which can keep your own loop's version in your "
-            '<a href="https://uberblick.ai">Uberblick</a> knowledge base. Requires '
-            f'<a href="{home}">ub-agents</a> and <a href="https://ablauf.uberblick.ai">ablauf</a>.</p>')
+            '<p class="workflow-footnote">The diagram is drawn with <a href="https://ablauf.uberblick.ai">ablauf</a> '
+            'by the <a href="https://skills.uberblick.ai/skills/ub-agents-flow">ub-agents-flow skill</a>, which can draw '
+            f'your own loop too. Running the workflow needs only <a href="{home}">ub-agents</a>.</p>')
     return here, workflow_shell(here, workflow['title'], workflow['intent'], body)
 
 def workflow_pages():

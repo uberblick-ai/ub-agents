@@ -7,7 +7,7 @@ box dependabot col=main title=Dependabot "opens a pull request"
 pill dependencies tone=agent
 box integrator "reads the title and the diff, runs the gates"
 pill needs-changes col=rework row=integrator tone=rework
-box implementer col=rework "one fix round, then a review"
+box implementer col=rework "one fix round, back to the integrator"
 end merged col=main "Merged · minor or patch"
 
 panel human col=stop row=integrator span=2 tone=stop
@@ -16,7 +16,7 @@ panel human col=stop row=integrator span=2 tone=stop
 
 dependabot --> dependencies
 dependencies --> integrator : trigger
-integrator --> merged : gates green
+integrator --> merged : minor or patch, gates green
 integrator --> needs-changes tone=rework from=left.1 : a gate failed
 needs-changes --> implementer tone=rework
 implementer --> integrator tone=rework from=right to=left.2

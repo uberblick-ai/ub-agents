@@ -1,6 +1,6 @@
 ## Why it exists
 
-A coding session can produce a useful patch and still leave you arranging a review, checking CI and remembering to merge. The default loop connects those steps through GitHub labels. Preparation scopes the issue, the implementer writes the change, a reviewer checks the exact candidate, and the integrator merges it against your gates. See [how the loop works](/docs/how-the-loop-works.html).
+A coding session can produce a useful patch and still leave you arranging a review, checking CI and remembering to merge. The default loop connects those steps through GitHub labels. Preparation scopes the issue, the implementer writes the change, a reviewer checks the exact commit that will merge, and the integrator merges it once your gates (required checks and merge rules) pass. See [how the loop works](/docs/how-the-loop-works.html).
 
 ## What you gain
 
