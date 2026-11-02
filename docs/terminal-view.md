@@ -50,7 +50,7 @@ row selected. Resizing keeps your selection, tab, follow state and log position.
 Below **60 columns × 16 rows**, the view only asks for a larger terminal. `q` and
 Ctrl-C still work.
 
-Two one-line banners can appear above the panes:
+Banners can appear above the panes:
 
 - **Update.** For an installed release, the launcher checks GitHub at startup and
   at most once a day, and the banner names the upgrade command. For an editable
@@ -59,6 +59,11 @@ Two one-line banners can appear above the panes:
   result from the snapshot. Restart the launcher to clear it.
 - **Health.** The latest [agent health check](configuration.md#project-health-checks)
   failure or recovery.
+- **Configuration.** A wrapped error, checkout commit and next step when refreshed
+  files are invalid. Claims, including recoveries, pause until validation succeeds
+  on a later poll or `r`. Unknown keys or values offer file correction or upgrading
+  ub-agents. `q` stops as it does while idle. See
+  [configuration pauses](operations.md#when-things-go-wrong).
 
 The default theme is dark, with a purple accent, blue Running, red Needs
 attention and green Eligible. Colors follow the Textual theme, so `textual-light`
@@ -216,7 +221,21 @@ Each run row has:
 - the agent and summary;
 - `this machine`, or the other host's short name;
 - the outcome, with `BLOCKED: …` for human blockers and `· N denied` when the run
-  recorded [permission denials](coordination.md).
+  recorded [permission denials](coordination.md);
+- tokens, using an exact count below 1,000, rounded `Nk` below 1M and `N.NM` from
+  1M, or a blank cell when no usage was recorded;
+- context, the peak share of the run's context window rounded to a whole percent,
+  followed by ` ↻N` when the run recorded N compactions, or a blank cell when
+  context is missing or malformed. This column appears after tokens only when
+  its header and every value fit in full while the other columns keep their
+  minimum widths.
+
+Token usage comes from the GitHub coordination record, including for other
+launchers' runs. GitHub result lines also show cost when the CLI reports it. On a
+Claude subscription, that dollar figure is what the run would have cost at API
+prices, not a charge. Codex reports no cost.
+
+Context also comes from the GitHub outcome record, including for other launchers.
 
 Every row fits on one line. The run count matches the run rows shown, excluding
 the filing row. Histories have no run limit and are outside the snapshot's size

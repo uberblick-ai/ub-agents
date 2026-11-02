@@ -76,7 +76,7 @@ class PollingTests(unittest.TestCase):
                     self.assertEqual(self.github.items[1].labels, frozenset({"ready"}))
 
                 with patch.object(self.loop.stop_event, "wait", side_effect=wait) as waits, \
-                        patch("ub_agents.loop.supervise", side_effect=self.finish) as execute, \
+                        patch("ub_agents.assignment_run.supervise", side_effect=self.finish) as execute, \
                         self.assertRaises(KeyboardInterrupt):
                     self.loop.launch()
                 execute.assert_called_once()
@@ -102,7 +102,7 @@ class PollingTests(unittest.TestCase):
                     self.loop.stop_event.set()
 
                 with patch.object(self.loop.stop_event, "wait", side_effect=stop), \
-                        patch("ub_agents.loop.supervise") as execute, self.assertRaises(KeyboardInterrupt):
+                        patch("ub_agents.assignment_run.supervise") as execute, self.assertRaises(KeyboardInterrupt):
                     self.loop.launch()
                 execute.assert_not_called()
                 self.assertEqual(len(self.lines), 2)
@@ -164,7 +164,7 @@ class PollingTests(unittest.TestCase):
             if len(delays) == 2:
                 self.loop.stop_event.set()
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         self.assertEqual(delays, [5, 5])
@@ -204,7 +204,7 @@ class PollingTests(unittest.TestCase):
                 self.loop.stop_event.set()
             return 0
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch.object(self.loop.stop_event, "wait", side_effect=wait), self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         self.assertEqual(delays, [5, 5])
@@ -276,7 +276,7 @@ class PollingTests(unittest.TestCase):
                     self.assertEqual(self.github.writes, [])
 
                 with patch.object(self.loop.stop_event, "wait", side_effect=wait) as waits, \
-                        patch("ub_agents.loop.supervise", side_effect=self.finish), \
+                        patch("ub_agents.assignment_run.supervise", side_effect=self.finish), \
                         self.assertRaises(KeyboardInterrupt):
                     self.loop.launch()
                 waits.assert_called_once_with(12)
@@ -545,7 +545,7 @@ class PollingTests(unittest.TestCase):
 
         with patch.object(self.github, "create_comment", side_effect=post), \
                 patch.object(self.loop.stop_event, "wait", side_effect=wait) as waits, \
-                patch("ub_agents.loop.supervise", side_effect=self.finish) as execute, \
+                patch("ub_agents.assignment_run.supervise", side_effect=self.finish) as execute, \
                 self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         execute.assert_called_once()
@@ -593,7 +593,7 @@ class PollingTests(unittest.TestCase):
         with patch.object(self.github, "create_comment", side_effect=post), \
                 patch.object(self.github, "observe", side_effect=discover), \
                 patch.object(self.loop.stop_event, "wait") as waits, \
-                patch("ub_agents.loop.supervise", side_effect=execute) as supervise, \
+                patch("ub_agents.assignment_run.supervise", side_effect=execute) as supervise, \
                 self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         supervise.assert_called_once()
@@ -647,7 +647,7 @@ class PollingTests(unittest.TestCase):
                 with patch.object(self.github, "create_comment", side_effect=post), \
                         patch.object(self.github, "update_comment", side_effect=withdraw), \
                         patch.object(self.loop.stop_event, "wait", side_effect=wait), \
-                        patch("ub_agents.loop.supervise", side_effect=execute) as supervise, \
+                        patch("ub_agents.assignment_run.supervise", side_effect=execute) as supervise, \
                         self.assertRaises(KeyboardInterrupt):
                     self.loop.launch()
                 supervise.assert_called_once()
@@ -666,7 +666,7 @@ class PollingTests(unittest.TestCase):
 
         with patch.object(self.github, "create_comment", side_effect=failure) as posts, \
                 patch.object(self.loop.stop_event, "wait", side_effect=wait), \
-                patch("ub_agents.loop.supervise") as execute, self.assertRaises(KeyboardInterrupt):
+                patch("ub_agents.assignment_run.supervise") as execute, self.assertRaises(KeyboardInterrupt):
             self.loop.launch()
         self.assertEqual(posts.call_count, 9)
         self.assertEqual(delays, [5, 10, 20, 40, 60, 60, 60, 60, 60])
@@ -698,7 +698,7 @@ class PollingTests(unittest.TestCase):
                 failure = self.http_error()
                 if stage == "election read":
                     self.github.read_results["comments"] = [None, None, None, failure]
-                    failure_patch = patch("ub_agents.loop.supervise")
+                    failure_patch = patch("ub_agents.assignment_run.supervise")
                 else:
                     # A lost election can try another item in the same tick.
                     self.github.items[2] = issue(2)
@@ -811,8 +811,8 @@ class PollingTests(unittest.TestCase):
                     stack.enter_context(patch.object(self.loop.coordinator, "assert_owned", side_effect=check_owned))
                     stack.enter_context(patch.object(self.github, "update_comment", side_effect=update_lease))
                     stack.enter_context(patch.object(self.github, "_read", side_effect=read_github))
-                    stack.enter_context(patch("ub_agents.loop.Workspace.prepare", prepare))
-                    stack.enter_context(patch("ub_agents.loop.supervise", side_effect=execute))
+                    stack.enter_context(patch("ub_agents.assignment_run.Workspace.prepare", prepare))
+                    stack.enter_context(patch("ub_agents.assignment_run.supervise", side_effect=execute))
                     stack.enter_context(patch.object(self.loop.stop_event, "wait", side_effect=wait))
                     if once or not retryable:
                         with self.assertRaises(AgentError) as raised:

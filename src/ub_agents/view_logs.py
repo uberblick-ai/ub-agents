@@ -65,7 +65,7 @@ class ViewReader(LogReader):
         return Page(refs, refs[0].start if refs else self.offset,
                     refs[-1].end if refs else self.offset, self.resets, self.total_entries)
 
-    def older(self, end, generation):
+    def older(self, end, generation):  # noqa: C901, PLR0915
         if generation != self.resets:
             raise FileChanged('File changed; paused page belongs to an earlier generation. Press f for latest.')
         fd = os.open(self.path, os.O_RDONLY | os.O_NONBLOCK)

@@ -69,7 +69,8 @@ Use headers from real requests via `gh api --include`; never probe
 | Any resource below 20% remaining | Double the idle/observation gap until the earliest applicable reset; never shorten the ordinary gap or exceed its one-hour cap. Ignore expired/incomplete headers. |
 | Rate-limited 403/429 | Recognize zero remaining, `Retry-After`, or GitHub's primary/secondary rate-limit message. Primary: reset plus **5 seconds**. Secondary: `Retry-After`. Missing wait metadata: one minute. Cap each wait at one hour, then retry. |
 | Retryable continuous-launch failure | A failed gh call without an HTTP status (regardless of its text), request timeouts, truncated/empty JSON reported by gh, and HTTP 5xx: back off from **5 seconds** to **60 seconds**, doubling, without a retry limit. A completed poll resets the delay. |
-| Other errors | gh authentication required (exit 4), a gh binary that cannot run, non-rate-limited HTTP 4xx, configuration errors and other malformed responses stop immediately. `launch --once` and `status` fail on their first error. |
+| Configuration or instruction errors after refresh | Continuous launch pauses all claims, including recoveries, and refreshes and validates on every poll or `r`; valid files resume claims. See [configuration pauses](operations.md#when-things-go-wrong). Startup validation, `launch --once` and `launch N` still fail. |
+| Other errors | gh authentication required (exit 4), a gh binary that cannot run, non-rate-limited HTTP 4xx and other malformed responses stop immediately. `launch --once` and `status` fail on their first request error. |
 
 Only reads wait and retry. A rate-limited write is not replayed automatically.
 Rate-limit waits charge no poll failures or item attempts and make no writes. They

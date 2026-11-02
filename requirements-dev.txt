@@ -1,0 +1,4 @@
+# Shared pins for GitHub Actions, bin/ci.sh and the AGENTS.md checks.
+ruff==0.16.10
+mypy==2.3.1
+types-PyYAML==6.0.12.20261030

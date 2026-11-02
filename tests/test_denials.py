@@ -115,7 +115,7 @@ class DenialsLoopTests(unittest.TestCase):
             self.assertFalse(outcome["accepted"])
             accept(lease, outcome)
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch.object(loop.coordinator, "accept", side_effect=accept_with_denials):
             if isinstance(failure, (KeyboardInterrupt, LostOwnership)):
                 with self.assertRaises(type(failure)):

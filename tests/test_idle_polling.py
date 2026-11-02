@@ -417,7 +417,7 @@ class IdlePollingTests(unittest.TestCase):
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         patch.object(self.github, "actor", return_value="operator"), \
                         patch.object(Loop, "_discovery_tick", side_effect=tick) as ticks, \
-                        patch.object(Loop, "_wait", side_effect=wait), \
+                        patch.object(Loop, "wait", side_effect=wait), \
                         redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
                     self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]),
                                      0 if sig == signal.SIGTERM else 130)

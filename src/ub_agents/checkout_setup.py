@@ -108,7 +108,7 @@ def setup_environment():
             if not key.startswith("UB_AGENTS_")}
 
 
-def run_setup(config, interrupt, output, activity, previous=None):
+def run_setup(config, interrupt, output, activity, previous=None):  # noqa: C901, PLR0912, PLR0915
     root = config.root
     if config.checkout_setup is None:
         return

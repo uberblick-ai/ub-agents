@@ -7,7 +7,8 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.log_reader import LogReader, READ_BUDGET, TAIL_BYTES
-from ub_agents.log_times import EPOCH, GROWTH, HEADER, LogTimes, MAGIC, TIMES_BUDGET, read_times
+from ub_agents.log_times import (EPOCH, GROWTH, HEADER, LogTimes, MAGIC, TIMES_BUDGET,
+                                 growth_position, growth_window, read_times)
 from ub_agents.view_logs import ViewReader
 from ub_agents.view_worker import LocalWorker, Request
 from tests.test_view_data import fixture
@@ -54,6 +55,30 @@ class LogTimesTests(unittest.TestCase):
             if not result.unread_bytes:
                 return result
         self.fail("Reader did not drain")
+
+    def test_growth_position_uses_exclusive_byte_ends_and_rejects_unordered_search(self):
+        pairs = [(10, "a"), (20, "b"), (30, "c")]
+        for position, expected in ((0, 0), (9, 0), (10, 1), (19, 1), (20, 2), (30, 3)):
+            with self.subTest(position=position):
+                self.assertEqual(growth_position(pairs.__getitem__, len(pairs), position), expected)
+        self.assertEqual(growth_position(pairs.__getitem__, 0, 0), 0)
+        unordered = [(30, "a"), (20, "b"), (40, "c")]
+        with self.assertRaisesRegex(ValueError, "Unordered timing index"):
+            growth_position(unordered.__getitem__, len(unordered), 0)
+
+    def test_growth_window_preserves_preceding_interval_and_directional_limits(self):
+        pairs = [(10, "a"), (20, "b"), (30, "c"), (40, "d")]
+        for low, room, backwards, expected in (
+                (2, 1, False, (20, 30, (30,), ("c",))),
+                (2, 2, True, (10, None, (20, 30), ("b", "c"))),
+                (0, 2, True, (0, None, (10,), ("a",))),
+                (4, 2, True, (20, None, (30, 40), ("c", "d"))),
+                (4, 2, False, (40, None, (), ()))):
+            with self.subTest(low=low, room=room, backwards=backwards):
+                self.assertEqual(growth_window(pairs.__getitem__, len(pairs), low, room, backwards), expected)
+        unordered = [(10, "a"), (10, "b")]
+        with self.assertRaisesRegex(ValueError, "Unordered timing index"):
+            growth_window(unordered.__getitem__, len(unordered), 1, 1, False)
 
     def test_historical_partial_and_live_records_use_their_first_observed_byte(self):
         raw = record()

@@ -38,7 +38,7 @@ class Connection:
                     continue
                 data = data[count:]
 
-    def receive(self, id):
+    def receive(self, id):  # noqa: C901
         while True:
             if monotonic() >= self.deadline:
                 raise ProbeFailure("timed out")

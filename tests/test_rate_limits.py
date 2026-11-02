@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
+from ub_agents.settlement import Settlement
 from ub_agents.records import attempts, timestamp
 from tests.support import PollGitHub, agent, config, issue, stub_refresh
 
@@ -43,7 +44,7 @@ class RunRateLimitTests(unittest.TestCase):
             self.assertEqual(self.github.writes, self.writes)
             self.now += delay
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch.object(self.interrupt, "wait", side_effect=wait) as waits:
             self.assertTrue(self.loop.tick())
         waits.assert_called_once_with(12)
@@ -61,7 +62,7 @@ class RunRateLimitTests(unittest.TestCase):
             self.writes = self.github.writes.copy()
             self.loop.coordinator.assert_owned(lease)
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch.object(self.interrupt, "wait", side_effect=lambda delay: setattr(self, "now", self.now + delay)) as wait, \
                 self.assertRaises(LostOwnership):
             self.loop.tick()
@@ -84,7 +85,7 @@ class RunRateLimitTests(unittest.TestCase):
             # A suspend or slow wakeup can run past the deadline despite a short wait.
             self.now += 61
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch.object(self.interrupt, "wait", side_effect=wait), \
                 self.assertRaisesRegex(LostOwnership, "lost while waiting"):
             self.loop.tick()
@@ -100,7 +101,7 @@ class RunRateLimitTests(unittest.TestCase):
             self.interrupt.set()
             self.stop.set()
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch.object(self.interrupt, "wait", side_effect=interrupt), self.assertRaises(KeyboardInterrupt):
             self.loop.tick()
         lease, outcome = self.loop.coordinator.history(1)
@@ -122,7 +123,7 @@ class RunRateLimitTests(unittest.TestCase):
 
         old = signal.signal(signal.SIGTERM, lambda *_: self.loop.stop_gracefully())
         try:
-            with patch("ub_agents.loop.supervise", side_effect=execute), \
+            with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                     patch.object(self.interrupt, "wait", side_effect=wait):
                 self.loop.launch()
         finally:
@@ -138,7 +139,7 @@ class RunRateLimitTests(unittest.TestCase):
             self.github.read_results["comments"] = [None, self.limit()]
             return 0
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch.object(self.interrupt, "wait") as wait:
             self.loop.tick()
         wait.assert_called_once_with(12)
@@ -151,13 +152,13 @@ class RunRateLimitTests(unittest.TestCase):
         self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
         self.now += 61
         plan = self.loop.plans()[0]
-        finalize = self.loop.finalize
+        finalize = Settlement.finalize
 
         def recover(*args, **kwargs):
             self.github.read_results["item"] = [self.limit()]
             return finalize(*args, **kwargs)
 
-        with patch.object(self.loop, "finalize", side_effect=recover), \
+        with patch.object(Settlement, "finalize", autospec=True, side_effect=recover), \
                 patch.object(self.interrupt, "wait") as wait:
             self.loop.recover(plan)
         wait.assert_called_once_with(12)

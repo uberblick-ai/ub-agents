@@ -31,8 +31,10 @@ head, including your own base merge, without another report option.
 
 When the outcome has no `merge` key, keep the project's existing procedure: once its
 gates pass, merge exactly the verified head with its merge method (for example
-`gh pr merge N --squash --match-head-commit SHA`), close the linked issue when
-completion is satisfied, and report `ub-agents report --outcome merged --summary
+`gh pr merge N --squash --match-head-commit SHA`). If the merge command fails, check
+`gh pr view N --json state,mergeCommit`; if merged, report `merged`.
+Close the linked issue when completion is satisfied and report
+`ub-agents report --outcome merged --summary
 "Merged SHA under project policy"`.
 
 If the policy leaves this merge to a maintainer, leave a concrete report that names

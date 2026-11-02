@@ -90,6 +90,7 @@ class Updates:
         self.helper = helper_command('ub_agents.view_request')
         self.code_fds = descriptors()
         self.banner = None
+        self.release_check = None
         self.wake = threading.Event()
         self.stopped = threading.Event()
         self.lock = threading.Lock()
@@ -151,7 +152,7 @@ class Updates:
     def git(self, *args):
         return self.runner(['git', '-C', str(self.root), *args])
 
-    def run(self):
+    def run(self):  # noqa: C901, PLR0912
         try:
             method = self.detect(self.root)
             if method is None:
@@ -189,6 +190,7 @@ class Updates:
                 else:
                     if self.clock() >= next_release:
                         next_release = self.clock() + DAY
+                        latest = None
                         try:
                             data = json.loads(self.runner([
                                 'gh', 'api', '--hostname', 'github.com', '--method', 'GET',
@@ -196,8 +198,11 @@ class Updates:
                                 '{tag_name: .tag_name, published_at: .published_at, '
                                 'draft: .draft, prerelease: .prerelease}']))
                             self.banner = release_banner(data, method)
+                            latest = data['tag_name']
                         except Exception:
                             pass
+                        serial = self.release_check[0] + 1 if self.release_check else 1
+                        self.release_check = serial, latest
                     delay = max(0, next_release - self.clock())
                 self.wake.wait(delay)
         except Exception:

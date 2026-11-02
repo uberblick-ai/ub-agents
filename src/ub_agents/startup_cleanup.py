@@ -11,7 +11,7 @@ from .errors import CleanupError
 from .github import GitHub
 
 
-def sweep(config, github, actor, *, session=None, control, failure=None):
+def sweep(config, github, actor, *, session=None, control, failure=None):  # noqa: C901
     name = session or uuid.uuid4().hex
     path = config.root / ".ub-agents" / "sessions" / f"{name}.cleanup.log"
     try:

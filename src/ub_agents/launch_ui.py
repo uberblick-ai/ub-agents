@@ -106,7 +106,7 @@ class ViewProcess:
         except (OSError, ValueError, termios.error):
             pass
 
-    def monitor(self):
+    def monitor(self):  # noqa: C901, PLR0912
         pending = b''
         code = None
         try:

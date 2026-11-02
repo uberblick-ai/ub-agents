@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from tests.support import RecordingDescriptionTransport
 from ub_agents.view_github import (CACHE_ITEMS, QUERY, REQUEST_SECONDS, DescriptionLoads,
-                                   GhTransport, Response, parse_response)
+                                   GhTransport, Response, parse_response, rate_limit_reset)
 
 
 def reply(title='Loaded title', body='Loaded body'):
@@ -223,6 +223,17 @@ time.sleep(60)
         self.assertEqual(parse_response(b'', b'ordinary failure', 1, 1000).error, 'ordinary failure')
         self.assertIn('no readable', parse_response(b'{broken', b'', 0, 1000).error)
         self.assertEqual(parse_response(reply(body=''), b'', 0, 1000).body, '')
+
+    def test_rate_limit_reset_selects_latest_future_time_or_fallback(self):
+        for headers, expected in (
+                ({}, 1060),
+                ({'x-ratelimit-reset': '1100', 'retry-after': '300'}, 1300),
+                ({'x-ratelimit-reset': '1000', 'retry-after': '-1'}, 1060),
+                ({'x-ratelimit-reset': 'nan', 'retry-after': 'inf'}, 1060),
+                ({'x-ratelimit-reset': '1200', 'retry-after': 'invalid'}, 1200),
+                ({'retry-after': 'Thu, 01 Jan 1970 00:20:00 GMT'}, 1200)):
+            with self.subTest(headers=headers):
+                self.assertEqual(rate_limit_reset(headers, 1000), expected)
 
 
 if __name__ == '__main__':

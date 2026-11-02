@@ -6,6 +6,10 @@ class InstructionError(AgentError):
     """A configured instruction file is invalid or unreadable."""
 
 
+class UnsupportedConfiguration(AgentError):
+    """A configuration key or value may require a newer launcher."""
+
+
 class CheckoutRefreshError(AgentError):
     """An actionable control checkout refresh failure."""
 
@@ -50,6 +54,14 @@ class RuntimePaused(AgentError):
 
 class LostOwnership(AgentError):
     """The launcher must terminate its execution before doing anything else."""
+
+
+class ExecutionStopped(AgentError):
+    """A stop label or closed item cancels execution without charging an attempt."""
+
+    def __init__(self, message, *, item_closed=False):
+        super().__init__(message)
+        self.item_closed = item_closed
 
 
 class CleanupError(AgentError):

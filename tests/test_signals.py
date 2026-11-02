@@ -17,6 +17,7 @@ from ub_agents.config import CleanupHook
 from ub_agents.errors import CleanupError
 from ub_agents.execution import group_members, supervise
 from ub_agents.loop import Loop
+from ub_agents.settlement import Settlement
 from ub_agents.observations import Observations, Publisher as ActualPublisher
 from ub_agents.records import timestamp
 from tests.support import FakeGitHub, agent, config, issue, observation_writer_command, stub_refresh
@@ -48,11 +49,17 @@ class SignalTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             return main(["--config", str(self.root / "ub-agents.yaml"), "launch"])
 
-    def run_signals(self, signals):
+    def run_signals(self, signals, *, signal_sent=None):
         marker = self.root / ".ub-agents" / "finished"
 
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
-            script = "import os,signal,time; " + "; ".join(
+            script = "import os,signal,time; "
+            if signal_sent is not None:
+                # The same monotonic clock is shared by parent and child. Send
+                # its timestamp before the signal can terminate the child.
+                script += f"os.write({signal_sent}, str(time.monotonic()).encode()); "
+                kwargs["pass_fds"] = (*kwargs.get("pass_fds", ()), signal_sent)
+            script += "; ".join(
                 f"os.kill(os.getppid(), {int(sig)}); time.sleep(0.3)" for sig in signals)
             script += f"; open({str(marker)!r}, 'w').write('finished')"
             code = supervise([sys.executable, "-c", script], cwd, env, run_dir, 5, stop,
@@ -61,7 +68,7 @@ class SignalTests(unittest.TestCase):
                 self.assertEqual(main(["report", "--outcome", "done", "--summary", "Finished"]), 0)
             return code
 
-        with patch("ub_agents.loop.supervise", side_effect=run):
+        with patch("ub_agents.assignment_run.supervise", side_effect=run):
             result = self.launch()
         return result, marker
 
@@ -76,7 +83,7 @@ class SignalTests(unittest.TestCase):
             # Model an owned private worktree reaching its actual cleanup hook.
             self.assertTrue(before_remove())
 
-        with patch("ub_agents.loop.Workspace.cleanup", autospec=True, side_effect=cleanup) as cleanup:
+        with patch("ub_agents.assignment_run.Workspace.cleanup", autospec=True, side_effect=cleanup) as cleanup:
             result, marker = self.run_signals([signal.SIGTERM])
         self.assertEqual(result, 0)
         self.assertTrue(marker.is_file())
@@ -121,10 +128,16 @@ class SignalTests(unittest.TestCase):
             while not (self.root / "writer-entered").exists():
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(0.01)
-            started = time.monotonic()
-            with patch("ub_agents.observations.Publisher", return_value=publisher):
-                result, marker = self.run_signals([sig])
-            self.assertLess(time.monotonic() - started, 1)
+            # Exclude launcher setup and child startup; keep all signal handling,
+            # active-run draining, reporting and launcher shutdown in the bound.
+            reader, writer = os.pipe()
+            with os.fdopen(reader, "rb") as received, os.fdopen(writer, "wb") as sent:
+                with patch("ub_agents.observations.Publisher", return_value=publisher):
+                    result, marker = self.run_signals([sig], signal_sent=sent.fileno())
+                exited = time.monotonic()
+                sent.close()
+                started = float(received.read())
+            self.assertLess(exited - started, 1)
             self.assertEqual(result, 0 if sig == signal.SIGTERM else 130)
             self.assertEqual(marker.exists(), sig == signal.SIGTERM)
             lease, outcome = self.loop.coordinator.history(1)
@@ -192,8 +205,8 @@ class SignalTests(unittest.TestCase):
             return release(*args, **kwargs)
 
         try:
-            with patch("ub_agents.loop.supervise", side_effect=run), \
-                    patch("ub_agents.loop.Workspace.cleanup", autospec=True, side_effect=cleanup), \
+            with patch("ub_agents.assignment_run.supervise", side_effect=run), \
+                    patch("ub_agents.assignment_run.Workspace.cleanup", autospec=True, side_effect=cleanup), \
                     patch.object(self.loop.coordinator, "release", side_effect=finish_release):
                 self.assertEqual(self.launch(), 130)
             self.assertEqual(group_members(groups[0]), [])
@@ -238,7 +251,7 @@ class SignalTests(unittest.TestCase):
             return result
 
         with patch.object(self.github, "item", side_effect=item), \
-                patch("ub_agents.loop.supervise") as execution:
+                patch("ub_agents.assignment_run.supervise") as execution:
             self.assertEqual(self.launch(), 0)
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
@@ -251,14 +264,14 @@ class SignalTests(unittest.TestCase):
         self.loop.coordinator.update(lease, state="running", started=True)
         self.loop.coordinator.report(lease, "success", "Finished", outcome="done")
         now += 61
-        finalize = self.loop.finalize
+        finalize = Settlement.finalize
 
         def finish(*args, **kwargs):
             signal.raise_signal(signal.SIGTERM)
             return finalize(*args, **kwargs)
 
-        with patch.object(self.loop, "finalize", side_effect=finish), \
-                patch("ub_agents.loop.supervise") as execution:
+        with patch.object(Settlement, "finalize", autospec=True, side_effect=finish), \
+                patch("ub_agents.assignment_run.supervise") as execution:
             self.assertEqual(self.launch(), 0)
         execution.assert_not_called()
         history = self.loop.coordinator.history(1)
@@ -273,5 +286,5 @@ class SignalTests(unittest.TestCase):
             signal.raise_signal(signal.SIGTERM)
             raise CleanupError("Unconfirmed process cleanup")
 
-        with patch("ub_agents.loop.supervise", side_effect=fail):
+        with patch("ub_agents.assignment_run.supervise", side_effect=fail):
             self.assertEqual(self.launch(), 1)

@@ -463,7 +463,7 @@ class DiscoveryTests(unittest.TestCase):
                         loop.github.roles["maintainer"] = "read"
                     loop.github.reads.clear()
                     with patch.object(loop.coordinator, "claim", side_effect=elect), \
-                            patch("ub_agents.loop.supervise") as run:
+                            patch("ub_agents.assignment_run.supervise") as run:
                         self.assertEqual(loop.execute(plans[0]), revoke == "after-election")
                     run.assert_not_called()
                     roles_read = [args for name, args in loop.github.reads if name == "role"]

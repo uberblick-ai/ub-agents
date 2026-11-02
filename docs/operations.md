@@ -23,6 +23,16 @@ reason, for example `#400 implementer: declined — Head moved before claim`.
 
 ## Stopping and restarting
 
+To stop one active agent from GitHub, add a configured stop label such as
+`needs-human` to its issue or PR, close the issue or PR, or merge the PR. Closing or
+merging stops execution even when no stop labels are configured. The launcher
+terminates execution at the next lease renewal check (10 minutes by default),
+discards any early report and leaves the labels unchanged. No failed attempt is
+charged. A label removed or an item reopened before the check has no effect.
+A closed item needs no further action. Resume a stopped open item with
+`ub-agents retry NUMBER --agent ROLE --reason "Ready to resume"`. See
+[stop labels](https://agents.uberblick.ai/docs/configuration/stop-labels.html).
+
 Every launch mode holds one exclusive lock for its resolved control checkout.
 A second launch exits before startup and names the running launcher's pid, host
 and start time. Stop that launcher first, or use
@@ -48,10 +58,45 @@ An idle launcher, including one waiting for a rate limit outside a run, exits pr
 error keeps its nonzero exit even during a drain. The
 [terminal view](terminal-view.md) describes the shutdown screens.
 
-The launcher does not reload its own code. Restart it after an upgrade, or when the
-update banner says a checkout refresh pulled newer code. To upgrade, follow
-[Upgrading](https://agents.uberblick.ai/docs/upgrading.html). Stop every launcher of
-the project first only when the release notes say launchers must upgrade together.
+The launcher keeps a startup copy of its code and, for Homebrew installs, its Python
+dependencies. Its helpers use that copy too, even if an upgrade or cleanup removes
+the old ub-agents keg. This protection also applies with automatic updates off.
+Homebrew's separate Python installation must remain available.
+
+To let a continuous queue upgrade and restart itself, opt in:
+
+```yaml
+runtime-updates:
+  ub-agents: auto
+  timeout-seconds: 300
+```
+
+Only the `uberblick-ai/tap/ub-agents` Homebrew formula qualifies; `doctor` reports
+the installation or skip reason. The setting accepts `auto` or `off` (the default),
+with no command form. `launch NUMBER` and `--once` only show the update banner.
+Continuous queues with `--agent` also support automatic updates.
+
+At the daily release check, an opted-in launcher waits until no run, recovery,
+checkout refresh or setup is active, then updates its owning Homebrew and upgrades
+the formula. It claims nothing during maintenance. The shared `timeout-seconds`
+limits the entire check and upgrade. A failed upgrade is logged in `launch.log`
+and retried at the next daily check. A tap that still installs the running version
+causes no restart.
+
+When the installed version is newer, including after another launcher or a person
+upgrades it, the launcher checks every release between its running and installed
+versions before restarting. It also checks the intended formula version before
+upgrading. A coordinated release or any missing/unreadable release marker blocks
+automatic action, keeps the banner and logs the reason. Follow
+[Upgrading](https://agents.uberblick.ai/docs/upgrading.html) to stop and upgrade all
+launchers together in that case. Source checkouts still need a manual restart.
+
+Automatic restart replaces the process with the new executable, retaining its PID
+and arguments in both UI modes. Service managers need no special restart status;
+they continue supervising the same process. Configure their normal restart policy
+for actual exits. A failed exec exits 1. A `q` or `SIGTERM` during an upgrade lets
+the command finish, then exits 0 without restarting. No automatic update or restart
+claims an assignment or consumes an attempt.
 
 ## When things go wrong
 
@@ -71,10 +116,23 @@ not block launch.
 
 **Launch stops before a run.** Before each new run, the launcher fetches `origin`,
 fast-forwards the control checkout and rereads the configuration and instructions.
-An unsafe checkout, Git failure, invalid configuration or unreadable instruction file
-stops it. Fix the checkout or file and restart; `ub-agents doctor --offline` shows
-configuration errors. No attempt is charged. See
+An unsafe checkout or Git failure stops it. Fix the checkout and restart.
+Startup validation, `launch --once` and `launch N` also stop on invalid configuration
+or unreadable instructions, with the same errors as `ub-agents doctor --offline`.
+No attempt is charged. See
 [execution boundaries](coordination.md#execution-boundaries).
+
+**Claims paused for invalid configuration.** Continuous launch, including `--agent`,
+stays running when configuration or instructions fail validation after a refresh.
+It claims no new runs or recoveries and charges no attempt. The terminal banner,
+plain output, `launch.log` and `status` show the error, checkout commit and next step.
+Correct the configuration or instruction files; for unknown keys or values, upgrading
+ub-agents is another fix. Every poll, and `r`, fetches, fast-forwards and rereads even
+with an empty queue. Valid files resume claims automatically without a restart;
+a restarted launcher validates at startup as usual. Automatic launcher upgrades
+and restarts wait until the configuration pause clears. `q` and `SIGTERM` stop promptly
+while waiting. The log records the pause starting, its error or commit changing,
+and claims resuming, rather than repeating the error every poll.
 
 **Control-checkout setup fails.** Read the log the message names, fix the install in
 the control checkout and launch again. Setup runs on every launch until it succeeds.
@@ -91,7 +149,7 @@ first error; run them again later. `doctor --verbose` shows the remaining quota.
 [quota and failure handling](polling.md#quota-and-failure-handling).
 
 **Launch stops with "ub-agents does not retry this error."** Authentication failures,
-other HTTP 4xx errors and configuration errors are not retried. Fix the cause, for
+other HTTP 4xx errors are not retried. Fix the cause, for
 example with `gh auth login`, and restart. The restarted launcher recovers any claim
 it left open.
 

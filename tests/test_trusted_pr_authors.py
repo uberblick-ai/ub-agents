@@ -268,7 +268,7 @@ class TrustedPRAuthorTests(unittest.TestCase):
                     loop.coordinator.report(loop.coordinator.history(2)[-1], "success", "Done", outcome="done")
                     return 0
 
-                with patch("ub_agents.loop.supervise", side_effect=execute) as executed:
+                with patch("ub_agents.assignment_run.supervise", side_effect=execute) as executed:
                     self.assertTrue(loop.tick())
                 executed.assert_called_once()
                 self.assertTrue(loop.coordinator.trust.observation()(BOT))
@@ -297,7 +297,7 @@ class TrustedPRAuthorTests(unittest.TestCase):
                         loop.coordinator.report(loop.coordinator.history(2)[-1], "success", "Done", outcome="done")
                         return 0
 
-                    with patch("ub_agents.loop.supervise", side_effect=execute) as executed:
+                    with patch("ub_agents.assignment_run.supervise", side_effect=execute) as executed:
                         self.assertTrue(loop.tick_item(2) if targeted else loop.tick(), (head, output))
                     executed.assert_called_once()
                     self.assertNotIn("needs-human", self.github.item(2).labels)

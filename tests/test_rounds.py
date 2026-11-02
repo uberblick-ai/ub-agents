@@ -13,7 +13,7 @@ from ub_agents.errors import RecordError
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
 from ub_agents.records import body, outcome_rounds, payload, records, timestamp
-from tests.support import FakeGitHub, agent, config, pr, stub_refresh
+from tests.support import settlement, FakeGitHub, agent, config, pr, stub_refresh
 
 
 class RoundTests(unittest.TestCase):
@@ -53,7 +53,7 @@ class RoundTests(unittest.TestCase):
 
         lease = None
         self.loop.coordinator.on_claim = claimed
-        with patch('ub_agents.loop.supervise', side_effect=supervise):
+        with patch('ub_agents.assignment_run.supervise', side_effect=supervise):
             self.assertTrue(self.loop.tick_item(number))
         report = self.loop.coordinator.outcome(lease)
         self.assertTrue(report['accepted'], report)
@@ -137,7 +137,7 @@ class RoundTests(unittest.TestCase):
                 lease = next(r for r in reversed(loop.coordinator.history(1)) if r['kind'] == 'lease')
                 loop.coordinator.report(lease, 'success', 'Repair before merge', outcome='changes-requested')
                 return 0
-            with patch('ub_agents.loop.supervise', side_effect=supervise) as executed:
+            with patch('ub_agents.assignment_run.supervise', side_effect=supervise) as executed:
                 self.assertTrue(loop.tick_item(1))
                 self.assertEqual(executed.call_count, 0 if conflict else 1)
             self.assertEqual(self.count(), 2)
@@ -158,12 +158,12 @@ class RoundTests(unittest.TestCase):
             coordinator.update(lease, state='running', started=True)
             report = coordinator.report(lease, 'success', 'P1: still broken.', outcome='changes-requested')
             # Simulate a crash after labels were changed, before acceptance.
-            self.loop.apply_transition(lease, report)
+            settlement(self.loop).apply_transition(lease, report)
             self.assertEqual(self.count(), used)
             self.now += 61
             changed = replace(self.reviewer, outcomes={'new': {'add': ('wrong',), 'remove': ()}})
             recovery = self.new_loop(changed)
-            with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+            with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
                 self.assertTrue(recovery.tick_item(1))
                 recovery.tick_item(1)
             self.assertEqual(self.count(), used + 1)

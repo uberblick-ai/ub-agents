@@ -414,7 +414,7 @@ class GitHubTests(unittest.TestCase):
             for size in (1, 99, 100, 101, 201):
                 runner = QueueRunner(size)
                 loop = Loop(config(root, agent(root)), GitHub("org/project", runner), "operator")
-                with patch.object(loop, "input_check", return_value=ApprovalCheck(True, "Approved")), \
+                with patch.object(loop.queue_planner, "input_check", return_value=ApprovalCheck(True, "Approved")), \
                         patch.object(loop.discovery, "prepare_approval_inputs"), \
                         patch.object(loop, "execute", return_value=True):
                     self.assertTrue(loop.tick())
@@ -572,6 +572,16 @@ class GitHubTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIs(parse_item(raw | {"mergeable": value}, "pr").mergeable, expected)
         self.assertIsNone(parse_item(raw | {"mergeable": False}, "issue").mergeable)
+
+    def test_pr_item_distinguishes_merged_from_closed(self):
+        raw = {"number": 2, "title": "Candidate", "body": "", "labels": [], "state": "closed",
+               "created_at": iso(100), "draft": False, "head": {"sha": "a" * 40, "ref": "feature/test"}}
+        github = GitHub("org/project")
+        for fields, merged in (({}, False), ({"merged_at": None}, False), ({"merged_at": iso(200)}, True)):
+            with self.subTest(fields=fields), patch.object(github, "request", return_value=raw | fields):
+                item = github.item(2, "pr")
+                self.assertEqual((item.state, item.merged), ("closed", merged))
+        self.assertFalse(parse_item(raw | {"merged_at": iso(200)}, "issue").merged)
 
     def test_pr_head_repository_and_base_branch_preserve_fork_classification(self):
         raw = {"number": 2, "title": "Candidate", "body": "", "labels": [], "state": "open",

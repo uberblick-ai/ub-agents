@@ -67,6 +67,7 @@ def held_view_signal(sig):
     parent, child = socket.socketpair()
     lock = threading.Lock()
     exited = threading.Event()
+    driver_output = sys.__stderr__
 
     class App:
         return_code = 0
@@ -82,6 +83,7 @@ def held_view_signal(sig):
             callback()
 
         def run(self):
+            assert sys.__stderr__ is sys.__stdout__, "View driver must draw to launcher stdout"
             self.launcher.mounted(self)
             with lock:
                 signal.raise_signal(sig)
@@ -93,6 +95,7 @@ def held_view_signal(sig):
                 patch("ub_agents.view_ui.View", App):
             assert view.main([".", "--session", "own", "--base-version", __version__,
                               "--launcher-fd", str(child.detach())]) == 0
+            assert sys.__stderr__ is driver_output, "View must restore the driver stream"
     finally:
         parent.close()
         child.close()

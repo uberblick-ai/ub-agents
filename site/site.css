@@ -76,6 +76,7 @@ pre code { font: inherit; background: none; padding: 0 }
 .wrap section { padding-block: 36px; border-top: 1px solid var(--line) }
 .wrap section h2 { font-size: 15px; font-weight: 600; margin: 0 0 16px }
 .wrap section h2::before { content: "## "; color: var(--muted); font-weight: 400 }
+.wrap section h3 { font-size: 15px; font-weight: 600; margin: 24px 0 12px }
 .wrap section pre { margin-bottom: 16px }
 
 /* Terminal demo: the terminal view drawn as two framed panes and a status line, animated by site/demo.html. Dark in both themes. */

@@ -74,7 +74,7 @@ class ApprovalPolicyTests(unittest.TestCase):
             self.loop.coordinator.report(lease, "success", "Completed", outcome="done")
             return 0
         number = next(iter(self.github.items))
-        with patch("ub_agents.loop.supervise", side_effect=run) as supervise:
+        with patch("ub_agents.assignment_run.supervise", side_effect=run) as supervise:
             self.assertTrue(self.loop.tick_item(number) if targeted else self.loop.tick())
         supervise.assert_called_once()
         self.assertNotIn("needs-human", self.github.items[number].labels)

@@ -93,7 +93,7 @@ class MilestoneGateTests(unittest.TestCase):
             self.loop.coordinator.report(self.loop.github.lease, "success", "Finished", outcome="done")
             return 0
 
-        with patch("ub_agents.loop.supervise", side_effect=run) as executed:
+        with patch("ub_agents.assignment_run.supervise", side_effect=run) as executed:
             self.assertTrue(self.loop.tick())
         executed.assert_called_once()
         # Discovery and fresh approval parking read #1; discovery, before-write

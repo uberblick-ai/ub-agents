@@ -60,6 +60,7 @@ see [stale artifact cleanup](configuration.md#stale-artifact-cleanup).
 | `coordination_authors` | Lowercase login to `{trusted, reason}` for notice authors the launcher has checked. The view does not load notices from untrusted authors and shows the reason. |
 | `update` | The update banner, `{text, released_at}`, or `null`. |
 | `health_notice` | The latest project health-check message, or `null`. |
+| `configuration_pause` | While claims are paused for invalid refreshed files: `error`, full checkout SHA `commit` and `next_step`. Missing or `null` means no configuration pause. |
 | `limits`, `omitted`, `shortened` | Format limits, counts of dropped plans and outcomes, and counts of shortened fields and characters. Rows and histories carry their own `shortened` counts. |
 
 ## State interpretation

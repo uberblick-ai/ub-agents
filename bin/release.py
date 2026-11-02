@@ -55,6 +55,10 @@ def release_notes(changelog, version):
     notes = changelog[heading.end():end]
     if not notes.strip():
         raise ReleaseError("CHANGELOG check: release notes are empty")
+    markers = re.findall(r'<!--\s*ub-agents:launcher-upgrade=(.*?)\s*-->', notes)
+    if markers not in (["independent"], ["coordinated"]):
+        raise ReleaseError("CHANGELOG check: include exactly one launcher-upgrade marker "
+                           "(independent or coordinated); see docs/releases.md")
     return notes
 
 

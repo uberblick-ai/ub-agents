@@ -5,8 +5,8 @@
 #
 # The commit is checked out into a temporary worktree with a fresh virtualenv,
 # so nothing from this checkout (its .venv, untracked files, local edits) can
-# make a run pass. It runs the unit suite on every core and `ub-agents doctor --offline`,
-# as the GitHub Actions `Test` workflow that gates merges does, plus the
+# make a run pass. It runs Ruff, mypy, the unit suite on every core and
+# `ub-agents doctor --offline`, as the GitHub Actions `Test` workflow does, plus the
 # `git diff --check` from AGENTS.md. It is optional and posts nothing to GitHub.
 set -eu
 
@@ -55,7 +55,9 @@ run() {
 }
 
 run "Whitespace" git --no-pager diff --check "origin/main...$sha" --
-run "Install" sh -c 'python3 -m venv .venv && .venv/bin/python -m pip install -q -e .'
+run "Install" sh -c 'python3 -m venv .venv && .venv/bin/python -m pip install -q -e . -r requirements-dev.txt'
+run "Complexity" .venv/bin/ruff check src
+run "Types" .venv/bin/mypy
 run "Tests" .venv/bin/python -m tests
 run "Config check" .venv/bin/ub-agents doctor --offline
 

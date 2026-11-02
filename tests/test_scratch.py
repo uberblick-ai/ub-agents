@@ -88,7 +88,7 @@ class ScratchTests(unittest.TestCase):
                     return code
 
                 with patch.dict(os.environ, {"UB_AGENTS_SCRATCH": "/old/scratch"}), \
-                        patch("ub_agents.loop.supervise", side_effect=execute):
+                        patch("ub_agents.assignment_run.supervise", side_effect=execute):
                     if tmpdir is None:
                         os.environ.pop("TMPDIR", None)
                     else:
@@ -129,7 +129,7 @@ class ScratchTests(unittest.TestCase):
                         loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Done", outcome="done")
                     return code
 
-                with patch("ub_agents.loop.supervise", side_effect=execute):
+                with patch("ub_agents.assignment_run.supervise", side_effect=execute):
                     if ending == "interrupt":
                         with self.assertRaises(KeyboardInterrupt):
                             loop.tick()
@@ -163,7 +163,7 @@ class ScratchTests(unittest.TestCase):
             loop.coordinator.report(loop.coordinator.history(1)[0], "success", "Done", outcome="done")
             return code
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch("ub_agents.execution.shutil.rmtree", side_effect=OSError("disk failure")):
             self.assertTrue(loop.tick())
         directory = self.run_dir(loop)
@@ -182,7 +182,7 @@ class ScratchTests(unittest.TestCase):
             self.last_writes = list(self.github.writes)
             raise LostOwnership("Ownership read failed")
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), \
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), \
                 patch("ub_agents.execution.shutil.rmtree", side_effect=OSError("disk failure")), \
                 self.assertRaisesRegex(LostOwnership, "Ownership read failed"):
             loop.tick()
@@ -208,7 +208,7 @@ class ScratchTests(unittest.TestCase):
                     loop.interrupt_event.set()
             return supervise(command, cwd, env, directory, *args, **(kwargs | {"observe_output": observe}))
 
-        with patch("ub_agents.loop.supervise", side_effect=execute), self.assertRaises(KeyboardInterrupt):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execute), self.assertRaises(KeyboardInterrupt):
             loop.tick()
         directory = self.run_dir(loop)
         self.assert_scratch_removed(loop)
@@ -242,7 +242,7 @@ class ScratchTests(unittest.TestCase):
                     return original(path, *args, **kwargs)
 
                 with patch.object(Path, operation, fail_scratch), \
-                        patch("ub_agents.loop.supervise") as execute:
+                        patch("ub_agents.assignment_run.supervise") as execute:
                     self.assertTrue(loop.tick())
                 execute.assert_not_called()
                 lease, outcome = loop.coordinator.history(1)
@@ -290,8 +290,8 @@ class ScratchTests(unittest.TestCase):
 
                 with patch.dict(os.environ), \
                         patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                        patch("ub_agents.loop.Workspace.prepare", return_value=worktree), \
-                        patch("ub_agents.loop.supervise", side_effect=execute) as executed:
+                        patch("ub_agents.assignment_run.Workspace.prepare", return_value=worktree), \
+                        patch("ub_agents.assignment_run.supervise", side_effect=execute) as executed:
                     if tmpdir is None:
                         os.environ.pop("TMPDIR", None)
                     else:
@@ -323,8 +323,8 @@ class ScratchTests(unittest.TestCase):
                 self.github = FakeGitHub(issue())
                 loop = self.loop()
                 with patch.dict(os.environ, {"XDG_STATE_HOME": str(state)}), \
-                        patch("ub_agents.loop.Workspace.prepare") as workspace, \
-                        patch("ub_agents.loop.supervise") as execute:
+                        patch("ub_agents.assignment_run.Workspace.prepare") as workspace, \
+                        patch("ub_agents.assignment_run.supervise") as execute:
                     self.assertTrue(loop.tick())
                 workspace.assert_not_called()
                 execute.assert_not_called()

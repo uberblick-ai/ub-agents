@@ -126,7 +126,7 @@ class LogReader:
                                   self.total_entries, value))
         self.shortened += value.shortened
 
-    def _emit(self, oversized=False, end=None):
+    def _emit(self, oversized=False, end=None):  # noqa: C901
         raw = bytes(self.pending)
         trailing = b""
         kind = self.raw_kind
@@ -225,7 +225,7 @@ class LogReader:
                         self.evicted, self.shortened + bool(preview and preview.shortened),
                         self.resets, self.error, tuple(self.refs), self.total_entries)
 
-    def update(self):
+    def update(self):  # noqa: C901, PLR0912
         self.bytes_read = self.processed = 0
         try:
             # O_NONBLOCK prevents a substituted FIFO from hanging an observer.

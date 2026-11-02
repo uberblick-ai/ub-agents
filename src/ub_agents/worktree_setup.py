@@ -3,7 +3,7 @@
 import shlex
 
 from .checkout_setup import setup_environment
-from .errors import AgentError, CheckoutSetupInterrupted, CleanupError, GitHubError, LostOwnership
+from .errors import AgentError, CheckoutSetupInterrupted, CleanupError, ExecutionStopped, GitHubError, LostOwnership
 from .execution import group_members, supervise
 from .run_config import run_directory
 
@@ -71,7 +71,7 @@ def run_worktree_setup(config, cwd, run_dir, interrupt, output, activity, *,
         finally:
             if confirmed:
                 (directory / "stopped").write_text("confirmed\n")
-    except (LostOwnership, GitHubError):
+    except (ExecutionStopped, LostOwnership, GitHubError):
         raise
     except (AgentError, OSError, KeyboardInterrupt) as exc:
         detail = f"{command} interrupted" if isinstance(exc, KeyboardInterrupt) else str(exc)

@@ -38,7 +38,16 @@ In a terminal, launch opens a live view of what is running, what needs a person,
 
 The Runs tab lists every run the launcher knows for the selected item, oldest
 first, including failures and runs by other launchers. It reads private local
-history files without accessing GitHub.
+history files without accessing GitHub. Its tokens column shows an exact count
+below 1,000, rounded `Nk` below 1M and `N.NM` from 1M, with a blank cell when no
+usage was recorded. Counts come from GitHub coordination records, including for
+other launchers. When the pane is wide enough, a context column after tokens
+shows the run's peak context as a whole percent of its window, with ` ↻N` for N
+compactions. Missing or malformed context leaves the cell blank. Context comes
+from GitHub outcome records, including for other launchers' runs.
+GitHub result lines also show a dollar figure when the CLI
+reports a cost. On a Claude subscription, this is what the run would have cost
+at API prices, not a charge. Codex reports no cost.
 
 Formatted Claude and Codex logs show local times. A `~` marks when the supervisor
 observed output without a producer timestamp, including output written before
@@ -50,6 +59,16 @@ The footer shows usage pauses and launcher activity, such as `claude paused for 
 ## Before each run
 
 Before each run, launch pulls the default branch and starts the agent fresh, so changes to `ub-agents.yaml`, AGENTS.md and the role files apply once they land, without a restart. A new ub-agents version does need one; see [Upgrading](/docs/upgrading.html).
+
+If `ub-agents.yaml`, `ub-agents.local.yaml` or an instruction file fails validation
+after a refresh, continuous launch (including `--agent`) pauses claims. It starts
+no new runs or recoveries and uses no attempts. The terminal banner, plain output,
+`launch.log` and [`status`](/docs/commands/status.html) show the error, checkout commit
+and next step. Correct the file, or upgrade ub-agents for an unknown key or value.
+Every poll, or `r`, fetches and rereads even with an empty queue; valid files resume
+claims automatically. `q` and `SIGTERM` stop while paused as they do while idle.
+Startup validation, `--once` and numbered launches still fail on invalid files.
+Unsafe checkouts and failed fetches or fast-forwards still stop launch.
 
 [Checkout setup](/docs/configuration/checkout-setup.html) runs your own setup, such as installing dependencies, in every new worktree. Agents with a [health check](/docs/configuration/agents.html#health-check) wait until it passes, without using up attempts.
 

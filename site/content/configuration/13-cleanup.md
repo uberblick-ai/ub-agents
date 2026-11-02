@@ -2,6 +2,14 @@
 
 After every run, the launcher removes the run's private worktree. The optional cleanup hook runs just before that, to stop things a run started, such as test services.
 
+## Branches on GitHub
+
+- The launcher cleans up only on the machine; it never deletes branches on GitHub.
+- In the repository's **Settings**, under **General**, **Pull Requests**, turn on **Automatically delete head branches** so a merged pull request's branch is deleted with the merge. See GitHub's guide to [managing the automatic deletion of branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-the-automatic-deletion-of-branches).
+- Branches of pull requests closed without merging stay; delete them from the pull request page.
+
+## Hook configuration
+
 ```yaml
 cleanup:
   command: [./scripts/cleanup-agent-worktree]

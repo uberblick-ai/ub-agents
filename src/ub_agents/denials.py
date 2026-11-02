@@ -6,7 +6,7 @@ MAX_DENIALS = 10
 MAX_COMMAND = 200
 
 
-def collect_denials(cli, path):
+def collect_denials(cli, path):  # noqa: C901
     if cli != "claude":
         return {}
     result = {}

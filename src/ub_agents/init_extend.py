@@ -81,6 +81,27 @@ class ExistingFlow(Flow):
         labels = priority_labels(Choices("", priority_labels=priorities))
         existing = {name.casefold() for name in self.github.labels()} if priorities else set()
         labels = [label for label in labels if label.name.casefold() not in existing]
+        boards, requests, numbers = self.board_setup(names)
+        placeholders = {name: numbers.get(name, 1) for name in names}
+        try:
+            preview = additions(self.content, placeholders, priorities, self.claude_agents)
+            preview_config(preview, self.path, ())
+        except (UnsafeEdit, AgentError, yaml.YAMLError) as exc:
+            self.t.step(f"{self.path.name} needs a manual edit", [str(exc)])
+            self.manual(names, numbers, priorities)
+            return 1
+        self.confirm_setup(names, numbers, priorities, labels)
+        completed, incomplete = [], []
+        try:
+            content = self.write_setup(boards, names, requests, numbers, labels, priorities, completed, incomplete)
+        except (*PROBE_ERRORS, UnsafeEdit, yaml.YAMLError, KeyboardInterrupt) as exc:
+            self.t.step("Setup partly written", [*completed, public(str(exc)) or "Setup interrupted", *incomplete], "▲", YELLOW)
+            self.manual(names, numbers, priorities)
+            return 1
+        self.t.step("Setup written", completed)
+        return self.finish_setup(content)
+
+    def board_setup(self, names):
         boards, requests, numbers = Boards(self.github, self.repository), {}, {}
         if names:
             repo = boards.setup()
@@ -94,14 +115,9 @@ class ExistingFlow(Flow):
                 found = boards.find(board_title(name))
                 if found:
                     numbers[name] = found["number"]
-        placeholders = {name: numbers.get(name, 1) for name in names}
-        try:
-            preview = additions(self.content, placeholders, priorities, self.claude_agents)
-            preview_config(preview, self.path, ())
-        except (UnsafeEdit, AgentError, yaml.YAMLError) as exc:
-            self.t.step(f"{self.path.name} needs a manual edit", [str(exc)])
-            self.manual(names, numbers, priorities)
-            return 1
+        return boards, requests, numbers
+
+    def confirm_setup(self, names, numbers, priorities, labels):
         lines = [f"Add retrospectives to agents.{name}: #{numbers[name]} (reuse)" if name in numbers else
                  f"Create {board_title(name)!r}; add agents.{name}.retrospectives" for name in names]
         if priorities:
@@ -115,47 +131,45 @@ class ExistingFlow(Flow):
         if not self.ask.confirm("Write setup?", True):
             raise Cancelled("Write setup?")
         self.t.answered("Write setup?", "Yes")
-        completed, incomplete = [], []
-        try:
-            self.protect()
-            # Recheck every board before the first write, so a newly duplicated
-            # title or changed capability cannot leave a partially applied plan.
-            if names:
-                current = boards.setup()
-                for name, request in requests.items():
-                    if boards.request(request.title, request.category, current) != request:
-                        raise AgentError("Discussion category changed; run init again")
-                    found = boards.find(request.title)
-                    if found:
-                        numbers[name] = found["number"]
-                    else:
-                        numbers.pop(name, None)
+
+    def write_setup(self, boards, names, requests, numbers, labels, priorities, completed, incomplete):
+        self.protect()
+        # Recheck every board before the first write, so a newly duplicated
+        # title or changed capability cannot leave a partially applied plan.
+        if names:
+            current = boards.setup()
             for name, request in requests.items():
-                if name not in numbers:
-                    incomplete.append(f"Board creation may have completed: {request.title!r}; inspect GitHub before retrying")
-                    board = boards.create(request)
-                    numbers[name] = board["number"]
-                    incomplete.pop()
-                    completed.append(f"Created board {board['url']} for {name}")
+                if boards.request(request.title, request.category, current) != request:
+                    raise AgentError("Discussion category changed; run init again")
+                found = boards.find(request.title)
+                if found:
+                    numbers[name] = found["number"]
                 else:
-                    completed.append(f"Reused board #{numbers[name]} for {name}")
-                boards.verify(numbers[name])
-            for label in labels:
-                if label.name.casefold() not in {name.casefold() for name in self.github.labels()}:
-                    incomplete.append(f"Label creation may have completed: {label.name!r}; inspect GitHub before retrying")
-                    self.github.create_label(label.name, label.description, label.color)
-                    incomplete.pop()
-                    completed.append(f"Created label {label.name}")
-                else:
-                    completed.append(f"Kept existing label {label.name}")
-            content = additions(self.content, numbers, priorities, self.claude_agents)
-            preview_config(content, self.path, ())
-            self.write(content)
-        except (*PROBE_ERRORS, UnsafeEdit, yaml.YAMLError, KeyboardInterrupt) as exc:
-            self.t.step("Setup partly written", [*completed, public(str(exc)) or "Setup interrupted", *incomplete], "▲", YELLOW)
-            self.manual(names, numbers, priorities)
-            return 1
-        self.t.step("Setup written", completed)
+                    numbers.pop(name, None)
+        for name, request in requests.items():
+            if name not in numbers:
+                incomplete.append(f"Board creation may have completed: {request.title!r}; inspect GitHub before retrying")
+                board = boards.create(request)
+                numbers[name] = board["number"]
+                incomplete.pop()
+                completed.append(f"Created board {board['url']} for {name}")
+            else:
+                completed.append(f"Reused board #{numbers[name]} for {name}")
+            boards.verify(numbers[name])
+        for label in labels:
+            if label.name.casefold() not in {name.casefold() for name in self.github.labels()}:
+                incomplete.append(f"Label creation may have completed: {label.name!r}; inspect GitHub before retrying")
+                self.github.create_label(label.name, label.description, label.color)
+                incomplete.pop()
+                completed.append(f"Created label {label.name}")
+            else:
+                completed.append(f"Kept existing label {label.name}")
+        content = additions(self.content, numbers, priorities, self.claude_agents)
+        preview_config(content, self.path, ())
+        self.write(content)
+        return content
+
+    def finish_setup(self, content):
         if self.on_default:
             plan = SimpleNamespace(config=self.config, path=self.path, targets={self.path: content},
                                    ignore_before=b"", ignore_after=b"")

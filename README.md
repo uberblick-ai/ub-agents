@@ -1,5 +1,7 @@
 # ub-agents
 
+[![Test coverage](https://raw.githubusercontent.com/uberblick-ai/ub-agents/python-coverage-comment-action-data/badge.svg)](https://github.com/uberblick-ai/ub-agents/tree/python-coverage-comment-action-data)
+
 ub-agents runs an implementation and review loop for your GitHub issues in the
 background, on your own machine or server.
 
@@ -197,6 +199,9 @@ mise run ci                 # optional: CI's checks on HEAD in a fresh worktree
 
 Without mise, `python3 -m venv .venv && .venv/bin/pip install -e .` sets up the
 same `.venv`.
+
+See [development checks](docs/development.md) for the pinned type and complexity
+checks used locally and in CI.
 
 The test runner uses every core by default. Pass test names to run a subset,
 `-j N` to set the worker count, `--durations N` to list the slowest tests and

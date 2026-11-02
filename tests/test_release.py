@@ -22,7 +22,8 @@ SHA = "a" * 40
 TAG = f"v{VERSION}"
 URL = f"https://github.com/{release.REPOSITORY}/archive/refs/tags/{TAG}.tar.gz"
 DIGEST = hashlib.sha256(b"archive fixture").hexdigest()
-NOTES = "\n\n**Upgrading:** restart launchers.\n\n### Added\n\n- A change (#398).\n\n"
+NOTES = ("\n\n<!-- ub-agents:launcher-upgrade=independent -->\n\n"
+         "**Upgrading:** restart launchers.\n\n### Added\n\n- A change (#398).\n\n")
 RUNS = ("gh", "api", f"repos/{release.REPOSITORY}/actions/workflows/test.yml/runs?head_sha={SHA}")
 
 
@@ -301,6 +302,15 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError, "expected one dated"):
             release.release_notes(section + section, VERSION)
 
+    def test_release_notes_require_one_explicit_launcher_upgrade_marker(self):
+        for marker in ("", "<!-- ub-agents:launcher-upgrade=unknown -->",
+                       "<!-- ub-agents:launcher-upgrade=independent -->" * 2):
+            notes = NOTES.replace("<!-- ub-agents:launcher-upgrade=independent -->", marker)
+            with self.subTest(marker=marker), self.assertRaisesRegex(release.ReleaseError, "launcher-upgrade marker"):
+                release.release_notes(f"## {VERSION} — 2026-10-09" + notes, VERSION)
+        notes = NOTES.replace("=independent", "=coordinated")
+        self.assertEqual(release.release_notes(f"## {VERSION} — 2026-10-09" + notes, VERSION), notes)
+
     def test_patch_release_allows_only_fixes(self):
         fixes = "\n\n### Fixed\n\n- A fix (#400).\n\n"
         for version, notes in (("0.2.1", fixes), ("0.3.0", NOTES), ("1.0.0", NOTES + "### Removed\n\n- Gone.\n")):
@@ -322,6 +332,24 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError, "release it as a minor version"):
             release.preflight(self.root, version, self.runner, environ={})
         self.assertNotIn(RUNS, [args for args, _ in self.runner.calls])
+        self.assert_no_publication()
+
+    def test_patch_release_fixes_still_require_launcher_upgrade_marker(self):
+        version = "0.2.1"
+        (self.root / "pyproject.toml").write_text(f'[project]\nversion = "{version}"\n')
+        self.version_file.write_text(f'__version__ = "{version}"\n')
+        self.git("show-ref", "--verify", "--quiet", f"refs/tags/v{version}", response=self.result(1))
+        self.git("ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/v{version}", response=self.result(2))
+        fixes = NOTES.replace("### Added", "### Fixed")
+        for policy in ("independent", "coordinated"):
+            notes = fixes.replace("=independent", f"={policy}")
+            (self.root / "CHANGELOG.md").write_text(f"## {version} — 2026-10-10" + notes)
+            with self.subTest(policy=policy):
+                self.assertEqual(release.preflight(self.root, version, self.runner, environ={}), (SHA, notes))
+        notes = fixes.replace("<!-- ub-agents:launcher-upgrade=independent -->", "")
+        (self.root / "CHANGELOG.md").write_text(f"## {version} — 2026-10-10" + notes)
+        with self.assertRaisesRegex(release.ReleaseError, "launcher-upgrade marker"):
+            release.preflight(self.root, version, self.runner, environ={})
         self.assert_no_publication()
 
     def test_formula_url_hash_and_unchanged_resources(self):

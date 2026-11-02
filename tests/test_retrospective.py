@@ -183,7 +183,7 @@ class RetrospectiveTests(unittest.TestCase):
                         return 0
                     self.runner.calls.clear()
                     # Plans need the runtime CLI on PATH; this machine may not have it.
-                    with patch("ub_agents.loop.supervise", side_effect=execute) as executed, \
+                    with patch("ub_agents.assignment_run.supervise", side_effect=execute) as executed, \
                             patch("ub_agents.coordination.shutil.which", return_value="/tools/runtime"):
                         self.assertTrue(loop.tick())
                     executed.assert_called_once()

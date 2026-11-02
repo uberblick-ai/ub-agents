@@ -549,7 +549,7 @@ class RuntimeUpdateTests(unittest.TestCase):
             self.assertIn("pass_fds", kwargs)
             self.assertTrue(self.manager.available("codex"))
             return 1
-        with patch("ub_agents.loop.supervise", side_effect=execution):
+        with patch("ub_agents.assignment_run.supervise", side_effect=execution):
             self.assertTrue(loop.tick())
         self.assertEqual(len(self.updates()), 1)
         loop.tick()
@@ -594,7 +594,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                     kwargs["observe_output"]()
                     return 1
 
-                with patch("ub_agents.loop.supervise", side_effect=execution) as run:
+                with patch("ub_agents.assignment_run.supervise", side_effect=execution) as run:
                     self.assertTrue(loop.tick())
                     history = loop.coordinator.history(1)
                     self.assertEqual((history[0]["result"], history[0]["attempt_effect"]),
@@ -636,7 +636,7 @@ class RuntimeUpdateTests(unittest.TestCase):
         self.assertEqual(github.writes, [])
         self.assertEqual(loop.plans()[0].state, "waiting")
         version.write_text("repaired")
-        with patch("ub_agents.loop.supervise", return_value=1) as run:
+        with patch("ub_agents.assignment_run.supervise", return_value=1) as run:
             self.assertTrue(loop.tick())
         self.assertEqual(run.call_args.args[0][0], str(self.bin / "codex"))
         self.assertTrue(loop.usage.paused("claude"))
@@ -936,7 +936,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                 def guarded_cleanup(workspace, *args, **kwargs):
                     check_deferred()
                     return cleanup(workspace, *args, **kwargs)
-                with patch("ub_agents.loop.supervise", side_effect=execution) as run, \
+                with patch("ub_agents.assignment_run.supervise", side_effect=execution) as run, \
                         patch.object(Workspace, "cleanup", guarded_cleanup):
                     self.assertTrue(loop.tick())
                 run.assert_called_once()
@@ -954,7 +954,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                 loop = Loop(settings, github, "operator", output=self.lines.append)
                 loop.maintenance = self.manager
                 loop.coordinator.runtime_available = self.manager.available
-                with patch("ub_agents.loop.supervise", return_value=1) as run:
+                with patch("ub_agents.assignment_run.supervise", return_value=1) as run:
                     self.assertTrue(loop.tick())
                 run.assert_called_once()
 
@@ -971,7 +971,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                 loop = Loop(settings, github, "operator", output=self.lines.append)
                 loop.maintenance = self.manager
                 loop.coordinator.runtime_available = self.manager.available
-                with lock(guard) as held, patch("ub_agents.loop.supervise") as run:
+                with lock(guard) as held, patch("ub_agents.assignment_run.supervise") as run:
                     self.assertIsNotNone(held)
                     self.assertFalse(loop.tick())
                 run.assert_not_called()
@@ -1055,13 +1055,13 @@ class RuntimeUpdateTests(unittest.TestCase):
                 loop.maintenance = self.manager_for()
                 loop.coordinator.runtime_available = loop.maintenance.available
                 for poll in (loop.tick, lambda: loop.tick_item(1)):
-                    with patch("ub_agents.loop.supervise") as run:
+                    with patch("ub_agents.assignment_run.supervise") as run:
                         self.assertFalse(poll())
                     run.assert_not_called()
                     self.assertEqual(github.writes, [])
                 self.assertIn("gh or ub became unavailable", self.lines[-1])
                 version.write_text("2.0")
-                with patch("ub_agents.loop.supervise", return_value=1) as run:
+                with patch("ub_agents.assignment_run.supervise", return_value=1) as run:
                     self.assertTrue(loop.tick())
                 run.assert_called_once()
                 self.assertEqual(loop.maintenance.read(state)["checked"], checked)
@@ -1133,7 +1133,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                 loop.maintenance = self.manager
                 loop.coordinator.runtime_available = self.manager.available
                 for poll in (loop.tick, lambda: loop.tick_item(1)):
-                    with patch("ub_agents.loop.supervise") as run, \
+                    with patch("ub_agents.assignment_run.supervise") as run, \
                             patch.object(github, "observe", side_effect=AssertionError("gh is under maintenance")), \
                             patch.object(github, "item", side_effect=AssertionError("gh is under maintenance")):
                         self.assertFalse(poll())
@@ -1159,7 +1159,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                         self.assertIsNotNone(stack.enter_context(lock(guard)))
                         return True
                     with patch.object(loop, "github_ready", side_effect=maintenance_wins), \
-                            patch("ub_agents.loop.supervise") as run, \
+                            patch("ub_agents.assignment_run.supervise") as run, \
                             patch.object(github, "observe", side_effect=AssertionError("gh is under maintenance")), \
                             patch.object(github, "item", side_effect=AssertionError("gh is under maintenance")):
                         self.assertFalse(loop.tick_item(1) if scoped else loop.tick())
@@ -1226,7 +1226,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                     return call
                 with patch.object(github, "create_comment", side_effect=guarded(github.create_comment)) as create, \
                         patch.object(github, "update_comment", side_effect=guarded(github.update_comment)) as update, \
-                        patch("ub_agents.loop.supervise") as run:
+                        patch("ub_agents.assignment_run.supervise") as run:
                     self.assertTrue(loop.tick_item(1) if scoped else loop.tick())
                 self.assertTrue(create.called)
                 self.assertTrue(update.called)
@@ -1290,7 +1290,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                 loop = Loop(agent_settings, github, "operator", output=self.lines.append)
                 loop.maintenance = self.manager_for()
                 loop.coordinator.runtime_available = loop.maintenance.available
-                with patch("ub_agents.loop.supervise") as run, \
+                with patch("ub_agents.assignment_run.supervise") as run, \
                         patch.object(github, "observe", side_effect=AssertionError("gh is unusable")):
                     self.assertFalse(loop.tick())
                 self.assertEqual(github.writes, [])
@@ -1307,7 +1307,7 @@ class RuntimeUpdateTests(unittest.TestCase):
                     self.manager_for().boundary(settings)
                     self.assertEqual(len(self.updates()), 1)
                     return 1
-                with patch("ub_agents.loop.supervise", side_effect=supervise_run):
+                with patch("ub_agents.assignment_run.supervise", side_effect=supervise_run):
                     self.assertTrue(loop.tick())
                 self.assertTrue(loop.maintenance.available("gh"))
                 self.assertEqual(loop.maintenance.read(state)["checked"], checked)

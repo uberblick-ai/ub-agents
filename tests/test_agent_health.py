@@ -116,13 +116,13 @@ class HealthGateTests(unittest.TestCase):
         other = agent(self.root, name='other', kind='issue', triggers=('other',))
         self.loop.config = config(self.root, self.agent, other)
         self.github.change(2, labels=frozenset({'other'}))
-        with patch('ub_agents.loop.supervise', side_effect=self.complete):
+        with patch('ub_agents.assignment_run.supervise', side_effect=self.complete):
             self.assertTrue(self.loop.tick())
         self.assertEqual(self.github.comments(1), [])
         self.assertEqual(self.github.item(1).labels, frozenset({'ready'}))
         self.assertEqual(self.loop.coordinator.history(2)[0]['agent'], 'other')
         self.check.return_value = None
-        with patch('ub_agents.loop.supervise', side_effect=self.complete):
+        with patch('ub_agents.assignment_run.supervise', side_effect=self.complete):
             self.assertTrue(self.loop.tick())
         history = self.loop.coordinator.history(1)
         self.assertEqual(history[0]['attempt'], 1)
@@ -134,7 +134,7 @@ class HealthGateTests(unittest.TestCase):
         self.github.items.pop(2)
         other = agent(self.root, name='other', kind='issue')
         self.loop.config = config(self.root, self.agent, other)
-        with patch('ub_agents.loop.supervise', side_effect=self.complete):
+        with patch('ub_agents.assignment_run.supervise', side_effect=self.complete):
             self.assertTrue(self.loop.tick())
         history = self.loop.coordinator.history(1)
         self.assertTrue(all(r['agent'] == 'other' for r in history))
@@ -204,7 +204,7 @@ class HealthGateTests(unittest.TestCase):
         co.update(lease, state='running', started=True)
         co.report(lease, 'success', 'Already finished', outcome='done')
         self.now += 61
-        with patch('ub_agents.loop.supervise', side_effect=AssertionError('recovery only')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('recovery only')):
             self.assertTrue(self.loop.tick())
         self.check.assert_not_called()
         self.assertTrue(co.history(1)[1]['accepted'])
@@ -230,7 +230,7 @@ class HealthGateTests(unittest.TestCase):
 
     def test_stale_ready_plan_is_gated_before_refresh_and_any_assignment_write(self):
         plan = self.loop.coordinator.plan(self.github.item(1), self.agent, ())
-        with patch('ub_agents.loop.supervise') as execute:
+        with patch('ub_agents.assignment_run.supervise') as execute:
             self.assertFalse(self.loop.execute(plan))
         self.refresh.assert_not_called()
         execute.assert_not_called()
@@ -294,7 +294,7 @@ class HealthGateTests(unittest.TestCase):
         self.loop.tick()
         self.assertEqual(publisher.snapshots[-1]['health_notice'], self.lines[-1])
         self.check.return_value = None
-        with patch('ub_agents.loop.supervise', side_effect=self.complete):
+        with patch('ub_agents.assignment_run.supervise', side_effect=self.complete):
             self.loop.tick()
         self.assertEqual(publisher.snapshots[-1]['health_notice'],
                          'worker: health check /check-corpus --cheap passed — claiming resumes')

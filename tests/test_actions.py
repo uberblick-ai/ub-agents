@@ -149,13 +149,13 @@ class ActionReportTests(unittest.TestCase):
                         lease = self.claim()
                         report(lease)
                         self.now += 61
-                        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
                             self.assertTrue(self.loop.tick())
                     else:
                         def run(*args, **kwargs):
                             report(self.co.history(1)[0])
                             return 0
-                        with patch('ub_agents.loop.supervise', side_effect=run):
+                        with patch('ub_agents.assignment_run.supervise', side_effect=run):
                             self.assertTrue(self.loop.tick())
                     outcome = next(r for r in self.co.history(1) if r['kind'] == 'outcome')
                     self.assertNotIn('rejected', outcome)
@@ -233,7 +233,7 @@ class ActionReportTests(unittest.TestCase):
                 def run(*args, **kwargs):
                     self.remove_action(self.co.history(1)[0], status)
                     return 0
-                with patch('ub_agents.loop.supervise', side_effect=run):
+                with patch('ub_agents.assignment_run.supervise', side_effect=run):
                     self.assertTrue(self.loop.tick())
                 lease, outcome = self.co.history(1)
                 self.assertEqual((lease['result'], lease['attempt_effect']), ('blocked', 'failure'))
@@ -249,7 +249,7 @@ class ActionReportTests(unittest.TestCase):
                 outcome = self.remove_action(lease, status)
                 self.assertEqual(self.co.history(1)[1]['id'], outcome['id'])
                 self.now += 61
-                with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
                     self.assertTrue(self.loop.tick())
                 reported = self.co.history(1)[1]
                 self.assertIn('rejected', reported)
@@ -257,7 +257,7 @@ class ActionReportTests(unittest.TestCase):
                 self.assertNotIn('needs-human', self.github.item(1).labels)
 
     def test_launcher_only_blocked_release_collapses_full_details(self):
-        with patch('ub_agents.loop.supervise', side_effect=RuntimeError('Missing evidence')):
+        with patch('ub_agents.assignment_run.supervise', side_effect=RuntimeError('Missing evidence')):
             self.assertTrue(self.loop.tick())
         lease, outcome = self.co.history(1)
         self.assertTrue(lease['unreported'])
@@ -281,13 +281,13 @@ class ActionReportTests(unittest.TestCase):
                         lease = self.claim()
                         bypass(lease)
                         self.now += 61
-                        with patch('ub_agents.loop.supervise', side_effect=AssertionError('must not execute')):
+                        with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
                             self.assertTrue(self.loop.tick())
                     else:
                         def run(*args, **kwargs):
                             bypass(self.co.history(1)[0])
                             return 1
-                        with patch('ub_agents.loop.supervise', side_effect=run):
+                        with patch('ub_agents.assignment_run.supervise', side_effect=run):
                             self.assertTrue(self.loop.tick())
                     history = self.co.history(1)
                     leases = [r for r in history if r['kind'] == 'lease']

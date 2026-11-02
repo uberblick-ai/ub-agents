@@ -51,7 +51,7 @@ Explained on the website: [Configuration](https://agents.uberblick.ai/docs/confi
 | `shared-instructions` | Path, optional | Policy read before every role's instructions. Relative to the configuration file, inside the project (including symlink targets) and readable UTF-8. |
 | `limits` | Mapping | See [Limits](#limits). |
 | `poll-seconds` | Positive number, `30` | Minimum gap between discovery-pass starts. See [polling](polling.md). |
-| `stop-labels` | Label or list, `[needs-human]` | Labels that park an item. `[]` configures none. |
+| `stop-labels` | Label or list, `[needs-human]` | Labels that park an item and stop a running agent at its next lease renewal check. `[]` configures none. |
 | `approvals` | `on` or `off` | When unset, resolved each pass from visibility: `on` for public, `off` for private and internal. See [approvals](approvals.md). |
 | `trusted-bots` | List, `[]` | Bot logins trusted for feedback only, unique ignoring case. See [trusted bots](approvals.md#trusted-bots). |
 | `trusted-pr-authors` | List, `[]` | Bot logins trusted as same-repository PR authors with approvals on; bodies stay withheld. Unique ignoring case. See [trusted PR authors](approvals.md#trusted-pr-authors). |
@@ -559,6 +559,7 @@ runtime-updates:
 | Key | Type and default | Rules |
 |---|---|---|
 | `claude`, `codex`, `gh`, `ub` | `auto`, `off` (default) or `{command: [...]}` | A command runs as argv without a shell, in the launcher's environment, and resolves like `command`. It must not start with `sudo`, `su`, `doas` or `pkexec`, and should update only that CLI. |
+| `ub-agents` | `auto` or `off` (default) | Only continuous launches of the `uberblick-ai/tap/ub-agents` Homebrew formula qualify; no custom command. Older launchers reject this key. |
 | `timeout-seconds` | Number, `300` | Positive, at most 3600. |
 
 Without `runtime-updates`, nothing runs. Claude Code and Codex are checked only when an
@@ -604,6 +605,16 @@ until a health check passes; other projects can still run.
 
 `ub-agents init` writes `ub: auto` only when updates are enabled and the Uberblick
 extra is selected.
+
+`ub-agents: auto` uses the launcher's daily release check and the same timeout.
+It upgrades only when no run, recovery, checkout refresh or setup is active and
+restarts only on a newer installed version, including after an external upgrade.
+All intervening releases must explicitly permit independent upgrades; coordinated
+or unreadable markers block automatic action. Failures retry at the next daily
+check. Process replacement retains the PID and arguments, and `SIGTERM` during an
+upgrade finishes the command and exits without restarting. See
+[automatic launcher upgrades](operations.md#stopping-and-restarting) for service
+behavior, logs and installation protection.
 
 ### Runtime permissions
 

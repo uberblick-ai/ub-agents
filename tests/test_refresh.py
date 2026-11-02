@@ -16,6 +16,7 @@ from ub_agents.config import Runtime, load_config
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
+from ub_agents.settlement import Settlement
 from ub_agents.records import issue_branch, attempts, seconds, timestamp
 from ub_agents.refresh import refresh_checkout
 from ub_agents.updates import Updates
@@ -108,8 +109,8 @@ class RefreshTests(unittest.TestCase):
     def stopped(self, condition, next_step="restore readable, valid instruction files and launch again", once=True):
         before, writes = self.snapshot(), list(self.github.writes)
         stderr = io.StringIO()
-        with patch("ub_agents.loop.supervise") as execution, \
-                patch("ub_agents.loop.Workspace.prepare") as prepare, \
+        with patch("ub_agents.assignment_run.supervise") as execution, \
+                patch("ub_agents.assignment_run.Workspace.prepare") as prepare, \
                 patch.object(self.loop.stop_event, "wait") as wait, \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 patch("ub_agents.cli.load_config", return_value=self.loop.config), \
@@ -144,7 +145,7 @@ class RefreshTests(unittest.TestCase):
             self.loop.coordinator.report(lease, "success", "Synthetic run finished", outcome="done")
             return 0
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise", side_effect=run):
+                patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
         for item in self.github.items.values():
             if self.loop.coordinator.history(item.number):
@@ -235,7 +236,7 @@ class RefreshTests(unittest.TestCase):
                         patch('ub_agents.cli.GitHub', return_value=self.github), \
                         patch('ub_agents.cli.repository_checks', return_value=[]), \
                         patch('ub_agents.coordination.shutil.which', return_value='installed'), \
-                        patch('ub_agents.loop.supervise') as execution, \
+                        patch('ub_agents.assignment_run.supervise') as execution, \
                         redirect_stderr(launch_error):
                     self.assertEqual(main(args + ['launch', '--once']), 1)
                 with patch.object(Path, 'read_text', read):
@@ -312,7 +313,7 @@ class RefreshTests(unittest.TestCase):
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
                         patch("ub_agents.cli.Loop", side_effect=loop), \
                         patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                        patch("ub_agents.loop.supervise") as execution, \
+                        patch("ub_agents.assignment_run.supervise") as execution, \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                     self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]), 0)
                 execution.assert_not_called()
@@ -343,6 +344,15 @@ class RefreshTests(unittest.TestCase):
     def test_reload_between_runs_changes_runtime_instructions_triggers_and_report_outcomes(self):
         self.enable_reload()
         calls = []
+        settlements = []
+
+        def create_settlement(*args):
+            component = Settlement(*args)
+            self.assertIs(component.config, self.loop.config)
+            self.assertIs(component.github, self.loop.github)
+            self.assertIs(component.github, self.loop.coordinator.github)
+            settlements.append(component)
+            return component
 
         def run(command, cwd, env, run_dir, timeout, stop, prompt, **kwargs):
             number = int(env["UB_AGENTS_ASSIGNMENT"])
@@ -374,10 +384,16 @@ class RefreshTests(unittest.TestCase):
 
         self.github.change(3, labels=frozenset({"ready", "needs-changes"}))
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise", side_effect=run):
+                patch("ub_agents.assignment_run.Settlement", side_effect=create_settlement), \
+                patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
             self.assertTrue(self.loop.tick())
         self.assertEqual(calls, [1, 3])
+        self.assertEqual(len(settlements), 2)
+        self.assertIsNot(settlements[0], settlements[1])
+        self.assertIsNot(settlements[0].config, settlements[1].config)
+        self.assertEqual(settlements[0].config.agents[0].triggers, ("ready",))
+        self.assertEqual(settlements[1].config.agents[0].triggers, ("needs-changes",))
         self.assert_success(1)
         self.assert_success(3)
         self.assertEqual(self.github.item(3).labels, frozenset({"ready", "needs-review"}))
@@ -411,7 +427,7 @@ class RefreshTests(unittest.TestCase):
             return 0
 
         with patch('ub_agents.coordination.shutil.which', side_effect=lambda cli: f'/tools/{cli}'), \
-                patch('ub_agents.loop.supervise', side_effect=run):
+                patch('ub_agents.assignment_run.supervise', side_effect=run):
             for _ in range(4):
                 self.assertTrue(self.loop.tick())
         self.assertEqual([runtimes for runtimes, _ in calls],
@@ -438,6 +454,35 @@ class RefreshTests(unittest.TestCase):
             self.assertEqual(renewal.next_renewal - seconds(lease['created']), 120)
         self.execute(inspect)
 
+    def test_reload_reconfigures_all_fields_on_the_existing_coordinator_and_trust(self):
+        self.enable_reload()
+        coordinator = self.loop.coordinator
+        trust = coordinator.trust
+        notices = coordinator.notices
+        queue = coordinator.queue
+        (self.root / 'ub-agents.local.yaml').write_text(
+            'queue: {dependencies: ignore}\n'
+            'limits: {lease-minutes: 5, lease-renew-minutes: 2}\n'
+            'launchers: [OPERATOR]\n'
+            'trusted-bots: ["FeedbackBot[bot]"]\n'
+            'trusted-pr-authors: ["authorbot[bot]"]\n')
+
+        def inspect(cwd, prompt):
+            self.assertIs(self.loop.coordinator, coordinator)
+            self.assertIs(coordinator.trust, trust)
+            self.assertIs(coordinator.notices, notices)
+            self.assertIs(notices.trusted, trust)
+            self.assertIs(self.loop._renewal.coordinator, coordinator)
+            self.assertIs(coordinator.queue, self.loop.config.queue)
+            self.assertNotEqual(coordinator.queue, queue)
+            self.assertEqual(coordinator.queue.dependencies, 'ignore')
+            self.assertEqual(coordinator.lease_seconds, 300)
+            self.assertEqual(coordinator.lease_renew_seconds, 120)
+            self.assertEqual(trust.trusted_bots, {'feedbackbot[bot]'})
+            self.assertEqual(trust.trusted_pr_authors, {'authorbot[bot]'})
+            self.assertEqual(trust.launchers, {'operator'})
+        self.execute(inspect)
+
     def test_invalid_local_reload_stops_before_claim_with_the_same_error_as_offline_doctor(self):
         self.enable_reload()
         local = self.root / 'ub-agents.local.yaml'
@@ -451,8 +496,8 @@ class RefreshTests(unittest.TestCase):
                         patch('ub_agents.cli.launch_checks'), \
                         patch('ub_agents.cli.Loop', return_value=self.loop), \
                         patch('ub_agents.coordination.shutil.which', return_value='installed'), \
-                        patch('ub_agents.loop.supervise') as execution, \
-                        patch('ub_agents.loop.Workspace.prepare') as prepare, \
+                        patch('ub_agents.assignment_run.supervise') as execution, \
+                        patch('ub_agents.assignment_run.Workspace.prepare') as prepare, \
                         redirect_stderr(io.StringIO()) as launch_error, redirect_stdout(io.StringIO()):
                     self.assertEqual(main(['--config', str(self.loop.config_path), 'launch', '--once', '--no-ui']), 1)
                 self.assertEqual(' '.join(launch_error.getvalue().split()), f'ub-agents: {self.offline_failure()}')
@@ -493,7 +538,7 @@ class RefreshTests(unittest.TestCase):
                 self.commit(self.upstream)
                 git(self.upstream, "push", "origin", "main")
                 with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                        patch("ub_agents.loop.supervise") as execution:
+                        patch("ub_agents.assignment_run.supervise") as execution:
                     self.assertFalse(self.loop.tick())
                 execution.assert_not_called()
                 self.assertEqual(self.github.writes, [])
@@ -522,13 +567,13 @@ class RefreshTests(unittest.TestCase):
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise") as execution, \
+                patch("ub_agents.assignment_run.supervise") as execution, \
                 self.assertRaisesRegex(AgentError, "origin must point to the configured GitHub repository"):
             self.loop.launch(once=True)
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
 
-    def test_invalid_reloaded_config_exits_with_offline_doctor_error_without_charging_attempt(self):
+    def test_invalid_reloaded_config_once_exits_with_offline_doctor_error_without_charging_attempt(self):
         (self.upstream / "ub-agents.yaml").write_text("invalid: configuration\n")
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
@@ -537,9 +582,9 @@ class RefreshTests(unittest.TestCase):
         with patch("ub_agents.cli.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise") as execution, \
+                patch("ub_agents.assignment_run.supervise") as execution, \
                 redirect_stderr(launch_error):
-            self.assertEqual(main(args + ["launch"]), 1)
+            self.assertEqual(main(args + ["launch", "--once"]), 1)
         self.assertEqual(launch_error.getvalue(), f'ub-agents: {self.offline_failure()}\n')
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
@@ -555,7 +600,7 @@ class RefreshTests(unittest.TestCase):
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.launch_checks"), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise") as execution, redirect_stderr(stderr):
+                patch("ub_agents.assignment_run.supervise") as execution, redirect_stderr(stderr):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)
         message = stderr.getvalue()
         self.assertTrue(message.startswith(f"ub-agents: {self.root}: worker instructions is unreadable:"), message)
@@ -633,7 +678,7 @@ class RefreshTests(unittest.TestCase):
                 with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                         patch("ub_agents.loop.timestamp", return_value=1000), \
                         patch.object(self.loop.stop_event, "wait", side_effect=wait) as waits, \
-                        patch("ub_agents.loop.supervise", side_effect=run) as execution, \
+                        patch("ub_agents.assignment_run.supervise", side_effect=run) as execution, \
                         self.assertRaises(KeyboardInterrupt):
                     self.loop.launch()
                 waits.assert_called_once()
@@ -656,7 +701,7 @@ class RefreshTests(unittest.TestCase):
                 before = self.snapshot()
                 with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                         patch.object(self.loop.stop_event, "wait") as wait, \
-                        patch("ub_agents.loop.supervise") as execution, self.assertRaises(AgentError) as raised:
+                        patch("ub_agents.assignment_run.supervise") as execution, self.assertRaises(AgentError) as raised:
                     self.loop.launch(once=once)
                 wait.assert_not_called()
                 execution.assert_not_called()
@@ -865,7 +910,7 @@ class RefreshTests(unittest.TestCase):
                                          outcome="done")
             return 0
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise", side_effect=run):
+                patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
         self.assert_success(2)
 
@@ -917,7 +962,7 @@ class RefreshTests(unittest.TestCase):
             self.loop.coordinator.report(current, "success", "Continued checkpoint", handoff=2, outcome="done")
             return 0
         with patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.loop.supervise", side_effect=run):
+                patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(self.loop.tick())
         self.assert_success(1)
 

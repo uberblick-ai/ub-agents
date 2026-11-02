@@ -83,48 +83,10 @@ class LauncherMerge:
                                         "a new integrator run must evaluate the candidate")
         else:
             deadline = deadline if deadline is not None else seconds(lease["created"]) + plan.agent.timeout_seconds
-            unknown_reads = 0
-            while True:
-                self.open_candidate(current, plan)
-                checks = self.github.commit_checks(sha)
-                failed = [name for name, state in checks if state == "fail"]
-                if failed:
-                    self.route_failure(lease, plan, outcome, "failing checks: " + ", ".join(failed))
-                    return
-                pending = [name for name, state in checks if state == "pending"]
-                if not checks or pending:
-                    reason = "pending checks: " + ", ".join(pending) if pending else "checks to be reported"
-                    self.wait(lease, CHECK_POLL_SECONDS, deadline, reason)
-                    current = self.current(lease, plan, outcome)
-                    continue
-                current = self.current(lease, plan, outcome)
-                self.open_candidate(current, plan)
-                if current.mergeable is not None:
-                    break
-                unknown_reads += 1
-                if unknown_reads == MERGEABILITY_READS:
-                    raise TransitionPaused("Merge refused: mergeability is still unknown")
-                self.wait(lease, MERGEABILITY_POLL_SECONDS, deadline, "mergeability")
-                # CI can be rerun while GitHub computes mergeability. Every
-                # wait returns through the check gate before authorizing merge.
-                current = self.current(lease, plan, outcome)
-            if current.mergeable is False:
-                self.route_failure(lease, plan, outcome, "PR conflicts with its base branch")
+            current = self.checked_candidate(lease, plan, outcome, current, deadline)
+            if current is None:
                 return
-            if self.coordinator.clock() >= deadline:
-                raise TransitionPaused("Merge refused: agent-timeout deadline reached before merging")
-            # This is the only merge mutation. A lost response is resolved by a
-            # read, never by replaying the command, including during recovery.
-            self.coordinator.assert_owned(lease)
-            error = None
-            try:
-                self.github.merge_pr(current.number, transition["merge"], sha)
-            except GitHubError as exc:
-                error = exc
-            current = self.current(lease, plan, outcome)
-            if not self.confirm(current, sha):
-                raise TransitionPaused(f"Merge refused: merge was not confirmed from {sha} on the base branch"
-                                       + (f"; {error}" if error else ""))
+            current = self.merge_candidate(lease, plan, outcome, current)
         if outcome.get("merge_commit_sha") != current.merge_commit_sha or not transition["started"]:
             summary = outcome["summary"]
             if outcome.get("merge_commit_sha") != current.merge_commit_sha:
@@ -133,6 +95,56 @@ class LauncherMerge:
             # in the same write as its receipt, before replayable label changes.
             self.coordinator.update_outcome(lease, outcome, merge_commit_sha=current.merge_commit_sha,
                                             transition=transition | {"started": True}, summary=summary)
+
+    def checked_candidate(self, lease, plan, outcome, current, deadline):
+        """Wait for exact-head checks and mergeability, or route a fixable refusal."""
+        unknown_reads = 0
+        while True:
+            self.open_candidate(current, plan)
+            checks = self.github.commit_checks(outcome["candidate_sha"])
+            failed = [name for name, state in checks if state == "fail"]
+            if failed:
+                self.route_failure(lease, plan, outcome, "failing checks: " + ", ".join(failed))
+                return None
+            pending = [name for name, state in checks if state == "pending"]
+            if not checks or pending:
+                reason = "pending checks: " + ", ".join(pending) if pending else "checks to be reported"
+                self.wait(lease, CHECK_POLL_SECONDS, deadline, reason)
+                current = self.current(lease, plan, outcome)
+                continue
+            current = self.current(lease, plan, outcome)
+            self.open_candidate(current, plan)
+            if current.mergeable is not None:
+                break
+            unknown_reads += 1
+            if unknown_reads == MERGEABILITY_READS:
+                raise TransitionPaused("Merge refused: mergeability is still unknown")
+            self.wait(lease, MERGEABILITY_POLL_SECONDS, deadline, "mergeability")
+            # CI can be rerun while GitHub computes mergeability. Every
+            # wait returns through the check gate before authorizing merge.
+            current = self.current(lease, plan, outcome)
+        if current.mergeable is False:
+            self.route_failure(lease, plan, outcome, "PR conflicts with its base branch")
+            return None
+        if self.coordinator.clock() >= deadline:
+            raise TransitionPaused("Merge refused: agent-timeout deadline reached before merging")
+        return current
+
+    def merge_candidate(self, lease, plan, outcome, current):
+        # This is the only merge mutation. A lost response is resolved by a
+        # read, never by replaying the command, including during recovery.
+        self.coordinator.assert_owned(lease)
+        error = None
+        sha = outcome["candidate_sha"]
+        try:
+            self.github.merge_pr(current.number, outcome["transition"]["merge"], sha)
+        except GitHubError as exc:
+            error = exc
+        current = self.current(lease, plan, outcome)
+        if not self.confirm(current, sha):
+            raise TransitionPaused(f"Merge refused: merge was not confirmed from {sha} on the base branch"
+                                   + (f"; {error}" if error else ""))
+        return current
 
     def close_issues(self, lease, number):
         # Issue closure follows acceptance and cannot change its verdict.

@@ -66,6 +66,7 @@ agents:
     trigger: [ready, needs-changes]
     outcomes:
       handed-off: {add: [needs-review]}
+      needs-human: {add: [needs-human]}
     instructions: .agents/implementer.md
     worktree: true
     agent-timeout-minutes: 180

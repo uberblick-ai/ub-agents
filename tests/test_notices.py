@@ -17,7 +17,7 @@ from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER, action_body, notice_reason
 from ub_agents.records import attempts, body, display_provenance, iso, payload, records, seconds
-from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
+from tests.support import settlement, FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
 class NoticeTests(unittest.TestCase):
@@ -140,6 +140,17 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(self.github.item(1).labels, labels)
         self.assertEqual([w for w in self.github.writes if w[0] == "minimize"],
                          [("minimize", lease["id"], "OUTDATED")])
+
+    def test_release_without_action_notice_still_minimizes_superseded_records(self):
+        first = self.start()
+        earlier = self.co.report(first, "retry", "Transient failure")
+        self.co.release(first, "retry", "Transient failure")
+        latest = self.start()
+        self.co.report(latest, "blocked", "Early report", action="Maintainer: decide the next step.")
+        self.co.update(latest, action_needed=False)
+        self.co.release(latest, "blocked", "Issue closed", attempt_effect="unchanged", unreported=True)
+        self.assertEqual(self.github.minimized_ids, {first["id"], earlier["id"]})
+        self.assertEqual(self.notices(), [])
 
     def test_unreported_release_keeps_its_claim_expanded(self):
         lease = self.start()
@@ -405,7 +416,7 @@ class NoticeTests(unittest.TestCase):
         self.now += 61
         loop = Loop(config(self.root, worker), self.github, "operator", output=self.output.append)
         loop.coordinator.clock = lambda: self.now
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.recover(loop.coordinator.plan(self.github.item(1), worker, ("needs-human",))))
         self.assertEqual({c["id"] for c in self.github.comments(2) if c["id"] in self.github.minimized_ids},
                          {old["id"], old_outcome["id"]})
@@ -663,7 +674,7 @@ class NoticeTests(unittest.TestCase):
             loop.coordinator.report(loop.coordinator.history(number)[0], "success",
                                     "Maintainer must merge because docs changed", handoff=handoff, outcome="human", action=action, option=option)
             return 0
-        with patch("ub_agents.loop.supervise", side_effect=run):
+        with patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(loop.tick())
         return loop, github
 
@@ -775,7 +786,7 @@ class NoticeTests(unittest.TestCase):
                         outcomes={"other": {"add": ("wrong",), "remove": ()}})
         loop = Loop(config(self.root, changed), self.github, "operator", output=self.output.append)
         loop.coordinator.clock = lambda: self.now
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(loop.tick())
         notice = self.notices(2)[0]["body"]
         self.assertIn(f"Recovered {lease['run']}:\n\n{summary}", notice)
@@ -797,13 +808,13 @@ class NoticeTests(unittest.TestCase):
                         outcomes={"other": {"add": ("wrong",), "remove": ()}})
         restarted = Loop(config(self.root, changed), self.github, "operator", output=self.output.append)
         restarted.coordinator.clock = lambda: self.now
-        with patch("ub_agents.loop.supervise", side_effect=AssertionError("must not execute")):
+        with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
             self.assertTrue(restarted.tick())
         copied, = restarted.coordinator.history(2)
         self.assertTrue(copied["accepted"])
         self.assertTrue(copied["transition_complete"])
         self.assertEqual(copied["assignment"], 1)
-        self.assertEqual(restarted.validate_report(copied)["triggers"], ["ready", "different"])
+        self.assertEqual(settlement(restarted).validate_report(copied)["triggers"], ["ready", "different"])
         recovery = next(r for r in restarted.coordinator.history(1)
                         if r["kind"] == "lease" and r.get("mode") == "recovery")
         self.assertNotIn("outcomes", recovery)
@@ -854,7 +865,7 @@ class NoticeTests(unittest.TestCase):
                     # Restarting between attempts must retain the count and backoff.
                     loop = Loop(cfg, github, "operator", output=self.output.append)
                     loop.coordinator.clock = lambda: self.now
-                    with patch("ub_agents.loop.supervise", return_value=code), \
+                    with patch("ub_agents.assignment_run.supervise", return_value=code), \
                             patch("ub_agents.loop.socket.gethostname", return_value="launcher-host"):
                         self.assertTrue(loop.tick())
                     history = loop.coordinator.history(1)
@@ -901,7 +912,7 @@ class NoticeTests(unittest.TestCase):
             return original(number, text)
 
         with patch.object(self.github, "create_comment", side_effect=create), \
-                patch("ub_agents.loop.supervise", return_value=7):
+                patch("ub_agents.assignment_run.supervise", return_value=7):
             self.assertTrue(loop.tick())
         lease, outcome = loop.coordinator.history(1)
         self.assertEqual((lease["result"], lease["attempt_effect"], outcome["status"]),
@@ -949,7 +960,7 @@ class NoticeTests(unittest.TestCase):
             return 0
 
         with patch.object(self.github, "create_comment", side_effect=create), \
-                patch("ub_agents.loop.supervise", side_effect=run):
+                patch("ub_agents.assignment_run.supervise", side_effect=run):
             loop.tick()
         lease, outcome = loop.coordinator.history(1)
         self.assertEqual((lease["result"], outcome["accepted"], outcome["transition_complete"]), ("success", True, True))

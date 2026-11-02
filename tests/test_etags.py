@@ -354,7 +354,7 @@ class RequestBudgetTests(unittest.TestCase):
                 # Reproduce the previous read strategy against the same durable
                 # store and HTTP recording runner for an explicit comparison.
                 unshared = patch.object(loop.github, 'begin_finalization') if not shared else nullcontext()
-                with unshared, patch('ub_agents.loop.supervise', side_effect=execute):
+                with unshared, patch('ub_agents.assignment_run.supervise', side_effect=execute):
                     self.assertTrue(loop.tick())
                 lease, outcome = records(runner.store.comments(1), 'operator')
                 self.assertEqual((lease['state'], lease['result']), ('released', 'success'))
@@ -381,7 +381,7 @@ class RequestBudgetTests(unittest.TestCase):
             loop.coordinator.report(lease, 'success', 'Ready for recovery', outcome='done')
             now += 61
             before = len(runner.calls)
-            with patch('ub_agents.loop.supervise') as execute:
+            with patch('ub_agents.assignment_run.supervise') as execute:
                 self.assertTrue(loop.tick())
             execute.assert_not_called()
             recovery = [record for record in records(runner.store.comments(1), 'operator')
@@ -440,7 +440,7 @@ class RequestBudgetTests(unittest.TestCase):
             with patch.object(loop.coordinator, 'claim', side_effect=claiming), \
                     patch.object(loop.coordinator, 'release', side_effect=releasing), \
                     patch.object(loop, '_replan_finished_item', side_effect=lambda plan: github.comments(1)), \
-                    patch('ub_agents.loop.supervise', side_effect=execute):
+                    patch('ub_agents.assignment_run.supervise', side_effect=execute):
                 self.assertTrue(loop.tick())
 
             def counts(calls):
@@ -491,7 +491,7 @@ class RequestBudgetTests(unittest.TestCase):
                     loop.coordinator.report(lease, 'success', 'Candidate ready', handoff=31, outcome='done')
                     return 0
 
-                with patch('ub_agents.loop.supervise', side_effect=execute) as executed:
+                with patch('ub_agents.assignment_run.supervise', side_effect=execute) as executed:
                     self.assertTrue(loop.tick())
                 executed.assert_called_once()
                 history = records(runner.store.comments(1), 'operator')

@@ -3,13 +3,20 @@
 import threading
 import subprocess
 from copy import deepcopy
+from contextlib import contextmanager
 from time import monotonic
 
+from .approvals import pr_author_exclusions
+from .coordination import Coordinator
+from .discovery import Discovery
 from .errors import GitHubError
+from .finalization import FinalizationReads
 from .github import GitHub, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS
+from .pass_messages import PassMessages
 from .polling import IDLE_MAX_SECONDS, idle_interval
+from .queue_planner import QueuePlanner
 from .rate_limits import READS
-from .request_stats import COUNTERS
+from .request_stats import COUNTERS, DiscoveryPass, PassOutput
 
 
 class _Cancelled(Exception):
@@ -43,6 +50,78 @@ class PassEvents:
         return lambda *args: self.events.append((name, args))
 
 
+class ObservationPlanner:
+    """Worker-owned planning state with snapshots and shared runtime helpers."""
+
+    def __init__(self, loop, github):
+        self.config = loop.config
+        self.output = lambda *_: None
+        self.observer = None
+        self._observation_warning = False
+        self._observer_lock = threading.RLock()
+        self.github = FinalizationReads(github, self._rate_limit_error)
+        approvals = self.config.approvals or "on"
+        self.coordinator = Coordinator(self.github, loop.coordinator.actor, output=self.output,
+                                       on_author=lambda *args: self.observe("coordination_author", *args))
+        self.coordinator.reconfigure(self.config, pr_author_exclusions(
+            self.config.trusted_pr_authors, approvals, self.github))
+        self._launch_agent = loop._launch_agent
+        self.discovery_budget = loop.discovery_budget
+        self.discovery = Discovery(self.github)
+        for name in ("items", "closed_items", "comments_index", "cache", "comment_store",
+                     "reconciled_comments", "comment_window_start", "repository_index", "bulk_inputs"):
+            setattr(self.discovery, name, deepcopy(getattr(loop.discovery, name)))
+        self.coordinator.clock = loop.coordinator.clock
+        self.usage = loop.usage
+        self.health = loop.health
+        self.maintenance = loop.maintenance
+        self.coordinator.runtime_paused = self.usage.paused
+        self.coordinator.runtime_available = self.maintenance.available
+        self.pass_output = PassOutput(self.output)
+        self.pass_messages = PassMessages(self.output)
+        self._pass_stats = None
+        self.queue_planner = QueuePlanner(
+            lambda: self.config, lambda: self.github, lambda: self.coordinator, approvals,
+            health=lambda: self.health, usage=lambda: self.usage, maintenance=lambda: self.maintenance,
+            output=self.output, observe=self.observe, before_claim=None, reconcile_blocked_notices=None,
+            targeted=lambda: False, claiming=lambda: False, notice_agent=lambda: self._launch_agent,
+            discovery=lambda: self.discovery, pass_stats=lambda: self._pass_stats,
+            launch_agent=lambda: self._launch_agent, launch_number=lambda: None)
+
+    @staticmethod
+    def _rate_limit_error(exc, lease):
+        # Observation reads report limits to the worker; only owned runs wait.
+        raise exc
+
+    def observe(self, method, *args):
+        with self._observer_lock:
+            if self.observer is not None:
+                try:
+                    getattr(self.observer, method)(*args)
+                except Exception as exc:
+                    if not self._observation_warning:
+                        self._observation_warning = True
+                        if hasattr(self.observer, "warning"):
+                            self.observer.warning(str(exc))
+                        else:
+                            self.output(f"Cannot publish launcher observations: {exc}")
+
+    @contextmanager
+    def discovery_pass(self, kind="empty", output=None):
+        self._pass_stats = DiscoveryPass(self.github, output or self.pass_output, kind,
+                                         debit=self.discovery_budget.debit)
+        self.pass_messages.begin_pass()
+        try:
+            yield
+        finally:
+            self._pass_stats.finish()
+            self._pass_stats = None
+            self.pass_messages.end_pass()
+
+    def iter_plans(self):
+        return self.queue_planner.iter_plans()
+
+
 class RunPlanning:
     def __init__(self, loop, started, clock=None):
         self.loop = loop
@@ -68,19 +147,7 @@ class RunPlanning:
         self.refreshing = False
         self.started = started
         self.rate_until = None
-        from .loop import Loop
-        self.planner = Loop(loop.config, ObservationReads(github, self.stop),
-                            loop.coordinator.actor, output=lambda *_: None)
-        self.planner._launch_agent = loop._launch_agent
-        self.planner.discovery_budget = loop.discovery_budget
-        # Retain discovery inputs, not the launcher's client or pass-local state.
-        for name in ("items", "closed_items", "comments_index", "cache", "comment_store",
-                     "reconciled_comments", "comment_window_start", "repository_index", "bulk_inputs"):
-            setattr(self.planner.discovery, name, deepcopy(getattr(loop.discovery, name)))
-        self.planner.coordinator.clock = loop.coordinator.clock
-        self.planner.usage = loop.usage
-        self.planner.health = loop.health
-        self.planner.maintenance = loop.maintenance
+        self.planner = ObservationPlanner(loop, ObservationReads(github, self.stop))
         self.thread = threading.Thread(target=self._run, name="run-planning")
 
     def start(self):
@@ -100,14 +167,14 @@ class RunPlanning:
         with self.lock:
             if not self.stop.is_set():
                 self.refreshing = True
-                self.loop._observe("poll_refresh", True)
+                self.loop.observe("poll_refresh", True)
 
     def _finish_refresh(self):
         # Called under the worker lock, including cancellation while a read is
         # still blocked. Its eventual return must not clear a newer poll's state.
         if self.refreshing:
             self.refreshing = False
-            self.loop._observe("poll_refresh", False)
+            self.loop.observe("poll_refresh", False)
 
     def _wait(self, delay, rate_until):
         control = self.loop.poll_now
@@ -122,7 +189,7 @@ class RunPlanning:
                         return True
         return control.wait(self.stop, max(0, deadline - self.clock()), on_request=self._requested)
 
-    def _run(self):
+    def _run(self):  # noqa: C901, PLR0912
         elapsed = self.clock() - self.started
         interval, _ = idle_interval(self.loop.discovery_budget.wait_seconds(),
                                     self.planner.config.poll_seconds,
@@ -158,7 +225,7 @@ class RunPlanning:
                             return
                 with self.lock:
                     if not self.stop.is_set():
-                        self.loop._observe("observation_pass", observed_at, events.events)
+                        self.loop.observe("observation_pass", observed_at, events.events)
             except _Cancelled:
                 return
             except KeyboardInterrupt:

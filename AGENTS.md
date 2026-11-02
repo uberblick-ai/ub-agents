@@ -7,7 +7,9 @@ the loop for this repository; agents run in private worktrees under `.ub-agents/
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -q -e .
+.venv/bin/pip install -q -e . -r requirements-dev.txt
+.venv/bin/ruff check src
+.venv/bin/mypy
 .venv/bin/python -m tests
 .venv/bin/ub-agents doctor --offline
 git diff --check
@@ -21,6 +23,7 @@ GitHub Actions runs the `Test` workflow (`.github/workflows/test.yml`) on every 
 after each merge to main. It covers Linux and macOS with Python 3.11 and 3.14. Its
 `Test result` check gates merges through the main ruleset, and the release check
 requires a green run on the release commit.
+The coverage jobs report coverage and do not gate merges or releases.
 
 To run these checks locally before pushing, optionally:
 
@@ -29,8 +32,10 @@ mise run ci [commit]    # defaults to HEAD
 ```
 
 It checks the commit out into a temporary worktree with a fresh virtualenv and runs
-`git diff --check` against `origin/main`, the unit suite and `ub-agents doctor --offline`. It
-posts nothing to GitHub and gates nothing.
+`git diff --check` against `origin/main`, Ruff, mypy, the unit suite and
+`ub-agents doctor --offline`. Tool versions are pinned in `requirements-dev.txt`;
+see [development checks](docs/development.md) for their scope and the complexity
+baseline. It posts nothing to GitHub and gates nothing.
 
 mise only reads a trusted `mise.toml`, and every fresh worktree is a new path, so an
 agent runs `mise trust` in its own worktree before its first `mise` command. That is

@@ -10,9 +10,11 @@ import stat
 import time
 from typing import ClassVar
 
-from .log_format import CONTROLS, inert, shorten
-from .run_config import run_directory
+from .log_format import CONTROLS, inert
 from .attention import attention_state, stamp
+from .observation_data import (ELIGIBLE_LIMIT, WORK_GROUPS, WorkRow, history_path, mapping,
+                               omitted_plan, own_run, plan_group, rows, runtime_type, text,
+                               work_rows as snapshot_rows)
 
 SNAPSHOT_BYTES = 64 * 1024
 CONTEXT_BYTES = 256 * 1024
@@ -20,8 +22,6 @@ SESSION_LIMIT = 256
 DESCRIPTION_LIMIT = 2048
 POINTERS_LIMIT = 8192
 POINTERS_INCOMPLETE = 'Pointers section may be missing or incomplete because the snapshot description was shortened.'
-WORK_GROUPS = ('Running', 'Needs attention', 'Eligible', 'Recent activity')
-ELIGIBLE_LIMIT = 10
 
 
 def read_json(path, limit=SNAPSHOT_BYTES):
@@ -36,18 +36,6 @@ def read_json(path, limit=SNAPSHOT_BYTES):
     if not isinstance(value, dict):
         raise ValueError('Expected a JSON object')
     return value
-
-
-def text(value, default='unavailable'):
-    return shorten(inert(value)) if isinstance(value, str) else default
-
-
-def mapping(value):
-    return value if isinstance(value, dict) else {}
-
-
-def rows(value, limit):
-    return [row for row in value[:limit] if isinstance(row, dict)] if isinstance(value, list) else []
 
 
 @dataclass(frozen=True)
@@ -80,7 +68,7 @@ class Session:
         return f'{self.state()} · snapshot {age:.0f}s old' if age is not None else f'{self.state()} · freshness unavailable'
 
 
-def validate_rows(groups):
+def validate_rows(groups):  # noqa: C901
     for group in groups:
         for row in group:
             if not isinstance(row, dict):
@@ -107,7 +95,7 @@ def validate_rows(groups):
                 raise ValueError('Invalid paused CLIs')
 
 
-def load_session(path):
+def load_session(path):  # noqa: C901
     try:
         data = read_json(path)
         if type(data.get('version')) is not int or data['version'] != 1:
@@ -163,31 +151,6 @@ def choose_session(root, session_id=None):
     return None, listing
 
 
-@dataclass(frozen=True)
-class WorkRow:
-    key: str
-    group: str
-    item: object
-    agent: str
-    state: str
-    reason: str
-    data: dict
-    run: str | None = None
-    runtime: str = 'unknown'
-    log: Path | None = None
-    context: Path | None = None
-    hidden: bool = False
-    eligible_plans: tuple[dict, ...] = ()
-    attention_rows: tuple['WorkRow', ...] = ()
-
-    def label(self):
-        return f'#{text(str(self.item))} {self.state} · {self.agent}'
-
-    def waiting_since(self):
-        starts = [row.data.get('waiting_since') for row in self.attention_rows or (self,)]
-        return min((start for start in starts if stamp(start) is not None), key=stamp, default=None)
-
-
 def attention_agents(row):
     return ', '.join(dict.fromkeys(' '.join(part for part in (agent.agent, attention_state(agent)[1]) if part)
                                   for agent in row.attention_rows or (row,)))
@@ -200,31 +163,6 @@ def attention_context(row):
                                 (agent.reason, text(agent.data.get('attention_reason'), '')) if reason)
         parts.append('\n'.join((f'{agent.agent} · {attention_state(agent)[1]}', *reasons)))
     return '\n\n'.join(dict.fromkeys(parts))
-
-
-def own_run(root, value):
-    if isinstance(value, str) and value and all(c in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in value):
-        return run_directory(root, value)
-    return None
-
-
-def runtime_type(value):
-    # Leases publish cli:model:effort, while the #112 adapter takes the CLI.
-    return text(value, 'unknown').split(':', 1)[0]
-
-
-def plan_group(row):
-    state = row.get('state')
-    if state in {'ready', 'recover', 'backoff', 'waiting'}:
-        return 'Eligible'
-    if state == 'parked' and text(row.get('reason')).startswith(
-            ('Waiting for blockers ', 'Waiting for active milestone #')):
-        return None
-    return 'Needs attention'
-
-
-def omitted_plan(row):
-    return row.get('state') == 'owned' or plan_group(row) is None
 
 
 def outcomes_today(session, now=None):
@@ -242,61 +180,8 @@ def outcomes_today(session, now=None):
 
 
 def work_rows(session, root):
-    data = session.data
-    result = []
-    assignment = mapping(data.get('assignment'))
-    if assignment:
-        run = own_run(root, assignment.get('run'))
-        result.append(WorkRow('assignment:' + text(assignment.get('run'), 'claiming'), 'Running',
-                              assignment.get('item', '?'), text(assignment.get('agent')), text(assignment.get('process')),
-                              text(assignment.get('process_reason')), assignment, assignment.get('run'),
-                              runtime_type(assignment.get('runtime')), run / 'process.log' if run else None,
-                              run / 'context.json' if run else None))
-    latest = mapping(data.get('latest_pass'))
-    for row in rows(latest.get('rows'), 100):
-        if omitted_plan(row):
-            continue
-        if assignment and (row.get('item'), row.get('agent')) == (assignment.get('item'), assignment.get('agent')):
-            continue
-        owner = mapping(row.get('owner'))
-        reason = (f'Owner: @{text(owner.get("actor"))} on {text(owner.get("host"))}' if owner else text(row.get('reason')))
-        result.append(WorkRow(f'plan:{row.get("item")}:{text(row.get("agent"))}',
-                              plan_group(row), row.get('item', '?'),
-                              text(row.get('agent')), text(row.get('state')), reason, row))
-    for index, row in enumerate(reversed(rows(data.get('outcomes'), 20))):
-        run = own_run(root, row.get('run'))
-        blockers = row.get('human_blocker')
-        state = ('BLOCKED: ' + ', '.join(text(b) for b in blockers[:10]) if isinstance(blockers, list) and blockers else
-                 text(row.get('result')) + ' · ' + text(row.get('acceptance')))
-        result.append(WorkRow('outcome:' + text(row.get('run'), str(index)), 'Recent activity', row.get('item', '?'),
-                              text(row.get('agent')), state, text(row.get('summary')), row, row.get('run'),
-                              runtime_type(row.get('runtime')), run / 'process.log' if run else None, run / 'context.json' if run else None))
-    histories = mapping(data.get('histories'))
-    result = [replace(row, data=row.data | {'history': histories[row.data.get('history_key', str(row.item))]})
-              if row.data.get('history_key', str(row.item)) in histories else row for row in result]
-    ordered = sorted(result, key=lambda row: (WORK_GROUPS.index(row.group),
-                                             row.state in {'backoff', 'waiting'}))
-    grouped, eligible, attention = [], {}, {}
-    for row in ordered:
-        if row.group == 'Eligible':
-            if row.item in eligible:
-                index = eligible[row.item]
-                first = grouped[index]
-                grouped[index] = replace(first, eligible_plans=(*first.eligible_plans, row.data))
-                continue
-            eligible[row.item] = len(grouped)
-            row = replace(row, key=f'plan:{row.item}', eligible_plans=(row.data,))
-        elif row.group == 'Needs attention':
-            if row.item in attention:
-                index = attention[row.item]
-                first = grouped[index]
-                if row not in first.attention_rows:
-                    grouped[index] = replace(first, attention_rows=(*first.attention_rows, row))
-                continue
-            attention[row.item] = len(grouped)
-            row = replace(row, key=f'plan:{row.item}:attention', attention_rows=(row,))
-        grouped.append(row)
-    return grouped
+    """Project a view session through the shared snapshot grouping."""
+    return snapshot_rows(session.data, root)
 
 
 @dataclass(frozen=True)
@@ -321,36 +206,22 @@ class Pane:
         return next((section.next for section in self.sections if section.next is not None), None)
 
 
-def work_pane(session, root, previous=None, selected=None, chosen=False):
-    """Compute the Work pane from a snapshot and the pane the view last drew.
+def earlier_selection(session, earlier):
+    omitted = any(omitted_plan(plan) and
+                  (plan.get('item'), text(plan.get('agent'))) == (earlier.item, earlier.agent)
+                  for plan in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
+    selection = replace(earlier, hidden=earlier.hidden or earlier.group != 'Eligible' or omitted)
+    if selection.state != 'earlier observation':
+        selection = replace(selection, state='earlier observation',
+                            reason=f'Last observed state: {selection.state}. {selection.reason}')
+    history = item_history(selection, session)
+    # Keep the latest observation if a later snapshot omits this item.
+    if history and history != selection.data.get('history'):
+        selection = replace(selection, data=selection.data | {'history': history})
+    return selection
 
-    No file reads or UI state: a superseded read can be recomputed using the
-    person's current selection, including a row missing from that snapshot.
-    """
-    work = work_rows(session, root)
-    own = next((row.key for row in work if row.group == 'Running'), None)
-    if own is not None and not chosen:
-        selected = own
-    selection = next((row for row in work if row.key == selected), None)
-    earlier = next((row for row in previous.rows if row.key == selected), None) if previous else None
-    if selection is None and earlier is not None:
-        selection = related_assignment(work, earlier) or related_plan(work, earlier)
-        if selection is None:
-            omitted = any(omitted_plan(plan) and
-                          (plan.get('item'), text(plan.get('agent'))) == (earlier.item, earlier.agent)
-                          for plan in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
-            selection = replace(earlier, hidden=earlier.hidden or earlier.group != 'Eligible' or omitted)
-            if selection.state != 'earlier observation':
-                selection = replace(selection, state='earlier observation',
-                                    reason=f'Last observed state: {selection.state}. {selection.reason}')
-            history = item_history(selection, session)
-            # Keep the latest observation if a later snapshot omits this item.
-            if history and history != selection.data.get('history'):
-                selection = replace(selection, data=selection.data | {'history': history})
-            work.append(selection)
-    if selection is None and work:
-        selection = work[0]
 
+def work_sections(session, work):
     sections = []
     for name in WORK_GROUPS[:-1]:
         grouped = tuple(row for row in work if row.group == name and not row.hidden)
@@ -371,6 +242,30 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):
                 label += ' · not claimed while stopping'
             next_key = next((row.key for row in grouped if row.state in {'ready', 'recover'}), None)
         sections.append(Section(name, label, grouped, idle=name == 'Running' and not grouped, next=next_key))
+    return sections
+
+
+def work_pane(session, root, previous=None, selected=None, chosen=False):
+    """Compute the Work pane from a snapshot and the pane the view last drew.
+
+    No file reads or UI state: a superseded read can be recomputed using the
+    person's current selection, including a row missing from that snapshot.
+    """
+    work = work_rows(session, root)
+    own = next((row.key for row in work if row.group == 'Running'), None)
+    if own is not None and not chosen:
+        selected = own
+    selection = next((row for row in work if row.key == selected), None)
+    earlier = next((row for row in previous.rows if row.key == selected), None) if previous else None
+    if selection is None and earlier is not None:
+        selection = related_assignment(work, earlier) or related_plan(work, earlier)
+        if selection is None:
+            selection = earlier_selection(session, earlier)
+            work.append(selection)
+    if selection is None and work:
+        selection = work[0]
+
+    sections = work_sections(session, work)
     recent = tuple(row for row in work if row.group == 'Recent activity' and not row.hidden)[:20]
     title = 'Work'
     latest = mapping(session.data.get('latest_pass'))
@@ -380,11 +275,6 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):
     if omitted:
         title += f' · omitted {text(str(omitted))}'
     return Pane(tuple(sections), recent, tuple(work), selection.key if selection else None, title)
-
-
-def history_path(snapshot, key):
-    # Hash the logical key: carried rows can have agent names in their keys.
-    return snapshot.with_suffix('.histories') / (sha256(key.encode('utf-8')).hexdigest() + '.json')
 
 
 def item_history(row, session, *, full=False):

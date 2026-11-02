@@ -87,7 +87,7 @@ class PollNowTests(unittest.TestCase):
 
             with patch('ub_agents.poll_now.threading.Event', return_value=wake), \
                     patch.object(wake, 'wait', side_effect=wait):
-                self.loop._wait(self.loop.stop_event, 1, 'next poll or runtime pause')
+                self.loop.wait(self.loop.stop_event, 1, 'next poll or runtime pause')
 
     def test_repeated_poll_now_passes_bypass_debt_then_idle_wait_repays_it(self):
         starts, waits = [], []
@@ -198,7 +198,7 @@ class PollNowTests(unittest.TestCase):
                         self.loop.wait_rate_limit(GitHubError('GET', 'items', 'rate limit',
                                                             rate_limited=True, reset_at=1030))
                     else:
-                        self.loop._wait(self.loop.stop_event, 30, reason)
+                        self.loop.wait(self.loop.stop_event, 30, reason)
                 self.assertEqual(calls, [30])
                 self.assertIsNone(self.loop.poll_now.waiter)
                 self.assertEqual(self.loop.poll_now.next_allowed, 0)
@@ -207,7 +207,7 @@ class PollNowTests(unittest.TestCase):
         self.loop.poll_now = None
         self.loop.request_poll()
         with patch.object(self.loop.stop_event, 'wait') as wait:
-            self.loop._wait(self.loop.stop_event, 30, 'next poll or runtime pause')
+            self.loop.wait(self.loop.stop_event, 30, 'next poll or runtime pause')
         wait.assert_called_once_with(30)
         self.assertNotIn('poll_now', self.memory.snapshots[-1])
 

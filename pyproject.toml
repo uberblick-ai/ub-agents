@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ub-agents"
-version = "0.3.8"
+version = "0.4.0"
 description = "Small, project-owned engineering loops coordinated on GitHub"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,3 +24,26 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 ub_agents = ["templates/*.yaml", "templates/*.md"]
+
+[tool.coverage.run]
+source = ["ub_agents"]
+parallel = true
+patch = ["subprocess"]
+relative_files = true
+omit = ["*/startup_probe.py"]
+
+[tool.coverage.paths]
+source = ["src/ub_agents", "**/ub_agents"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["C901", "PLR0912", "PLR0915", "RUF100"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/ub_agents"]

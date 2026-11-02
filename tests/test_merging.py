@@ -40,7 +40,7 @@ class MergeTests(unittest.TestCase):
             if after_report:
                 after_report(outcome)
             return 0
-        with patch("ub_agents.loop.supervise", side_effect=supervise) as process:
+        with patch("ub_agents.assignment_run.supervise", side_effect=supervise) as process:
             self.assertTrue(self.loop.tick_item(2))
         self.assertEqual(process.call_count, 1)
         history = self.loop.coordinator.history(2)
@@ -138,7 +138,7 @@ class MergeTests(unittest.TestCase):
                     self.loop.coordinator.report(lease, "success", "Own base merge", outcome="merged")
                     return 0
                 with patch.object(self.github, "commit_parents", return_value=parents), \
-                        patch("ub_agents.loop.supervise", side_effect=moved_before_report):
+                        patch("ub_agents.assignment_run.supervise", side_effect=moved_before_report):
                     self.assertTrue(self.loop.tick_item(2))
                 report = self.loop.coordinator.history(2)[1]
                 self.assertEqual(report["accepted"], allowed)
@@ -261,7 +261,7 @@ class MergeTests(unittest.TestCase):
                 self.now += 61
                 self.loop = self.new_loop()
                 with patch.object(self.github, "merge_pr", side_effect=AssertionError("recovery never merges")), \
-                        patch("ub_agents.loop.supervise", side_effect=AssertionError("recovery never runs agent")):
+                        patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("recovery never runs agent")):
                     self.assertTrue(self.loop.tick_item(2))
                 history = self.loop.coordinator.history(2)
                 outcome = history[1]
@@ -335,7 +335,7 @@ class MergeTests(unittest.TestCase):
                 lease = next(r for r in reversed(self.loop.coordinator.history(2)) if r["kind"] == "lease")
                 self.loop.coordinator.report(lease, "success", "Policy allows merge", outcome="merged")
                 return 0
-            with patch("ub_agents.loop.supervise", side_effect=supervise):
+            with patch("ub_agents.assignment_run.supervise", side_effect=supervise):
                 self.assertTrue(self.loop.tick_item(2))
         report = [r for r in self.loop.coordinator.history(2) if r["kind"] == "outcome"][-1]
         self.assertTrue(report["accepted"])
