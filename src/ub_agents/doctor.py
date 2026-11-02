@@ -24,7 +24,7 @@ from .refresh import control_checkout_checks
 from .trust import WRITERS
 
 
-PERMISSIONS_URL = "https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions"
+PERMISSIONS_URL = "https://agents.uberblick.ai/docs/configuration/permissions.html"
 
 
 AUTH_PROBES = {"codex": ("codex", "login", "status"),

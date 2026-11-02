@@ -14,6 +14,7 @@ from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.polling import DiscoveryBudget, idle_interval
 from ub_agents.request_stats import PassOutput
+from ub_agents.startup_cleanup import StartupCleanup
 from tests.support import RecordingRunner, config, isolate_observations
 
 
@@ -397,6 +398,19 @@ class IdlePollingTests(unittest.TestCase):
         self.assertEqual(self.lines, [])
 
     def test_stop_signals_interrupt_budget_wait(self):
+        start_cleanup = StartupCleanup.start
+
+        def start(worker):
+            start_cleanup(worker)
+
+            def finish():
+                worker.thread.join(5)
+                self.assertFalse(worker.thread.is_alive())
+
+            # Shutdown cancels cleanup without joining background reads. Keep
+            # the test directory until its worker has finished writing the log.
+            self.addCleanup(finish)
+
         for sig in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM):
             with self.subTest(signal=sig):
                 self.setUp()
@@ -415,6 +429,7 @@ class IdlePollingTests(unittest.TestCase):
                 with patch("ub_agents.cli.load_config", return_value=self.config), \
                         patch("ub_agents.cli.GitHub", return_value=self.github), \
                         patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch.object(StartupCleanup, "start", start), \
                         patch.object(self.github, "actor", return_value="operator"), \
                         patch.object(Loop, "_discovery_tick", side_effect=tick) as ticks, \
                         patch.object(Loop, "wait", side_effect=wait), \

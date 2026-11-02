@@ -31,3 +31,9 @@ Stop that account's launcher first. Removing it from the list, or lowering its r
 ```sh
 ub-agents doctor
 ```
+
+## Key reference
+
+`launchers` is an optional, nonempty list of GitHub logins, unique ignoring case
+and without surrounding whitespace. See [trusted comments](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#trusted-comments)
+for exact record authority and revocation rules.

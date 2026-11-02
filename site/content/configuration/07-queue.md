@@ -49,3 +49,18 @@ dependencies: wait
 ```sh
 ub-agents status
 ```
+
+## Key reference
+
+`queue` is an optional mapping.
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `priority.labels` | List | Nonempty, unique labels, highest first. |
+| `priority.default` | Label, optional | Must be one of `labels`. |
+| `milestones` | `ignore` (default), `order`, `gate` or `strict-gate` | How milestones rank new issues. |
+| `dependencies` | `wait` (default) or `ignore` | Whether issues wait for open blockers. |
+
+Without `queue`, items have equal priority, milestones are ignored and dependency waits apply.
+The launcher never changes priority labels. See [selection order](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#selection-order)
+for exact ranking, priority inheritance, milestone membership and dependency reads.
