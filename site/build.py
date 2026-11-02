@@ -70,11 +70,11 @@ def prompt_links(name):
     q = urllib.parse.quote(prompt, safe='')
     return prompt, f'claude://code/new?q={q}', f'codex://new?prompt={q}'
 
-def discuss(name):
+def discuss(name, label='Discuss with:'):
     """Buttons that open site/prompts/NAME.md in Claude Code or Codex."""
     _, claude, codex = prompt_links(name)
     icon = {cli: (ROOT / 'icons' / f'{cli}.svg').read_text().strip() for cli in ('claude', 'openai')}
-    return (f'<span class="discuss">Discuss with:<a class="claude" href="{claude}" title="Opens the Claude desktop app">{icon["claude"]}Claude</a>'
+    return (f'<span class="discuss">{label}<a class="claude" href="{claude}" title="Opens the Claude desktop app">{icon["claude"]}Claude</a>'
             f'<a href="{codex}" title="Opens the Codex app">{icon["openai"]}Codex</a></span>')
 
 def slug(text):
@@ -419,18 +419,16 @@ LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke
 
 def workflow_adopt(workflow):
     """Open the workflow's prompt in Claude Code, on claude.ai or in Codex, or copy it."""
-    prompt, claude, codex = prompt_links(f'workflow-{workflow["name"]}')
+    name = f'workflow-{workflow["name"]}'
+    prompt, _, _ = prompt_links(name)
     article = ''
     if story := workflow.get('article'):
         article = (f'<div class="workflow-article"><span>Read the story</span>'
                    f'<a href="{story[1]}">{html.escape(story[0])} →</a></div>')
     return ('<aside class="workflow-adopt" aria-label="Adopt this workflow">'
             '<p class="workflow-adopt-head">Adopt this workflow</p>'
-            f'<a class="workflow-cta" href="{claude}" title="Opens the Claude desktop app">'
-            'Open in Claude Code <span aria-hidden="true">→</span></a>'
+            f'{discuss(name, "Open in:")}'
             f'<p class="workflow-alt">No desktop app? <a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}">Use claude.ai</a></p>'
-            f'<a class="workflow-cta workflow-cta-alt" href="{codex}" title="Opens the Codex app">'
-            'Open in Codex <span aria-hidden="true">→</span></a>'
             f'<button class="workflow-copy" type="button" data-prompt="{html.escape(prompt)}">Copy the prompt</button>'
             f'{article}</aside>')
 

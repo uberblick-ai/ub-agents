@@ -357,12 +357,7 @@ body:has(> main.workflows) {
 .workflow-prose h2:last-of-type ~ p { border-left: 2px solid var(--wf-amber); padding: 4px 0 4px 14px; color: color-mix(in srgb, var(--wf-amber) 45%, var(--wf-fg)) }
 .workflow-adopt { align-self: start; position: sticky; top: 20px; background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 12px; padding: 24px }
 .workflow-adopt-head { margin: 0 0 12px; font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--wf-mute) }
-.workflow-cta { display: flex; justify-content: space-between; align-items: center; text-decoration: none; font-weight: 600; font-size: 15px; color: #06110e; background: var(--wf-glow-fill, var(--wf-glow)); border-radius: 9px; padding: 11px 14px; box-shadow: 0 8px 24px -14px color-mix(in srgb, var(--wf-glow) 60%, transparent); transition: transform .2s, box-shadow .2s }
-.workflow-cta:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -12px color-mix(in srgb, var(--wf-glow) 80%, transparent); text-decoration: none }
-.workflow-cta span { transition: transform .2s }
-.workflow-cta:hover span { transform: translateX(4px) }
-.workflow-cta-alt { margin-top: 12px; color: var(--wf-fg); background: var(--wf-page); border: 1px solid var(--wf-edge); box-shadow: none }
-.workflow-cta-alt:hover { border-color: var(--wf-glow); box-shadow: 0 10px 30px -14px color-mix(in srgb, var(--wf-glow) 50%, transparent) }
+.workflow-adopt .discuss { margin-left: 0; flex-wrap: wrap; font-size: 13px; color: var(--wf-mute) }
 .workflow-alt { margin: 10px 2px 0; font-size: 12.5px; color: var(--wf-mute); white-space: nowrap }
 .workflow-alt a { color: var(--wf-glow); text-decoration: none }
 .workflow-alt a:hover { text-decoration: underline }
@@ -382,4 +377,4 @@ body:has(> main.workflows) {
   .workflow-adopt { position: static }
   .workflow-alt { white-space: normal }
 }
-@media (prefers-reduced-motion: reduce) { .workflow-card, .workflow-cta, .workflow-cta span { transition: none } .workflow-card:hover { transform: none } }
+@media (prefers-reduced-motion: reduce) { .workflow-card { transition: none } .workflow-card:hover { transform: none } }
