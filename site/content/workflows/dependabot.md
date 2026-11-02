@@ -1,13 +1,13 @@
-## Finish the dependency updates
+## Why it exists
 
-Dependabot notices updates and opens pull requests, but somebody still has to check them and finish the merge. This workflow sends its dependencies label straight to the integrator, so routine patch and minor bumps do not wait for someone to open the pull request.
+Dependabot is good at noticing updates and bad at finishing them, so its pull requests pile up. Here its own `dependencies` label sends each one straight to the integrator, which works from the title and the diff and never reads the release notes in the body. Clean bumps merge, a failing test gets one fix round, and majors wait for a person. [Trusted PR authors](/docs/configuration/approvals.html#trusted-pr-authors) let Dependabot take this path without a maintainer approving every new head.
 
-The integrator checks the title and diff, runs the required checks and applies your merge policy. A clean patch or minor update merges. If a check fails, the update gets one fix round: an implementer adapts the code, a reviewer checks the fix, and the integrator tries the gates again.
+## What you gain
 
-Trusted PR authors let Dependabot take this path without a maintainer approving every new head. You still choose the trusted author and keep the merge gates in your loop policy. See [trusted PR authors](/docs/configuration/approvals.html#trusted-pr-authors).
+- Security fixes land the day they are published, not when someone finds a quiet hour.
+- Nobody reads release notes for a patch bump again.
+- Majors still get a human eye, with every gate already green.
 
-## Where you step in
+## Where a person steps in
 
-Major releases can change behaviour even when tests pass, so a person reads the changelog and merges or closes the pull request. An update that still fails after its one fix round also waits for you: fix it by hand, pin the old version or close it.
-
-Read [Letting agents auto-merge Dependabot pull requests](https://uberblick.ai/blog/2026/agents-auto-merge-dependabot) for the workflow's background and policy.
+Major updates, and anything one fix round can't settle.

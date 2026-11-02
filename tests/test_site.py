@@ -38,8 +38,10 @@ class Links(HTMLParser):
 class SiteTests(unittest.TestCase):
     def test_workflow_gallery_has_two_cards_and_no_docs_sidebar(self):
         page = build.workflow_gallery()
-        self.assertIn('<h1>Workflows</h1>', page)
-        self.assertEqual(page.count('class="workflow-card"'), 2)
+        self.assertIn('<h1>Loops we <em>actually run</em></h1>', page)
+        self.assertEqual(page.count('class="workflow-card'), 2)
+        self.assertEqual(page.count('class="workflow-card workflow-wide"'), 1)
+        self.assertEqual(page.count('class="workflow-group"'), len(build.WORKFLOW_GROUPS))
         self.assertEqual(page.count('data-mode="preview"'), 2)
         self.assertNotIn('<details class="side"', page)
         self.assertIn('href="default/"', page)
@@ -47,7 +49,6 @@ class SiteTests(unittest.TestCase):
         for workflow in build.WORKFLOWS:
             self.assertIn(workflow['title'], page)
             self.assertIn(workflow['intent'], html.unescape(page))
-        self.assertIn(build.WORKFLOWS[0]['about'], page)
         ids = Links(page).ids
         self.assertEqual(len(ids), len(set(ids)), 'gallery SVG ids must be unique')
 
@@ -73,6 +74,7 @@ class SiteTests(unittest.TestCase):
                 page = pages[path]
                 self.assertIn(f'data-scenario="{scenario}"', page)
                 self.assertIn(f'href="{build.SITE}/{path.removesuffix("index.html")}"', page)
+                self.assertIn(f'data-url="{build.SITE}/{path.removesuffix("index.html")}"', page)
                 data = json.loads(re.search(r'class="workflow-data">(.*?)</script>', page).group(1))
                 self.assertEqual(data['timelines'], timelines)
                 for url, target in zip(data['urls'], expected[name]):
@@ -91,13 +93,13 @@ class SiteTests(unittest.TestCase):
             self.assertIn('loop policy', prompt)
             self.assertIn('smallest', prompt)
             self.assertIn('diff before writing anything', prompt)
-            self.assertIn('Where you step in', page)
-            for link in Links(page).hrefs:
-                if link.startswith(('claude://', 'codex://')):
-                    self.assertEqual(unquote(link.split('=', 1)[1]), prompt)
-            self.assertEqual(page.count('class="discuss"'), 1)
-            self.assertIn('claude://code/new?q=', page)
-            self.assertIn('codex://new?prompt=', page)
+            for heading in ('Why it exists', 'What you gain', 'Where a person steps in'):
+                self.assertIn(heading, page)
+            adopt = [link for link in Links(page).hrefs if link.startswith(('claude://', 'https://claude.ai/new'))]
+            self.assertEqual(len(adopt), 2)
+            for link in adopt:
+                self.assertEqual(unquote(link.split('=', 1)[1]), prompt)
+            self.assertIn(f'data-prompt="{html.escape(prompt)}"', page)
             if name == 'dependabot':
                 self.assertIn('https://uberblick.ai/blog/2026/agents-auto-merge-dependabot', Links(page).hrefs)
                 for requirement in ('0.3.5', 'trusted-pr-authors: [dependabot]', 'dependencies',

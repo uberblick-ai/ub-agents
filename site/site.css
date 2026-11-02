@@ -267,41 +267,113 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 10px }
 .discuss svg { width: 12px; height: 12px; fill: currentColor }
 .discuss .claude svg { fill: #d97757 }
 
-/* Workflow gallery: full-width diagrams, with ablauf's own entry controls. */
-.workflows { max-width: 1080px; margin: 0 auto; padding-block: 40px 0 }
-.workflows h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.2; font-weight: 600; letter-spacing: -.015em; margin: 0 0 16px; text-wrap: balance }
-.workflow-intro { color: var(--muted); font-size: 16px; margin-bottom: 28px }
-.workflow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start }
-.workflow-card { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-width: 0 }
-.workflow-meta { padding: 22px; border-top: 1px solid var(--line) }
-.workflow-meta h2 { font-size: 20px; line-height: 1.3; margin: 0 0 12px }
-.workflow-meta h2 a { color: var(--fg); text-decoration: none }
-.workflow-meta h2 a:hover { color: var(--accent) }
-.workflow-about { font-size: 13px; color: var(--muted) }
-.workflow-open { font-size: 13px }
-.workflow-player { --ab-bg: var(--bg); --ab-ink: var(--fg); --ab-muted: var(--muted); --ab-line: var(--line); --ab-surface: var(--bg); --ab-band: var(--code) }
-.workflow-stage { display: flex; align-items: center; justify-content: center; margin: 0; padding: 20px }
-.workflow-stage svg { min-width: 0; max-height: max(320px, calc(100svh - 360px)); width: auto; max-width: 100%; height: auto }
-.workflow-card .workflow-stage { height: 360px; padding: 18px }
-/* The entry frames its diagram and controls as two panels, so the stage reads as one figure. */
-.workflow-player[data-mode="entry"] { --ab-bg: var(--code) }
-.workflow-player[data-mode="entry"] .workflow-stage { background: var(--code); border: 1px solid var(--line); border-radius: 12px; padding: 28px }
-.workflow-player[data-mode="entry"] .ab-playback { border: 1px solid var(--line); border-radius: 12px; margin-top: 12px; overflow: hidden }
-.workflow-card .workflow-stage svg { max-height: 100% }
-.workflow-tick { display: grid; gap: 5px; padding: 12px 20px 0; font-size: 12px; min-height: 100px; margin: 0 }
-.workflow-scenario { color: var(--fg); font-weight: 600 }
-.workflow-caption { color: var(--muted) }
-.workflow-preview-toggle { font: inherit; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; background: var(--bg); margin: 12px 20px 20px; padding: 5px 10px; cursor: pointer }
-.workflow-story { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 48px; margin-top: 48px }
-.workflow-story h2 { font-size: 17px; margin: 28px 0 12px }
-.workflow-story h2:first-child { margin-top: 0 }
-.workflow-story .anchor { color: inherit; text-decoration: none }
-.workflow-adopt { align-self: start; border: 1px solid var(--line); border-radius: 10px; padding: 22px }
-.workflow-adopt p { color: var(--muted); font-size: 13px }
-.workflow-adopt .discuss { margin: 0; flex-wrap: wrap }
-@media (max-width: 859px) {
-  .workflow-grid, .workflow-story { grid-template-columns: minmax(0, 1fr) }
-  .workflow-story { gap: 24px }
-  .workflow-card .workflow-stage { height: 320px }
-  .workflow-stage { padding: 12px 0 }
+/* Workflow gallery: its own look inside the site chrome, a dark stage with a mint glow and an amber accent.
+   Body copy is IBM Plex Sans; labels and controls stay mono. */
+body:has(> main.workflows) {
+  --wf-page: #f5f7f9; --wf-card: #ffffff; --wf-card-end: #f8fafb; --wf-panel: #fbfcfd; --wf-edge: #dce2e9;
+  --wf-fg: #10151c; --wf-mute: #5a6573; --wf-faint: #7b8593; --wf-glow: #0b8c70; --wf-glow-fill: #6ff0cf; --wf-amber: #a8670a;
+  --wf-tint: rgba(11, 140, 112, .09); --wf-warm: rgba(214, 140, 30, .07); --wf-dots: rgba(16, 21, 28, .06);
+  --bg: var(--wf-page); --fg: var(--wf-fg); --muted: var(--wf-mute); --line: var(--wf-edge); --accent: var(--wf-glow); --code: var(--wf-panel);
+  background: var(--wf-page);
+  background-image: radial-gradient(1200px 500px at 20% -10%, var(--wf-tint), transparent 60%), radial-gradient(900px 500px at 95% 0%, var(--wf-warm), transparent 60%), radial-gradient(var(--wf-dots) 1px, transparent 1px);
+  background-size: auto, auto, 22px 22px; background-attachment: scroll
 }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body:has(> main.workflows) {
+  --wf-page: #090c11; --wf-card: #121921; --wf-card-end: #0e1319; --wf-panel: #0c1117; --wf-edge: #1f2832;
+  --wf-fg: #e7ecf2; --wf-mute: #8d98a7; --wf-faint: #6b7686; --wf-glow: #6ff0cf; --wf-amber: #f2b45a;
+  --wf-tint: rgba(111, 240, 207, .13); --wf-warm: rgba(242, 180, 90, .10); --wf-dots: rgba(255, 255, 255, .05) } }
+:root[data-theme="dark"] body:has(> main.workflows) {
+  --wf-page: #090c11; --wf-card: #121921; --wf-card-end: #0e1319; --wf-panel: #0c1117; --wf-edge: #1f2832;
+  --wf-fg: #e7ecf2; --wf-mute: #8d98a7; --wf-faint: #6b7686; --wf-glow: #6ff0cf; --wf-amber: #f2b45a;
+  --wf-tint: rgba(111, 240, 207, .13); --wf-warm: rgba(242, 180, 90, .10); --wf-dots: rgba(255, 255, 255, .05) }
+.workflows { --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 1080px; margin: 0 auto; padding-block: 8px 0; font: 15px/1.5 var(--sans) }
+.workflows code { font-family: var(--mono) }
+.workflows p { max-width: none }
+
+/* The wall */
+.workflow-hero { padding: 40px 0 8px }
+.workflow-kick { margin: 0; font: 500 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--wf-glow) }
+.workflow-hero h1 { font: 600 clamp(28px, 3.6vw, 42px)/1.05 var(--sans); letter-spacing: -.02em; margin: 14px 0 }
+.workflow-hero h1 em { font-style: normal; background: linear-gradient(90deg, var(--wf-glow), var(--wf-amber)); -webkit-background-clip: text; background-clip: text; color: transparent }
+.workflow-hero p:not(.workflow-kick) { color: var(--wf-mute); font-size: 16px; max-width: 58ch; margin: 0 }
+.workflow-hero p code { font-size: 15px; color: var(--wf-fg); background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 6px; padding: 1px 6px }
+.workflow-group h2 { display: flex; align-items: center; gap: 12px; margin: 52px 0 12px; font: 500 13px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--wf-fg) }
+.workflow-group h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--wf-edge), transparent) }
+.workflow-repo { order: 3; font-size: 11px; letter-spacing: .06em; text-transform: none; color: var(--wf-faint); border: 1px solid var(--wf-edge); border-radius: 999px; padding: 4px 9px }
+.workflow-blurb { margin: -4px 0 16px; color: var(--wf-mute); font-size: 14px; max-width: 70ch }
+.workflow-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 22px; align-items: start }
+.workflow-card { position: relative; display: block; color: inherit; text-decoration: none; background: linear-gradient(180deg, var(--wf-card), var(--wf-card-end)); border: 1px solid var(--wf-edge); border-radius: 16px; overflow: hidden; min-width: 0; transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease }
+.workflow-card:hover, .workflow-card:focus-visible { transform: translateY(-2px); border-color: color-mix(in srgb, var(--wf-glow) 45%, transparent); box-shadow: 0 18px 50px -18px color-mix(in srgb, var(--wf-glow) 35%, transparent), 0 0 0 1px color-mix(in srgb, var(--wf-glow) 15%, transparent) inset; outline: none }
+.workflow-card .workflow-stage { height: 170px; padding: 16px 18px; background: radial-gradient(400px 200px at 50% 40%, color-mix(in srgb, var(--wf-glow) 5%, transparent), transparent 70%); border-bottom: 1px solid var(--wf-edge) }
+.workflow-card .workflow-stage svg { max-height: 100% }
+.workflow-meta { padding: 14px 16px 16px }
+.workflow-meta h3 { font: 600 16px/1.3 var(--sans); letter-spacing: -.01em; margin: 0 0 4px; color: var(--wf-fg) }
+.workflow-intent { margin: 0; color: var(--wf-mute); font-size: 13.5px; line-height: 1.45 }
+.workflow-card.workflow-wide { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr); border-color: color-mix(in srgb, var(--wf-glow) 22%, transparent) }
+.workflow-card.workflow-wide .workflow-stage { height: 320px; padding: 20px; border-bottom: 0; border-right: 1px solid var(--wf-edge) }
+.workflow-card.workflow-wide .workflow-meta { display: flex; flex-direction: column; justify-content: center; padding: 24px 28px }
+.workflow-card.workflow-wide h3 { font-size: 22px }
+.workflow-card.workflow-wide .workflow-intent { font-size: 15px }
+
+/* Diagrams and ablauf's controls */
+.workflow-player { --ab-bg: transparent; --ab-ink: var(--wf-fg); --ab-muted: var(--wf-mute); --ab-line: var(--wf-edge); --ab-surface: var(--wf-panel); --ab-band: var(--wf-panel) }
+.workflow-stage { display: flex; align-items: center; justify-content: center; margin: 0 }
+.workflow-stage svg { min-width: 0; width: auto; max-width: 100%; height: auto }
+.workflow-player[data-mode="entry"] { --ab-bg: var(--wf-panel); margin-top: 16px }
+.workflow-player[data-mode="entry"] .workflow-stage { background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 12px; padding: 20px 28px }
+.workflow-player[data-mode="entry"] .workflow-stage svg { max-height: max(240px, calc(100svh - 420px)) }
+.workflow-player[data-mode="entry"] .ab-playback { border: 1px solid var(--wf-edge); border-radius: 12px; margin-top: 10px; overflow: hidden }
+
+/* The entry */
+.workflow-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-top: 28px }
+.workflow-top > div:first-child { flex: 1; min-width: 0 }
+.workflow-top h1 { font: 600 clamp(22px, 2.6vw, 28px)/1.2 var(--sans); letter-spacing: -.015em; margin: 4px 0 }
+.workflow-top p { margin: 0; color: var(--wf-mute); font-size: 14.5px }
+.workflow-via { color: var(--wf-faint) }
+.workflow-via a { color: var(--wf-fg); text-decoration: underline; text-decoration-color: var(--wf-edge) }
+.workflow-via a:hover { text-decoration-color: var(--wf-glow) }
+.workflow-buttons { display: flex; gap: 8px; flex: none }
+.workflow-link, .workflow-close { height: 36px; border: 1px solid var(--wf-edge); border-radius: 999px; background: var(--wf-panel); cursor: pointer }
+.workflow-link { position: relative; width: 36px; display: grid; place-items: center; color: var(--wf-mute) }
+.workflow-link:hover { color: var(--wf-fg) }
+.workflow-link.copied { color: var(--wf-glow); border-color: color-mix(in srgb, var(--wf-glow) 50%, transparent) }
+.workflow-link.copied::after { content: "Link copied"; position: absolute; top: 42px; right: 0; white-space: nowrap; font: 11px var(--mono); color: var(--wf-glow) }
+.workflow-close { display: inline-flex; align-items: center; padding: 0 14px; color: var(--wf-fg); text-decoration: none; font-size: 15px }
+.workflow-story { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 48px; margin-top: 52px }
+.workflow-prose h2 { font: 500 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--wf-mute); margin: 28px 0 14px }
+.workflow-prose h2:first-child { margin-top: 0 }
+.workflow-prose .anchor { color: inherit; text-decoration: none }
+.workflow-prose p { margin: 0 0 14px; font-size: 15.5px; line-height: 1.65; color: color-mix(in srgb, var(--wf-fg) 85%, var(--wf-page)); max-width: 66ch }
+.workflow-prose a { color: var(--wf-fg); text-decoration-color: var(--wf-glow) }
+.workflow-prose code { font-size: 14px; background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 5px; padding: 1px 5px; color: var(--wf-fg) }
+.workflow-prose ul { margin: 0 0 22px; padding: 0; list-style: none }
+.workflow-prose li { position: relative; padding-left: 22px; margin: 0 0 8px; font-size: 15px; color: color-mix(in srgb, var(--wf-fg) 85%, var(--wf-page)) }
+.workflow-prose li::before { content: ""; position: absolute; left: 4px; top: .6em; width: 7px; height: 7px; border-radius: 50%; background: var(--wf-glow); box-shadow: 0 0 8px var(--wf-glow) }
+/* The last section says where a person steps in. */
+.workflow-prose h2:last-of-type ~ p { border-left: 2px solid var(--wf-amber); padding: 4px 0 4px 14px; color: color-mix(in srgb, var(--wf-amber) 45%, var(--wf-fg)) }
+.workflow-adopt { align-self: start; position: sticky; top: 20px; background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 12px; padding: 24px }
+.workflow-adopt-head { margin: 0 0 12px; font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--wf-mute) }
+.workflow-cta { display: flex; justify-content: space-between; align-items: center; text-decoration: none; font-weight: 600; font-size: 15px; color: #06110e; background: var(--wf-glow-fill, var(--wf-glow)); border-radius: 9px; padding: 11px 14px; box-shadow: 0 8px 24px -14px color-mix(in srgb, var(--wf-glow) 60%, transparent); transition: transform .2s, box-shadow .2s }
+.workflow-cta:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -12px color-mix(in srgb, var(--wf-glow) 80%, transparent); text-decoration: none }
+.workflow-cta span { transition: transform .2s }
+.workflow-cta:hover span { transform: translateX(4px) }
+.workflow-alt { margin: 10px 2px 0; font-size: 12.5px; color: var(--wf-mute); white-space: nowrap }
+.workflow-alt a { color: var(--wf-glow); text-decoration: none }
+.workflow-alt a:hover { text-decoration: underline }
+.workflow-copy { margin-top: 14px; width: 100%; font: 12px var(--mono); color: var(--wf-fg); background: var(--wf-page); border: 1px solid var(--wf-edge); border-radius: 10px; height: 36px; cursor: pointer }
+.workflow-copy:hover { border-color: var(--wf-faint) }
+.workflow-article { display: block; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--wf-edge); color: var(--wf-amber); text-decoration: none; font-size: 14px }
+.workflow-article:hover { text-decoration: underline }
+.workflow-article span { display: block; margin-bottom: 6px; font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--wf-faint) }
+.workflow-runs { margin: 14px 0 0; font: 12px/1.5 var(--mono); color: var(--wf-faint) }
+.workflow-footnote { margin: 40px 0 0; padding-top: 16px; border-top: 1px solid var(--wf-edge); font-size: 12.5px; color: var(--wf-faint) }
+.workflow-footnote a { color: var(--wf-mute); text-decoration: underline; text-decoration-color: var(--wf-edge) }
+.workflow-footnote a:hover { color: var(--wf-fg) }
+@media (max-width: 900px) {
+  .workflow-card.workflow-wide { grid-template-columns: minmax(0, 1fr) }
+  .workflow-card.workflow-wide .workflow-stage { height: 280px; border-right: 0; border-bottom: 1px solid var(--wf-edge) }
+  .workflow-story { grid-template-columns: minmax(0, 1fr); gap: 24px }
+  .workflow-adopt { position: static }
+  .workflow-alt { white-space: normal }
+}
+@media (prefers-reduced-motion: reduce) { .workflow-card, .workflow-cta, .workflow-cta span { transition: none } .workflow-card:hover { transform: none } }
