@@ -138,7 +138,7 @@ class SiteTests(unittest.TestCase):
                                     'which of my repositories', 'step-by-step installation guide',
                                     'ub-agents init', 'until I say so'):
                     self.assertIn(requirement, prompt)
-                self.assertIn('Try ub-agents, discuss with', page)
+                self.assertIn('Ask your agent about trying ub-agents', page)
             else:
                 self.assertIn(workflow['title'], prompt)
                 self.assertIn(f'{build.SITE}/workflows/{name}/', prompt)
@@ -147,7 +147,7 @@ class SiteTests(unittest.TestCase):
                 for requirement in ('what you think of it', 'evidence', 'adoption plan', 'smallest',
                                     'diff before writing anything'):
                     self.assertIn(requirement, prompt)
-                self.assertIn('Adopt this workflow, discuss with', page)
+                self.assertIn('Ask your agent about adopting this', page)
             for heading in ('Why it exists', 'What you gain', 'Where a person steps in'):
                 self.assertIn(heading, page)
             adopt = [link for link in Links(page).hrefs if link.startswith(('claude://', 'codex://'))]

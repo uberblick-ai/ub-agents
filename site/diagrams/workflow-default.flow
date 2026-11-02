@@ -12,7 +12,7 @@ pill ready tone=done
 section "Pull request"
 box implementer "codes, checks, opens the PR"
 pill needs-review tone=agent
-box reviewer "reviews the exact head SHA"
+box reviewer "reviews the exact commit"
 pill ready-to-merge tone=done
 box integrator "checks the candidate, merges"
 end merged "Merged · issue closed"
