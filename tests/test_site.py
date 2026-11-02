@@ -122,7 +122,9 @@ class SiteTests(unittest.TestCase):
                     self.assertEqual(urljoin(path, url), f'workflows/{name}/{target}/')
                 self.assertIn('type="module" src="', page)
                 self.assertNotIn('<details class="side"', page)
-                self.assertIn(build.discuss(f'workflow-{name}'), page)
+                _, claude, codex = build.prompt_links(f'workflow-{name}')
+                self.assertIn(f'href="{html.escape(claude)}"', page)
+                self.assertIn(f'href="{html.escape(codex)}"', page)
 
     def test_workflow_stories_and_adopt_prompts(self):
         for workflow in build.WORKFLOWS:

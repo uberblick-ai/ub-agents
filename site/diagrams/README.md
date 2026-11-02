@@ -25,8 +25,9 @@ node site/diagrams/render.mjs workflow-default workflow-dependabot
 `site/build.py` inlines the committed SVGs and timelines and copies static files;
 it runs no Node and adds no Python or runtime npm dependency. The gallery script
 only handles preview visibility and scenario cycling, scenario URLs and mounting
-ablauf's controls. Adoption uses the existing `{{discuss NAME}}` buttons and
-`site/prompts/` files. Workflow stories live under `site/content/workflows/`.
+ablauf's controls. The adopt box opens the `site/prompts/` file in Claude Code,
+on claude.ai or in Codex, with the same links as the `{{discuss NAME}}` buttons.
+Workflow stories live under `site/content/workflows/`.
 
 The site self-hosts IBM Plex Sans (`site/fonts`) for ablauf's text measurements.
 Keep the `--ab-*` theme overrides on the `.flow` wrapper: setting them on the SVG

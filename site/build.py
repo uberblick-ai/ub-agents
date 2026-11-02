@@ -409,16 +409,19 @@ LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke
              '<path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>')
 
 def workflow_adopt(workflow):
-    """Discuss the workflow in Claude or Codex, or copy its prompt."""
-    name = f'workflow-{workflow["name"]}'
-    prompt, _, _ = prompt_links(name)
+    """Open the workflow's prompt in Claude Code, on claude.ai or in Codex, or copy it."""
+    prompt, claude, codex = prompt_links(f'workflow-{workflow["name"]}')
     article = ''
     if story := workflow.get('article'):
         article = (f'<a class="workflow-article" href="{story[1]}"><span>Read the story</span>'
                    f'{html.escape(story[0])} →</a>')
     return ('<aside class="workflow-adopt" aria-label="Adopt this workflow">'
             '<p class="workflow-adopt-head">Adopt this workflow</p>'
-            f'{discuss(name)}'
+            f'<a class="workflow-cta" href="{claude}" title="Opens the Claude desktop app">'
+            'Open in Claude Code <span aria-hidden="true">→</span></a>'
+            f'<p class="workflow-alt">No desktop app? <a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}">Use claude.ai</a></p>'
+            f'<a class="workflow-cta workflow-cta-alt" href="{codex}" title="Opens the Codex app">'
+            'Open in Codex <span aria-hidden="true">→</span></a>'
             f'<button class="workflow-copy" type="button" data-prompt="{html.escape(prompt)}">Copy the prompt</button>'
             f'{article}</aside>')
 
