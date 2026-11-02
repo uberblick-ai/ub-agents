@@ -481,7 +481,9 @@ class LaunchTerminalTests(unittest.TestCase):
                     terminal.send(b'2')
                     terminal.wait_for(lambda: b'Acceptance criteria' in transcript)
                     terminal.send(b'31p')
-                    terminal.wait_for(lambda: b'process.log' in transcript)
+                    # Long temporary paths can wrap within the filename.
+                    # Recognize the raw-access overlay by its own labels.
+                    terminal.expect(b'Full raw file (open with an external pager):', b'Displayed bytes')
                     terminal.send(b'\x1b')
                     terminal.resize(59, 15)
                     terminal.wait_for(lambda: 'Please enlarge the terminal to at least 60×16.'.encode() in transcript)
