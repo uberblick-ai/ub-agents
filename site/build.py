@@ -29,8 +29,8 @@ WORKFLOW_GROUPS = [  # The wall: one section per group; a hero workflow gets the
     {'title': 'Default after ub-agents init',
      'blurb': 'The loop ub-agents init sets up: five roles, the labels, and a person at every hard decision.'},
     {'title': 'Scenarios to adopt',
-     'blurb': 'ub-agents is flexible enough to build the loop around your requirements. '
-              'Here are a few real-world examples of how it is used.'},
+     'blurb': 'You shape the loop around how your team works. These come from repositories running '
+              'ub-agents today, and each one can be adopted on its own.'},
 ]
 WORKFLOWS = [
     {'name': 'default', 'group': 0, 'hero': True, 'title': 'The default ub-agents loop',
