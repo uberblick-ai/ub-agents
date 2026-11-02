@@ -71,7 +71,8 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(page.count('class="workflow-card workflow-wide"'), 1)
         self.assertEqual(page.count('class="workflow-group"'), len(build.WORKFLOW_GROUPS))
         self.assertIn('Built on ub-agents, a minimal agent loop for experienced developers: '
-                      'plain GitHub labels, your own coding agents, nothing to host.', page)
+                      'plain GitHub labels, your own coding agents, nothing to host. Visualized by ablauf.',
+                      VisibleText(page).text)
         self.assertEqual(page.count('data-mode="preview"'), 2)
         self.assertNotIn('<details class="side"', page)
         self.assertIn('href="default/"', page)
@@ -81,7 +82,8 @@ class SiteTests(unittest.TestCase):
             self.assertIn(workflow['intent'], html.unescape(page))
         default_card = build.workflow_card(build.WORKFLOWS[0], 'workflows/index.html')
         self.assertIn('Built on ub-agents, a minimal agent loop for experienced developers: '
-                      'plain GitHub labels, your own coding agents, nothing to host.', default_card)
+                      'plain GitHub labels, your own coding agents, nothing to host. Visualized by ablauf.',
+                      VisibleText(default_card).text)
         ids = Links(page).ids
         self.assertEqual(len(ids), len(set(ids)), 'gallery SVG ids must be unique')
 

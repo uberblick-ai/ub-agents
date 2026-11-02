@@ -377,14 +377,18 @@ def workflow_shell(here, title, description, body):
             + header(here) + '<main class="workflows">' + body + '</main>' + footer(here)
             + f'<script type="module" src="{rel("assets/workflows.js", here)}"></script>\n</body>\n</html>\n')
 
+def workflow_via(here, extra=''):
+    """The line under a diagram that names what it is built on and drawn with."""
+    return (f'<p class="workflow-via{extra}">Built on <a href="{rel("index.html", here)}">ub-agents</a>, '
+            f'{html.escape(ABOUT_UB_AGENTS)} Visualized by <a href="https://ablauf.uberblick.ai">ablauf</a>.</p>')
+
 def workflow_card(workflow, here):
     wide = ' workflow-wide' if workflow.get('hero') else ''
     return (f'<a class="workflow-card{wide}" href="{rel("workflows/" + workflow["name"] + "/", here)}">'
             f'{workflow_player(workflow, here, preview=True)}'
             f'<div class="workflow-meta"><h3>{html.escape(workflow["title"])}</h3>'
             f'<p class="workflow-intent">{html.escape(workflow["intent"])}</p>'
-            + (f'<p class="workflow-about">Built on ub-agents, {html.escape(ABOUT_UB_AGENTS)} Visualized by ablauf.</p>' if workflow.get('about') else '')
-            + '</div></a>')
+            + '</div></a>' + (workflow_via(here, ' workflow-about') if workflow.get('about') else ''))
 
 def workflow_gallery():
     here = 'workflows/index.html'
@@ -437,8 +441,7 @@ def workflow_entry(workflow, scenario=''):
             f'title="Copy link to this run" aria-label="Copy link to this run">{LINK_ICON}</button>'
             f'<a class="workflow-close" href="{rel("workflows/", here)}">Close</a></div></div>'
             + workflow_player(workflow, here, scenario)
-            + f'<p class="workflow-via">Built on <a href="{home}">ub-agents</a>, {html.escape(ABOUT_UB_AGENTS)} '
-            'Visualized by <a href="https://ablauf.uberblick.ai">ablauf</a>.</p>'
+            + workflow_via(here)
             + f'<div class="workflow-story"><div class="workflow-prose">{fix_links(story, here)}</div>'
             + workflow_adopt(workflow) + '</div>'
             '<p class="workflow-footnote">Drawn with the <a href="https://skills.uberblick.ai/skills/ub-agents-flow">'

@@ -314,7 +314,7 @@ body:has(> main.workflows) {
 .workflow-card.workflow-wide .workflow-meta { display: flex; flex-direction: column; justify-content: center; padding: 24px 28px }
 .workflow-card.workflow-wide h3 { font-size: 22px }
 .workflow-card.workflow-wide .workflow-intent { font-size: 15px }
-.workflow-about { margin: 10px 0 0; color: var(--wf-faint); font-size: 12px; line-height: 1.5 }
+.workflow-grid > .workflow-about { grid-column: 1 / -1; margin: -10px 0 0 }
 
 /* Diagrams and ablauf's controls */
 .workflow-player { --ab-bg: transparent; --ab-ink: var(--wf-fg); --ab-muted: var(--wf-mute); --ab-line: var(--wf-edge); --ab-surface: var(--wf-panel); --ab-band: var(--wf-panel) }
