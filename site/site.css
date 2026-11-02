@@ -314,7 +314,7 @@ body:has(> main.workflows) {
 .workflow-card.workflow-wide .workflow-meta { display: flex; flex-direction: column; justify-content: center; padding: 24px 28px }
 .workflow-card.workflow-wide h3 { font-size: 22px }
 .workflow-card.workflow-wide .workflow-intent { font-size: 15px }
-.workflow-about { margin: 10px 0 0; color: var(--wf-faint); font-size: 13px; line-height: 1.5 }
+.workflow-about { margin: 10px 0 0; color: var(--wf-faint); font-size: 12px; line-height: 1.5 }
 
 /* Diagrams and ablauf's controls */
 .workflow-player { --ab-bg: transparent; --ab-ink: var(--wf-fg); --ab-muted: var(--wf-mute); --ab-line: var(--wf-edge); --ab-surface: var(--wf-panel); --ab-band: var(--wf-panel) }
@@ -330,7 +330,7 @@ body:has(> main.workflows) {
 .workflow-top > div:first-child { flex: 1; min-width: 0 }
 .workflow-top h1 { font: 600 clamp(22px, 2.6vw, 28px)/1.2 var(--sans); letter-spacing: -.015em; margin: 4px 0 }
 .workflow-top p { margin: 0; color: var(--wf-mute); font-size: 14.5px }
-.workflow-via { color: var(--wf-faint) }
+.workflow-via { margin: 12px 0 0; color: var(--wf-faint); font-size: 12.5px; line-height: 1.5 }
 .workflow-via a { color: var(--wf-fg); text-decoration: underline; text-decoration-color: var(--wf-edge) }
 .workflow-via a:hover { text-decoration-color: var(--wf-glow) }
 .workflow-buttons { display: flex; gap: 8px; flex: none }
