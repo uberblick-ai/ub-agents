@@ -79,7 +79,7 @@ class SiteTests(unittest.TestCase):
         self.assertIn('href="dependabot/"', page)
         for workflow in build.WORKFLOWS:
             self.assertIn(workflow['title'], page)
-            self.assertIn(workflow['intent'], html.unescape(page))
+            self.assertIn(workflow['intent'], VisibleText(page).text)
         default_card = build.workflow_card(build.WORKFLOWS[0], 'workflows/index.html')
         self.assertIn('Built on ub-agents, a minimal agent loop for experienced developers: '
                       'plain GitHub labels, your own coding agents, nothing to host. Visualized by ablauf.',

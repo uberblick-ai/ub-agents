@@ -34,7 +34,9 @@ WORKFLOW_GROUPS = [  # The wall: one section per group; a hero workflow gets the
 ]
 WORKFLOWS = [
     {'name': 'default', 'group': 0, 'hero': True, 'title': 'The default ub-agents loop',
-     'intent': 'Label an issue. Get back a reviewed, merged pull request.', 'about': True},
+     'intent': 'The loop every repository starts with after ub-agents init.',
+     'intent_html': 'The loop every repository starts with after <code>ub-agents init</code>.',
+     'install': True, 'about': True},
     {'name': 'dependabot', 'group': 1, 'title': 'Dependabot on autopilot',
      'intent': "Patch and minor bumps merge on their own once the tests pass, without anyone opening the PR. "
                "Majors, and failures one fix round can't settle, wait for you.",
@@ -377,6 +379,9 @@ def workflow_shell(here, title, description, body):
             + header(here) + '<main class="workflows">' + body + '</main>' + footer(here)
             + f'<script type="module" src="{rel("assets/workflows.js", here)}"></script>\n</body>\n</html>\n')
 
+def intent_html(workflow):
+    return workflow.get('intent_html') or html.escape(workflow['intent'])
+
 def workflow_via(here, extra=''):
     """The line under a diagram that names what it is built on and drawn with."""
     return (f'<p class="workflow-via{extra}">Built on <a href="{rel("index.html", here)}">ub-agents</a>, '
@@ -387,7 +392,7 @@ def workflow_card(workflow, here):
     return (f'<a class="workflow-card{wide}" href="{rel("workflows/" + workflow["name"] + "/", here)}">'
             f'{workflow_player(workflow, here, preview=True)}'
             f'<div class="workflow-meta"><h3>{html.escape(workflow["title"])}</h3>'
-            f'<p class="workflow-intent">{html.escape(workflow["intent"])}</p>'
+            f'<p class="workflow-intent">{intent_html(workflow)}</p>'
             + '</div></a>' + (workflow_via(here, ' workflow-about') if workflow.get('about') else ''))
 
 def workflow_gallery():
@@ -436,7 +441,10 @@ def workflow_entry(workflow, scenario=''):
     link = public_url(f'workflows/{name}/' + (f'{scenario}/' if scenario else ''))
     home = rel('index.html', here)
     body = (f'<div class="workflow-top"><div><h1>{html.escape(workflow["title"])}</h1>'
-            f'<p>{html.escape(workflow["intent"])}</p></div>'
+            f'<p>{intent_html(workflow)}'
+            + (f' <a href="{rel("docs/installation.html", here)}">Install ub-agents</a> to run it on yours.'
+               if workflow.get('install') else '')
+            + '</p></div>'
             f'<div class="workflow-buttons"><button class="workflow-link" type="button" data-url="{link}" '
             f'title="Copy link to this run" aria-label="Copy link to this run">{LINK_ICON}</button>'
             f'<a class="workflow-close" href="{rel("workflows/", here)}">Close</a></div></div>'
