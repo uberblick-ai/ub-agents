@@ -541,6 +541,17 @@ class CleanupTests(unittest.TestCase):
         with patch("ub_agents.cleanup.group_members", side_effect=AssertionError("not a local group")):
             self.assertTrue(all(row["action"] == "removed" for row in self.cleaner.clean(True)))
 
+    def test_branch_owners_come_from_its_head_prs_not_every_lease(self):
+        from ub_agents.records import body, payload
+        self.github.items[2] = replace(pr(head=self.head), branch=self.branch, state="closed", merged=True)
+        for run in ("continued-a", "continued-b"):
+            self.github.create_comment(2, body(payload(self.lease) | {
+                "assignment": 2, "assignment_sha": self.head, "run": run, "host": "other-host"}))
+        with patch.object(self.github, "item", wraps=self.github.item) as item:
+            rows = self.actions(True)
+        self.assertEqual(item.call_count, 0)
+        self.assertEqual(rows["branch"]["action"], "removed")
+
     def test_continued_local_run_protects_branch_even_with_missing_original_lease(self):
         from ub_agents.records import body, payload
         self.github.items[2] = replace(pr(head=self.head), branch=self.branch, state="closed", merged=True)

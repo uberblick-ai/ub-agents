@@ -138,16 +138,24 @@ class Cleaner:
         if self.control is not None:
             self.control.check(artifact)
         index, invalid = self.coordinator.repository_history()
+        heads = self.github.prs_for_branch(artifact.name, state="all") if artifact.kind == "branch" else []
+        head_numbers = {pr.number for pr in heads}
+
+        def on_branch(lease):
+            # A PR lease works on its PR's head; an issue lease's branch is named after its run.
+            if artifact.kind != "branch":
+                return False
+            if lease.get("assignment_sha"):
+                return lease.get("assignment") in head_numbers
+            return lease_branch(lease, self.github) == artifact.name
+
         # Discovery is not authority. Reread referring assignments, including
         # malformed threads that may also contain a valid, protective lease.
         numbers = invalid | {r["assignment"] for r in index if r["kind"] == "lease"
-                             and (r["run"] == artifact.run or
-                                  (artifact.kind == "branch" and lease_branch(r, self.github) == artifact.name))}
+                             and (r["run"] == artifact.run or on_branch(r))}
         history = [r for number in sorted(numbers) for r in self.history(number)]
         own = [r for r in history if r["kind"] == "lease" and r["run"] == artifact.run]
-        leases = [r for r in history if r["kind"] == "lease"
-                  and (r["run"] == artifact.run or
-                       (artifact.kind == "branch" and lease_branch(r, self.github) == artifact.name))]
+        leases = [r for r in history if r["kind"] == "lease" and (r["run"] == artifact.run or on_branch(r))]
         runs = {artifact.run} | {r["run"] for r in leases}
         if runs & self.blocked_runs:
             raise AgentError("Cleanup hook failed; artifacts preserved")
@@ -156,9 +164,8 @@ class Cleaner:
         if check_diagnostics:
             for run in sorted(runs):
                 self.local_processes(run)
-        if artifact.kind == "branch":
-            if any(pr.state == "open" for pr in self.github.prs_for_branch(artifact.name, state="all")):
-                raise AgentError("Branch is the head of an open PR")
+        if any(pr.state == "open" for pr in heads):
+            raise AgentError("Branch is the head of an open PR")
         lease = own[0] | {"branch": branch or lease_branch(own[0], self.github)} if len(own) == 1 else {
             "run": artifact.run, "agent": None, "assignment": None, "state": None,
             "branch": branch,
