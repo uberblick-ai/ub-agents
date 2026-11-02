@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 from textual.widgets import Static
 
 from tests.test_view_data import event, fixture, publish_snapshot
-from ub_agents.view.ui import View
+from ub_agents.view.ui import RecentActivity, View
 from ub_agents.view.widgets import ItemTabs, UpdateBanner
 from ub_agents.view.worker import LocalWorker, Request
 
@@ -62,6 +62,9 @@ class ViewRefreshTests(unittest.IsolatedAsyncioTestCase):
             self.assertLess(time.monotonic() - started, 1.15)
             # Work is hidden here; only the selected Agent status spins.
             await pilot.resize_terminal(80, 24)
+            recent = app.query_one(RecentActivity)
+            recent.cursor = app.selected
+            recent.focus(scroll_visible=False)
             await pilot.press('enter')
             self.assertTrue(app.item_view)
             self.assertEqual(app._refresh_interval, 0.1)
