@@ -190,19 +190,24 @@ class HelpTests(unittest.TestCase):
         self.assertIn("ub-agents status 143\n", output)
         self.assertIn("ub-agents status 143 --json\n", output)
 
-    def test_overview_stays_aligned_with_forced_color(self):
+    def test_help_stays_unchanged_with_forced_color(self):
         env = os.environ.copy()
         for variable in ("FORCE_COLOR", "PYTHON_COLORS", "NO_COLOR"):
             env.pop(variable, None)
+        forms = [[], ["help"], ["--help"]]
+        forms.extend(argv for name in self.command_line.commands()
+                     for argv in (["help", name], [name, "--help"]))
+        expected = [(argv, self.invoke(argv)) for argv in forms]
         for variable in ("FORCE_COLOR", "PYTHON_COLORS"):
-            for argv in ([], ["help"], ["--help"]):
+            for argv, help_output in expected:
                 with self.subTest(variable=variable, argv=argv):
                     result = subprocess.run([sys.executable, "-m", "ub_agents", *argv], cwd=self.root,
                                             env={**env, variable: "1"}, capture_output=True,
                                             text=True, timeout=10)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stderr, "")
-                    self.assertEqual(result.stdout, OVERVIEW)
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), help_output)
+                    self.assertNotIn("\x1b[", result.stdout)
 
     def test_report_preserves_detailed_choices_and_parsing(self):
         details = self.command_line.commands()["report"].format_help()

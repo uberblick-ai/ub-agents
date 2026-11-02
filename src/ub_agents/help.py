@@ -106,9 +106,9 @@ class HelpParser(argparse.ArgumentParser):
         action.required_for_help = required_for_help
         return action
 
-    def _get_formatter(self):
-        formatter = super()._get_formatter()
-        # Python 3.14 sets colour after constructing the formatter.
+    def _get_formatter(self, *args, **kwargs):
+        formatter = super()._get_formatter(*args, **kwargs)
+        # Python 3.14+ sets colour after constructing the formatter.
         # Keep help stable and table widths literal, even with forced colour.
         if hasattr(formatter, "_set_color"):
             formatter._set_color(False)
