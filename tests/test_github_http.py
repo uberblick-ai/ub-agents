@@ -235,6 +235,42 @@ class GitHubHTTPTests(unittest.TestCase):
                 self.assertEqual(github.rate_limited, limited)
                 self.assertEqual(github.quota_requests, 1)
 
+    def test_redirected_reads_stop_without_returning_or_caching_redirect_body(self):
+        for status in (300, 301, 302, 303, 305, 307, 308, 399):
+            with self.subTest(status=status):
+                connection = self.connection(Reply(status, {'message': 'Moved Permanently'}, [
+                    ('Location', 'https://api.github.com/repositories/123'),
+                    ('ETag', '"redirect"'), ('X-RateLimit-Remaining', '100'),
+                    ('X-RateLimit-Resource', 'core')]))
+                github = GitHub('org/project')
+                with self.assertRaises(GitHubError) as raised:
+                    github.request('repos/org/project/issues/5')
+                self.assertIn(f'redirect (HTTP {status})', str(raised.exception))
+                self.assertIn('repository configuration', str(raised.exception))
+                self.assertFalse(raised.exception.retryable)
+                self.assertFalse(raised.exception.rate_limited)
+                self.assertEqual(github._etag_cache, {})
+                self.assertEqual(github.quota_headers['x-ratelimit-remaining'], '100')
+                self.assertEqual((github.gh_calls, github.quota_requests), (1, 1))
+                self.assertEqual(len(connection.calls), 1)
+
+    def test_redirected_writes_stop_without_reporting_success_or_replaying(self):
+        for method in ('POST', 'PATCH', 'DELETE'):
+            for status in (301, 302, 303, 307, 308):
+                with self.subTest(method=method, status=status):
+                    reply = Reply(status, {'message': 'Temporary Redirect'}, [
+                        ('Location', 'https://api.github.com/repositories/123/issues/5/comments')])
+                    if method == 'DELETE':
+                        reply.payload = b''
+                    connection = self.connection(reply)
+                    github = GitHub('org/project')
+                    with self.assertRaises(GitHubError) as raised:
+                        github.request('repos/org/project/issues/5/comments', method)
+                    self.assertIn(f'redirect (HTTP {status})', str(raised.exception))
+                    self.assertFalse(raised.exception.retryable)
+                    self.assertEqual(len(connection.calls), 1)
+                    self.assertEqual((github.gh_calls, github.quota_requests), (1, 1))
+
     def test_transport_timeout_and_interrupt_discard_connection_without_credential_in_diagnostics(self):
         for failure in (TimeoutError('sentinel-credential'), OSError('sentinel-credential'),
                         http.client.BadStatusLine('sentinel-credential'), KeyboardInterrupt()):

@@ -461,6 +461,9 @@ class GitHub:
         # server's freshness confirmation takes precedence over that exit code.
         if status == 304:
             return status, headers, payload
+        if status is not None and 300 <= status < 400:
+            raise GitHubError(method, endpoint, f"Unexpected GitHub redirect (HTTP {status}); "
+                              "check the repository configuration and requested resource")
         self.rate_limited |= is_rate_limit(status, headers, result.stderr + payload)
         if result.returncode or (status is not None and status >= 400):
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"

@@ -120,8 +120,9 @@ first error; run them again later. `doctor --verbose` shows the remaining quota.
 [quota and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling).
 
 **Launch stops with "ub-agents does not retry this error."** Authentication failures,
-other HTTP 4xx errors are not retried. Fix the cause, for
-example with `gh auth login`, and restart. The restarted launcher recovers any claim
+redirects returned by GitHub and other HTTP 4xx errors are not retried. Fix the cause,
+for example with `gh auth login` or by correcting your repository configuration,
+and restart. The restarted launcher recovers any claim
 it left open.
 
 **A runtime reached its usage limit.** The launcher pauses that CLI until the limit
