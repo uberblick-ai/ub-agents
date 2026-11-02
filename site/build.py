@@ -42,8 +42,8 @@ WORKFLOWS = [
     {'name': 'dependabot', 'group': 1, 'title': 'Dependabot on autopilot',
      'intent': "Patch and minor bumps merge on their own once the tests pass, without anyone opening the PR. "
                "Majors, and failures one fix round can't settle, wait for you.",
-     'lede_html': 'An addition to the <a href="../default/">default loop</a>: Dependabot pull requests skip '
-                  'preparation and go straight to the integrator. Patch and minor bumps merge once the required checks '
+     'lede_html': 'Dependabot pull requests skip preparation and go straight to the integrator. '
+                  'Patch and minor bumps merge once the required checks '
                   "pass. Majors, and failures one fix round can't settle, wait for a person.",
      'requires_html': 'Needs ub-agents 0.3.5 or newer, <code>trusted-pr-authors: [dependabot]</code> and '
                       '<code>dependencies</code> as an integrator trigger. <code>max-rounds: 1</code> enforces the single fix round.',
@@ -458,8 +458,6 @@ def workflow_entry(workflow, scenario=''):
     link = public_url(f'workflows/{name}/' + (f'{scenario}/' if scenario else ''))
     home = rel('index.html', here)
     lede = workflow.get('lede_html') or intent_html(workflow)
-    if scenario:  # scenario URLs sit one level deeper than the lede's relative links
-        lede = lede.replace('href="../', 'href="../../')
     body = (f'<a class="workflow-back" href="{rel("workflows/", here)}">\u2190 All workflows</a>'
             f'<div class="workflow-top"><div><h1>{html.escape(workflow["title"])}</h1>'
             f'<p>{lede}'
