@@ -79,6 +79,18 @@ play "One fix round"
   step integrator 2.6s actor="Integrator" "Checks pass on the head that will merge; policy allows it"
   step merged 3s actor="Merged" "The pull request merges after one fix round"
 
+play "Main moves on"
+  tempo 1.8s
+  step reviewer actor="Reviewer" "Approve the pull request at its current head"
+  step ready-to-merge actor="Loop hands off" "The approved pull request waits for the integrator"
+  step needs-changes 2.6s actor="Launcher" "Another merge moved main and GitHub reports a conflict; send it back without a run"
+  step implementer 2.6s actor="Implementer" "Merge main into the same branch, resolve the conflict and rerun the checks"
+  step needs-review actor="Loop hands off" "Send the new head for review"
+  step reviewer 2.4s actor="Reviewer" "Review the resolution on the exact new head"
+  step ready-to-merge actor="Loop hands off" "Approve the updated candidate"
+  step integrator 2.6s actor="Integrator" "No conflicts now, and checks pass on this head"
+  step merged 3s actor="Merged" "The pull request merges on top of the new main"
+
 play "A person decides"
   tempo 1.8s
   step ready actor="Loop picks" "Start the next eligible issue"

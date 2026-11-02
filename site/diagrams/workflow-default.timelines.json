@@ -230,6 +230,110 @@
     ]
   },
   {
+    "name": "Main moves on",
+    "slug": "main-moves-on",
+    "steps": [
+      {
+        "target": "reviewer",
+        "kind": "box",
+        "actor": "Reviewer",
+        "caption": "Approve the pull request at its current head",
+        "ms": 1800,
+        "parts": [
+          "node-6"
+        ]
+      },
+      {
+        "target": "ready-to-merge",
+        "kind": "pill",
+        "actor": "Loop hands off",
+        "caption": "The approved pull request waits for the integrator",
+        "ms": 1800,
+        "parts": [
+          "node-7",
+          "edge-6"
+        ]
+      },
+      {
+        "target": "needs-changes",
+        "kind": "pill",
+        "actor": "Launcher",
+        "caption": "Another merge moved main and GitHub reports a conflict; send it back without a run",
+        "ms": 2600,
+        "parts": [
+          "node-10",
+          "edge-10"
+        ]
+      },
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Merge main into the same branch, resolve the conflict and rerun the checks",
+        "ms": 2600,
+        "parts": [
+          "node-4",
+          "edge-12"
+        ]
+      },
+      {
+        "target": "needs-review",
+        "kind": "pill",
+        "actor": "Loop hands off",
+        "caption": "Send the new head for review",
+        "ms": 1800,
+        "parts": [
+          "node-5",
+          "edge-4"
+        ]
+      },
+      {
+        "target": "reviewer",
+        "kind": "box",
+        "actor": "Reviewer",
+        "caption": "Review the resolution on the exact new head",
+        "ms": 2400,
+        "parts": [
+          "node-6",
+          "edge-5"
+        ]
+      },
+      {
+        "target": "ready-to-merge",
+        "kind": "pill",
+        "actor": "Loop hands off",
+        "caption": "Approve the updated candidate",
+        "ms": 1800,
+        "parts": [
+          "node-7",
+          "edge-6"
+        ]
+      },
+      {
+        "target": "integrator",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "No conflicts now, and checks pass on this head",
+        "ms": 2600,
+        "parts": [
+          "node-8",
+          "edge-7"
+        ]
+      },
+      {
+        "target": "merged",
+        "kind": "end",
+        "actor": "Merged",
+        "caption": "The pull request merges on top of the new main",
+        "ms": 3000,
+        "parts": [
+          "node-9",
+          "edge-8"
+        ]
+      }
+    ]
+  },
+  {
     "name": "A person decides",
     "slug": "a-person-decides",
     "steps": [

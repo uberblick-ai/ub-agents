@@ -96,10 +96,10 @@ class SiteTests(unittest.TestCase):
                 self.assertNotIn(f'class="{project_class}"', page, path)
 
     def test_workflow_scenarios_have_urls_and_native_playback_data(self):
-        expected = {'default': ['clean-merge', 'one-fix-round', 'a-person-decides'],
+        expected = {'default': ['clean-merge', 'one-fix-round', 'main-moves-on', 'a-person-decides'],
                     'dependabot': ['clean-merge', 'tests-failing', 'fix-fails', 'major-release']}
         pages = dict(build.workflow_pages())
-        self.assertEqual(len(pages), 10)
+        self.assertEqual(len(pages), 11)
         for workflow in build.WORKFLOWS:
             name = workflow['name']
             timelines = build.workflow_timelines(name)
