@@ -144,8 +144,9 @@ class SiteTests(unittest.TestCase):
                 self.assertIn(f'{build.SITE}/workflows/{name}/', prompt)
                 self.assertIn('ub-agents.yaml', prompt)
                 self.assertIn('loop policy', prompt)
-                self.assertIn('smallest', prompt)
-                self.assertIn('diff before writing anything', prompt)
+                for requirement in ('what you think of it', 'evidence', 'adoption plan', 'smallest',
+                                    'diff before writing anything'):
+                    self.assertIn(requirement, prompt)
                 self.assertIn('Adopt this workflow, discuss with', page)
             for heading in ('Why it exists', 'What you gain', 'Where a person steps in'):
                 self.assertIn(heading, page)

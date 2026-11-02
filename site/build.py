@@ -420,7 +420,7 @@ LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke
 def workflow_adopt(workflow):
     """Open the workflow's prompt in Claude Code, on claude.ai or in Codex, or copy it.
 
-    The default loop's prompt evaluates and installs ub-agents; the others adopt a change to it."""
+    The default loop's prompt evaluates and installs ub-agents; the others weigh a change to it with evidence and plan its adoption."""
     name = f'workflow-{workflow["name"]}'
     prompt, _, _ = prompt_links(name)
     article = ''
