@@ -8,15 +8,11 @@ notes are copied from that section.
 
 <!-- ub-agents:launcher-upgrade=independent -->
 
-**Upgrading:** Upgrade and restart launchers one at a time. Every launcher of a
-project must run 0.5.0 before its `ub-agents.yaml` uses the `merge` outcome key;
-older launchers reject the key (#689).
-
 ### Added
 
 - Completed Claude and Codex run outcomes record available main-session context usage, including model window, prompt-token counts and compactions (#779, #787).
 - The Runs tab shows each run's peak context use as a percentage of its model window (#780, #788).
-- PR outcomes can declare `merge` so the launcher waits for checks and performs an approved PR merge after the agent exits (#686, #689).
+- PR outcomes can declare `merge` so the launcher waits for checks and performs an approved PR merge after the agent exits; every launcher must run 0.5.0 before a project uses the key (#686, #689).
 - A workflow gallery shows the default loop and Dependabot scenarios, with animated diagrams and prompts for evaluating and adopting them (#782, #789, #807).
 
 ### Changed
