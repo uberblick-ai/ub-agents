@@ -113,11 +113,11 @@ class RefreshTests(unittest.TestCase):
                 patch("ub_agents.assignment_run.Workspace.prepare") as prepare, \
                 patch.object(self.loop.stop_event, "wait") as wait, \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
-                patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.launch_checks"), \
-                patch("ub_agents.cli.Loop", return_value=self.loop), \
+                patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch.launch_checks"), \
+                patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
                 redirect_stderr(stderr), redirect_stdout(io.StringIO()):
             argv = ["--config", str(self.root / "ub-agents.yaml"), "launch", "--no-ui"]
             self.assertEqual(main(argv + (["--once"] if once else [])), 1)
@@ -233,8 +233,8 @@ class RefreshTests(unittest.TestCase):
                 launch_error = io.StringIO()
                 args = ['--config', str(self.root / 'ub-agents.yaml')]
                 with patch.object(Path, 'read_text', read), \
-                        patch('ub_agents.cli.GitHub', return_value=self.github), \
-                        patch('ub_agents.cli.repository_checks', return_value=[]), \
+                        patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
+                        patch('ub_agents.cli.launch.repository_checks', return_value=[]), \
                         patch('ub_agents.coordination.shutil.which', return_value='installed'), \
                         patch('ub_agents.assignment_run.supervise') as execution, \
                         redirect_stderr(launch_error):
@@ -308,10 +308,10 @@ class RefreshTests(unittest.TestCase):
                     return self.loop
 
                 with patch("ub_agents.refresh.git", side_effect=refresh_git), \
-                        patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                        patch("ub_agents.cli.GitHub", return_value=self.github), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
-                        patch("ub_agents.cli.Loop", side_effect=loop), \
+                        patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli._runtime.Loop", side_effect=loop), \
                         patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                         patch("ub_agents.assignment_run.supervise") as execution, \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -377,7 +377,7 @@ class RefreshTests(unittest.TestCase):
                 self.assertIn('"revised"', prompt)
                 self.assertEqual(self.loop.config.agents[0].triggers, ("needs-changes",))
                 name = "revised"
-            with patch.dict("os.environ", env), patch("ub_agents.cli.GitHub", return_value=self.github), \
+            with patch.dict("os.environ", env), patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
                     redirect_stdout(io.StringIO()):
                 self.assertEqual(main(["report", "--outcome", name, "--summary", "Finished"]), 0)
             return 0
@@ -490,11 +490,11 @@ class RefreshTests(unittest.TestCase):
             with self.subTest(content=content):
                 local.write_text(content)
                 before = self.snapshot()
-                with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
-                        patch('ub_agents.cli.GitHub', return_value=self.github), \
-                        patch('ub_agents.cli.repository_checks', return_value=[]), \
-                        patch('ub_agents.cli.launch_checks'), \
-                        patch('ub_agents.cli.Loop', return_value=self.loop), \
+                with patch('ub_agents.cli._runtime.load_config', return_value=self.loop.config), \
+                        patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
+                        patch('ub_agents.cli.launch.repository_checks', return_value=[]), \
+                        patch('ub_agents.cli.launch.launch_checks'), \
+                        patch('ub_agents.cli._runtime.Loop', return_value=self.loop), \
                         patch('ub_agents.coordination.shutil.which', return_value='installed'), \
                         patch('ub_agents.assignment_run.supervise') as execution, \
                         patch('ub_agents.assignment_run.Workspace.prepare') as prepare, \
@@ -579,8 +579,8 @@ class RefreshTests(unittest.TestCase):
         git(self.upstream, "push", "origin", "main")
         launch_error = io.StringIO()
         args = ["--config", str(self.root / "ub-agents.yaml")]
-        with patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
+        with patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 patch("ub_agents.assignment_run.supervise") as execution, \
                 redirect_stderr(launch_error):
@@ -596,9 +596,9 @@ class RefreshTests(unittest.TestCase):
         self.commit(self.upstream)
         git(self.upstream, "push", "origin", "main")
         stderr = io.StringIO()
-        with patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.launch_checks"), \
+        with patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch.launch_checks"), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 patch("ub_agents.assignment_run.supervise") as execution, redirect_stderr(stderr):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)
@@ -979,9 +979,9 @@ class RefreshTests(unittest.TestCase):
     def test_cli_refresh_failure_exits_nonzero_without_claiming(self):
         (self.root / "untracked").write_text("Local file")
         error = io.StringIO()
-        with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 redirect_stdout(io.StringIO()), redirect_stderr(error):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)

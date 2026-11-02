@@ -64,7 +64,7 @@ class InitTests(unittest.TestCase):
                 raise response
             return response
 
-        with patch('ub_agents.cli.GitHub', return_value=self.github), \
+        with patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
                 patch('subprocess.run', self.runner), \
                 patch('ub_agents.labels.sys.stdin.isatty', return_value=terminal), \
                 patch.dict('os.environ', {'CI': ci}), \

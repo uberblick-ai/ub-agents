@@ -666,13 +666,13 @@ class CleanupTests(unittest.TestCase):
         path = self.root / "ub-agents.yaml"
         path.write_text("repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n"
                         "    outcomes: {done: {}}\n")
-        with patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.launch_checks"), \
+        with patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch.launch_checks"), \
                 patch("ub_agents.updates.Updates", return_value=None), \
                 patch("ub_agents.observations.Publisher", return_value=publisher), \
-                patch("ub_agents.cli.StartupCleanup", side_effect=factory), \
-                patch("ub_agents.cli.Loop.tick", side_effect=after_cleanup), \
+                patch("ub_agents.cli.launch.StartupCleanup", side_effect=factory), \
+                patch("ub_agents.cli._runtime.Loop.tick", side_effect=after_cleanup), \
                 redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(["--config", str(path), "launch", "--once", "--no-ui"]), 0)
         self.assertEqual(output.getvalue(), "")

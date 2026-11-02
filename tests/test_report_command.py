@@ -36,12 +36,12 @@ class ReportCommandTests(unittest.TestCase):
         (package / "__init__.py").write_text('__version__ = "launcher-fixture"\n')
         # Expose the command produced by the fixture's actual launcher process.
         # All other arguments still run the real CLI, including report.
-        with (package / "cli.py").open("a") as stream:
+        with (package / "cli/__init__.py").open("a") as stream:
             stream.write('''
 original_main = main
 def main():
     if sys.argv[1:] == ["--test-report-command"]:
-        from .report_command import launcher_report_command
+        from ..report_command import launcher_report_command
         print(launcher_report_command())
         return 0
     return original_main()
@@ -165,7 +165,7 @@ class ReportVersionTests(unittest.TestCase):
         env.update(env_overrides or {})
         if report_command:
             env["UB_AGENTS_REPORT"] = report_command
-        with patch.dict(os.environ, env, clear=True), patch("ub_agents.cli.GitHub", return_value=self.github), \
+        with patch.dict(os.environ, env, clear=True), patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             code = main(["report", "--status", "blocked", "--summary", "Need a decision",
                          "--action", "Maintainer: choose A or B; recommend A."])

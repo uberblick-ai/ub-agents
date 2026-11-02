@@ -40,13 +40,14 @@ class LauncherCodeTests(unittest.TestCase):
         # Reuse the recording adapter inside the copied package so the real
         # report subprocess validates and writes a durable outcome without gh.
         shutil.copyfile(Path(__file__).with_name("support.py"), package / "fixture_support.py")
-        with (package / "cli.py").open("a") as stream:
+        with (package / "cli/report.py").open("a") as stream:
             stream.write('''
-from .fixture_support import FakeGitHub, issue
+from pathlib import Path
+from ..fixture_support import FakeGitHub, issue
 fixture = FakeGitHub(issue())
 fixture.store = {1: json.loads(Path(os.environ["FIXTURE_COMMENTS"]).read_text())}
 fixture.next_id = 100
-GitHub = lambda repository: fixture
+_runtime.GitHub = lambda repository: fixture
 ''')
         probe = 'from ub_agents import run_config\nprint(run_config.__file__)\n'
         for module in ("view/request", "observation_worker", "view/__main__", "startup_probe"):
@@ -103,11 +104,11 @@ GitHub = lambda repository: fixture
             self.assertEqual(len(descriptors()), 1)
         # This test owns the launcher copy's lifetime, not the independent
         # cleanup worker, which can otherwise recreate files during teardown.
-        with patch("ub_agents.cli.load_config", return_value=config(self.root)), \
-                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.StartupCleanup"), \
-                patch("ub_agents.cli.launch_checks"), patch.object(Loop, "before_claim"), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=config(self.root)), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch.StartupCleanup"), \
+                patch("ub_agents.cli.launch.launch_checks"), patch.object(Loop, "before_claim"), \
                 patch.object(Loop, "launch", side_effect=launch), redirect_stdout(io.StringIO()):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 0)
         self.assertFalse(paths[0].exists())

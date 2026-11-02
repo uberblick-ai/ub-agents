@@ -43,12 +43,12 @@ agents:
         return result.stdout.strip()
 
     def launch(self, *arguments):
-        with patch("ub_agents.cli.GitHub", return_value=self.github), \
+        with patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
                 patch("ub_agents.execution.git", side_effect=self.read_git), \
                 patch("ub_agents.refresh.git", side_effect=self.read_git), \
                 patch("ub_agents.observations.Publisher", MemoryPublisher), \
                 patch("ub_agents.updates.Updates", return_value=None), \
-                patch("ub_agents.cli.Loop.launch") as launch, \
+                patch("ub_agents.cli._runtime.Loop.launch") as launch, \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             code = main(["--config", str(self.path), "launch", *arguments])
         return code, stdout.getvalue(), stderr.getvalue(), launch

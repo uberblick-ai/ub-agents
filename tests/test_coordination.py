@@ -7,7 +7,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from ub_agents.cli import status_rows
+from ub_agents.cli.status import status_rows
 from ub_agents.config import Queue, Runtime
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, GitHubError, LostOwnership

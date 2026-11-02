@@ -307,7 +307,7 @@ agents:
         base = "repository: org/project\nagents:\n  task:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
         self.assertIsNone(self.load(base).agents[0].retrospectives)
         self.assertEqual(self.load(base + "    retrospectives: 203\n").agents[0].retrospectives, 203)
-        with patch("ub_agents.cli.GitHub", side_effect=AssertionError("offline check")):
+        with patch("ub_agents.cli._runtime.GitHub", side_effect=AssertionError("offline check")):
             for value in ("203", "0", "-1", "203.0", ".inf", ".nan", "true", "false", "null",
                           "'203'", "[]", "{}", "''"):
                 with self.subTest(value=value):
@@ -805,7 +805,7 @@ agents:
 
     def test_init_and_installed_template_preservation(self):
         github = DoctorGitHub()
-        with patch("ub_agents.cli.GitHub", return_value=github), \
+        with patch("ub_agents.cli._runtime.GitHub", return_value=github), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.path), "init", "--repository", "org/project"]), 0)
             original = self.path.read_text()

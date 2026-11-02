@@ -213,8 +213,8 @@ class ConfigurationPauseTests(unittest.TestCase):
         self.publish(self.valid + 'unknown: true\n')
 
         def wait(event, delay, reason):
-            with patch('ub_agents.cli.load_config', side_effect=AssertionError('Cannot load invalid files')), \
-                    patch('ub_agents.cli.GitHub', side_effect=AssertionError('No GitHub discovery')):
+            with patch('ub_agents.cli._runtime.load_config', side_effect=AssertionError('Cannot load invalid files')), \
+                    patch('ub_agents.cli._runtime.GitHub', side_effect=AssertionError('No GitHub discovery')):
                 for number in ([], ['1']):
                     argv = ['--config', str(self.loop.config_path), 'status', *number]
                     with redirect_stdout(io.StringIO()) as output:
@@ -263,12 +263,12 @@ class ConfigurationPauseTests(unittest.TestCase):
             # The terminal's q sends drain, which is relayed as SIGTERM.
             signal.raise_signal(signal.SIGTERM)
 
-        with patch('ub_agents.cli.Loop', return_value=self.loop), \
-                patch('ub_agents.cli.GitHub', return_value=self.github), \
-                patch('ub_agents.cli.launch_checks'), \
-                patch('ub_agents.cli.repository_checks', return_value=[]), \
-                patch('ub_agents.cli.StartupCleanup'), \
-                patch('ub_agents.cli._start_updates'), \
+        with patch('ub_agents.cli._runtime.Loop', return_value=self.loop), \
+                patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
+                patch('ub_agents.cli.launch.launch_checks'), \
+                patch('ub_agents.cli.launch.repository_checks', return_value=[]), \
+                patch('ub_agents.cli.launch.StartupCleanup'), \
+                patch('ub_agents.cli.launch._start_updates'), \
                 patch('ub_agents.coordination.shutil.which', return_value='installed'), \
                 patch.object(self.loop, 'wait', side_effect=wait) as waits, \
                 redirect_stdout(io.StringIO()):

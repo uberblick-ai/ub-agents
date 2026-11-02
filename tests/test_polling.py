@@ -27,7 +27,7 @@ class PollingTests(unittest.TestCase):
         clock.start()
         self.addCleanup(clock.stop)
         self.refresh = stub_refresh(self)
-        self.enterContext(patch("ub_agents.cli.launch_checks"))
+        self.enterContext(patch("ub_agents.cli.launch.launch_checks"))
         self.enterContext(patch("ub_agents.cleanup.Cleaner.inventory", return_value=[]))
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -401,10 +401,10 @@ class PollingTests(unittest.TestCase):
                 name = "item" if argv == ["launch", "1"] else "observe"
                 self.github.read_results[name] = [error]
                 stderr = io.StringIO()
-                with patch("ub_agents.cli.load_config", return_value=self.config), \
-                        patch("ub_agents.cli.GitHub", return_value=self.github), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
-                        patch("ub_agents.cli.Loop", return_value=self.loop), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
                         patch.object(self.loop.stop_event, "wait") as waits, redirect_stderr(stderr):
                     self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), *argv]), 1)
                 waits.assert_not_called()
@@ -419,10 +419,10 @@ class PollingTests(unittest.TestCase):
     def test_launch_startup_github_failure_also_has_one_line_and_next_step(self):
         error = self.request_error(subprocess.CompletedProcess([], 1, "", "gh: unavailable\nsecond line"))
         stderr = io.StringIO()
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.launch_checks", side_effect=error), redirect_stderr(stderr):
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch.launch_checks", side_effect=error), redirect_stderr(stderr):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)
         self.assertEqual(stderr.getvalue(), f"ub-agents: {' '.join(str(error).split())}; "
                          "Fix the cause and restart ub-agents launch.\n")
@@ -445,11 +445,11 @@ class PollingTests(unittest.TestCase):
                 self.loop.stop_event = SignalEvent()
                 interrupt = SignalEvent()
                 self.loop.interrupt_event = interrupt
-                with patch("ub_agents.cli.load_config", return_value=self.config), \
-                        patch("ub_agents.cli.GitHub", return_value=self.github), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
-                        patch("ub_agents.cli.Loop", return_value=self.loop), \
-                        patch("ub_agents.cli.SignalEvent", side_effect=[self.loop.stop_event, interrupt]), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
+                        patch("ub_agents.cli._runtime.SignalEvent", side_effect=[self.loop.stop_event, interrupt]), \
                         patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(sig)), \
                         redirect_stderr(io.StringIO()):
                     self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]),
@@ -465,11 +465,11 @@ class PollingTests(unittest.TestCase):
         interrupt = SignalEvent()
         self.loop.interrupt_event = interrupt
         with patch.object(self.github, "actor", side_effect=limited), \
-                patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.Loop", return_value=self.loop), \
-                patch("ub_agents.cli.SignalEvent", side_effect=[self.loop.stop_event, interrupt]), \
+                patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
+                patch("ub_agents.cli._runtime.SignalEvent", side_effect=[self.loop.stop_event, interrupt]), \
                 patch.object(self.loop.stop_event, "wait", side_effect=lambda _: signal.raise_signal(signal.SIGTERM)), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch"]), 0)

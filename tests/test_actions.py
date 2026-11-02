@@ -38,7 +38,7 @@ class ActionReportTests(unittest.TestCase):
 
     def cli(self, lease, options):
         env = run_environment(self.loop.config, self.worker, lease)
-        with patch.dict(os.environ, env, clear=True), patch('ub_agents.cli.GitHub', return_value=self.github), \
+        with patch.dict(os.environ, env, clear=True), patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
             code = main(['report', *options, '--summary', 'Gate details'])
         return code, stderr.getvalue()

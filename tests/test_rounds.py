@@ -113,8 +113,8 @@ class RoundTests(unittest.TestCase):
         self.assertEqual(self.count(), 5)
         for role in (agent(self.root, name='integrator'), self.reviewer):
             configured = config(self.root, role)
-            with patch('ub_agents.cli.load_config', return_value=configured), \
-                    patch('ub_agents.cli.GitHub', return_value=self.github), \
+            with patch('ub_agents.cli._runtime.load_config', return_value=configured), \
+                    patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
                     redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 self.assertEqual(main(['retry', '1', '--agent', role.name, '--reason', 'Findings resolved']), 0)
             self.assertEqual(self.github.item(1).labels,

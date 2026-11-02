@@ -39,7 +39,7 @@ class GitHubTests(unittest.TestCase):
                 self.assertIsNone(github.role("Copilot"))
 
     def test_45_item_status_and_cold_discovery_request_cost(self):
-        from ub_agents.cli import status_rows
+        from ub_agents.cli.status import status_rows
         from ub_agents.config import Priority, Queue
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

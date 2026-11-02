@@ -46,8 +46,8 @@ class FilteredLaunchTests(unittest.TestCase):
 
     def test_unknown_agent_lists_names_before_github_is_constructed(self):
         stderr = io.StringIO()
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub") as github, redirect_stderr(stderr), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub") as github, redirect_stderr(stderr), \
                 self.assertRaises(SystemExit) as raised:
             main(self.argv + ["--agent", "missing"])
         self.assertEqual(raised.exception.code, 2)

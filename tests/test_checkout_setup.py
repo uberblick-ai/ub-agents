@@ -240,11 +240,11 @@ class CheckoutSetupTests(unittest.TestCase):
 
     def failed_launch(self, expected=1, *, cause="pnpm-lock.yaml changed"):
         errors, output = io.StringIO(), io.StringIO()
-        with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.Loop", return_value=self.loop), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.launch_checks"), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch.launch_checks"), \
                 patch("ub_agents.coordination.shutil.which", return_value="installed"), \
                 patch("ub_agents.assignment_run.supervise") as role, \
                 patch("ub_agents.assignment_run.Workspace.prepare") as prepare, \

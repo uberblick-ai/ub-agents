@@ -55,8 +55,8 @@ class NoticeTests(unittest.TestCase):
     def retry(self, number=1):
         # Exercise the actual CLI reset, including its advisory notice cleanup.
         cfg = config(self.root, self.worker)
-        with patch("ub_agents.cli.load_config", return_value=cfg), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=cfg), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(main(["retry", "--number", str(number), "--agent", "worker",
                                    "--reason", "Decision made"]), 0)

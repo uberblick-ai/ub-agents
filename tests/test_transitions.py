@@ -502,9 +502,9 @@ class TransitionTests(unittest.TestCase):
                     self.execute(handoff=2)
                 self.now += 61
                 # Exercise the operator command after the source lease expires.
-                with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
-                        patch('ub_agents.cli.GitHub', return_value=self.github), \
-                        patch('ub_agents.cli.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
+                with patch('ub_agents.cli._runtime.load_config', return_value=self.loop.config), \
+                        patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
+                        patch('ub_agents.cli.retry.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
                     self.assertEqual(main(['retry', '--number', '1', '--agent', self.agent.name,
                                            '--reason', 'Resume after interrupted transition']), 0)
                 reviewer = agent(self.root, name='reviewer', triggers=('needs-review',), kind='pr')
@@ -753,7 +753,7 @@ class TransitionTests(unittest.TestCase):
         plan = self.loop.plans()[0]
         lease = self.loop.coordinator.claim(plan, self.loop.config.stop_labels)
         env = run_environment(self.loop.config, self.agent, lease)
-        with patch.dict(os.environ, env, clear=True), patch('ub_agents.cli.GitHub', return_value=self.github), \
+        with patch.dict(os.environ, env, clear=True), patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(main(['report', '--outcome', 'unknown', '--summary', 'done']), 1)
             with self.assertRaises(SystemExit):  # --status success no longer exists
@@ -771,7 +771,7 @@ class TransitionTests(unittest.TestCase):
                 if value is None:
                     incomplete.pop(field)
                 with self.subTest(field=field, value=value), patch.dict(os.environ, incomplete, clear=True), \
-                        patch('ub_agents.cli.GitHub') as github, redirect_stdout(io.StringIO()) as output, \
+                        patch('ub_agents.cli._runtime.GitHub') as github, redirect_stdout(io.StringIO()) as output, \
                         redirect_stderr(io.StringIO()) as error:
                     self.assertEqual(main(['report', '--outcome', 'handed-off', '--summary', 'done']), 1)
                     self.assertIn('run.json (UB_AGENTS_RUN_CONFIG)', error.getvalue())

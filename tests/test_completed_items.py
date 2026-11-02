@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from ub_agents.cli import status_rows
+from ub_agents.cli.status import status_rows
 from ub_agents.loop import Loop
 from ub_agents.observations import Observations
 from ub_agents.notices import ACTION_MARKER

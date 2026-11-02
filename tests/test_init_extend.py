@@ -220,7 +220,7 @@ class ExistingSetupTests(unittest.TestCase):
         self.github.discussion_metadata['hasDiscussionsEnabled'] = False
         doctor = Doctor(runner=self.runner, which=lambda name: '/bin/' + name if name in self.installed else None,
                         github=self.github)
-        with patch('ub_agents.cli.GitHub', return_value=self.github), \
+        with patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
                 patch('ub_agents.init.probes.Doctor', return_value=doctor), \
                 patch('subprocess.run', self.runner), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:

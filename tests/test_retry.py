@@ -27,10 +27,10 @@ class RetryTests(unittest.TestCase):
 
     def retry(self, number=97, name="worker", reason="Cause resolved", now=1000):
         output, errors = io.StringIO(), io.StringIO()
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.timestamp", return_value=now), \
-                patch("ub_agents.cli.Loop", side_effect=AssertionError("retry must not plan work")), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.retry.timestamp", return_value=now), \
+                patch("ub_agents.cli._runtime.Loop", side_effect=AssertionError("retry must not plan work")), \
                 redirect_stdout(output), redirect_stderr(errors):
             result = main(["retry", str(number), "--reason", reason]
                           + (["--agent", name] if name is not None else []))

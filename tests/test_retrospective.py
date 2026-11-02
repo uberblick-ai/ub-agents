@@ -35,8 +35,8 @@ class RetrospectiveTests(unittest.TestCase):
     def cli(self, *arguments, env=None):
         calls = len(self.runner.calls)
         with patch.dict(os.environ, self.env if env is None else env, clear=True), \
-                patch("ub_agents.cli.load_config", side_effect=AssertionError("worktree config")), \
-                patch("ub_agents.cli.GitHub", return_value=self.github) as github, \
+                patch("ub_agents.cli._runtime.load_config", side_effect=AssertionError("worktree config")), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github) as github, \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             try:
                 code = main(list(arguments) + ["retrospective", "--body-file", str(self.body_path)])
