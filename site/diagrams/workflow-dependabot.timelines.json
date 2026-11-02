@@ -99,8 +99,8 @@
         "target": "implementer",
         "kind": "box",
         "actor": "Implementer",
-        "caption": "Fixes two assertions; a reviewer checks the fix",
-        "ms": 2800,
+        "caption": "Picks it up on its own, finds the cause, fixes two assertions and sends it back to the integrator",
+        "ms": 3200,
         "parts": [
           "node-4",
           "edge-4"
@@ -181,8 +181,8 @@
         "target": "implementer",
         "kind": "box",
         "actor": "Implementer",
-        "caption": "Adapts the code; a reviewer checks the fix",
-        "ms": 2600,
+        "caption": "Picks it up on its own, adapts the code and sends it back to the integrator",
+        "ms": 3200,
         "parts": [
           "node-4",
           "edge-4"
