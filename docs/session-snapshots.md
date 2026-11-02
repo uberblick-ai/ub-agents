@@ -1,7 +1,10 @@
 # Session snapshot contract
 
-Local observation format for the [terminal view](terminal-view.md) and other
+Local observation format for the [terminal view](https://agents.uberblick.ai/docs/guides/terminal-view.html) and other
 readers. Snapshots never authorize claims, coordination or recovery.
+
+The view's real-terminal tests are in `tests/test_view_terminal.py` and
+`tests/test_view_unblock_terminal.py`.
 
 Every `launch` session, including `--once` and `launch N`, publishes a JSON
 snapshot at `.ub-agents/sessions/<session-id>.json` in the control checkout.
@@ -39,7 +42,7 @@ diagnostic per session, and the last snapshot may stay stale. A sender thread st
 at a time and keeps only the newest pending observation. At process exit, the
 sender gets a bounded grace period to flush the final observation. Each successful
 write keeps at most 20 other inactive sessions and never removes live ones. The startup sweep prunes older files;
-see [stale artifact cleanup](configuration.md#stale-artifact-cleanup).
+see [stale artifact cleanup](coordination.md#stale-artifact-cleanup).
 
 ## Snapshot fields
 

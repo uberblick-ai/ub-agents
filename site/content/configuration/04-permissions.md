@@ -84,3 +84,21 @@ An agent's own `runtime-args` replaces the whole mapping: a list for every alter
 ```sh
 ub-agents doctor
 ```
+
+## Argument placeholders
+
+In `runtime-args` only, `{scratch}` becomes the run's absolute scratch path and
+`{report_command}` the launcher's absolute report command, anywhere in an argument,
+as in `"--add-dir={scratch}"`. Quote them in YAML; unquoted `{scratch}` is a mapping.
+Any other word of letters, digits, `-` or `_` in braces is an error. Other braces,
+such as JSON `'{"a": 1}'`, pass through. There is no other templating.
+
+Scratch is `$XDG_STATE_HOME/ub-agents/<owner>/<repo>/runs/<run>/scratch`, with
+`~/.local/state` used when `XDG_STATE_HOME` is unset, empty or relative. It is outside
+the checkout, so runtimes limited to their working directory need access, such as
+Claude's `--add-dir`. A scratch path inside the checkout fails the run before the
+agent starts.
+
+Online `doctor` also checks project MCP registrations and servers named by tool
+references in instructions and runtime arguments. These are optional warnings,
+skipped with `--offline`; see [doctor's MCP checks](/docs/commands/doctor.html#mcp-servers).

@@ -20,7 +20,7 @@ queue:
 #   when-changed: [package-lock.json, package.json]
 
 # Default arguments for each CLI; add the other CLI's entry for mixed runtimes.
-# Grants full access without the Codex sandbox: https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#runtime-permissions
+# Grants full access without the Codex sandbox: https://agents.uberblick.ai/docs/configuration/permissions.html
 # runtime-args:
 #   codex: [--sandbox, danger-full-access]
 # An agent's runtime-args list or mapping replaces these defaults entirely.

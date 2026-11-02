@@ -41,7 +41,17 @@ mise only reads a trusted `mise.toml`, and every fresh worktree is a new path, s
 agent runs `mise trust` in its own worktree before its first `mise` command. That is
 expected and needs no approval.
 
-## Uberblick corpus
+## Documentation homes
+
+- `site/content/` holds operator documentation: commands, configuration, guides
+  and FAQ. Keep each topic there once and link to it from contributor material.
+- `docs/` holds contributor and maintainer material: coordination and other
+  contracts, design documents, development and releases. Contracts link to the
+  site for configuration keys and usage; site pages link back for exact rules.
+- The Uberblick corpus holds why the product works this way: product reasoning
+  and workflow context, rather than copies of the repository documentation.
+
+`README.md` stays an overview and links to the relevant home for details.
 
 - Two MCP servers reach two corpora. Use `uberblick-agents` for this
   framework's workflow context and `uberblick-product` for current Uberblick
@@ -111,9 +121,8 @@ for prerequisites and completing a partially published release.
 
 ## Changes
 
-- Keep `README.md`, the docs under `docs/` and the website pages under `site/content/`
-  accurate for any behavior you change, and change tests with the code. The README
-  is an overview: put new details in `docs/` or `site/content/`, not in the README.
+- Keep the [documentation homes](#documentation-homes) accurate for any behavior
+  you change, and change tests with the code.
 - Match the surrounding code: small modules, the standard library plus PyYAML, `gh`
   as the GitHub client, `unittest` with the recording fakes in `tests/support.py`.
 - Add no runtime dependencies without maintainer agreement.

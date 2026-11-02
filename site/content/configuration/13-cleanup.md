@@ -48,4 +48,40 @@ Exit zero to let the worktree be removed. Any other exit keeps the worktree and 
 
 ## Leftovers
 
-At startup, [`launch`](/docs/commands/launch.html) clears leftover worktrees, running the hook before removing each, and removes run logs older than 7 days. Decisions go to `.ub-agents/sessions/*.cleanup.log`. See the [cleanup rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#stale-artifact-cleanup).
+At startup, [`launch`](/docs/commands/launch.html) clears leftover worktrees, running the hook before removing each, and removes run logs older than 7 days. Decisions go to `.ub-agents/sessions/*.cleanup.log`. See the [cleanup rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#stale-artifact-cleanup).
+
+## Key reference
+
+`cleanup` is an optional mapping; without it, no project hook runs.
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `command` | Required argv list | Runs without a shell in the control checkout, so `./scripts/...` resolves there even when a candidate changes its scripts. |
+| `timeout-seconds` | Number, `60` | Positive, at most 3600. |
+
+## Context fields
+
+`UB_AGENTS_CLEANUP_CONTEXT` points to a JSON file with these fields, `null` when
+unavailable:
+
+| Field | Value |
+|---|---|
+| `repository` | `owner/name` |
+| `run` | Run id |
+| `agent` | Agent name |
+| `assignment` | Issue or PR number |
+| `kind` | `issue` or `pr` |
+| `handoff` | The PR the run handed off to |
+| `status` | The released claim's result during later cleanup; otherwise the reported status |
+| `outcome` | The named outcome |
+| `worktree` | Absolute worktree path |
+| `branch` | Branch name |
+
+The hook also gets `UB_AGENTS_REPOSITORY`, `UB_AGENTS_RUN`, `UB_AGENTS_AGENT`,
+`UB_AGENTS_ASSIGNMENT`, `UB_AGENTS_WORKTREE` and `UB_AGENTS_BRANCH`, empty when
+unknown. Other `UB_AGENTS_*` variables are removed.
+
+Put operator recovery steps in a project operations document linked from `AGENTS.md`,
+not in agent instructions. See the [cleanup contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#project-cleanup-hook)
+for process ownership, failed hooks and lease expiry, and the [startup sweep](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#stale-artifact-cleanup)
+for artifact protection and retention rules.

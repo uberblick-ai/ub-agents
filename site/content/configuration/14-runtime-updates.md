@@ -78,3 +78,39 @@ For Claude Code, Codex, `gh` and `ub`, launchers on one machine share one daily 
 Updates wait until no run or queue check is using the CLI. Every run in an Uberblick project reserves an installed `ub` through execution and cleanup, even with updates off, so the next run starts a fresh MCP server after an update. A missing `ub` does not hold runs unless an earlier update left it unusable. If an update leaves `ub` unusable, new runs in Uberblick projects wait until it works again; an unusable `gh` holds every project's new runs.
 
 `ub-agents init` includes `ub: auto` when you enable updates and select the Uberblick extra.
+
+## Key reference
+
+`runtime-updates` is an optional mapping; without it, nothing runs.
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `claude`, `codex`, `gh`, `ub` | `auto`, `off` (default) or `{command: [...]}` | A command runs as argv without a shell, in the launcher's environment, and resolves like `command`. It must not start with `sudo`, `su`, `doas` or `pkexec`, and should update only that CLI. |
+| `ub-agents` | `auto` or `off` (default) | Only continuous launches of the `uberblick-ai/tap/ub-agents` Homebrew formula qualify; no custom command. Older launchers reject this key. |
+| `timeout-seconds` | Number, `300` | Positive, at most 3600. |
+
+## Supported automatic updaters
+
+| Runtime / installation | Updater |
+|---|---|
+| Claude native installer or npm global | `claude update` |
+| Claude Homebrew cask | `brew upgrade --cask claude-code` (or `claude-code@latest`) |
+| Codex npm global | `npm install -g @openai/codex@latest`, with the npm that owns that prefix |
+| Codex Homebrew cask or formula | `brew upgrade --cask codex` or `--formula codex` |
+| GitHub CLI Homebrew formula | `brew upgrade --formula gh` |
+| Uberblick Homebrew formula (`uberblick`) | `brew upgrade --formula uberblick` |
+
+Other installations, including shims, system packages, npm prereleases and
+installations the user cannot write, are skipped with a reason. No updater switches
+install methods. For Claude, `DISABLE_UPDATES` in the environment or in Claude's
+user or managed settings skips the update, even with a command.
+
+Each completed check prints one line and starts a 24-hour cooldown; skips start
+none. Cooldowns live under `$XDG_STATE_HOME/ub-agents/runtime-updates`, per
+installation. Only ub-agents runs are tracked, so an update can replace files
+under a Claude or Codex session you started yourself.
+
+After each check, the launcher runs the CLI's `--version`. If that fails, the CLI
+stays unavailable until a later check passes, even with updates off. A failed
+launcher restart (`exec`) exits 1. Service managers should use their normal restart
+policy for actual exits. Updates and restarts claim no assignment and consume no attempt.
