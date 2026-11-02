@@ -27,10 +27,10 @@ SECTIONS = [  # (title, content entry, kind)
 ]
 WORKFLOW_GROUPS = [  # The wall: one section per group; a hero workflow gets the wide card.
     {'title': 'Default after ub-agents init',
-     'blurb': 'The one full loop on this page: five roles, the labels, and a person at every hard decision. '
-              'Every workflow below is a change to it.'},
-    {'title': 'Changes to the default loop',
-     'blurb': 'Each workflow here starts from the default loop and changes a trigger, a label or the merge policy.'},
+     'blurb': 'The loop ub-agents init sets up: five roles, the labels, and a person at every hard decision.'},
+    {'title': 'Scenarios to adopt',
+     'blurb': 'You shape the loop around how your team works. These come from repositories running '
+              'ub-agents today, and each one can be adopted on its own.'},
 ]
 WORKFLOWS = [
     {'name': 'default', 'group': 0, 'hero': True, 'title': 'The default ub-agents loop',
@@ -418,15 +418,18 @@ LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke
              '<path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>')
 
 def workflow_adopt(workflow):
-    """Open the workflow's prompt in Claude Code, on claude.ai or in Codex, or copy it."""
+    """Open the workflow's prompt in Claude Code, on claude.ai or in Codex, or copy it.
+
+    The default loop's prompt evaluates and installs ub-agents; the others weigh adding a workflow with evidence and plan its adoption."""
     name = f'workflow-{workflow["name"]}'
     prompt, _, _ = prompt_links(name)
     article = ''
     if story := workflow.get('article'):
         article = (f'<div class="workflow-article"><span>Read the story</span>'
                    f'<a href="{story[1]}">{html.escape(story[0])} →</a></div>')
-    return ('<aside class="workflow-adopt" aria-label="Adopt this workflow">'
-            '<p class="workflow-adopt-head">Adopt this workflow, discuss with</p>'
+    head = 'Try ub-agents' if workflow.get('install') else 'Adopt this workflow'
+    return (f'<aside class="workflow-adopt" aria-label="{head}">'
+            f'<p class="workflow-adopt-head">{head}, discuss with</p>'
             f'{discuss(name, "")}'
             '<p class="workflow-alt">No desktop app? Use '
             f'<a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}" title="Opens the prompt on claude.ai">claude.ai</a> / '

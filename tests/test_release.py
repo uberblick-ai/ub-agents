@@ -361,8 +361,28 @@ class ReleaseTests(unittest.TestCase):
                     for item in packages}
         updated = release.update_formula(original, URL, DIGEST, resolved)
         expected = original.replace('v0.1.16.tar.gz', f'{TAG}.tar.gz').replace('"' + "0" * 64 + '"', f'"{DIGEST}"')
+        expected = expected.replace('ub_agents.view_ui', 'ub_agents.view.ui')
         self.assertEqual(updated, expected)
         self.assertEqual(release.resources(updated), release.resources(original))
+
+    def test_formula_migrates_legacy_view_import_and_accepts_current_import(self):
+        for module in ('ub_agents.view_ui', 'ub_agents.view.ui'):
+            original = formula().replace('ub_agents.view_ui', module)
+            with self.subTest(module=module):
+                updated = release.update_formula(original, URL, DIGEST, {})
+                self.assertIn('"from ub_agents.view.ui import View"', updated)
+                self.assertNotIn('ub_agents.view_ui', updated)
+                self.assertEqual(updated[updated.index('  test do'):],
+                                 original[original.index('  test do'):].replace(module, 'ub_agents.view.ui'))
+
+    def test_formula_rejects_missing_changed_or_duplicate_view_import_test(self):
+        original = formula()
+        line = '    system libexec/"bin/python", "-c", "from ub_agents.view_ui import View"\n'
+        for content in (original.replace(line, ''),
+                        original.replace('view_ui', 'unknown'),
+                        original.replace(line, line * 2)):
+            with self.subTest(content=content), self.assertRaisesRegex(release.ReleaseError, 'formula view import check'):
+                release.update_formula(content, URL, DIGEST, {})
 
     def test_formula_changed_added_and_removed_resources(self):
         unchanged, changed, removed = package(), package("textual", "8.2.7"), package("old", "1.0")
@@ -377,7 +397,8 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn(release.resource_block(newer), updated)
         self.assertIn(release.resource_block(added), updated)
         self.assertNotIn('resource "old"', updated)
-        self.assertEqual(updated[updated.index('  def install'):], original[original.index('  def install'):])
+        self.assertEqual(updated[updated.index('  def install'):],
+                         original[original.index('  def install'):].replace('ub_agents.view_ui', 'ub_agents.view.ui'))
         self.assertNotIn('\n\n\n', updated)
 
     def test_formula_can_add_first_and_remove_last_resource(self):
@@ -490,7 +511,7 @@ class ReleaseTests(unittest.TestCase):
         self.respond([cli, "init", "--repository", "example/project"], "Created configuration.\n")
         self.respond([cli, "doctor", "--offline"], "0 required failures, 0 warnings\n"
                      "Approvals: from repository visibility (public: on; private/internal: off)\n")
-        self.respond([interpreter, "-c", "from ub_agents.view_ui import View"])
+        self.respond([interpreter, "-c", "from ub_agents.view.ui import View"])
         self.downloads = []
 
         def fetch(url, path):
@@ -513,6 +534,9 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((self.workspace / "release-notes.md").read_text(), NOTES)
         self.assertIn(f"https://github.com/{release.REPOSITORY}/releases/tag/{TAG}", self.pr_body)
         self.assertIn("Formula tests: PASS", self.comment_body)
+        formula_text = (self.workspace / "tap" / release.FORMULA).read_text()
+        self.assertIn('"from ub_agents.view.ui import View"', formula_text)
+        self.assertNotIn('ub_agents.view_ui', formula_text)
         self.assertIn(f"ub-agents {VERSION}", output)
         self.assertIn(self.pr_url, output)
         self.assertEqual([url for url, _ in self.downloads], [URL, *[item["url"] for item in self.packages]])
@@ -536,7 +560,7 @@ class ReleaseTests(unittest.TestCase):
         for index in (init_index, remote_index):
             self.assertEqual(self.runner.calls[index][1]["cwd"], self.workspace / "test-project")
         test_calls = [(call, kwargs) for call, kwargs in self.runner.calls
-                      if call[0].endswith("ub-agents") or "from ub_agents.view_ui import View" in call]
+                      if call[0].endswith("ub-agents") or "from ub_agents.view.ui import View" in call]
         self.assertEqual(len(test_calls), 4)
         self.assertTrue(all(kwargs["cwd"] == self.workspace / "test-project" for _, kwargs in test_calls))
         self.assertFalse(any("merge" in call or "--force" in call or "-d" in call for call in args))

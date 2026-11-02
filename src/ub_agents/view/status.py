@@ -7,10 +7,10 @@ from math import ceil
 from rich.style import Style
 from rich.text import Text
 
-from .view_data import item_handoff, item_header, mapping, run_status, text
-from .view_spinner import spinner_frame
-from .view_time import deadline, pause_status, remaining_time, runtime_pauses
-from .view_unblock import unblock_metadata
+from .data import item_handoff, item_header, mapping, run_status, text
+from .spinner import spinner_frame
+from .time import deadline, pause_status, remaining_time, runtime_pauses
+from .unblock import unblock_metadata
 
 
 @dataclass(frozen=True)

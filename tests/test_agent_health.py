@@ -18,7 +18,7 @@ from ub_agents.loop import Loop
 from ub_agents.observations import Observations
 from ub_agents.records import timestamp
 from ub_agents.run_planning import RunPlanning
-from ub_agents.view_data import plan_group
+from ub_agents.view.data import plan_group
 from tests.support import FakeGitHub, MemoryPublisher, agent, config, issue, pr, stub_refresh
 
 

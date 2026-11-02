@@ -7,15 +7,15 @@ from types import SimpleNamespace
 
 import yaml
 
-from .config import LOCAL_CONFIG, preview_config
-from .doctor import public
-from .errors import AgentError
-from .init_boards import Boards
-from .init_edit import RULE, UnsafeEdit, additions, permission_paths
-from .init_flow import Flow, PRIORITIES, board_title, check_priorities
-from .init_probes import PROBE_ERRORS, Probes
-from .init_prompts import Cancelled, YELLOW
-from .init_setup import Choices, priority_labels
+from ..config import LOCAL_CONFIG, preview_config
+from ..doctor import public
+from ..errors import AgentError
+from .boards import Boards
+from .edit import RULE, UnsafeEdit, additions, permission_paths
+from .flow import Flow, PRIORITIES, board_title, check_priorities
+from .probes import PROBE_ERRORS, Probes
+from .prompts import Cancelled, YELLOW
+from .setup import Choices, priority_labels
 
 
 class ExistingFlow(Flow):

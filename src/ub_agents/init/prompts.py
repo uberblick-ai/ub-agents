@@ -186,7 +186,7 @@ class InlinePrompter:
     """One Textual inline app per question; it clears itself when answered."""
 
     def run(self, question):
-        from .init_inline import Question
+        from .inline import Question
         value = Question(question).run(inline=True, mouse=False)
         if value is None:
             raise Cancelled(question["message"])

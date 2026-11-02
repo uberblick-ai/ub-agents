@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
-from ub_agents.view_clipboard import copy_with_pbcopy, local_pbcopy
+from ub_agents.view.clipboard import copy_with_pbcopy, local_pbcopy
 
 
 class LocalClipboardTests(unittest.TestCase):
@@ -19,9 +19,9 @@ class LocalClipboardTests(unittest.TestCase):
         ]
         for platform, environment, executable, expected in cases:
             with self.subTest(platform=platform, environment=environment, executable=executable):
-                with (patch('ub_agents.view_clipboard.sys.platform', platform),
-                      patch.dict('ub_agents.view_clipboard.os.environ', environment, clear=True),
-                      patch('ub_agents.view_clipboard.shutil.which', return_value=executable) as which):
+                with (patch('ub_agents.view.clipboard.sys.platform', platform),
+                      patch.dict('ub_agents.view.clipboard.os.environ', environment, clear=True),
+                      patch('ub_agents.view.clipboard.shutil.which', return_value=executable) as which):
                     self.assertEqual(local_pbcopy(), expected)
                     if platform == 'darwin' and not environment:
                         which.assert_called_once_with('pbcopy')
@@ -35,7 +35,7 @@ class PbcopyTests(unittest.IsolatedAsyncioTestCase):
         for returncode in (0, 1):
             with self.subTest(returncode=returncode):
                 process = Mock(returncode=returncode, communicate=AsyncMock(), wait=AsyncMock())
-                with patch('ub_agents.view_clipboard.asyncio.create_subprocess_exec',
+                with patch('ub_agents.view.clipboard.asyncio.create_subprocess_exec',
                            new=AsyncMock(return_value=process)) as spawn:
                     await copy_with_pbcopy('/usr/bin/pbcopy', value)
                 spawn.assert_awaited_once_with(
@@ -46,12 +46,12 @@ class PbcopyTests(unittest.IsolatedAsyncioTestCase):
                 process.wait.assert_awaited_once_with()
 
     async def test_missing_executable_and_broken_pipe_are_best_effort(self):
-        with patch('ub_agents.view_clipboard.asyncio.create_subprocess_exec',
+        with patch('ub_agents.view.clipboard.asyncio.create_subprocess_exec',
                    new=AsyncMock(side_effect=FileNotFoundError)):
             await copy_with_pbcopy('/usr/bin/pbcopy', 'text')
         process = Mock(returncode=None, communicate=AsyncMock(side_effect=BrokenPipeError),
                        wait=AsyncMock())
-        with patch('ub_agents.view_clipboard.asyncio.create_subprocess_exec',
+        with patch('ub_agents.view.clipboard.asyncio.create_subprocess_exec',
                    new=AsyncMock(return_value=process)):
             await copy_with_pbcopy('/usr/bin/pbcopy', 'text')
         process.kill.assert_called_once_with()
@@ -68,7 +68,7 @@ class PbcopyTests(unittest.IsolatedAsyncioTestCase):
 
                 process = Mock(returncode=None, communicate=AsyncMock(side_effect=communicate),
                                wait=AsyncMock())
-                with patch('ub_agents.view_clipboard.asyncio.create_subprocess_exec',
+                with patch('ub_agents.view.clipboard.asyncio.create_subprocess_exec',
                            new=AsyncMock(return_value=process)):
                     task = asyncio.create_task(copy_with_pbcopy('/usr/bin/pbcopy', 'text'))
                     await started.wait()

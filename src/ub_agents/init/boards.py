@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .errors import AgentError
+from ..errors import AgentError
 
 MANUAL_BOARDS = "https://docs.github.com/en/discussions/managing-discussions-for-your-community/creating-a-discussion"
 BOARD_FIELDS = "id number url title locked closed viewerCanUpdate"

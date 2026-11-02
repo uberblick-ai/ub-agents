@@ -12,7 +12,7 @@ from ub_agents.errors import AgentError
 from ub_agents.github import Dependency
 from ub_agents.loop import Loop
 from ub_agents.records import iso, timestamp
-from ub_agents.view_data import plan_group
+from ub_agents.view.data import plan_group
 from tests.support import PollGitHub, agent, config, issue, pr, stub_refresh
 
 

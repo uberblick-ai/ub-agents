@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from ub_agents.config import load_config
 from ub_agents.doctor import diagnose
-from ub_agents.init_setup import Choices, apply_plan, make_plan
+from ub_agents.init.setup import Choices, apply_plan, make_plan
 from ub_agents.loop import Loop
 from tests.support import FakeGitHub, RecordingRunner, agent, issue, pr, stub_refresh
 

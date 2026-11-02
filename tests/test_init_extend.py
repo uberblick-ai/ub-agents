@@ -13,11 +13,11 @@ from ub_agents.cli import main
 from ub_agents.config import load_config
 from ub_agents.doctor import Doctor
 from ub_agents.errors import AgentError
-from ub_agents.init_edit import RULE, UnsafeEdit, additions
-from ub_agents.init_extend import ExistingFlow
-from ub_agents.init_flow import Flow
-from ub_agents.init_prompts import Transcript
-from ub_agents.init_setup import Choices, apply_plan, make_plan
+from ub_agents.init.edit import RULE, UnsafeEdit, additions
+from ub_agents.init.extend import ExistingFlow
+from ub_agents.init.flow import Flow
+from ub_agents.init.prompts import Transcript
+from ub_agents.init.setup import Choices, apply_plan, make_plan
 
 
 class ExistingSetupTests(unittest.TestCase):
@@ -221,7 +221,7 @@ class ExistingSetupTests(unittest.TestCase):
         doctor = Doctor(runner=self.runner, which=lambda name: '/bin/' + name if name in self.installed else None,
                         github=self.github)
         with patch('ub_agents.cli.GitHub', return_value=self.github), \
-                patch('ub_agents.init_probes.Doctor', return_value=doctor), \
+                patch('ub_agents.init.probes.Doctor', return_value=doctor), \
                 patch('subprocess.run', self.runner), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
             code = main(['--config', str(self.path), 'init', '--create-boards', '--use-defaults'])
@@ -331,7 +331,7 @@ class ExistingSetupTests(unittest.TestCase):
 
     def test_failed_atomic_replace_keeps_file_and_reports_remaining_entries(self):
         self.starter()
-        with patch('ub_agents.init_extend.os.replace', side_effect=OSError('disk error')):
+        with patch('ub_agents.init.extend.os.replace', side_effect=OSError('disk error')):
             code, text = self.run_flow(priorities=True)
         self.assertEqual(code, 1)
         self.assertIn('disk error', text)

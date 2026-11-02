@@ -13,8 +13,8 @@ from unittest.mock import patch
 from ub_agents.log_format import ClaudeFormatter, CodexFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
 from ub_agents.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET
 from ub_agents.log_json import BoundedJSON
-from ub_agents.view_logs import FileChanged, PAGE_BYTES, ViewReader
-from ub_agents.view_theme import log_style
+from ub_agents.view.logs import FileChanged, PAGE_BYTES, ViewReader
+from ub_agents.view.theme import log_style
 
 FIXTURES = Path(__file__).parent / 'fixtures/runtime_logs'
 CODEX = FIXTURES / 'codex.log'
