@@ -67,7 +67,7 @@ The check runs before claiming ready work, with a 60-second timeout, and a pass 
 
 ## On conflict
 
-Send a pull request with a merge conflict straight to the agent that repairs it, instead of spending a run only to send it back. Name one of this `pr` agent's outcomes that adds no stop label; the launcher records it without starting the agent.
+Send a pull request with a merge conflict straight to the agent that repairs it, instead of spending a run only to send it back. Name one of this `pr` agent's outcomes that adds no stop label and does not declare `merge`; the launcher records it without starting the agent. Failed checks or conflicts found during a [launcher merge](/docs/configuration/outcomes.html#ask-the-launcher-to-merge) also use this outcome.
 
 ```yaml
 integrator:
@@ -153,7 +153,7 @@ agent-timeout-minutes: 60
 | `worktree` | Boolean, `false` | `true` runs in a private checkout: a same-repository PR's exact head, a fork PR's base branch tip, or a fresh branch for an issue. See [pull requests](https://github.com/uberblick-ai/ub-agents/blob/main/docs/approvals.md#pull-requests). |
 | `runtime-args` | List or mapping | Replaces all top-level `runtime-args`; `[]` or `{}` disables them. |
 | `different-runtime-from` | Agent name or nonempty list | Use a different CLI and model from each named runtime agent's accepted outcome: the latest on an issue, or for the current PR head. `null` clears the setting. See [runtime independence](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#runtime-independence-and-candidate-provenance). |
-| `on-conflict` | Outcome name | `pr` agents only; an outcome that adds no stop label. Recorded instead of starting the agent when GitHub reports the PR as conflicting. |
+| `on-conflict` | Outcome name | `pr` agents only; an outcome that adds no stop label and does not declare `merge`. Recorded instead of starting the agent when GitHub reports the PR as conflicting, or when a launcher merge finds failed checks or a conflict. |
 | `health-check` | Argv list | See [Project health checks](/docs/configuration/agents.html#health-check). |
 | `retrospectives` | Positive integer | See [Retrospectives](/docs/configuration/agents.html#retrospectives). |
 | Limit keys | | Override the timeout and retry [`limits`](/docs/configuration/limits.html). The lease keys are top level only. |
