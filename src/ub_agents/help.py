@@ -106,7 +106,9 @@ class HelpParser(argparse.ArgumentParser):
         action.required_for_help = required_for_help
         return action
 
-    def _get_formatter(self):
+    def _get_formatter(self, file=None):
+        # Python 3.15 passes the destination for colour detection. Help is
+        # always uncoloured, so older argparse versions need no file argument.
         formatter = super()._get_formatter()
         # Python 3.14 sets colour after constructing the formatter.
         # Keep help stable and table widths literal, even with forced colour.

@@ -56,7 +56,7 @@ integrator:
 
 `merge` accepts `squash`, `merge` or `rebase`. The outcome cannot add a stop label, declare `sub-issues`, or be the agent's `on-conflict` outcome. The agent keeps policy, review, changelog and base-merge decisions, then reports instead of running `gh pr merge`.
 
-The launcher checks the reported head against the assigned candidate or its base merge, rereads stop labels, and waits for every check run and commit status on that exact head. Skipped and neutral checks pass. Pending or absent checks wait without a model until the run's agent-timeout deadline, with the lease renewing. After checking mergeability, it merges with a head match and accepts only a confirmed merge, recording both the head and merge commit. Failed checks and conflicts use `on-conflict`; other refusals block. Closing issues happens afterward; a failed close does not undo acceptance.
+The reported `candidate_sha` is the merge target; no new report option is needed. The launcher checks that head against the assigned candidate or its base merge, rereads stop labels, and waits for every check run and commit status on that exact head. Skipped and neutral checks pass. Pending or absent checks wait without a model until the run's `agent-timeout-minutes` deadline, with the lease renewing. After checking mergeability, it merges with a head match and accepts only a confirmed merge on the base branch, recording `candidate_sha` and `merge_commit_sha`. Failed checks and conflicts use `on-conflict`; other refusals block. Closing issues happens afterward; a failed close does not undo acceptance.
 
 Recovery only confirms an existing merge; it never merges. Outcomes without `merge` keep their current behavior. See the [merge gates and recovery](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#launcher-merges).
 
@@ -70,7 +70,7 @@ An agent that takes issues can start the native sub-issues its run creates:
 split: {sub-issues: {add: [needs-preparation]}}
 ```
 
-Agents file sub-issues without trigger labels, then report `split`. The launcher adds the declared labels, which must be issue-agent triggers, and removes the parent's triggers. With [approvals on](/docs/configuration/approvals.html), sub-issues inherit the parent's start. See the [outcomes reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/configuration.md#outcomes-and-transitions).
+Agents file sub-issues without trigger labels, then report `split`. The launcher adds the declared labels, which must be issue-agent triggers, and removes the parent's triggers. With [approvals on](/docs/configuration/approvals.html), sub-issues inherit the parent's start. See the [outcome contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#explicit-outcomes).
 
 ## Ask a person
 
@@ -111,3 +111,21 @@ ub-agents report --outcome needs-human --summary "Storage policy unclear" \
 ```sh
 ub-agents report --status retry --summary "GitHub returned 502"
 ```
+
+## Key reference
+
+`outcomes` is a required, nonempty mapping from names to transitions.
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `add` | List, `[]` | Must not include the agent's own triggers. May add a stop label. |
+| `remove` | List, `[]` | Must not include a stop label, and no trigger of the agent may be one. |
+| `max-rounds` | Positive integer | Needs a configured stop label, and the outcome must not add one. |
+| `sub-issues` | Mapping with only `add` | Nonempty list of `issue` or `either` agent triggers, no stop labels. Agents that take issues only. |
+| `merge` | String: `squash`, `merge` or `rebase`; omitted by default | `pr` agents only; no added stop labels or `sub-issues`, and cannot be the agent's `on-conflict` outcome. |
+
+See [explicit outcomes](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#explicit-outcomes) for validation,
+transition order, stop checks and recovery, and [assignments and attempts](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#assignments-and-attempts)
+for round counting.
+See [launcher merges](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#launcher-merges)
+for the merge gates and recovery rules.

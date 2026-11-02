@@ -101,4 +101,30 @@ agents:
     runtime: ["codex:gpt-6.1-sol:high", "claude:claude-opus-5-5:high"]
 ```
 
-An agent that only exists in the local file needs a full definition. `launch` picks up changes before its next run.
+An optional, untracked `ub-agents.local.yaml` in the base file's directory, after
+resolving symlinks, overrides settings on one machine. The base file stays required.
+Relative paths in both files resolve against that directory. A missing, empty or
+comment-only local file changes nothing.
+
+- Mappings merge recursively by key, including `agents` and each agent. Omitted keys and other agents inherit from the base.
+- Scalars and lists replace the whole base value. Lists are never concatenated, so repeat every base entry you want to keep.
+- There is no syntax to add or delete. An explicit `null` is a value and is validated normally.
+- An agent defined only in the local file must be complete.
+
+Both files need unique string keys. Validation runs on the merged result, and errors
+caused by the local file name it. Launch rereads both files before each new run. The
+local file is not copied into private worktrees. `init` adds it to `.gitignore`; in an
+existing project, add that line before creating the file.
+
+## Key reference
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `repository` | Required string | GitHub `owner/name`; must match the checkout's `origin`. |
+| `agents` | Required mapping | Nonempty; names are lowercase slugs: a letter, then letters, digits, `-` or `_`. See [Agents](/docs/configuration/agents.html). |
+| `poll-seconds` | Positive number, `30` | Minimum gap between discovery-pass starts. |
+
+`origin` may be `https://github.com/OWNER/REPO`, `git@github.com:OWNER/REPO` or
+`ssh://git@github.com/OWNER/REPO`, with an optional `.git` or trailing `/`. An SSH host
+alias also works when `ssh -G HOST` reports `hostname github.com`. The check needs no
+network, so `doctor --offline` runs it too.

@@ -141,6 +141,13 @@ class HelpTests(unittest.TestCase):
             with self.subTest(argv=argv):
                 self.assertEqual(self.invoke(argv), expected)
 
+    def test_help_and_usage_print_to_explicit_files(self):
+        help_output, usage_output = io.StringIO(), io.StringIO()
+        self.command_line.print_help(help_output)
+        self.command_line.print_usage(usage_output)
+        self.assertEqual(help_output.getvalue(), OVERVIEW)
+        self.assertEqual(usage_output.getvalue(), "usage: ub-agents <command> [options]\n")
+
     def test_launch_help_matches_requested_layout(self):
         for argv in (["launch", "-h"], ["launch", "--help"], ["help", "launch"]):
             with self.subTest(argv=argv):
