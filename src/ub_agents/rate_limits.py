@@ -8,6 +8,7 @@ READS = frozenset({
     "item", "active_milestone", "milestone_order", "open_milestones", "blocked_by", "comments", "review_comments", "reviews",
     "repository_comments", "unminimized_comments", "candidate_evidence", "default_branch",
     "prs_for_branch", "dependency_graph", "visibility", "approval_inputs", "sub_issues", "parent_issue",
+    "commit_checks", "commit_parents", "commit_on_base", "closing_issue_references",
 })
 
 

@@ -223,12 +223,19 @@ Each run row has:
 - the outcome, with `BLOCKED: …` for human blockers and `· N denied` when the run
   recorded [permission denials](coordination.md);
 - tokens, using an exact count below 1,000, rounded `Nk` below 1M and `N.NM` from
-  1M, or a blank cell when no usage was recorded.
+  1M, or a blank cell when no usage was recorded;
+- context, the peak share of the run's context window rounded to a whole percent,
+  followed by ` ↻N` when the run recorded N compactions, or a blank cell when
+  context is missing or malformed. This column appears after tokens only when
+  its header and every value fit in full while the other columns keep their
+  minimum widths.
 
 Token usage comes from the GitHub coordination record, including for other
 launchers' runs. GitHub result lines also show cost when the CLI reports it. On a
 Claude subscription, that dollar figure is what the run would have cost at API
 prices, not a charge. Codex reports no cost.
+
+Context also comes from the GitHub outcome record, including for other launchers.
 
 Every row fits on one line. The run count matches the run rows shown, excluding
 the filing row. Histories have no run limit and are outside the snapshot's size

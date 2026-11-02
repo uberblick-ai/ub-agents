@@ -7,3 +7,4 @@ build/
 dist/
 .ub-agents/
 ub-agents.local.yaml
+mise.local.toml

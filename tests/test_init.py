@@ -275,7 +275,8 @@ class InitTests(unittest.TestCase):
         self.assertIn('Immediately before merging', roles['integrator'])
         self.assertIn('gh pr merge N --squash --match-head-commit SHA', roles['integrator'])
         for expected in (
-            'Wait for every CI check that runs on that exact head, including your own base merge, '
+            'Unless a declared `merge` outcome lets the launcher wait for an authorized merge, '
+            'wait for every CI check that runs on that exact head, including your own base merge, '
             'to complete successfully',
             'Pending checks, including a just-pushed head with no checks yet, mean wait '
             '(`gh pr checks N --watch`)',

@@ -331,6 +331,37 @@ to `Nk`, and from 1M use `N.NM`. Reported dollars use two decimals. On a Claude
 subscription, the dollar figure is what the run would have cost at API prices,
 not a charge.
 
+In the same update as `usage`, the launcher adds optional main-session `context`
+to the outcome and its handoff copies, never to the lease:
+
+```json
+"context": {"window": 1000000, "first": 35210, "call_10": 70114, "peak": 162480, "compactions": 0}
+```
+
+`window` is the runtime-reported context window. `first`, `call_10` and `peak`
+are prompt-side tokens for the first, tenth (or last when fewer than ten) and
+largest main-session model calls; `compactions` counts runtime compactions.
+Claude's process log supplies assistant calls, deduplicated by `message.id`,
+excluding non-null `parent_tool_use_id` subagent events. Prompt tokens sum input,
+cache creation and cache read tokens. The final result's `modelUsage` supplies
+the single main-session model's `contextWindow`; other models are ignored.
+`system` events with subtype `compact_boundary` count compactions.
+
+Codex uses only the run's own session file, located by its fresh thread id.
+Each `event_msg` / `token_count` with `info` supplies a call's
+`last_token_usage.input_tokens`; info-less events and snapshots repeating the
+previous `total_token_usage` are skipped. The last reported
+`info.model_context_window` supplies the window, and top-level `compacted` items
+count compactions. Codex's process log supplies no context counts.
+
+Context is all or nothing: missing or invalid values, no main-session calls,
+a missing Codex session or window, a missing Claude result, multiple Claude main
+models or a main model absent from `modelUsage` omit the entire field. Usage and
+denials are collected independently. Context is display-only, with the same
+non-authoritative reading and `v4` compatibility rules as usage. Readers ignore
+malformed context, and older launchers preserve it on rewrites. It does not
+affect usage-limit decisions and is not shown in the terminal view or reports.
+
 The lease stores run ownership: `agent`, `assignment`, `run`, `runtime`, `created`,
 `expires`, `state`, `attempt`, `attempt_effect`, `started` and `triggers` (the labels
 present at claim time). A PR lease also stores `assignment_sha`. A running lease has
@@ -346,8 +377,8 @@ The running agent's outcome declarations are held in local `run.json` for `repor
 and listed in its prompt. They are not copied into the lease. Removing the agent's
 current configured triggers is implied for every successful transition.
 
-The outcome names its declaration and copies only the added labels and any explicit
-extra removals into `transition`, with `started`. The top-level
+The outcome names its declaration and copies the added labels, any explicit
+extra removals, and any `merge` method into `transition`, with `started`. The top-level
 `transition_complete` flag records completion. A completed `handed-off` outcome
 contains:
 
@@ -403,6 +434,47 @@ supervision failure without a second outcome. Unconfirmed cleanup is marked on t
 owned lease when GitHub is available, keeps ownership until expiry, and blocks
 automatic acceptance or reexecution until an operator reset.
 
+## Launcher merges
+
+An agent's outcome may declare `merge: squash`, `merge: merge` or `merge: rebase`.
+The agent judges project policy, owed reviews, changelog requirements and fixable
+failures, and can merge the base into its branch. It reports instead of merging.
+After execution and cleanup end, the launcher performs these gates in the same run:
+
+1. Require an open PR whose head equals the report's `candidate_sha`. That head must
+   be the assigned candidate or a merge commit with the candidate as its first
+   parent, representing the agent's own base merge.
+2. Reread labels and refuse any stop label. A missing trigger also blocks.
+3. Read every current check run and latest commit status context for that exact
+   SHA, including all pages. Success, skipped and neutral pass. Pending checks or
+   no reported checks wait without a model until the original agent-timeout
+   deadline. The lease keeps renewing. Failed checks are named in the refusal.
+4. Read mergeability, retrying unknown results a few times. Every reread also
+   verifies the head and labels, including after waiting for CI.
+5. Run `gh pr merge N --METHOD --match-head-commit SHA`. Reread the PR after either
+   success or an error; never replay the merge mutation. Confirmation requires a
+   merged PR from that head and its merge commit present on the current base branch.
+6. Record `candidate_sha` and `merge_commit_sha`, finish the label transition and
+   accept the outcome. Close any still-open issues in the PR's closing references
+   afterward. A failed read or close is diagnostic and does not change acceptance.
+
+Failed checks and merge conflicts replace the merge request with the agent's
+`on-conflict` outcome and the reason, respecting that outcome's round limit. With
+no `on-conflict` outcome they block. Head changes, unrelated heads, stop labels,
+checks pending or absent at the deadline, mergeability still unknown, and an
+unconfirmed merge error all block without accepting the merge request. A merge
+command that errors after landing is accepted once the exact merge is confirmed.
+
+Recovery never invokes `gh pr merge`. Even a started transition with `merge` must
+confirm that the PR is already merged from the reported head with its merge commit
+on the base. Otherwise recovery rejects the pending outcome and releases for a fresh
+integrator run to judge the candidate again. A confirmed merge finishes acceptance
+and issue closure without rechecking CI or requiring the old trigger labels.
+
+Projects without `merge` keep their existing agent-managed merge procedure.
+Every launcher must support the key before the project's configuration uses it;
+older launchers reject it. This repository adopts the key in a later change.
+
 ## Recovery
 
 An unexpired lease excludes pickup until release or expiry, so no agent restarts
@@ -440,7 +512,7 @@ An expired, unfinished lease whose outcome was reported while the lease was vali
 gets outcome-only recovery: a renewed recovery claim that names the
 recovered run and lease, finishes or validates the outcome, and releases. Recovery
 claims cost no attempts, and a crash during recovery is recovered again without
-execution. A started transition has passed validation, so recovery finishes it even
+execution. Except for the merge confirmation above, a started transition has passed validation, so recovery finishes it even
 if the PR head or issue link has changed; provenance keeps the validated SHA. An
 unstarted transition is validated in full, and a durably rejected outcome is never
 applied. Replay treats removing an absent label or adding a present one as a no-op.

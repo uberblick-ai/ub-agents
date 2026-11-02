@@ -5,12 +5,14 @@ import os
 import socket
 from dataclasses import replace
 
+from .context_usage import collect_context, context_fields
 from .denials import collect_denials
 from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, ExecutionStopped, GitHubError, LostOwnership,
                      RecordError, RetryableExecutionError, TransitionPaused, ValidationError)
 from .execution import ScratchDirectory, Workspace, command_for, supervise
 from .hooks import run_hook
 from .launcher_code import descriptors as code_descriptors
+from .merging import LauncherMerge
 from .report_command import launcher_report_command
 from .records import iso
 from .request_stats import request_counts, request_delta
@@ -33,7 +35,7 @@ class AssignmentRun:
         loop = self.loop
         self.lease = lease
         self.reservation = reservation
-        settlement = Settlement(loop.config, loop.github, loop.coordinator, loop.approvals)
+        settlement = Settlement(loop.config, loop.github, loop.coordinator, loop.approvals, LauncherMerge(loop))
         plan = replace(plan, item=replace(plan.item, head_repository=fresh.head_repository,
                                          base_branch=fresh.base_branch))
         self.run_dir = run_directory(loop.config.root.resolve(), lease["run"])
@@ -98,6 +100,7 @@ class AssignmentRun:
             if plan.runtime:
                 self.usage_output = UsageOutput(plan.runtime.cli, self.run_dir, loop.usage, env)
             try:
+                agent_deadline = loop.coordinator.clock() + plan.agent.timeout_seconds
                 code = supervise(command, cwd, env, self.run_dir,
                                  plan.agent.timeout_seconds, loop.interrupt_event,
                                  loop.prompt_for(plan, lease, context, instructions,
@@ -110,7 +113,8 @@ class AssignmentRun:
                 loop.coordinator.execution_finished(lease)
                 cli = plan.runtime.cli if plan.runtime else None
                 diagnostics = (collect_denials(cli, self.run_dir / "process.log")
-                               | collect_usage(cli, self.run_dir / "process.log"))
+                               | collect_usage(cli, self.run_dir / "process.log")
+                               | collect_context(cli, self.run_dir / "process.log", env))
             loop.coordinator.execution_deadline(lease)
             if self.usage_output:
                 self.usage_output.poll(final=True)
@@ -129,7 +133,8 @@ class AssignmentRun:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
             else:
-                result, summary, effect = settlement.reported_verdict(lease, plan, self.outcome, lease, "completion")
+                result, summary, effect = settlement.reported_verdict(lease, plan, self.outcome, lease, "completion",
+                                                                     deadline=agent_deadline)
         except CleanupError as exc:
             loop.observe("process", "unknown", str(exc))
             self.preserve_scratch = True
@@ -208,8 +213,9 @@ class AssignmentRun:
             # unaccepted and persist the supervisor's actual verdict on the lease.
             self.outcome = loop.coordinator.outcome(lease)
         if stopped:
-            if self.outcome is not None and usage_fields(diagnostics):
-                loop.coordinator.update_outcome(lease, self.outcome, **usage_fields(diagnostics))
+            fields = usage_fields(diagnostics) | context_fields(diagnostics)
+            if self.outcome is not None and fields:
+                loop.coordinator.update_outcome(lease, self.outcome, **fields)
             loop.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True,
                                      **usage_fields(diagnostics))
         else:

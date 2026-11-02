@@ -40,6 +40,28 @@ An empty mapping changes nothing else.
 merged: {}
 ```
 
+## Ask the launcher to merge
+
+A `pr` agent can report its merge decision and exit. The launcher waits for checks and performs the merge:
+
+```yaml
+integrator:
+  kind: pr
+  # Other required agent settings omitted.
+  on-conflict: changes-requested
+  outcomes:
+    merged: {merge: squash}
+    changes-requested: {add: [needs-changes]}
+```
+
+`merge` accepts `squash`, `merge` or `rebase`. The outcome cannot add a stop label, declare `sub-issues`, or be the agent's `on-conflict` outcome. The agent keeps policy, review, changelog and base-merge decisions, then reports instead of running `gh pr merge`.
+
+The launcher checks the reported head against the assigned candidate or its base merge, rereads stop labels, and waits for every check run and commit status on that exact head. Skipped and neutral checks pass. Pending or absent checks wait without a model until the run's agent-timeout deadline, with the lease renewing. After checking mergeability, it merges with a head match and accepts only a confirmed merge, recording both the head and merge commit. Failed checks and conflicts use `on-conflict`; other refusals block. Closing issues happens afterward; a failed close does not undo acceptance.
+
+Recovery only confirms an existing merge; it never merges. Outcomes without `merge` keep their current behavior. See the [merge gates and recovery](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#launcher-merges).
+
+**Upgrading:** every launcher of a project must run a release supporting `merge` before its `ub-agents.yaml` uses the key.
+
 ## Start sub-issues
 
 An agent that takes issues can start the native sub-issues its run creates:
@@ -66,6 +88,12 @@ The agent reports with one command. Your instructions say which outcome to use w
 ub-agents report --outcome approved --summary "Checks pass"
 ub-agents report --outcome handed-off --summary "Ready for review" --handoff 219
 ```
+
+After a Claude or Codex run ends, the launcher can record its main-session context
+window, first, tenth (or last) and peak prompt token counts, and compaction count
+on the outcome and its handoff copies. Missing or invalid context is omitted.
+These display-only values do not change results, labels or usage-limit decisions;
+see the [coordination record reference](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md).
 
 ## Stop reports
 
