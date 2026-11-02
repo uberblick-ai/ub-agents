@@ -8,12 +8,14 @@ limits for new and growing functions.
 
 ## Dependencies
 
-Use the standard library plus PyYAML, with `gh` as the GitHub client. Add no
-runtime dependencies without maintainer agreement.
+Use the standard library plus PyYAML. Keep `gh` for setup and authentication;
+the existing GitHub adapter sends launcher REST and GraphQL requests through
+standard-library `http.client`, using the token from `gh auth token --hostname
+github.com`. It falls back to `gh api` when no token can be read. Add no runtime
+dependencies without maintainer agreement.
 
-Good: use `subprocess.run` with an argument list to call `gh` through the existing
-GitHub adapter. Bad: add an HTTP client and a second GitHub authentication path
-for one new request.
+Good: route new requests through the existing GitHub adapter. Bad: add an HTTP
+client dependency or a second GitHub authentication path for one new request.
 
 ## Simplest solution first
 

@@ -802,7 +802,7 @@ class TransitionTests(unittest.TestCase):
                    subprocess.CompletedProcess([], 0, '[]', ''),
                    subprocess.CompletedProcess([], 0, '', '')]
         with patch('ub_agents.github.subprocess.run', side_effect=replies) as run:
-            github = GitHub('org/project')
+            github = GitHub('org/project', run)
             github.add_labels(2, ['needs-review'])
             github.remove_label(1, 'workflow/ready')
             github.remove_label(1, 'empty-response')

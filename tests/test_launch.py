@@ -502,7 +502,7 @@ class LaunchTests(unittest.TestCase):
                 redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 130)
         self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
-        self.assertRegex(self.log_lines()[0], r'^Discovery pass empty: .*gh calls=1, REST quota=0, '
+        self.assertRegex(self.log_lines()[0], r'^Discovery pass empty: .*gh calls=0, REST quota=0, '
                          r'HTTP 304=0, GraphQL calls=0; candidates reached=0$')
         self.assertEqual(self.log_lines()[1:], ["Stopped; supervised execution terminated"])
 
