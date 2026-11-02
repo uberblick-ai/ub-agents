@@ -11,9 +11,9 @@ import signal
 import subprocess
 import time
 
-from .view_data import Description, description_text, mapping
-from .launcher_code import descriptors, helper_command
-from .view_unblock import ACTION_MARKER, ActionComment, comment_body, stamp, trust_reason
+from .data import Description, description_text, mapping
+from ..launcher_code import descriptors, helper_command
+from .unblock import ACTION_MARKER, ActionComment, comment_body, stamp, trust_reason
 
 REQUEST_SECONDS = 10
 CACHE_ITEMS = 128
@@ -146,7 +146,7 @@ class GhTransport:
         read, self.life = os.pipe()
         try:
             self.process = subprocess.Popen(
-                [*helper_command('ub_agents.view_request'), str(read), *command],
+                [*helper_command('ub_agents.view.request'), str(read), *command],
                 pass_fds=(read, *descriptors()), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, start_new_session=True, env=env)
         except BaseException:

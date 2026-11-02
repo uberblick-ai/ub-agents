@@ -1,6 +1,6 @@
 """Indexed #112 reader and immutable, bounded disk pages for #114.
 
-The #111 view.py separation between ingestion and displayed page is retained.
+The #111 separation between ingestion and displayed page is retained.
 Byte positions, generation validation and paged raw-fragment notices stabilize it.
 """
 
@@ -8,9 +8,9 @@ from dataclasses import dataclass
 import os
 import stat
 
-from .log_format import record_notice, raw_entry, skipped_entry
-from .log_reader import ANCHOR_BYTES, EntryRef, LogReader, MAX_ENTRIES, READ_BUDGET
-from .log_times import TimeWindow, read_times
+from ..log_format import record_notice, raw_entry, skipped_entry
+from ..log_reader import ANCHOR_BYTES, EntryRef, LogReader, MAX_ENTRIES, READ_BUDGET
+from ..log_times import TimeWindow, read_times
 
 PAGE_BYTES = READ_BUDGET
 

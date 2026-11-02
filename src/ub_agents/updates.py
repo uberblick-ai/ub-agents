@@ -87,7 +87,7 @@ class Updates:
     def __init__(self, root, *, detect=installation, runner=None, clock=time.monotonic):
         self.root, self.detect, self.clock = root, detect, clock
         self.runner = runner or self.command
-        self.helper = helper_command('ub_agents.view_request')
+        self.helper = helper_command('ub_agents.view.request')
         self.code_fds = descriptors()
         self.banner = None
         self.release_check = None

@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from tests.support import RecordingAwakeProcess
 from ub_agents.keep_awake import KeepAwake
 from ub_agents.launch_ui import ViewProcess
-from ub_agents.view import LauncherConnection
+from ub_agents.view.main import LauncherConnection
 
 
 class KeepAwakeTests(unittest.TestCase):

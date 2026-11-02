@@ -9,8 +9,8 @@ from unittest.mock import patch
 from ub_agents.log_reader import LogReader, READ_BUDGET, TAIL_BYTES
 from ub_agents.log_times import (EPOCH, GROWTH, HEADER, LogTimes, MAGIC, TIMES_BUDGET,
                                  growth_position, growth_window, read_times)
-from ub_agents.view_logs import ViewReader
-from ub_agents.view_worker import LocalWorker, Request
+from ub_agents.view.logs import ViewReader
+from ub_agents.view.worker import LocalWorker, Request
 from tests.test_view_data import fixture
 
 NOW = datetime(2026, 10, 3, 20, 0, tzinfo=timezone.utc)

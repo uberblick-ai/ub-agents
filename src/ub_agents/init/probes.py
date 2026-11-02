@@ -5,12 +5,12 @@ import os
 import subprocess
 import sys
 
-from .approvals import Roles, resolve_policy
-from .doctor import AUTH_PROBES, Doctor
-from .errors import AgentError
-from .execution import parse_process_table, repository_checks
-from .github import repository_visibility
-from .refresh import control_checkout_checks
+from ..approvals import Roles, resolve_policy
+from ..doctor import AUTH_PROBES, Doctor
+from ..errors import AgentError
+from ..execution import parse_process_table, repository_checks
+from ..github import repository_visibility
+from ..refresh import control_checkout_checks
 
 ACCOUNT_GUIDANCE = "https://agents.uberblick.ai/docs/best-practices/launcher-account"
 PROBE_ERRORS = (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired)
@@ -190,7 +190,7 @@ class Probes:
                 self.groups.remove(account)
 
     def check_discussions(self):
-        from .init_boards import Boards
+        from .boards import Boards
         try:
             repo = Boards(self.github, self.plan.config.repository).discussions()
         except PROBE_ERRORS:

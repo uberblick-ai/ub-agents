@@ -258,7 +258,7 @@ cancellation, with tests for JSON and plain output.
 [`Observations`](../../src/ub_agents/observations.py) has one local `assignment`.
 That remains correct with one assignment per launcher. Existing history reduction
 retains runs by identity, and plan keys already include item and agent. The
-[Work view](../../src/ub_agents/view_data.py) can retain separate role rows, but
+[Work view](../../src/ub_agents/view/data.py) can retain separate role rows, but
 owner selection must be fixed; eligible plans grouped under one item must retain
 both roles. Process logs and cleanup controls must continue to target a run, not
 just an item number. Item-wide action-needed clearing/minimization needs review so
