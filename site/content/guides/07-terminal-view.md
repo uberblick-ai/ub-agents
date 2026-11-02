@@ -15,6 +15,10 @@ ub-agents version, the launcher prints one line and continues with plain output.
 The view opens before the startup checks and shows `checking setup`. Quitting then
 claims nothing.
 
+The view refreshes once a second while idle and ten times a second while a
+spinner is visible. Logs keep following new output even when the snapshot has
+not changed. Keys, selection, tabs and resizing take effect immediately.
+
 Everything comes from local files except an item's description and its
 action-needed comment. The view reads those with your existing `gh` login, and
 only when:

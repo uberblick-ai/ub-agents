@@ -44,6 +44,10 @@ class LocalWorker:
         self.stopping = threading.Event()
         self.readers = OrderedDict()
         self.contexts = OrderedDict()
+        self.session = None
+        self.session_version = None
+        self.pane_key = self.pane = None
+        self.notify = None
         self.thread = threading.Thread(target=self.run, name='local-view-reader', daemon=True)
 
     def start(self):
@@ -59,9 +63,25 @@ class LocalWorker:
     def close(self):
         self.stopping.set()
 
+    def read_session(self):
+        try:
+            info = self.session_path.stat()
+            version = (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size)
+        except OSError:
+            # Retry failed reads so removal and recovery remain visible.
+            version = None
+        if self.session is None or version is None or version != self.session_version:
+            self.session = load_session(self.session_path)
+            self.session_version = version
+        return self.session
+
     def read(self, request):
-        session = load_session(self.session_path)
-        pane = work_pane(session, self.root, request.previous, request.key, request.chosen)
+        session = self.read_session()
+        pane_key = (id(session), request.key, request.chosen, id(request.previous))
+        if pane_key != self.pane_key:
+            self.pane = work_pane(session, self.root, request.previous, request.key, request.chosen)
+            self.pane_key = pane_key
+        pane = self.pane
         selected = next((row for row in pane.rows if row.key == pane.selected), None)
         # Preserve the selected own run while a sparse snapshot or new pass arrives.
         # Its log and cached context remain a local snapshot of the prior selection.
@@ -124,3 +144,5 @@ class LocalWorker:
                 except Empty:
                     pass
                 self.results.put_nowait(result)
+            if self.notify is not None:
+                self.notify()

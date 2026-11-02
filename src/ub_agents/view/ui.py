@@ -14,11 +14,12 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tree
 
 from .clipboard import copy_with_pbcopy, local_pbcopy
 from .data import (context_header, context_text, item_header, item_history, mapping,
-                        related_assignment, related_plan, text, work_pane)
+                        related_assignment, related_plan, run_status, text, work_pane)
 from .github import DescriptionLoads
 from .log_pane import LogPane, MAX_RENDER_LINES, Reading
 from .markdown import description_parser
@@ -37,6 +38,10 @@ from .theme import VIEW_THEME, item_reference, theme_style, variable_defaults
 from ..poll_now import COOLDOWN_SECONDS
 from ..log_format import inert
 from .time import deadline as poll_deadline, pause_status, plan_pauses, remaining_time, runtime_pauses
+
+
+class LocalReadReady(Message):
+    """Wake the view when its local worker finishes, including between idle ticks."""
 
 
 class View(App):
@@ -156,8 +161,13 @@ class View(App):
         self.pending_history = None
         self.pending_reload = False
         self.last_context = self.last_runs = None
+        self._runs_active = False
         self._static_values = WeakKeyDictionary()
         self._tree_second = None
+        self._status_second = None
+        self._status_dirty = True
+        self._refresh_timer = None
+        self._refresh_interval = None
         self._window_title = None
         self.narrow = False
         self.too_small = False
@@ -215,14 +225,15 @@ class View(App):
         self.query_one(ItemTabs).border_title = 'Agent'
         self.query_one(WorkTree).show_root = False
         self.theme_changed_signal.subscribe(self, self.restyle)
+        self.worker.notify = lambda: self.post_message(LocalReadReady())
         self.worker.start()
-        self.set_interval(1 / SPINNER_FPS, self.tick)
         self.tick()
         if self.launcher is not None:
             self.launcher.mounted(self)
 
     def on_resize(self, event):
         self.update_layout(event.size)
+        self.call_after_refresh(self.update_status)
 
     def update_layout(self, size):  # noqa: C901
         pane = self.query_one_optional('#work_pane')
@@ -271,6 +282,7 @@ class View(App):
         if restore_focus and self.layout_focus is not None:
             self.layout_focus.focus(scroll_visible=False)
         self.update_status()
+        self.update_cadence()
 
     def check_action(self, action, parameters):
         if self.shutdown is not None:
@@ -356,6 +368,7 @@ class View(App):
             self.pop_screen()
         self.set_focus(None)
         self.update_layout(self.size)
+        self.update_cadence()
         # Mark the screen itself dirty before scheduling the stop callback;
         # widget layout notifications may still be waiting in other queues.
         self.refresh(layout=True)
@@ -427,7 +440,77 @@ class View(App):
     def reading(self):
         return self.readings.setdefault(self.selected, Reading())
 
-    def tick(self):  # noqa: C901, PLR0912
+    def spinner_visible(self):
+        if self.too_small or self.shutdown is not None or len(self.screen_stack) > 1:
+            return False
+        tabs = self.query_one(ItemTabs)
+        if (not self.narrow or not self.item_view) and self.session:
+            stopping = mapping(self.session.data.get('activity')).get('state') == 'stopping'
+            if not stopping and any(row.group == 'Running' and row.state != 'earlier observation'
+                                    for row in self.rows.values()):
+                return True
+        if not self.narrow or self.item_view:
+            if tabs.active == 'log':
+                return run_status(self.rows.get(self.selected), self.session)[2]
+            if tabs.active == 'runs' and self.session:
+                return self._runs_active
+        return False
+
+    def update_cadence(self):
+        interval = 1 / SPINNER_FPS if self.spinner_visible() else 1
+        if interval != self._refresh_interval:
+            if self._refresh_timer is not None:
+                self._refresh_timer.stop()
+            self._refresh_interval = interval
+            self._refresh_timer = self.set_interval(interval, self.tick)
+
+    def request_read(self):
+        if self.busy:
+            return
+        end, generation = self.pending_history or (None, 0)
+        if self.worker.request(Request(self.selected, self.token, end, generation, self.chosen,
+                                       self.pane, reload=self.pending_reload)):
+            self.busy = True
+            self.pending_history = None
+            self.pending_reload = False
+
+    def on_local_read_ready(self):
+        self.tick(request=False)
+
+    def receive_result(self):
+        try:
+            result = self.worker.results.get_nowait()
+        except Empty:
+            return
+        self.busy = False
+        if result.session != self.session:
+            self.poll_feedback = {}
+            self.session = result.session
+            self.update_session(result)
+            self._status_dirty = True
+        if result.token == self.token and result.key == self.selected:
+            self.apply(result)
+        # Selection and paging may have changed while storage was busy.
+        if result.token != self.token or self.pending_history or self.pending_reload:
+            self.request_read()
+
+    def update_session(self, result):
+        self.title = 'ub-agents launch — ' + text(self.session.data.get('repository'), 'unknown')
+        if self.session.data.get('queue_agent'):
+            self.title += ' · agent ' + text(self.session.data['queue_agent'])
+        # App.title only updates Header widgets in the pinned Textual.
+        if self._driver is not None and not self.is_headless and self.title != self._window_title:
+            self._driver.write(str(Control.title(self.title)))
+            self._window_title = self.title
+        self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
+        self.query_one(HealthBanner).set_banner({'text': self.session.data.get('health_notice')})
+        self.query_one(ConfigurationPause).set_pause(self.session.data.get('configuration_pause'))
+        # A person may pick a row while this read is in flight.
+        pane = (result.pane if result.token == self.token and result.chosen == self.chosen else
+                work_pane(self.session, self.root, self.pane, self.selected, self.chosen))
+        self.populate(pane)
+
+    def tick(self, *, request=True):
         # Textual clears is_running before removing screen widgets, while
         # refresh timers may still fire until teardown closes the message pump.
         if not self.is_running:
@@ -435,44 +518,23 @@ class View(App):
         for screen in self.screen_stack:
             for area in screen.query('.view-scroll'):
                 area.update_scrollbar()
+        pending = self.descriptions.pending
         self.descriptions.poll()
-        try:
-            result = self.worker.results.get_nowait()
-        except Empty:
-            result = None
-        if result:
-            self.busy = False
-            if self.session is None or result.session.data != self.session.data:
-                self.poll_feedback = {}
-            self.session = result.session
-            self.title = 'ub-agents launch — ' + text(self.session.data.get('repository'), 'unknown')
-            if self.session.data.get('queue_agent'):
-                self.title += ' · agent ' + text(self.session.data['queue_agent'])
-            # App.title only updates Header widgets in the pinned Textual.
-            if self._driver is not None and not self.is_headless and self.title != self._window_title:
-                self._driver.write(str(Control.title(self.title)))
-                self._window_title = self.title
-            self.query_one(UpdateBanner).set_banner(self.session.data.get('update'))
-            self.query_one(HealthBanner).set_banner({'text': self.session.data.get('health_notice')})
-            self.query_one(ConfigurationPause).set_pause(self.session.data.get('configuration_pause'))
-            # A person may pick a row while this read is in flight. Retain that
-            # selection from the pane we last drew, using the returned snapshot.
-            pane = (result.pane if result.token == self.token and result.chosen == self.chosen else
-                    work_pane(self.session, self.root, self.pane, self.selected, self.chosen))
-            self.populate(pane)
-            if result.token == self.token and result.key == self.selected:
-                self.apply(result)
-        if not self.busy:
-            end, generation = self.pending_history or (None, 0)
-            if self.worker.request(Request(self.selected, self.token, end, generation, self.chosen,
-                                           self.pane, reload=self.pending_reload)):
-                self.busy = True
-                self.pending_history = None
-                self.pending_reload = False
-        self.update_issue()
-        self.update_unblock()
+        self._status_dirty |= pending != self.descriptions.pending
+        self.receive_result()
+        if request:
+            self.request_read()
+        second = int(datetime.now(timezone.utc).timestamp())
+        refresh_status = self._status_dirty or second != self._status_second
+        if refresh_status:
+            self.update_issue()
+            self.update_unblock()
         self.update_runs()
-        self.update_status()
+        if refresh_status:
+            self.update_status()
+        elif (self.spinner_visible() and self.query_one(ItemTabs).active == 'log'
+              and run_status(self.rows.get(self.selected), self.session)[2]):
+            self.update_run_status()
         tree = self.query_one(WorkTree)
         second = int(time.monotonic())
         if second != self._tree_second:
@@ -481,6 +543,7 @@ class View(App):
             self._tree_second = second
         else:
             tree.refresh_spinners()
+        self.update_cadence()
 
     def idle_label(self, pane, width=None):  # noqa: C901
         complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
@@ -589,12 +652,21 @@ class View(App):
         self.query_one('#issue_note', Static).update('')
         self.update_unblock()
         self.update_status()
+        self.request_read()
+        self.update_cadence()
 
     def apply(self, result):
         reading = self.reading
+        # Per-read diagnostics change after ingestion even when visible state
+        # stays the same. They do not belong to the status widgets' inputs.
+        previous_log = replace(reading.log, bytes_read=0, records_processed=0) if reading.log else None
+        next_log = replace(result.log, bytes_read=0, records_processed=0) if result.log else None
+        self._status_dirty |= ((previous_log, reading.latest, reading.runtime, self.local_description) !=
+                               (next_log, result.page, result.runtime, result.description))
         reading.log, reading.latest = result.log, result.page
         reading.runtime = result.runtime
         if result.history:
+            self._status_dirty = True
             reading.page = result.history
             reading.follow = False
             reading.anchor = None
@@ -609,7 +681,15 @@ class View(App):
                 self.query_one('#output', LogPane).set_reading(reading)
         if result.error:
             reading.notice = text(result.error)
+            self._status_dirty = True
         self.local_description = result.description
+
+    def update_run_status(self):
+        styles = StatusStyles(theme_style(self, 'view-muted'), theme_style(self, 'view-accent'),
+                              theme_style(self, 'view-error'), theme_style(self, 'view-warning'))
+        width = self.query_one(LogPane).size.width
+        run_note = run_status_line(self.rows.get(self.selected), self.session, width, styles, time.monotonic())
+        self.update_static(self.query_one('#run_status', Static), run_note, layout=False)
 
     def update_static(self, widget, value, *, layout=True):
         """Keep unchanged content from requesting another repaint or layout."""
@@ -633,6 +713,7 @@ class View(App):
         history = item_history(row, self.session, full=True)
         now = datetime.now().astimezone()
         active = any(history_status(run, now)[0] == 'running' for run in history.get('runs', []))
+        self._runs_active = active
         visible = self.query_one(ItemTabs).active == 'runs'
         signature = (row.key if row else None, repr(history),
                      int(now.timestamp() * (SPINNER_FPS if active and visible else 1)))
@@ -840,6 +921,7 @@ class View(App):
             self.reading.notice = ''
             self.query_one(LogPane).set_reading(self.reading)
             self.update_status()
+            self.request_read()
             return
         if not isinstance(self.screen, RawAccess) and self.query_one(TabbedContent).active == 'unblock':
             if self.unblock_visible and not self.current_action().available:
@@ -874,6 +956,8 @@ class View(App):
     def update_status(self):
         if not self.is_mounted:
             return
+        self._status_second = int(datetime.now(timezone.utc).timestamp())
+        self._status_dirty = False
         if self.shutdown is not None:
             self.update_shutdown()
             return
@@ -971,6 +1055,7 @@ class View(App):
                 self.pending_history = (end, page.generation)
                 reading.notice = 'Reading older local page…'
         self.update_status()
+        self.request_read()
 
     def action_tab(self, tab):
         if isinstance(self.screen, RawAccess) or tab == 'unblock' and not self.unblock_visible:
@@ -1011,6 +1096,7 @@ class View(App):
                 self._static_values.pop(self.query_one('#runs_text', Static), None)
                 self.update_runs()
             self.update_status()
+            self.update_cadence()
 
     def get_theme_variable_defaults(self):
         return variable_defaults(self.current_theme)

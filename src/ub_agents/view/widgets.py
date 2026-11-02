@@ -55,7 +55,7 @@ class ConfigurationPause(Static):
         pause = mapping(pause)
         pause = pause if all(isinstance(pause.get(key), str) for key in ('error', 'commit', 'next_step')) else None
         self.display = bool(pause) and not self.app.too_small and self.app.shutdown is None
-        # Static.update relayouts the whole screen; the view calls this on every tick.
+        # Static.update relayouts the whole screen, so retain unchanged content.
         if pause != self.pause:
             self.pause = pause
             self.update(Text(configuration_pause_summary(pause)) if pause else '')
