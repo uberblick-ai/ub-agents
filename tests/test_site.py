@@ -41,7 +41,6 @@ class SiteTests(unittest.TestCase):
         self.assertIn('<h1>Loops we <em>actually run</em></h1>', page)
         self.assertEqual(page.count('class="workflow-card'), 2)
         self.assertEqual(page.count('class="workflow-card workflow-wide"'), 1)
-        self.assertEqual(page.count('class="workflow-group"'), len(build.WORKFLOW_GROUPS))
         self.assertEqual(page.count('data-mode="preview"'), 2)
         self.assertNotIn('<details class="side"', page)
         self.assertIn('href="default/"', page)
@@ -49,8 +48,18 @@ class SiteTests(unittest.TestCase):
         for workflow in build.WORKFLOWS:
             self.assertIn(workflow['title'], page)
             self.assertIn(workflow['intent'], html.unescape(page))
+        default_card = build.workflow_card(build.WORKFLOWS[0], 'workflows/index.html')
+        self.assertIn('Built on ub-agents, a minimal agent loop for experienced developers: '
+                      'plain GitHub labels, your own coding agents, nothing to host.', default_card)
         ids = Links(page).ids
         self.assertEqual(len(ids), len(set(ids)), 'gallery SVG ids must be unique')
+
+    def test_workflow_pages_have_no_project_groups_or_usage_lines(self):
+        for path, page in build.workflow_pages():
+            with self.subTest(path=path):
+                for project_detail in ('workflow-group', 'workflow-repo', 'workflow-runs',
+                                       'We run it on:', 'uberblick-ai/uberblick-2'):
+                    self.assertNotIn(project_detail, page)
 
     def test_workflow_scenarios_have_urls_and_native_playback_data(self):
         expected = {'default': ['clean-merge', 'one-fix-round', 'a-person-decides'],
@@ -81,6 +90,7 @@ class SiteTests(unittest.TestCase):
                     self.assertEqual(urljoin(path, url), f'workflows/{name}/{target}/')
                 self.assertIn('type="module" src="', page)
                 self.assertNotIn('<details class="side"', page)
+                self.assertIn(build.discuss(f'workflow-{name}'), page)
 
     def test_workflow_stories_and_adopt_prompts(self):
         for workflow in build.WORKFLOWS:
@@ -95,8 +105,10 @@ class SiteTests(unittest.TestCase):
             self.assertIn('diff before writing anything', prompt)
             for heading in ('Why it exists', 'What you gain', 'Where a person steps in'):
                 self.assertIn(heading, page)
-            adopt = [link for link in Links(page).hrefs if link.startswith(('claude://', 'https://claude.ai/new'))]
+            adopt = [link for link in Links(page).hrefs if link.startswith(('claude://', 'codex://'))]
             self.assertEqual(len(adopt), 2)
+            self.assertTrue(any(link.startswith('claude://code/new?q=') for link in adopt))
+            self.assertTrue(any(link.startswith('codex://new?prompt=') for link in adopt))
             for link in adopt:
                 self.assertEqual(unquote(link.split('=', 1)[1]), prompt)
             self.assertIn(f'data-prompt="{html.escape(prompt)}"', page)

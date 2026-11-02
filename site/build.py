@@ -25,23 +25,14 @@ SECTIONS = [  # (title, content entry, kind)
     ('Best practices', 'best-practices', 'dir'),
     ('Upgrading', 'upgrading.md', 'page'),
 ]
-WORKFLOW_GROUPS = [  # The wall: one section per group; a hero workflow gets the wide card.
-    {'title': 'Default after ub-agents init',
-     'blurb': 'The one full loop on this page: five roles, the labels, and a person at every hard decision. '
-              'Every workflow below is a change to it.'},
-    {'title': 'Uberblick', 'repo': 'uberblick-ai/uberblick-2 · public',
-     'blurb': 'How we build Uberblick itself. Every issue starts from the product pages in our workspace, '
-              'Codex writes the code, and a different model reviews it.'},
-]
 WORKFLOWS = [
-    {'name': 'default', 'group': 0, 'hero': True, 'title': 'The default ub-agents loop',
+    {'name': 'default', 'hero': True, 'title': 'The default ub-agents loop',
      'intent': 'Label an issue. Get back a reviewed, merged pull request.'},
-    {'name': 'dependabot', 'group': 1, 'title': 'Dependabot on autopilot',
+    {'name': 'dependabot', 'title': 'Dependabot on autopilot',
      'intent': "Patch and minor bumps merge on their own once the tests pass, without anyone opening the PR. "
                "Majors, and failures one fix round can't settle, wait for you.",
      'article': ('Letting agents auto-merge Dependabot pull requests',
-                 'https://uberblick.ai/blog/2026/agents-auto-merge-dependabot'),
-     'runs': 'Uberblick'},
+                 'https://uberblick.ai/blog/2026/agents-auto-merge-dependabot')},
 ]
 ABOUT_UB_AGENTS = ('a minimal agent loop for experienced developers: '
                    'plain GitHub labels, your own coding agents, nothing to host.')
@@ -375,27 +366,24 @@ def workflow_shell(here, title, description, body):
 
 def workflow_card(workflow, here):
     wide = ' workflow-wide' if workflow.get('hero') else ''
+    about = (f'<p class="workflow-about">Built on ub-agents, {html.escape(ABOUT_UB_AGENTS)}</p>'
+             if workflow['name'] == 'default' else '')
     return (f'<a class="workflow-card{wide}" href="{rel("workflows/" + workflow["name"] + "/", here)}">'
             f'{workflow_player(workflow, here, preview=True)}'
-            f'<div class="workflow-meta"><h3>{html.escape(workflow["title"])}</h3>'
-            f'<p class="workflow-intent">{html.escape(workflow["intent"])}</p></div></a>')
+            f'<div class="workflow-meta"><h2>{html.escape(workflow["title"])}</h2>'
+            f'<p class="workflow-intent">{html.escape(workflow["intent"])}</p>{about}</div></a>')
 
 def workflow_gallery():
     here = 'workflows/index.html'
     description = ('A gallery of loops run in the real world, '
                    'including the default loop on a fresh ub-agents init.')
-    groups = ''
-    for i, group in enumerate(WORKFLOW_GROUPS):
-        cards = ''.join(workflow_card(w, here) for w in WORKFLOWS if w['group'] == i)
-        repo = f'<span class="workflow-repo">{html.escape(group["repo"])}</span>' if group.get('repo') else ''
-        groups += (f'<section class="workflow-group"><h2>{html.escape(group["title"])}{repo}</h2>'
-                   f'<p class="workflow-blurb">{html.escape(group["blurb"])}</p>'
-                   f'<div class="workflow-grid">{cards}</div></section>')
+    cards = ''.join(workflow_card(workflow, here) for workflow in WORKFLOWS)
     body = ('<section class="workflow-hero"><p class="workflow-kick">Workflow gallery</p>'
             '<h1>Loops we <em>actually run</em></h1>'
             '<p>A gallery of loops run in the real world, including the default loop on a fresh '
             f'<code>ub-agents init</code>. Read more about <a href="{rel("docs/how-the-loop-works.html", here)}">'
-            'how the loop works</a>.</p></section>' + groups)
+            'how the loop works</a>.</p></section>'
+            f'<div class="workflow-grid">{cards}</div>')
     return workflow_shell(here, 'Workflows', description, body)
 
 LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" '
@@ -404,20 +392,15 @@ LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke
              '<path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>')
 
 def workflow_adopt(workflow):
-    """Open the workflow's prompt in Claude Code or on claude.ai, or copy it."""
+    """Discuss the workflow in Claude or Codex, or copy its prompt."""
     prompt = ' '.join((ROOT / 'prompts' / f'workflow-{workflow["name"]}.md').read_text().split())
-    q = urllib.parse.quote(prompt, safe='')
     extra = ''
     if article := workflow.get('article'):
         extra += (f'<a class="workflow-article" href="{article[1]}"><span>Read the story</span>'
                   f'{html.escape(article[0])} →</a>')
-    if runs := workflow.get('runs'):
-        extra += f'<p class="workflow-runs">We run it on: {html.escape(runs)}</p>'
     return ('<aside class="workflow-adopt" aria-label="Adopt this workflow">'
-            '<p class="workflow-adopt-head">Adopt it with Claude</p>'
-            f'<a class="workflow-cta" href="claude://code/new?q={q}" title="Opens the Claude desktop app">'
-            'Open in Claude Code <span aria-hidden="true">→</span></a>'
-            f'<p class="workflow-alt">No desktop app? <a href="https://claude.ai/new?q={q}">Use claude.ai</a></p>'
+            '<p class="workflow-adopt-head">Adopt this workflow</p>'
+            + discuss(f'workflow-{workflow["name"]}') +
             f'<button class="workflow-copy" type="button" data-prompt="{html.escape(prompt)}">Copy the prompt</button>'
             f'{extra}</aside>')
 
