@@ -41,6 +41,9 @@ class SiteTests(unittest.TestCase):
         self.assertIn('<h1>Loops we <em>actually run</em></h1>', page)
         self.assertEqual(page.count('class="workflow-card'), 2)
         self.assertEqual(page.count('class="workflow-card workflow-wide"'), 1)
+        self.assertEqual(page.count('class="workflow-group"'), len(build.WORKFLOW_GROUPS))
+        self.assertIn('Built on ub-agents, a minimal agent loop for experienced developers: '
+                      'plain GitHub labels, your own coding agents, nothing to host.', page)
         self.assertEqual(page.count('data-mode="preview"'), 2)
         self.assertNotIn('<details class="side"', page)
         self.assertIn('href="default/"', page)
@@ -54,12 +57,12 @@ class SiteTests(unittest.TestCase):
         ids = Links(page).ids
         self.assertEqual(len(ids), len(set(ids)), 'gallery SVG ids must be unique')
 
-    def test_workflow_pages_have_no_project_groups_or_usage_lines(self):
+    def test_workflow_pages_name_no_project_that_runs_them(self):
         for path, page in build.workflow_pages():
-            with self.subTest(path=path):
-                for project_detail in ('workflow-group', 'workflow-repo', 'workflow-runs',
-                                       'We run it on:', 'uberblick-ai/uberblick-2'):
-                    self.assertNotIn(project_detail, page)
+            text = html.unescape(re.sub(r'<svg.*?</svg>|<script.*?</script>', '', page, flags=re.S))
+            for project in ('We run it on', 'uberblick-2', 'CampfireFM', 'workflow-runs',
+                            'workflow-repo', 'How we build Uberblick itself'):
+                self.assertNotIn(project, text, path)
 
     def test_workflow_scenarios_have_urls_and_native_playback_data(self):
         expected = {'default': ['clean-merge', 'one-fix-round', 'a-person-decides'],
