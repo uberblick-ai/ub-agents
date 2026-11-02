@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -143,6 +144,9 @@ class ViewRefreshTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.resize_terminal(120, 36)
                 footer.assert_called()
                 self.assertEqual(app.query_one('#status', Static).content.cell_len, 120)
+            await pilot.resize_terminal(80, 24)
+            await pilot.press('enter')
+            self.assertIn('#114', app.query_one('#item_header', Static).render().plain)
             await pilot.press('q')
         app.worker.thread.join(2)
 
@@ -158,7 +162,7 @@ class ViewRefreshTests(unittest.IsolatedAsyncioTestCase):
             info = self.path.stat()
             self.state['repository'] = 'example/else'
             publish_snapshot(self.path, self.state)
-            import os
+            self.assertEqual(self.path.stat().st_size, info.st_size)
             os.utime(self.path, ns=(info.st_atime_ns, info.st_mtime_ns))
             self.assertNotEqual(worker.read(request).session, first.session)
             self.path.unlink()

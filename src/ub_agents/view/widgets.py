@@ -62,6 +62,11 @@ class ConfigurationPause(Static):
 
 
 class ItemHeader(Static):
+    def on_resize(self):
+        # Showing the narrow item pane lays it out after the app's resize or
+        # key handler. Render against its actual width without waiting for tick.
+        self.app.update_status()
+
     @property
     def link_style(self):
         # Decorate links without replacing the title and PR marker colors.

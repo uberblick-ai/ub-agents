@@ -163,6 +163,7 @@ class View(App):
         self.last_context = self.last_runs = None
         self._runs_active = False
         self._static_values = WeakKeyDictionary()
+        self._scroll_areas = ()
         self._tree_second = None
         self._status_second = None
         self._status_dirty = True
@@ -224,6 +225,7 @@ class View(App):
         self.query_one('#work_pane').border_title = 'Work'
         self.query_one(ItemTabs).border_title = 'Agent'
         self.query_one(WorkTree).show_root = False
+        self._scroll_areas = tuple(self.query('.view-scroll'))
         self.theme_changed_signal.subscribe(self, self.restyle)
         self.worker.notify = lambda: self.post_message(LocalReadReady())
         self.worker.start()
@@ -233,7 +235,6 @@ class View(App):
 
     def on_resize(self, event):
         self.update_layout(event.size)
-        self.call_after_refresh(self.update_status)
 
     def update_layout(self, size):  # noqa: C901
         pane = self.query_one_optional('#work_pane')
@@ -282,6 +283,7 @@ class View(App):
         if restore_focus and self.layout_focus is not None:
             self.layout_focus.focus(scroll_visible=False)
         self.update_status()
+        self.call_after_refresh(self.update_status)
         self.update_cadence()
 
     def check_action(self, action, parameters):
@@ -515,7 +517,9 @@ class View(App):
         # refresh timers may still fire until teardown closes the message pump.
         if not self.is_running:
             return
-        for screen in self.screen_stack:
+        for area in self._scroll_areas:
+            area.update_scrollbar()
+        for screen in self.screen_stack[1:]:
             for area in screen.query('.view-scroll'):
                 area.update_scrollbar()
         pending = self.descriptions.pending
@@ -535,15 +539,20 @@ class View(App):
         elif (self.spinner_visible() and self.query_one(ItemTabs).active == 'log'
               and run_status(self.rows.get(self.selected), self.session)[2]):
             self.update_run_status()
+        self.refresh_work()
+        self.update_cadence()
+
+    def refresh_work(self):
         tree = self.query_one(WorkTree)
         second = int(time.monotonic())
         if second != self._tree_second:
             tree.refresh_idle(self.pane)
-            tree.refresh()
+            if any(row.group in {'Running', 'Needs attention'} or row.state == 'waiting'
+                   for row in self.rows.values()):
+                tree.refresh()
             self._tree_second = second
         else:
             tree.refresh_spinners()
-        self.update_cadence()
 
     def idle_label(self, pane, width=None):  # noqa: C901
         complete = mapping(self.session.data.get('latest_pass')).get('state') == 'complete'
@@ -630,6 +639,8 @@ class View(App):
         if key == self.selected:
             return
         self.selected = key
+        if self.pane is not None:
+            self.pane = replace(self.pane, selected=key)
         self.query_one(RecentActivity).refresh()
         self.token += 1
         self.pending_history = None
