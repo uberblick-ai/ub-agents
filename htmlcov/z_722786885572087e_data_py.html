@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/view_data.py: 85%</title>
+    <title>Coverage for src/ub_agents/view/data.py: 85%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -11,7 +11,7 @@
 <header>
     <div class="content">
         <h1>
-            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view_data.py</b>:
+            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view<span class="sep">/</span>data.py</b>:
             <span class="pc_cov">85%</span>
         </h1>
         <aside id="help_panel_wrapper">
@@ -60,12 +60,12 @@
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
-            <a id="prevFileLink" class="nav" href="z_5a8b66d9765f9a8f_view_clipboard_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a id="prevFileLink" class="nav" href="z_722786885572087e_clipboard_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_view_github_py.html">&#xbb; next</a>
+            <a id="nextFileLink" class="nav" href="z_722786885572087e_github_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -92,9 +92,9 @@
     <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">import</span> <span class="nam">time</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="nam">typing</span> <span class="key">import</span> <span class="nam">ClassVar</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">log_format</span> <span class="key">import</span> <span class="nam">CONTROLS</span><span class="op">,</span> <span class="nam">inert</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">attention</span> <span class="key">import</span> <span class="nam">attention_state</span><span class="op">,</span> <span class="nam">stamp</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">observation_data</span> <span class="key">import</span> <span class="op">(</span><span class="nam">ELIGIBLE_LIMIT</span><span class="op">,</span> <span class="nam">WORK_GROUPS</span><span class="op">,</span> <span class="nam">WorkRow</span><span class="op">,</span> <span class="nam">history_path</span><span class="op">,</span> <span class="nam">mapping</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">log_format</span> <span class="key">import</span> <span class="nam">CONTROLS</span><span class="op">,</span> <span class="nam">inert</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">attention</span> <span class="key">import</span> <span class="nam">attention_state</span><span class="op">,</span> <span class="nam">stamp</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">observation_data</span> <span class="key">import</span> <span class="op">(</span><span class="nam">ELIGIBLE_LIMIT</span><span class="op">,</span> <span class="nam">WORK_GROUPS</span><span class="op">,</span> <span class="nam">WorkRow</span><span class="op">,</span> <span class="nam">history_path</span><span class="op">,</span> <span class="nam">mapping</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">                               <span class="nam">omitted_plan</span><span class="op">,</span> <span class="nam">own_run</span><span class="op">,</span> <span class="nam">plan_group</span><span class="op">,</span> <span class="nam">rows</span><span class="op">,</span> <span class="nam">runtime_type</span><span class="op">,</span> <span class="nam">text</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t">                               <span class="nam">work_rows</span> <span class="key">as</span> <span class="nam">snapshot_rows</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -422,7 +422,7 @@
     <p class="run"><span class="n"><a id="t340" href="#t340">340</a></span><span class="t">        <span class="nam">object</span><span class="op">.</span><span class="nam">__setattr__</span><span class="op">(</span><span class="nam">self</span><span class="op">,</span> <span class="str">&#x27;body_digest&#x27;</span><span class="op">,</span> <span class="nam">sha256</span><span class="op">(</span><span class="nam">body</span><span class="op">.</span><span class="nam">encode</span><span class="op">(</span><span class="str">&#x27;utf-8&#x27;</span><span class="op">)</span><span class="op">)</span><span class="op">.</span><span class="nam">hexdigest</span><span class="op">(</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t341" href="#t341">341</a></span><span class="t">        <span class="nam">pointers</span> <span class="op">=</span> <span class="str">&#x27;&#x27;</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t342" href="#t342">342</a></span><span class="t">        <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">extract_pointers</span> <span class="key">and</span> <span class="nam">body</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t343" href="#t343">343</a></span><span class="t">            <span class="key">from</span> <span class="op">.</span><span class="nam">view_markdown</span> <span class="key">import</span> <span class="nam">pointer_sections</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t343" href="#t343">343</a></span><span class="t">            <span class="key">from</span> <span class="op">.</span><span class="nam">markdown</span> <span class="key">import</span> <span class="nam">pointer_sections</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t344" href="#t344">344</a></span><span class="t">            <span class="nam">body</span><span class="op">,</span> <span class="nam">pointers</span> <span class="op">=</span> <span class="nam">pointer_sections</span><span class="op">(</span><span class="nam">body</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t345" href="#t345">345</a></span><span class="t">        <span class="nam">pointer_notices</span> <span class="op">=</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t346" href="#t346">346</a></span><span class="t">        <span class="key">if</span> <span class="nam">len</span><span class="op">(</span><span class="nam">pointers</span><span class="op">)</span> <span class="op">&gt;</span> <span class="nam">POINTERS_LIMIT</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -610,12 +610,12 @@
 <footer>
     <div class="content">
         <p>
-            <a class="nav" href="z_5a8b66d9765f9a8f_view_clipboard_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a class="nav" href="z_722786885572087e_clipboard_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a class="nav" href="z_5a8b66d9765f9a8f_view_github_py.html">&#xbb; next</a>
+            <a class="nav" href="z_722786885572087e_github_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
     </div>
 </footer>

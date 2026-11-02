@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/view_github.py: 77%</title>
+    <title>Coverage for src/ub_agents/view/github.py: 77%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -11,7 +11,7 @@
 <header>
     <div class="content">
         <h1>
-            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view_github.py</b>:
+            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view<span class="sep">/</span>github.py</b>:
             <span class="pc_cov">77%</span>
         </h1>
         <aside id="help_panel_wrapper">
@@ -60,12 +60,12 @@
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
-            <a id="prevFileLink" class="nav" href="z_5a8b66d9765f9a8f_view_data_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a id="prevFileLink" class="nav" href="z_722786885572087e_data_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_view_log_pane_py.html">&#xbb; next</a>
+            <a id="nextFileLink" class="nav" href="z_722786885572087e_log_pane_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -93,9 +93,9 @@
     <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">import</span> <span class="nam">subprocess</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">import</span> <span class="nam">time</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">view_data</span> <span class="key">import</span> <span class="nam">Description</span><span class="op">,</span> <span class="nam">description_text</span><span class="op">,</span> <span class="nam">mapping</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">launcher_code</span> <span class="key">import</span> <span class="nam">descriptors</span><span class="op">,</span> <span class="nam">helper_command</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">view_unblock</span> <span class="key">import</span> <span class="nam">ACTION_MARKER</span><span class="op">,</span> <span class="nam">ActionComment</span><span class="op">,</span> <span class="nam">comment_body</span><span class="op">,</span> <span class="nam">stamp</span><span class="op">,</span> <span class="nam">trust_reason</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">data</span> <span class="key">import</span> <span class="nam">Description</span><span class="op">,</span> <span class="nam">description_text</span><span class="op">,</span> <span class="nam">mapping</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">launcher_code</span> <span class="key">import</span> <span class="nam">descriptors</span><span class="op">,</span> <span class="nam">helper_command</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">unblock</span> <span class="key">import</span> <span class="nam">ACTION_MARKER</span><span class="op">,</span> <span class="nam">ActionComment</span><span class="op">,</span> <span class="nam">comment_body</span><span class="op">,</span> <span class="nam">stamp</span><span class="op">,</span> <span class="nam">trust_reason</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="nam">REQUEST_SECONDS</span> <span class="op">=</span> <span class="num">10</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t"><span class="nam">CACHE_ITEMS</span> <span class="op">=</span> <span class="num">128</span>&nbsp;</span><span class="r"></span></p>
@@ -228,7 +228,7 @@
     <p class="run"><span class="n"><a id="t146" href="#t146">146</a></span><span class="t">        <span class="nam">read</span><span class="op">,</span> <span class="nam">self</span><span class="op">.</span><span class="nam">life</span> <span class="op">=</span> <span class="nam">os</span><span class="op">.</span><span class="nam">pipe</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t147" href="#t147">147</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t148" href="#t148">148</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">process</span> <span class="op">=</span> <span class="nam">subprocess</span><span class="op">.</span><span class="nam">Popen</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t149" href="#t149">149</a></span><span class="t">                <span class="op">[</span><span class="op">*</span><span class="nam">helper_command</span><span class="op">(</span><span class="str">&#x27;ub_agents.view_request&#x27;</span><span class="op">)</span><span class="op">,</span> <span class="nam">str</span><span class="op">(</span><span class="nam">read</span><span class="op">)</span><span class="op">,</span> <span class="op">*</span><span class="nam">command</span><span class="op">]</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t149" href="#t149">149</a></span><span class="t">                <span class="op">[</span><span class="op">*</span><span class="nam">helper_command</span><span class="op">(</span><span class="str">&#x27;ub_agents.view.request&#x27;</span><span class="op">)</span><span class="op">,</span> <span class="nam">str</span><span class="op">(</span><span class="nam">read</span><span class="op">)</span><span class="op">,</span> <span class="op">*</span><span class="nam">command</span><span class="op">]</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t150" href="#t150">150</a></span><span class="t">                <span class="nam">pass_fds</span><span class="op">=</span><span class="op">(</span><span class="nam">read</span><span class="op">,</span> <span class="op">*</span><span class="nam">descriptors</span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">,</span> <span class="nam">stdin</span><span class="op">=</span><span class="nam">subprocess</span><span class="op">.</span><span class="nam">DEVNULL</span><span class="op">,</span> <span class="nam">stdout</span><span class="op">=</span><span class="nam">subprocess</span><span class="op">.</span><span class="nam">PIPE</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t151" href="#t151">151</a></span><span class="t">                <span class="nam">stderr</span><span class="op">=</span><span class="nam">subprocess</span><span class="op">.</span><span class="nam">PIPE</span><span class="op">,</span> <span class="nam">start_new_session</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">env</span><span class="op">=</span><span class="nam">env</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t152" href="#t152">152</a></span><span class="t">        <span class="key">except</span> <span class="nam">BaseException</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -367,12 +367,12 @@
 <footer>
     <div class="content">
         <p>
-            <a class="nav" href="z_5a8b66d9765f9a8f_view_data_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a class="nav" href="z_722786885572087e_data_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a class="nav" href="z_5a8b66d9765f9a8f_view_log_pane_py.html">&#xbb; next</a>
+            <a class="nav" href="z_722786885572087e_log_pane_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
     </div>
 </footer>

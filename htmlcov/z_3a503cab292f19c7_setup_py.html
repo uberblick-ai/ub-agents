@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/init_setup.py: 64%</title>
+    <title>Coverage for src/ub_agents/init/setup.py: 64%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -11,7 +11,7 @@
 <header>
     <div class="content">
         <h1>
-            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>init_setup.py</b>:
+            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>init<span class="sep">/</span>setup.py</b>:
             <span class="pc_cov">64%</span>
         </h1>
         <aside id="help_panel_wrapper">
@@ -60,12 +60,12 @@
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
-            <a id="prevFileLink" class="nav" href="z_5a8b66d9765f9a8f_init_prompts_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a id="prevFileLink" class="nav" href="z_3a503cab292f19c7_prompts_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_init_tailoring_py.html">&#xbb; next</a>
+            <a id="nextFileLink" class="nav" href="z_3a503cab292f19c7_tailoring_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -90,9 +90,9 @@
     <p class="pln"><span class="n"><a id="t8" href="#t8">8</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t9" href="#t9">9</a></span><span class="t"><span class="key">import</span> <span class="nam">yaml</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">config</span> <span class="key">import</span> <span class="nam">LOCAL_CONFIG</span><span class="op">,</span> <span class="nam">preview_config</span><span class="op">,</span> <span class="nam">load_config</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">errors</span> <span class="key">import</span> <span class="nam">AgentError</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">labels</span> <span class="key">import</span> <span class="nam">Label</span><span class="op">,</span> <span class="nam">LabelUse</span><span class="op">,</span> <span class="nam">configured_labels</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">config</span> <span class="key">import</span> <span class="nam">LOCAL_CONFIG</span><span class="op">,</span> <span class="nam">preview_config</span><span class="op">,</span> <span class="nam">load_config</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">errors</span> <span class="key">import</span> <span class="nam">AgentError</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">labels</span> <span class="key">import</span> <span class="nam">Label</span><span class="op">,</span> <span class="nam">LabelUse</span><span class="op">,</span> <span class="nam">configured_labels</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="nam">ROLES</span> <span class="op">=</span> <span class="op">(</span><span class="str">&quot;issue-preparer&quot;</span><span class="op">,</span> <span class="str">&quot;issue-reviewer&quot;</span><span class="op">,</span> <span class="str">&quot;implementer&quot;</span><span class="op">,</span> <span class="str">&quot;reviewer&quot;</span><span class="op">,</span> <span class="str">&quot;integrator&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -367,7 +367,7 @@
     <p class="pln"><span class="n"><a id="t285" href="#t285">285</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t286" href="#t286">286</a></span><span class="t"><span class="key">def</span> <span class="nam">apply_plan</span><span class="op">(</span><span class="nam">plan</span><span class="op">,</span> <span class="nam">github</span><span class="op">,</span> <span class="nam">remote_labels</span><span class="op">=</span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t287" href="#t287">287</a></span><span class="t">    <span class="str">&quot;&quot;&quot;Stop on partial failure; retain and describe successful effects, never roll back.&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t288" href="#t288">288</a></span><span class="t">    <span class="key">from</span> <span class="op">.</span><span class="nam">doctor</span> <span class="key">import</span> <span class="nam">Doctor</span><span class="op">,</span> <span class="nam">public</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t288" href="#t288">288</a></span><span class="t">    <span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">doctor</span> <span class="key">import</span> <span class="nam">Doctor</span><span class="op">,</span> <span class="nam">public</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t289" href="#t289">289</a></span><span class="t">    <span class="nam">result</span> <span class="op">=</span> <span class="nam">Applied</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t290" href="#t290">290</a></span><span class="t">    <span class="nam">pending</span> <span class="op">=</span> <span class="op">[</span><span class="fst">f&quot;</span><span class="fst">Create </span><span class="op">{</span><span class="nam">p</span><span class="op">}</span><span class="fst">&quot;</span> <span class="key">for</span> <span class="nam">p</span> <span class="key">in</span> <span class="nam">plan</span><span class="op">.</span><span class="nam">targets</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t291" href="#t291">291</a></span><span class="t">    <span class="nam">change_ignore</span> <span class="op">=</span> <span class="nam">plan</span><span class="op">.</span><span class="nam">ignore_after</span> <span class="op">!=</span> <span class="op">(</span><span class="nam">plan</span><span class="op">.</span><span class="nam">ignore_before</span> <span class="key">or</span> <span class="str">b&quot;&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -382,7 +382,7 @@
     <p class="run"><span class="n"><a id="t300" href="#t300">300</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t301" href="#t301">301</a></span><span class="t">        <span class="nam">plan</span><span class="op">.</span><span class="nam">protect</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t302" href="#t302">302</a></span><span class="t">        <span class="key">if</span> <span class="nam">plan</span><span class="op">.</span><span class="nam">choices</span><span class="op">.</span><span class="nam">board_requests</span> <span class="key">or</span> <span class="nam">plan</span><span class="op">.</span><span class="nam">choices</span><span class="op">.</span><span class="nam">retrospectives</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t303" href="#t303">303</a></span><span class="t">            <span class="key">from</span> <span class="op">.</span><span class="nam">init_boards</span> <span class="key">import</span> <span class="nam">Boards</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t303" href="#t303">303</a></span><span class="t">            <span class="key">from</span> <span class="op">.</span><span class="nam">boards</span> <span class="key">import</span> <span class="nam">Boards</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t304" href="#t304">304</a></span><span class="t">            <span class="nam">boards</span> <span class="op">=</span> <span class="nam">Boards</span><span class="op">(</span><span class="nam">github</span><span class="op">,</span> <span class="nam">plan</span><span class="op">.</span><span class="nam">config</span><span class="op">.</span><span class="nam">repository</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t305" href="#t305">305</a></span><span class="t">            <span class="nam">phase</span> <span class="op">=</span> <span class="str">&quot;boards&quot;</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t306" href="#t306">306</a></span><span class="t">            <span class="nam">apply_boards</span><span class="op">(</span><span class="nam">plan</span><span class="op">,</span> <span class="nam">boards</span><span class="op">,</span> <span class="nam">result</span><span class="op">,</span> <span class="nam">pending</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -449,12 +449,12 @@
 <footer>
     <div class="content">
         <p>
-            <a class="nav" href="z_5a8b66d9765f9a8f_init_prompts_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a class="nav" href="z_3a503cab292f19c7_prompts_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a class="nav" href="z_5a8b66d9765f9a8f_init_tailoring_py.html">&#xbb; next</a>
+            <a class="nav" href="z_3a503cab292f19c7_tailoring_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
     </div>
 </footer>

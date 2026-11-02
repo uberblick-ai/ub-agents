@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/view.py: 85%</title>
+    <title>Coverage for src/ub_agents/view/main.py: 85%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -11,7 +11,7 @@
 <header>
     <div class="content">
         <h1>
-            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view.py</b>:
+            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view<span class="sep">/</span>main.py</b>:
             <span class="pc_cov">85%</span>
         </h1>
         <aside id="help_panel_wrapper">
@@ -55,17 +55,17 @@
         </aside>
         <h2>
             <span class="text">136 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">116<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">20<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">115<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">21<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
-            <a id="prevFileLink" class="nav" href="z_5a8b66d9765f9a8f_usage_output_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a id="prevFileLink" class="nav" href="z_722786885572087e_logs_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_view_clipboard_py.html">&#xbb; next</a>
+            <a id="nextFileLink" class="nav" href="z_722786885572087e_markdown_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -92,8 +92,8 @@
     <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">import</span> <span class="nam">threading</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">import</span> <span class="nam">time</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span> <span class="key">import</span> <span class="nam">__version__</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">view_data</span> <span class="key">import</span> <span class="nam">choose_session</span><span class="op">,</span> <span class="nam">load_session</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span> <span class="key">import</span> <span class="nam">__version__</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">data</span> <span class="key">import</span> <span class="nam">choose_session</span><span class="op">,</span> <span class="nam">load_session</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="key">def</span> <span class="nam">attach</span><span class="op">(</span><span class="nam">root</span><span class="op">,</span> <span class="nam">session_id</span><span class="op">,</span> <span class="nam">base_version</span><span class="op">,</span> <span class="nam">wait</span><span class="op">=</span><span class="num">2</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -216,7 +216,7 @@
     <p class="mis show_mis"><span class="n"><a id="t134" href="#t134">134</a></span><span class="t">                <span class="nam">print</span><span class="op">(</span><span class="str">&#x27;Specify --session ID. Available local sessions:&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t135" href="#t135">135</a></span><span class="t">                <span class="nam">print</span><span class="op">(</span><span class="str">&#x27;\n&#x27;</span><span class="op">.</span><span class="nam">join</span><span class="op">(</span><span class="nam">listing</span><span class="op">)</span> <span class="key">if</span> <span class="nam">listing</span> <span class="key">else</span> <span class="str">&#x27;(none)&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t136" href="#t136">136</a></span><span class="t">                <span class="key">return</span> <span class="num">0</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t137" href="#t137">137</a></span><span class="t">        <span class="key">from</span> <span class="op">.</span><span class="nam">view_ui</span> <span class="key">import</span> <span class="nam">View</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t137" href="#t137">137</a></span><span class="t">        <span class="key">from</span> <span class="op">.</span><span class="nam">ui</span> <span class="key">import</span> <span class="nam">View</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t138" href="#t138">138</a></span><span class="t">        <span class="nam">app</span> <span class="op">=</span> <span class="nam">View</span><span class="op">(</span><span class="nam">root</span><span class="op">,</span> <span class="nam">path</span><span class="op">,</span> <span class="nam">launcher</span><span class="op">=</span><span class="nam">connection</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t139" href="#t139">139</a></span><span class="t">        <span class="key">if</span> <span class="nam">connection</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t140" href="#t140">140</a></span><span class="t">            <span class="com"># Textual&#x27;s POSIX driver draws to __stderr__. The launcher&#x27;s UI</span>&nbsp;</span><span class="r"></span></p>
@@ -243,17 +243,17 @@
     <p class="pln"><span class="n"><a id="t161" href="#t161">161</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t162" href="#t162">162</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t163" href="#t163">163</a></span><span class="t"><span class="key">if</span> <span class="nam">__name__</span> <span class="op">==</span> <span class="str">&#x27;__main__&#x27;</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t164" href="#t164">164</a></span><span class="t">    <span class="key">raise</span> <span class="nam">SystemExit</span><span class="op">(</span><span class="nam">main</span><span class="op">(</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t164" href="#t164">164</a></span><span class="t">    <span class="key">raise</span> <span class="nam">SystemExit</span><span class="op">(</span><span class="nam">main</span><span class="op">(</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
         <p>
-            <a class="nav" href="z_5a8b66d9765f9a8f_usage_output_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a class="nav" href="z_722786885572087e_logs_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a class="nav" href="z_5a8b66d9765f9a8f_view_clipboard_py.html">&#xbb; next</a>
+            <a class="nav" href="z_722786885572087e_markdown_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
     </div>
 </footer>

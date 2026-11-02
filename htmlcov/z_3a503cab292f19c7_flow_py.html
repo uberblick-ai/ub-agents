@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/init_flow.py: 43%</title>
+    <title>Coverage for src/ub_agents/init/flow.py: 43%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -11,7 +11,7 @@
 <header>
     <div class="content">
         <h1>
-            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>init_flow.py</b>:
+            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>init<span class="sep">/</span>flow.py</b>:
             <span class="pc_cov">43%</span>
         </h1>
         <aside id="help_panel_wrapper">
@@ -60,12 +60,12 @@
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
-            <a id="prevFileLink" class="nav" href="z_5a8b66d9765f9a8f_init_extend_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a id="prevFileLink" class="nav" href="z_3a503cab292f19c7_extend_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_init_inline_py.html">&#xbb; next</a>
+            <a id="nextFileLink" class="nav" href="z_3a503cab292f19c7_inline_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -89,20 +89,20 @@
     <p class="pln"><span class="n"><a id="t7" href="#t7">7</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t8" href="#t8">8</a></span><span class="t"><span class="key">from</span> <span class="nam">rich</span><span class="op">.</span><span class="nam">text</span> <span class="key">import</span> <span class="nam">Text</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t9" href="#t9">9</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">from</span> <span class="op">.</span> <span class="key">import</span> <span class="nam">__version__</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">doctor</span> <span class="key">import</span> <span class="nam">public</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">errors</span> <span class="key">import</span> <span class="nam">AgentError</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">execution</span> <span class="key">import</span> <span class="nam">git</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">github</span> <span class="key">import</span> <span class="nam">REPOSITORY</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">init_boards</span> <span class="key">import</span> <span class="nam">Boards</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">init_mcp</span> <span class="key">import</span> <span class="nam">preview</span> <span class="key">as</span> <span class="nam">mcp_preview</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">init_probes</span> <span class="key">import</span> <span class="nam">ACCOUNT_GUIDANCE</span><span class="op">,</span> <span class="nam">PROBE_ERRORS</span><span class="op">,</span> <span class="nam">Probes</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">init_prompts</span> <span class="key">import</span> <span class="nam">DIM</span><span class="op">,</span> <span class="nam">GREEN</span><span class="op">,</span> <span class="nam">RED</span><span class="op">,</span> <span class="nam">YELLOW</span><span class="op">,</span> <span class="nam">Cancelled</span><span class="op">,</span> <span class="nam">Option</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">init_setup</span> <span class="key">import</span> <span class="op">(</span><span class="nam">PERMISSIONS_GUIDE</span><span class="op">,</span> <span class="nam">ROLES</span><span class="op">,</span> <span class="nam">Choices</span><span class="op">,</span> <span class="nam">apply_plan</span><span class="op">,</span> <span class="nam">guidance_summary</span><span class="op">,</span> <span class="nam">infer_repository</span><span class="op">,</span> <span class="nam">make_plan</span><span class="op">,</span> <span class="nam">next_steps</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span> <span class="key">import</span> <span class="nam">__version__</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">doctor</span> <span class="key">import</span> <span class="nam">public</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">errors</span> <span class="key">import</span> <span class="nam">AgentError</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">execution</span> <span class="key">import</span> <span class="nam">git</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">github</span> <span class="key">import</span> <span class="nam">REPOSITORY</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">boards</span> <span class="key">import</span> <span class="nam">Boards</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">mcp</span> <span class="key">import</span> <span class="nam">preview</span> <span class="key">as</span> <span class="nam">mcp_preview</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">probes</span> <span class="key">import</span> <span class="nam">ACCOUNT_GUIDANCE</span><span class="op">,</span> <span class="nam">PROBE_ERRORS</span><span class="op">,</span> <span class="nam">Probes</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">prompts</span> <span class="key">import</span> <span class="nam">DIM</span><span class="op">,</span> <span class="nam">GREEN</span><span class="op">,</span> <span class="nam">RED</span><span class="op">,</span> <span class="nam">YELLOW</span><span class="op">,</span> <span class="nam">Cancelled</span><span class="op">,</span> <span class="nam">Option</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">setup</span> <span class="key">import</span> <span class="op">(</span><span class="nam">PERMISSIONS_GUIDE</span><span class="op">,</span> <span class="nam">ROLES</span><span class="op">,</span> <span class="nam">Choices</span><span class="op">,</span> <span class="nam">apply_plan</span><span class="op">,</span> <span class="nam">guidance_summary</span><span class="op">,</span> <span class="nam">infer_repository</span><span class="op">,</span> <span class="nam">make_plan</span><span class="op">,</span> <span class="nam">next_steps</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t">                         <span class="nam">priority_labels</span><span class="op">,</span> <span class="nam">recovery_content</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">init_tailoring</span> <span class="key">import</span> <span class="nam">TITLE</span> <span class="key">as</span> <span class="nam">TAILOR_TITLE</span><span class="op">,</span> <span class="nam">command</span> <span class="key">as</span> <span class="nam">tailoring_command</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">labels</span> <span class="key">import</span> <span class="nam">configured_labels</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">uberblick</span> <span class="key">import</span> <span class="nam">WORKSPACE_FILE</span><span class="op">,</span> <span class="nam">workspace_binding</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">tailoring</span> <span class="key">import</span> <span class="nam">TITLE</span> <span class="key">as</span> <span class="nam">TAILOR_TITLE</span><span class="op">,</span> <span class="nam">command</span> <span class="key">as</span> <span class="nam">tailoring_command</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">labels</span> <span class="key">import</span> <span class="nam">configured_labels</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">uberblick</span> <span class="key">import</span> <span class="nam">WORKSPACE_FILE</span><span class="op">,</span> <span class="nam">workspace_binding</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t"><span class="nam">RUNTIMES</span> <span class="op">=</span> <span class="op">{</span><span class="str">&quot;claude&quot;</span><span class="op">:</span> <span class="op">(</span><span class="str">&quot;Claude Code&quot;</span><span class="op">,</span> <span class="str">&quot;claude:claude-opus-5-5:high&quot;</span><span class="op">)</span><span class="op">,</span> <span class="str">&quot;codex&quot;</span><span class="op">:</span> <span class="op">(</span><span class="str">&quot;Codex&quot;</span><span class="op">,</span> <span class="str">&quot;codex:gpt-6.1-sol:high&quot;</span><span class="op">)</span><span class="op">}</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t"><span class="nam">PRIORITIES</span> <span class="op">=</span> <span class="str">&quot;prio:urgent, prio:high, prio:medium, prio:low&quot;</span>&nbsp;</span><span class="r"></span></p>
@@ -591,12 +591,12 @@
 <footer>
     <div class="content">
         <p>
-            <a class="nav" href="z_5a8b66d9765f9a8f_init_extend_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a class="nav" href="z_3a503cab292f19c7_extend_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a class="nav" href="z_5a8b66d9765f9a8f_init_inline_py.html">&#xbb; next</a>
+            <a class="nav" href="z_3a503cab292f19c7_inline_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
     </div>
 </footer>

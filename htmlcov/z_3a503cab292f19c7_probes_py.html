@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/init_probes.py: 16%</title>
+    <title>Coverage for src/ub_agents/init/probes.py: 16%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -11,7 +11,7 @@
 <header>
     <div class="content">
         <h1>
-            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>init_probes.py</b>:
+            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>init<span class="sep">/</span>probes.py</b>:
             <span class="pc_cov">16%</span>
         </h1>
         <aside id="help_panel_wrapper">
@@ -60,12 +60,12 @@
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
-            <a id="prevFileLink" class="nav" href="z_5a8b66d9765f9a8f_init_mcp_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a id="prevFileLink" class="nav" href="z_3a503cab292f19c7_mcp_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_init_prompts_py.html">&#xbb; next</a>
+            <a id="nextFileLink" class="nav" href="z_3a503cab292f19c7_prompts_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -87,12 +87,12 @@
     <p class="run"><span class="n"><a id="t5" href="#t5">5</a></span><span class="t"><span class="key">import</span> <span class="nam">subprocess</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t6" href="#t6">6</a></span><span class="t"><span class="key">import</span> <span class="nam">sys</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t7" href="#t7">7</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t8" href="#t8">8</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">approvals</span> <span class="key">import</span> <span class="nam">Roles</span><span class="op">,</span> <span class="nam">resolve_policy</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t9" href="#t9">9</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">doctor</span> <span class="key">import</span> <span class="nam">AUTH_PROBES</span><span class="op">,</span> <span class="nam">Doctor</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">errors</span> <span class="key">import</span> <span class="nam">AgentError</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">execution</span> <span class="key">import</span> <span class="nam">parse_process_table</span><span class="op">,</span> <span class="nam">repository_checks</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">github</span> <span class="key">import</span> <span class="nam">repository_visibility</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">refresh</span> <span class="key">import</span> <span class="nam">control_checkout_checks</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t8" href="#t8">8</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">approvals</span> <span class="key">import</span> <span class="nam">Roles</span><span class="op">,</span> <span class="nam">resolve_policy</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t9" href="#t9">9</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">doctor</span> <span class="key">import</span> <span class="nam">AUTH_PROBES</span><span class="op">,</span> <span class="nam">Doctor</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">errors</span> <span class="key">import</span> <span class="nam">AgentError</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">execution</span> <span class="key">import</span> <span class="nam">parse_process_table</span><span class="op">,</span> <span class="nam">repository_checks</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">github</span> <span class="key">import</span> <span class="nam">repository_visibility</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">refresh</span> <span class="key">import</span> <span class="nam">control_checkout_checks</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="nam">ACCOUNT_GUIDANCE</span> <span class="op">=</span> <span class="str">&quot;https://agents.uberblick.ai/docs/best-practices/launcher-account&quot;</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t"><span class="nam">PROBE_ERRORS</span> <span class="op">=</span> <span class="op">(</span><span class="nam">AgentError</span><span class="op">,</span> <span class="nam">OSError</span><span class="op">,</span> <span class="nam">UnicodeError</span><span class="op">,</span> <span class="nam">subprocess</span><span class="op">.</span><span class="nam">TimeoutExpired</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -272,7 +272,7 @@
     <p class="mis show_mis"><span class="n"><a id="t190" href="#t190">190</a></span><span class="t">                <span class="nam">self</span><span class="op">.</span><span class="nam">groups</span><span class="op">.</span><span class="nam">remove</span><span class="op">(</span><span class="nam">account</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t191" href="#t191">191</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t192" href="#t192">192</a></span><span class="t">    <span class="key">def</span> <span class="nam">check_discussions</span><span class="op">(</span><span class="nam">self</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t193" href="#t193">193</a></span><span class="t">        <span class="key">from</span> <span class="op">.</span><span class="nam">init_boards</span> <span class="key">import</span> <span class="nam">Boards</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t193" href="#t193">193</a></span><span class="t">        <span class="key">from</span> <span class="op">.</span><span class="nam">boards</span> <span class="key">import</span> <span class="nam">Boards</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t194" href="#t194">194</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t195" href="#t195">195</a></span><span class="t">            <span class="nam">repo</span> <span class="op">=</span> <span class="nam">Boards</span><span class="op">(</span><span class="nam">self</span><span class="op">.</span><span class="nam">github</span><span class="op">,</span> <span class="nam">self</span><span class="op">.</span><span class="nam">plan</span><span class="op">.</span><span class="nam">config</span><span class="op">.</span><span class="nam">repository</span><span class="op">)</span><span class="op">.</span><span class="nam">discussions</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t196" href="#t196">196</a></span><span class="t">        <span class="key">except</span> <span class="nam">PROBE_ERRORS</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -299,12 +299,12 @@
 <footer>
     <div class="content">
         <p>
-            <a class="nav" href="z_5a8b66d9765f9a8f_init_mcp_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a class="nav" href="z_3a503cab292f19c7_mcp_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a class="nav" href="z_5a8b66d9765f9a8f_init_prompts_py.html">&#xbb; next</a>
+            <a class="nav" href="z_3a503cab292f19c7_prompts_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
     </div>
 </footer>

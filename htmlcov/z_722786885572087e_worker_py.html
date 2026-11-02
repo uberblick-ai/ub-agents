@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/view_worker.py: 82%</title>
+    <title>Coverage for src/ub_agents/view/worker.py: 82%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -11,7 +11,7 @@
 <header>
     <div class="content">
         <h1>
-            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view_worker.py</b>:
+            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view<span class="sep">/</span>worker.py</b>:
             <span class="pc_cov">82%</span>
         </h1>
         <aside id="help_panel_wrapper">
@@ -60,12 +60,12 @@
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
-            <a id="prevFileLink" class="nav" href="z_5a8b66d9765f9a8f_view_work_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a id="prevFileLink" class="nav" href="z_722786885572087e_work_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_worktree_setup_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -88,8 +88,8 @@
     <p class="run"><span class="n"><a id="t6" href="#t6">6</a></span><span class="t"><span class="key">from</span> <span class="nam">queue</span> <span class="key">import</span> <span class="nam">Empty</span><span class="op">,</span> <span class="nam">Full</span><span class="op">,</span> <span class="nam">Queue</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t7" href="#t7">7</a></span><span class="t"><span class="key">import</span> <span class="nam">threading</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t8" href="#t8">8</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t9" href="#t9">9</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">view_data</span> <span class="key">import</span> <span class="nam">Pane</span><span class="op">,</span> <span class="nam">context_text</span><span class="op">,</span> <span class="nam">local_description</span><span class="op">,</span> <span class="nam">load_session</span><span class="op">,</span> <span class="nam">mapping</span><span class="op">,</span> <span class="nam">rows</span><span class="op">,</span> <span class="nam">work_pane</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">view_logs</span> <span class="key">import</span> <span class="nam">ViewReader</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t9" href="#t9">9</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">data</span> <span class="key">import</span> <span class="nam">Pane</span><span class="op">,</span> <span class="nam">context_text</span><span class="op">,</span> <span class="nam">local_description</span><span class="op">,</span> <span class="nam">load_session</span><span class="op">,</span> <span class="nam">mapping</span><span class="op">,</span> <span class="nam">rows</span><span class="op">,</span> <span class="nam">work_pane</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">logs</span> <span class="key">import</span> <span class="nam">ViewReader</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="op">@</span><span class="nam">dataclass</span><span class="op">(</span><span class="nam">frozen</span><span class="op">=</span><span class="key">True</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -190,7 +190,7 @@
     <p class="run"><span class="n"><a id="t108" href="#t108">108</a></span><span class="t">            <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t109" href="#t109">109</a></span><span class="t">                <span class="nam">result</span> <span class="op">=</span> <span class="nam">self</span><span class="op">.</span><span class="nam">read</span><span class="op">(</span><span class="nam">request</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t110" href="#t110">110</a></span><span class="t">            <span class="key">except</span> <span class="nam">Exception</span> <span class="key">as</span> <span class="nam">exc</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t111" href="#t111">111</a></span><span class="t">                <span class="key">from</span> <span class="op">.</span><span class="nam">view_data</span> <span class="key">import</span> <span class="nam">Session</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t111" href="#t111">111</a></span><span class="t">                <span class="key">from</span> <span class="op">.</span><span class="nam">data</span> <span class="key">import</span> <span class="nam">Session</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t112" href="#t112">112</a></span><span class="t">                <span class="nam">session</span> <span class="op">=</span> <span class="nam">Session</span><span class="op">(</span><span class="nam">self</span><span class="op">.</span><span class="nam">session_path</span><span class="op">,</span> <span class="op">{</span><span class="op">}</span><span class="op">,</span> <span class="nam">str</span><span class="op">(</span><span class="nam">exc</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t113" href="#t113">113</a></span><span class="t">                <span class="nam">pane</span> <span class="op">=</span> <span class="nam">work_pane</span><span class="op">(</span><span class="nam">session</span><span class="op">,</span> <span class="nam">self</span><span class="op">.</span><span class="nam">root</span><span class="op">,</span> <span class="nam">request</span><span class="op">.</span><span class="nam">previous</span><span class="op">,</span> <span class="nam">request</span><span class="op">.</span><span class="nam">key</span><span class="op">,</span> <span class="nam">request</span><span class="op">.</span><span class="nam">chosen</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t114" href="#t114">114</a></span><span class="t">                <span class="nam">result</span> <span class="op">=</span> <span class="nam">Result</span><span class="op">(</span><span class="nam">session</span><span class="op">,</span> <span class="nam">pane</span><span class="op">,</span> <span class="nam">pane</span><span class="op">.</span><span class="nam">selected</span><span class="op">,</span> <span class="nam">request</span><span class="op">.</span><span class="nam">token</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
@@ -210,12 +210,12 @@
 <footer>
     <div class="content">
         <p>
-            <a class="nav" href="z_5a8b66d9765f9a8f_view_work_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a class="nav" href="z_722786885572087e_work_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a class="nav" href="z_5a8b66d9765f9a8f_worktree_setup_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-02 04:43 +0000
+            created at 2026-11-02 04:46 +0000
         </p>
     </div>
 </footer>
