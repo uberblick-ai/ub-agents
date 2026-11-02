@@ -33,6 +33,13 @@ The required `Test result` check succeeds only when that job and the test matrix
 succeed. `mise run ci [commit]` installs the same pins and runs both commands in
 a fresh worktree, along with the tests, offline doctor and whitespace check.
 
+CLI fixtures using `isolate_observations` or `isolate_runtime_state` keep real
+startup-cleanup sweeps and join their threads during test cleanup, before removing
+fixture directories. Other tests that start real sweeps use `join_startup_cleanup`.
+Shutdown tests must release any held sweep before that join; launcher shutdown
+itself still returns without joining stalled reads. A worker that outlives its
+fixture fails the test, and directory cleanup errors remain visible.
+
 ## Remote loop shortcuts
 
 The checkout includes a mise convenience task for hosts running the per-loop

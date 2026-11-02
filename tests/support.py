@@ -234,6 +234,7 @@ class MemoryPublisher:
 
 def isolate_observations(test):
     from unittest.mock import patch
+    join_startup_cleanup(test)
     mock = patch("ub_agents.observations.Publisher", MemoryPublisher)
     test.addCleanup(mock.stop)
     mock.start()
@@ -242,6 +243,26 @@ def isolate_observations(test):
     updates = patch("ub_agents.updates.Updates", return_value=None)
     test.addCleanup(updates.stop)
     updates.start()
+
+
+def join_startup_cleanup(test):
+    """Join real sweeps before fixture cleanup, including those from CLI factories."""
+    from unittest.mock import patch
+    from ub_agents.startup_cleanup import StartupCleanup
+    start = StartupCleanup.start
+
+    def tracked_start(worker):
+        def join():
+            # Product close() deliberately does not wait for reads. Register at
+            # start time so this runs before directory and patch cleanups (LIFO).
+            if worker.thread.ident is not None:
+                worker.thread.join(5)
+            test.assertFalse(worker.thread.is_alive(), "Startup cleanup outlived its fixture")
+
+        test.addCleanup(join)
+        return start(worker)
+
+    test.enterContext(patch.object(StartupCleanup, "start", tracked_start))
 
 
 def stub_refresh(test):
