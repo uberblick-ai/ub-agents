@@ -27,10 +27,9 @@ SECTIONS = [  # (title, content entry, kind)
 ]
 WORKFLOW_GROUPS = [  # The wall: one section per group; a hero workflow gets the wide card.
     {'title': 'Default after ub-agents init',
-     'blurb': 'The one full loop on this page: five roles, the labels, and a person at every hard decision. '
-              'Every workflow below is a change to it.'},
-    {'title': 'Changes to the default loop',
-     'blurb': 'Each workflow here starts from the default loop and changes a trigger, a label or the merge policy.'},
+     'blurb': 'The loop ub-agents init sets up: five roles, the labels, and a person at every hard decision.'},
+    {'title': 'Scenarios to adopt',
+     'blurb': 'Each one stands on its own. Adopt it into your loop, however you set up ub-agents.'},
 ]
 WORKFLOWS = [
     {'name': 'default', 'group': 0, 'hero': True, 'title': 'The default ub-agents loop',
@@ -420,7 +419,7 @@ LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke
 def workflow_adopt(workflow):
     """Open the workflow's prompt in Claude Code, on claude.ai or in Codex, or copy it.
 
-    The default loop's prompt evaluates and installs ub-agents; the others weigh a change to it with evidence and plan its adoption."""
+    The default loop's prompt evaluates and installs ub-agents; the others weigh adding a workflow with evidence and plan its adoption."""
     name = f'workflow-{workflow["name"]}'
     prompt, _, _ = prompt_links(name)
     article = ''
