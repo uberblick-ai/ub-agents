@@ -3421,7 +3421,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         def displayed():
             stream = io.StringIO()
-            Console(file=stream, width=72, color_system=None).print(app.query_one('#runs_text', Static).content)
+            # Allow nine more cells for the context column and its padding.
+            Console(file=stream, width=81, color_system=None).print(app.query_one('#runs_text', Static).content)
             return stream.getvalue()
         def identity():
             return app.query_one('#item_header', Static).render().plain

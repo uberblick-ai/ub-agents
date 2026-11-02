@@ -12,10 +12,10 @@ from datetime import datetime, timezone
 import json
 import re
 
-MAX_TEXT = 2048
-MAX_RECORD = 128 * 1024
+from .log_json import BoundedJSON, ShortenedText
+from .log_limits import MAX_RECORD, MAX_TEXT, SHORTENED
+
 MAX_TOOLS = 200
-SHORTENED = " … [shortened; full text in raw file] … "
 CONTROLS = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
 
 
@@ -135,7 +135,6 @@ def _one_line(value, limit=160):
 
 
 def _line_count(value):
-    from .log_json import ShortenedText
     if isinstance(value, ShortenedText):
         return value.lines
     return value.count("\n") + (1 if value and not value.endswith("\n") else 0)
@@ -300,7 +299,6 @@ class ClaudeFormatter(StructuredFormatter):
             self.last_call = None
             return record_notice(raw_entry(raw, capture, "oversized raw fragment (>128 KiB)"),
                                  "oversized Claude record omitted")
-        from .log_json import BoundedJSON
         parser = BoundedJSON()
         for index in range(0, len(raw), 32 * 1024):
             parser.feed(raw[index:index + 32 * 1024])
@@ -455,14 +453,12 @@ class CodexFormatter(StructuredFormatter):
             if not value.compact and raw.lstrip().startswith(b'{'):
                 return record_notice(value, "incomplete or unrecognized Codex record omitted")
             return value
-        from .log_json import BoundedJSON
         parser = BoundedJSON()
         for index in range(0, len(raw), 32 * 1024):
             parser.feed(raw[index:index + 32 * 1024])
         return self.oversized(parser, raw, capture)
 
     def oversized(self, parser, raw, capture=None):
-        from .log_json import ShortenedText
         data = parser.finish()
         item = data.get('item') if data else None
         labels = [data.get('type'), data.get('subtype')] if data else []

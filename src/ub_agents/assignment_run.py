@@ -5,6 +5,7 @@ import os
 import socket
 from dataclasses import replace
 
+from .context_usage import collect_context, context_fields
 from .denials import collect_denials
 from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, ExecutionStopped, GitHubError, LostOwnership,
                      RecordError, RetryableExecutionError, TransitionPaused, ValidationError)
@@ -110,7 +111,8 @@ class AssignmentRun:
                 loop.coordinator.execution_finished(lease)
                 cli = plan.runtime.cli if plan.runtime else None
                 diagnostics = (collect_denials(cli, self.run_dir / "process.log")
-                               | collect_usage(cli, self.run_dir / "process.log"))
+                               | collect_usage(cli, self.run_dir / "process.log")
+                               | collect_context(cli, self.run_dir / "process.log", env))
             loop.coordinator.execution_deadline(lease)
             if self.usage_output:
                 self.usage_output.poll(final=True)
@@ -208,8 +210,9 @@ class AssignmentRun:
             # unaccepted and persist the supervisor's actual verdict on the lease.
             self.outcome = loop.coordinator.outcome(lease)
         if stopped:
-            if self.outcome is not None and usage_fields(diagnostics):
-                loop.coordinator.update_outcome(lease, self.outcome, **usage_fields(diagnostics))
+            fields = usage_fields(diagnostics) | context_fields(diagnostics)
+            if self.outcome is not None and fields:
+                loop.coordinator.update_outcome(lease, self.outcome, **fields)
             loop.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True,
                                      **usage_fields(diagnostics))
         else:

@@ -57,7 +57,12 @@ Filter in your command: post `started` only when `agent` is `issue-preparer`, or
 [Run a command on loop events](/docs/guides/loop-events.html) walks through a
 complete example.
 
-Delivery runs asynchronously. Slow or failing hooks print an `Events hook:`
+Delivery runs asynchronously. Each launcher runs one hook at a time in event
+order, so a run's `started` reaches your command before its `outcome`. On exit,
+the launcher drains hooks within one timeout budget, then discards undelivered
+events and stops remaining hook processes.
+
+Slow or failing hooks print an `Events hook:`
 notice and leave the run's result unchanged. Events may be lost or repeated;
 make your command tolerate both and use `(repository, run, event)` to recognize
 duplicates. The [delivery contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#loop-events-hook)

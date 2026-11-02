@@ -6,7 +6,8 @@ import shlex
 import unittest
 from unittest.mock import patch
 
-from ub_agents.labels import Label, LabelUse, configured_labels, provision_labels
+from ub_agents.doctor import Doctor, render
+from ub_agents.labels import Label, LabelUse, configured_labels
 from tests.support import DoctorGitHub, agent, config
 
 
@@ -78,22 +79,30 @@ class LabelTests(unittest.TestCase):
         self.assertEqual(label.description, 'ub-agents: starts...')
 
     def test_confirmed_provisioning_follows_the_configuration(self):
+        doctor = Doctor(github=self.github)
+        doctor.config = self.config
         with patch.dict('os.environ', {'CI': ''}), \
                 patch('ub_agents.labels.sys.stdin.isatty', return_value=True), \
                 patch('builtins.input', return_value='Y'), redirect_stdout(io.StringIO()) as output:
             with patch.object(output, 'isatty', return_value=True):
-                provision_labels(self.config, self.github)
+                doctor.labels(self.config, self.github)
+                render(doctor.result())
+                doctor.create_missing_labels()
         self.assertEqual([write[1] for write in self.github.writes],
                          ['custom-destination', 'legacy-state', 'custom-stop', 'outside-input'])
         self.assertIn('reports done', output.getvalue())
         self.assertIn('parks an issue or PR', output.getvalue())
 
     def test_eof_declines_creation(self):
+        doctor = Doctor(github=self.github)
+        doctor.config = self.config
         with patch.dict('os.environ', {'CI': ''}), \
                 patch('ub_agents.labels.sys.stdin.isatty', return_value=True), \
                 patch('builtins.input', side_effect=EOFError), redirect_stdout(io.StringIO()) as output:
             with patch.object(output, 'isatty', return_value=True):
-                provision_labels(self.config, self.github)
+                doctor.labels(self.config, self.github)
+                render(doctor.result())
+                doctor.create_missing_labels()
         self.assertEqual(self.github.writes, [])
         self.assertEqual(output.getvalue().count('gh label create '), 4)
 

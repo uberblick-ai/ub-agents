@@ -6,8 +6,6 @@ import shlex
 import sys
 from textwrap import shorten
 
-from .errors import AgentError
-
 
 WORKFLOW_COLORS = {
     "needs-preparation": "c5def5",
@@ -86,12 +84,6 @@ def configured_labels(config, *, approvals=None):  # noqa: C901
             for name, effects, transitions in labels.values()]
 
 
-def print_commands(labels, repository, reason):
-    print(f"{reason}; create workflow labels with these commands (skip any that already exist):")
-    for label in labels:
-        print(label.command(repository))
-
-
 def confirm_label_creation(config, github, missing):
     """Share init's prompt; the caller has already explained every missing use."""
     if not missing or os.environ.get("CI") or not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -106,24 +98,3 @@ def confirm_label_creation(config, github, missing):
         github.create_label(label.name, label.description, label.color)
         print(f"Created label {label.name} on {config.repository}.")
     return True
-
-
-def provision_labels(config, github):
-    labels = configured_labels(config)
-    if os.environ.get("CI") or not (sys.stdin.isatty() and sys.stdout.isatty()):
-        print_commands(labels, config.repository, "No interactive terminal; GitHub labels were not read or written")
-        return
-    try:
-        existing = {name.casefold() for name in github.labels()}
-    except (AgentError, OSError, UnicodeError):
-        print_commands(labels, config.repository, "Could not read GitHub labels; no labels were written")
-        return
-    missing = [label for label in labels if label.name.casefold() not in existing]
-    if not missing:
-        print(f"All configured workflow labels exist on {config.repository}.")
-        return
-    print(f"Missing workflow labels on {config.repository}:")
-    for label in missing:
-        print(f"  {label.name}: {label.explanation}")
-    if not confirm_label_creation(config, github, missing):
-        print_commands(missing, config.repository, "Label creation declined; no labels were written")

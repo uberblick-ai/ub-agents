@@ -1,5 +1,6 @@
 """Read-only, per-item Runs table from local history files."""
 
+from copy import copy
 from datetime import datetime
 import socket
 
@@ -8,11 +9,57 @@ from rich.measure import Measurement
 from rich.table import Table
 from rich.text import Text
 
+from .context_usage import context_fields
 from .denials import denial_count
 from .run_usage import short_tokens, usage_fields
 from .view_data import item_history, mapping, text
 from .view_spinner import spinner_frame
 from .view_theme import theme_style
+
+
+class RunsTable(Table):
+    """Reserve the entire context column, or render the original six columns."""
+
+    minimum_widths = (11, 1, 1, 4, 9, 6)
+
+    def __rich_console__(self, console, options):
+        # Six existing column minimums, plus two cells between all seven columns.
+        minimum = sum(self.minimum_widths) + 2 * len(self.minimum_widths) + self.columns[-1].width
+        if options.max_width < minimum:
+            table = copy(self)
+            table.columns = self.columns[:-1]
+            yield from Table.__rich_console__(table, console, options)
+        else:
+            yield from super().__rich_console__(console, options)
+
+    def _calculate_column_widths(self, console, options):
+        widths = super()._calculate_column_widths(console, options)
+        if len(self.columns) > len(self.minimum_widths):
+            # Rich's last-resort shrinking can go below column minimums. Keep
+            # those minimums and take any excess from text with room to spare.
+            minimums = [width + self._get_padding_width(index) for index, width in
+                        enumerate((*self.minimum_widths, self.columns[-1].width))]
+            # Preserve denial suffixes whenever space beyond the base minimums
+            # allows, without raising the context column's visibility threshold.
+            outcome_minimum = self._measure_column(console, options, self.columns[4]).minimum
+            spare = max(0, options.max_width - sum(minimums))
+            minimums[4] += min(spare, max(0, outcome_minimum - minimums[4]))
+            widths = [max(width, minimum) for width, minimum in zip(widths, minimums)]
+            excess = max(0, sum(widths) - options.max_width)
+            for index in (2, 3, 4, 5):
+                reduction = min(excess, widths[index] - minimums[index])
+                widths[index] -= reduction
+                excess -= reduction
+        return widths
+
+
+def run_context(run):
+    context = context_fields(run).get('context')
+    if context is None:
+        return ''
+    percent = (100 * context['peak'] + context['window'] // 2) // context['window']
+    suffix = f" ↻{context['compactions']}" if context['compactions'] else ''
+    return f'{percent}%{suffix}'
 
 
 class RunOutcome:
@@ -115,7 +162,8 @@ def runs_view(row, session, now=None, *, app=None, history=None):  # noqa: C901
     subtitle = Text(' · '.join(details), style=muted, no_wrap=True, overflow='ellipsis')
     if not filed and not runs:
         return Group(subtitle, Text('No item history cached.'))
-    table = Table(box=None, padding=(0, 1), pad_edge=False, expand=True, header_style=muted)
+    contexts = [run_context(run) for run in runs]
+    table = RunsTable(box=None, padding=(0, 1), pad_edge=False, expand=True, header_style=muted)
     table.add_column('when', width=11, no_wrap=True, overflow='ellipsis')
     table.add_column('', min_width=1, max_width=1, no_wrap=True)
     # Let Rich shrink text columns first, while their cells remain single-line.
@@ -124,12 +172,14 @@ def runs_view(row, session, now=None, *, app=None, history=None):  # noqa: C901
     table.add_column(Text('where', no_wrap=True, overflow='ellipsis'), min_width=4, max_width=14)
     table.add_column(Text('outcome', no_wrap=True, overflow='ellipsis'), min_width=9, max_width=24)
     table.add_column('tokens', min_width=6, justify='right', no_wrap=True, overflow='ellipsis')
+    context_width = max(len(value) for value in ['context', *contexts])
+    table.add_column('context', width=context_width, justify='right', no_wrap=True)
     if filed:
         table.add_row(relative_time(filing['time'], relative_now), Text('✓', style=success),
                       Text('filed by ' + text(filing['author']), no_wrap=True, overflow='ellipsis'),
-                      Text('GitHub', no_wrap=True, overflow='ellipsis'), 'filed', '')
+                      Text('GitHub', no_wrap=True, overflow='ellipsis'), 'filed', '', '')
     frame = spinner_frame(now.timestamp())
-    for run in runs:
+    for run, context in zip(runs, contexts):
         status, label = run_status(run, now)
         glyph = Text('✓', style=success) if status == 'success' else Text('✗', style=error) if status == 'failed' else Text(frame)
         summary = text(run.get('agent'))
@@ -143,5 +193,5 @@ def runs_view(row, session, now=None, *, app=None, history=None):  # noqa: C901
         table.add_row(relative_time(run.get('time'), relative_now), glyph,
                       Text(summary, no_wrap=True, overflow='ellipsis'),
                       run_host(run.get('host'), muted=muted), RunOutcome(outcome, denial_count(run)),
-                      short_tokens(usage['tokens']) if usage is not None else '')
+                      short_tokens(usage['tokens']) if usage is not None else '', context)
     return Group(subtitle, table)

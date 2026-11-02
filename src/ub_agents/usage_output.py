@@ -34,6 +34,16 @@ class JsonLines:
                 yield event
 
 
+def codex_session_path(codex_home, thread):
+    """Find only the owned fresh thread, never another run's transcript."""
+    try:
+        thread = str(uuid.UUID(thread))
+        matches = list((codex_home / "sessions").glob(f"*/*/*/rollout-*-{thread}.jsonl"))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return matches[0] if len(matches) == 1 else None
+
+
 def collect_usage(cli, path):
     """Read completed usage events only from this run's process log."""
     if cli not in {"claude", "codex"}:
@@ -73,7 +83,7 @@ class UsageOutput:
         self.reset_time = None
         self.summary = None
 
-    def poll(self, final=False):  # noqa: C901
+    def poll(self, final=False):
         for event in self.log.read(final):
             if self.cli == "codex" and self.thread is None and event.get("type") == "thread.started":
                 try:
@@ -83,14 +93,9 @@ class UsageOutput:
             self.event(event)
         if final and self.cli == "codex" and self.thread and not self.reached:
             if self.session is None:
-                # The exact fresh thread, never --last or another run's transcript.
-                try:
-                    matches = list((self.codex_home / "sessions").glob(
-                        f"*/*/*/rollout-*-{self.thread}.jsonl"))
-                except OSError:
-                    matches = []
-                if len(matches) == 1:
-                    self.session = JsonLines(matches[0])
+                path = codex_session_path(self.codex_home, self.thread)
+                if path is not None:
+                    self.session = JsonLines(path)
             if self.session:
                 for event in self.session.read(final):
                     if event.get("type") == "event_msg" and isinstance(event.get("payload"), dict):

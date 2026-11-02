@@ -1,5 +1,6 @@
 """Display-only run reduction from already-read coordination records."""
 
+from .context_usage import context_fields
 from .records import seconds
 from .denials import denial_fields
 from .run_usage import usage_fields
@@ -9,7 +10,7 @@ def display_run(row):
     """Keep reduction identities and precedence metadata out of the snapshot."""
     return {key: row[key] for key in (
         "time", "agent", "summary", "host", "outcome", "acceptance", "human_blocker",
-        "result", "state", "expires", "rejection", "denials", "denials_omitted", "usage") if key in row}
+        "result", "state", "expires", "rejection", "denials", "denials_omitted", "usage", "context") if key in row}
 
 
 def run_key(row):
@@ -30,6 +31,8 @@ def merge_record(runs, record, stop_labels):
                    state=record.get("state"), lease_result=record.get("result"),
                    lease_summary=record.get("summary"), claim_host=record.get("host"))
     else:
+        row.pop("context", None)
+        row.update(context_fields(record))
         row.pop("denials", None)
         row.pop("denials_omitted", None)
         row.update(denial_fields(record))
