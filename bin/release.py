@@ -64,7 +64,7 @@ def release_notes(changelog, version):
 
 
 def patch_scope(version, notes):
-    """Patch releases contain only fixes; see AGENTS.md#changelog."""
+    """Patch releases contain only fixes; see docs/development/changelog-and-releases.md."""
     groups = dict.fromkeys(re.findall(r'^### (Added|Changed|Removed)\s*$', notes, re.M))
     if version.rsplit(".", 1)[1] != "0" and groups:
         raise ReleaseError(f"version check: {version} is a patch release, but its notes have "

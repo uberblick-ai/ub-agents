@@ -9,13 +9,14 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.errors import AgentError
-from tests.support import DoctorGitHub, MemoryPublisher, RecordingRunner
+from tests.support import DoctorGitHub, MemoryPublisher, RecordingRunner, join_startup_cleanup
 
 
 class StartupTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        join_startup_cleanup(self)
         self.root = Path(temp.name).resolve()
         self.path = self.root / "ub-agents.yaml"
         self.path.write_text("""repository: org/project

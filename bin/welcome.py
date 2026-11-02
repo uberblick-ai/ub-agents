@@ -36,7 +36,7 @@ def main():
             lines.extend(["", f"  {dim}Loops: {' · '.join(example)}{reset}"])
     else:
         lines.extend(["  REMOTE", "    Set UB_AGENTS_REMOTE_HOST in mise.local.toml to connect.",
-                      "    Setup: docs/development.md#remote-loop-shortcuts"])
+                      "    Setup: docs/development/checks.md#remote-loop-shortcuts"])
     lines.append("")
     print("\n".join(lines), file=stream)
 

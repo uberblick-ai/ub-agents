@@ -17,8 +17,8 @@
         "target": "dependencies",
         "kind": "pill",
         "actor": "Loop picks",
-        "caption": "Trusted bot, fast path to the integrator",
-        "ms": 1800,
+        "caption": "Dependabot adds the dependencies label itself, and that label starts the pick-up: a trusted bot goes straight to the integrator",
+        "ms": 3200,
         "parts": [
           "node-1",
           "edge-0"
@@ -39,7 +39,7 @@
         "target": "merged",
         "kind": "end",
         "actor": "Merged",
-        "caption": "PR merged, nobody had to step in",
+        "caption": "PR merged, nobody had to step in 🎉",
         "ms": 3000,
         "parts": [
           "node-5",
@@ -66,8 +66,8 @@
         "target": "dependencies",
         "kind": "pill",
         "actor": "Loop picks",
-        "caption": "Trusted bot, fast path to the integrator",
-        "ms": 1800,
+        "caption": "Dependabot adds the dependencies label itself, and that label starts the pick-up: a trusted bot goes straight to the integrator",
+        "ms": 3200,
         "parts": [
           "node-1",
           "edge-0"
@@ -99,8 +99,8 @@
         "target": "implementer",
         "kind": "box",
         "actor": "Implementer",
-        "caption": "Fixes two assertions; a reviewer checks the fix",
-        "ms": 2800,
+        "caption": "Picks it up on its own, finds the cause, fixes two assertions and sends it back to the integrator",
+        "ms": 3200,
         "parts": [
           "node-4",
           "edge-4"
@@ -121,7 +121,7 @@
         "target": "merged",
         "kind": "end",
         "actor": "Merged",
-        "caption": "PR merged after one fix round",
+        "caption": "Integrator reports green gates: merged after one fix round, no human bothered 🥳",
         "ms": 3000,
         "parts": [
           "node-5",
@@ -148,8 +148,8 @@
         "target": "dependencies",
         "kind": "pill",
         "actor": "Loop picks",
-        "caption": "Trusted bot, fast path to the integrator",
-        "ms": 1800,
+        "caption": "Dependabot adds the dependencies label itself, and that label starts the pick-up: a trusted bot goes straight to the integrator",
+        "ms": 3200,
         "parts": [
           "node-1",
           "edge-0"
@@ -181,8 +181,8 @@
         "target": "implementer",
         "kind": "box",
         "actor": "Implementer",
-        "caption": "Adapts the code; a reviewer checks the fix",
-        "ms": 2600,
+        "caption": "Picks it up on its own, adapts the code and sends it back to the integrator",
+        "ms": 3200,
         "parts": [
           "node-4",
           "edge-4"
@@ -230,8 +230,8 @@
         "target": "dependencies",
         "kind": "pill",
         "actor": "Loop picks",
-        "caption": "Trusted bot, fast path to the integrator",
-        "ms": 1800,
+        "caption": "Dependabot adds the dependencies label itself, and that label starts the pick-up: a trusted bot goes straight to the integrator",
+        "ms": 3200,
         "parts": [
           "node-1",
           "edge-0"

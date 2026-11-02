@@ -1,6 +1,6 @@
 # Development checks
 
-Run the commands in [AGENTS.md](../AGENTS.md#checks) in your checkout. They install
+Run the commands in [AGENTS.md](../../AGENTS.md#checks) in your checkout. They install
 the package and the development tools into `.venv`. `requirements-dev.txt` pins
 Ruff, mypy and the PyYAML stubs for local checks and GitHub Actions; these tools
 are not runtime dependencies.
@@ -28,10 +28,36 @@ imports, to keep core modules independent of the `view/` package and prevent
 a cycle between `log_format` and `log_json`. Shared snapshot grouping and history
 paths live in `observation_data`; shared log bounds live in `log_limits`.
 
-GitHub Actions runs both commands in the `static` job of the `Test` workflow.
-The required `Test result` check succeeds only when that job and the test matrix
-succeed. `mise run ci [commit]` installs the same pins and runs both commands in
-a fresh worktree, along with the tests, offline doctor and whitespace check.
+## CI
+
+GitHub Actions runs the `Test` workflow (`.github/workflows/test.yml`) on every PR
+and after each merge to main. It covers Linux and macOS with Python 3.11, 3.14 and 3.15.
+Ruff and mypy run in its `static` job. The required `Test result` check succeeds
+only when that job and the test matrix succeed, and gates merges through the main
+ruleset. The release check requires a green run on the release commit.
+The coverage jobs report coverage and do not gate merges or releases.
+
+To run these checks locally before pushing, optionally:
+
+```sh
+mise run ci [commit]    # defaults to HEAD
+```
+
+It checks the commit out into a temporary worktree with a fresh virtualenv,
+installs the same development tool pins and runs `git diff --check` against
+`origin/main`, Ruff, mypy, the unit suite and `ub-agents doctor --offline`.
+It posts nothing to GitHub and gates nothing.
+
+mise only reads a trusted `mise.toml`, and every fresh worktree is a new path, so an
+agent runs `mise trust` in its own worktree before its first `mise` command. That is
+expected and needs no approval.
+
+CLI fixtures using `isolate_observations` or `isolate_runtime_state` keep real
+startup-cleanup sweeps and join their threads during test cleanup, before removing
+fixture directories. Other tests that start real sweeps use `join_startup_cleanup`.
+Shutdown tests must release any held sweep before that join; launcher shutdown
+itself still returns without joining stalled reads. A worker that outlives its
+fixture fails the test, and directory cleanup errors remain visible.
 
 ## Remote loop shortcuts
 

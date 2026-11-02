@@ -538,6 +538,79 @@ with patch('ub_agents.cli.run', side_effect=launch):
             process.communicate(timeout=5)
 
 
+class LaunchFixtureTests(unittest.TestCase):
+    def test_fixture_joins_delayed_sweep_after_once_returns_before_removing_directory(self):
+        from ub_agents.startup_cleanup import sweep
+        entered, release = threading.Event(), threading.Event()
+        workers, events, errors = [], [], []
+
+        def delayed_sweep(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                errors.append("Fixture did not release startup cleanup")
+                return
+            sweep(*args, **kwargs)
+            events.append("sweep ended")
+
+        class Fixture(LaunchTests):
+            def runTest(inner):
+                def factory(*args, **kwargs):
+                    worker = StartupCleanup(*args, **kwargs)
+                    workers.append(worker)
+                    join = worker.thread.join
+
+                    def release_at_join(timeout):
+                        inner.assertEqual(events, ["main returned"])
+                        inner.assertTrue(inner.root.is_dir())
+                        release.set()
+                        join(timeout)
+
+                    # The teardown join itself releases the writer. Without
+                    # that join it stays held through fixture removal.
+                    inner.enterContext(patch.object(worker.thread, "join", side_effect=release_at_join))
+                    return worker
+
+                def before_removal():
+                    inner.assertTrue(inner.root.is_dir())
+                    inner.assertFalse(workers[0].thread.is_alive())
+                    logs = list((inner.root / ".ub-agents/sessions").glob("*.cleanup.log"))
+                    inner.assertEqual(len(logs), 1)
+                    inner.assertEqual(logs[0].read_text().splitlines(),
+                                      ["Startup cleanup started", "Startup cleanup stopped"])
+                    events.append("fixture checked")
+
+                inner.addCleanup(before_removal)
+                inner.enterContext(patch("ub_agents.cli.load_config", return_value=inner.config))
+                inner.enterContext(patch("ub_agents.cli.GitHub", return_value=FakeGitHub()))
+                inner.enterContext(patch("ub_agents.cli.repository_checks", return_value=[]))
+                inner.enterContext(patch("ub_agents.cli.StartupCleanup", side_effect=factory))
+                inner.enterContext(patch("ub_agents.startup_cleanup.sweep", side_effect=delayed_sweep))
+                inner.enterContext(patch.object(Loop, "tick", side_effect=lambda: entered.wait(5)))
+                inner.enterContext(redirect_stdout(io.StringIO()))
+                inner.assertEqual(main(inner.argv + ["--once", "--no-ui"]), 0)
+                inner.assertTrue(entered.is_set())
+                inner.assertFalse(release.is_set())
+                inner.assertTrue(workers[0].thread.is_alive())
+                inner.assertTrue(workers[0].control.stopping)
+                inner.assertEqual(list(inner.root.glob(".ub-agents/sessions/*.cleanup.log")), [])
+                events.append("main returned")
+
+        fixture = Fixture("runTest")
+        result = unittest.TestResult()
+        try:
+            fixture.run(result)
+        finally:
+            release.set()
+            for worker in workers:
+                worker.thread.join(5)
+                self.assertFalse(worker.thread.is_alive())
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.failures, [])
+        self.assertEqual(errors, [])
+        self.assertEqual(events, ["main returned", "sweep ended", "fixture checked"])
+        self.assertFalse(fixture.root.exists())
+
+
 class TargetedLaunchTests(unittest.TestCase):
     def setUp(self):
         isolate_runtime_state(self)
@@ -552,21 +625,6 @@ class TargetedLaunchTests(unittest.TestCase):
         self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
         self.now = timestamp()
         self.loop = None
-
-        def cleanup(*args, **kwargs):
-            worker = StartupCleanup(*args, **kwargs)
-
-            def join():
-                # close() requests cancellation without waiting. Keep each
-                # sweep's writes inside this fixture's directory lifetime.
-                if worker.thread.ident is not None:
-                    worker.thread.join(5)
-                self.assertFalse(worker.thread.is_alive())
-
-            self.addCleanup(join)
-            return worker
-
-        self.enterContext(patch("ub_agents.cli.StartupCleanup", side_effect=cleanup))
 
     def use_milestone_gate(self, milestone=20):
         self.config = replace(self.config, queue=replace(self.config.queue, milestones="gate"))

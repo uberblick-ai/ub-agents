@@ -133,12 +133,21 @@ class SiteTests(unittest.TestCase):
             name = workflow['name']
             _, page = build.workflow_entry(workflow)
             prompt = ' '.join((build.ROOT / f'prompts/workflow-{name}.md').read_text().split())
-            self.assertIn(workflow['title'], prompt)
-            self.assertIn(f'{build.SITE}/workflows/{name}/', prompt)
-            self.assertIn('ub-agents.yaml', prompt)
-            self.assertIn('loop policy', prompt)
-            self.assertIn('smallest', prompt)
-            self.assertIn('diff before writing anything', prompt)
+            if workflow.get('install'):
+                for requirement in ('https://github.com/uberblick-ai/ub-agents', 'strong', 'weak',
+                                    'which of my repositories', 'step-by-step installation guide',
+                                    'ub-agents init', 'until I say so'):
+                    self.assertIn(requirement, prompt)
+                self.assertIn('Ask your agent about trying ub-agents', page)
+            else:
+                self.assertIn(workflow['title'], prompt)
+                self.assertIn(f'{build.SITE}/workflows/{name}/', prompt)
+                self.assertIn('ub-agents.yaml', prompt)
+                self.assertIn('loop policy', prompt)
+                for requirement in ('what you think of it', 'evidence', 'adoption plan', 'smallest',
+                                    'diff before writing anything'):
+                    self.assertIn(requirement, prompt)
+                self.assertIn('Ask your agent about adopting this', page)
             for heading in ('Why it exists', 'What you gain', 'Where a person steps in'):
                 self.assertIn(heading, page)
             adopt = [link for link in Links(page).hrefs if link.startswith(('claude://', 'codex://'))]

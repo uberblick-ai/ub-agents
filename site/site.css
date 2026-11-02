@@ -325,14 +325,21 @@ body:has(> main.workflows) {
 .workflow-stage svg { min-width: 0; width: auto; max-width: 100%; height: auto }
 .workflow-player[data-mode="entry"] { --ab-bg: var(--wf-panel); margin-top: 16px }
 .workflow-player[data-mode="entry"] .workflow-stage { background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 12px; padding: 20px 28px }
-.workflow-player[data-mode="entry"] .workflow-stage svg { max-height: max(240px, calc(100svh - 420px)) }
+.workflow-player[data-mode="entry"] .workflow-stage svg { max-height: max(240px, calc(100svh - 470px)) }
 .workflow-player[data-mode="entry"] .ab-playback { border: 1px solid var(--wf-edge); border-radius: 12px; margin-top: 10px; overflow: hidden }
 
 /* The entry */
 .workflow-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-top: 28px }
 .workflow-top > div:first-child { flex: 1; min-width: 0 }
 .workflow-top h1 { font: 600 clamp(22px, 2.6vw, 28px)/1.2 var(--sans); letter-spacing: -.015em; margin: 4px 0 }
-.workflow-top p { margin: 0; color: var(--wf-mute); font-size: 14.5px }
+.workflow-top p { margin: 0; color: var(--wf-mute); font-size: 15px; line-height: 1.55 }
+.workflow-top p a { color: var(--wf-fg) }
+.workflow-top .workflow-about-line { margin-top: 8px; font-size: 13px; color: var(--wf-faint) }
+.workflow-back { display: inline-block; margin-top: 24px; font: 12px var(--mono); color: var(--wf-mute); text-decoration: none }
+.workflow-back:hover { color: var(--wf-fg) }
+.workflow-back + .workflow-top { padding-top: 8px }
+.workflow-requires { margin: 14px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--wf-mute) }
+.workflow-requires code { font-size: 11.5px; background: var(--wf-page); border: 1px solid var(--wf-edge); border-radius: 4px; padding: 0 4px; color: var(--wf-fg) }
 .workflow-via { margin: 12px 0 0; color: var(--wf-faint); font-size: 12.5px; line-height: 1.5 }
 .workflow-via a { color: var(--wf-fg); text-decoration: underline; text-decoration-color: var(--wf-edge) }
 .workflow-via a:hover { text-decoration-color: var(--wf-glow) }
@@ -347,7 +354,7 @@ body:has(> main.workflows) {
 .workflow-prose h2 { font: 500 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--wf-mute); margin: 28px 0 14px }
 .workflow-prose h2:first-child { margin-top: 0 }
 .workflow-prose .anchor { color: inherit; text-decoration: none }
-.workflow-prose p { margin: 0 0 14px; font-size: 15.5px; line-height: 1.65; color: color-mix(in srgb, var(--wf-fg) 85%, var(--wf-page)); max-width: 66ch }
+.workflow-prose p { margin: 0 0 14px; font-size: 15.5px; line-height: 1.65; color: color-mix(in srgb, var(--wf-fg) 85%, var(--wf-page)) }
 .workflow-prose a { color: var(--wf-fg); text-decoration-color: var(--wf-glow) }
 .workflow-prose code { font-size: 14px; background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 5px; padding: 1px 5px; color: var(--wf-fg) }
 .workflow-prose ul { margin: 0 0 22px; padding: 0; list-style: none }
@@ -361,7 +368,7 @@ body:has(> main.workflows) {
 .workflow-adopt .discuss a { justify-content: center; gap: 8px; padding: 10px 12px; border-radius: 9px; font-size: 13.5px; border-color: var(--wf-edge); background: var(--wf-page); color: var(--wf-fg) }
 .workflow-adopt .discuss a:hover { border-color: var(--wf-glow); color: var(--wf-fg) }
 .workflow-adopt .discuss svg { width: 15px; height: 15px }
-.workflow-alt { margin: 10px 0 0; font-size: 12px; color: var(--wf-mute); white-space: nowrap }
+.workflow-alt { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--wf-mute) }
 .workflow-alt a { color: var(--wf-glow); text-decoration: none }
 .workflow-alt a:hover { text-decoration: underline }
 .workflow-copy { margin-top: 14px; width: 100%; font: 12px var(--mono); color: var(--wf-fg); background: var(--wf-page); border: 1px solid var(--wf-edge); border-radius: 10px; height: 36px; cursor: pointer }
@@ -380,3 +387,8 @@ body:has(> main.workflows) {
   .workflow-adopt { position: static }
 }
 @media (prefers-reduced-motion: reduce) { .workflow-card { transition: none } .workflow-card:hover { transform: none } }
+/* Phones: keep the diagram at a readable size and let it scroll sideways instead of shrinking to a thumbnail. */
+@media (max-width: 700px) {
+  .workflow-player[data-mode="entry"] .workflow-stage { justify-content: flex-start; overflow-x: auto; padding: 16px }
+  .workflow-player[data-mode="entry"] .workflow-stage svg { max-height: none; max-width: none; width: 620px; flex: none }
+}
