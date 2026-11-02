@@ -254,6 +254,7 @@ class MCPChecks:
         if entry.get("experimental_environment") == "remote":
             doctor.add("runtime-mcp", "skip", f"{name}: loaded; remote stdio execution is not probed", **kwargs)
             return
+        doctor.waiting(f"starting MCP server {name} for {kwargs['agent'].name}")
         count, error = self.start(runtime.cli, entry)
         doctor.add("runtime-mcp", "warn" if error else "ok",
                    f"{name}: loaded; {error}" if error else f"{name}: loaded; {count} tools",
