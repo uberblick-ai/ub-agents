@@ -62,9 +62,6 @@ class ViewRefreshTests(unittest.IsolatedAsyncioTestCase):
             self.assertLess(time.monotonic() - started, 1.15)
             # Work is hidden here; only the selected Agent status spins.
             await pilot.resize_terminal(80, 24)
-            recent = app.query_one(RecentActivity)
-            recent.cursor = app.selected
-            recent.focus(scroll_visible=False)
             await pilot.press('enter')
             self.assertTrue(app.item_view)
             self.assertEqual(app._refresh_interval, 0.1)
@@ -148,6 +145,9 @@ class ViewRefreshTests(unittest.IsolatedAsyncioTestCase):
                 footer.assert_called()
                 self.assertEqual(app.query_one('#status', Static).content.cell_len, 120)
             await pilot.resize_terminal(80, 24)
+            recent = app.query_one(RecentActivity)
+            recent.cursor = app.selected
+            recent.focus(scroll_visible=False)
             await pilot.press('enter')
             self.assertIn('#114', app.query_one('#item_header', Static).render().plain)
             await pilot.press('q')
