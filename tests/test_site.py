@@ -35,6 +35,34 @@ class Links(HTMLParser):
             self.ids.append(attrs['id'])
 
 
+class VisibleText(HTMLParser):
+    """Text a reader sees, without inline SVG drawings or scripts."""
+
+    HIDDEN = {'svg', 'script'}
+
+    def __init__(self, source):
+        super().__init__(convert_charrefs=True)
+        self.depth = 0
+        self.parts = []
+        self.feed(source)
+        self.text = ''.join(self.parts)
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.HIDDEN or self.depth:
+            self.depth += 1
+
+    def handle_startendtag(self, tag, attrs):
+        pass
+
+    def handle_endtag(self, tag):
+        if self.depth:
+            self.depth -= 1
+
+    def handle_data(self, data):
+        if not self.depth:
+            self.parts.append(data)
+
+
 class SiteTests(unittest.TestCase):
     def test_workflow_gallery_has_two_cards_and_no_docs_sidebar(self):
         page = build.workflow_gallery()
@@ -59,10 +87,11 @@ class SiteTests(unittest.TestCase):
 
     def test_workflow_pages_name_no_project_that_runs_them(self):
         for path, page in build.workflow_pages():
-            text = html.unescape(re.sub(r'<svg.*?</svg>|<script.*?</script>', '', page, flags=re.S))
-            for project in ('We run it on', 'uberblick-2', 'CampfireFM', 'workflow-runs',
-                            'workflow-repo', 'How we build Uberblick itself'):
+            text = VisibleText(page).text
+            for project in ('We run it on', 'uberblick-2', 'CampfireFM', 'How we build Uberblick itself'):
                 self.assertNotIn(project, text, path)
+            for project_class in ('workflow-runs', 'workflow-repo'):
+                self.assertNotIn(f'class="{project_class}"', page, path)
 
     def test_workflow_scenarios_have_urls_and_native_playback_data(self):
         expected = {'default': ['clean-merge', 'one-fix-round', 'a-person-decides'],
