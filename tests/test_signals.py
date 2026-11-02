@@ -266,9 +266,9 @@ class SignalTests(unittest.TestCase):
         now += 61
         finalize = Settlement.finalize
 
-        def finish(*args):
+        def finish(*args, **kwargs):
             signal.raise_signal(signal.SIGTERM)
-            return finalize(*args)
+            return finalize(*args, **kwargs)
 
         with patch.object(Settlement, "finalize", autospec=True, side_effect=finish), \
                 patch("ub_agents.assignment_run.supervise") as execution:

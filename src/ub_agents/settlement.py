@@ -9,18 +9,19 @@ from .run_usage import usage_fields
 
 
 class Settlement:
-    def __init__(self, config, github, coordinator, approvals):
+    def __init__(self, config, github, coordinator, approvals, merger=None):
         self.config = config
         self.github = github
         self.coordinator = coordinator
         self.approvals = approvals
+        self.merger = merger
 
-    def reported_verdict(self, lease, plan, outcome, source, what):
+    def reported_verdict(self, lease, plan, outcome, source, what, *, deadline=None):
         """A recorded report's (result, summary, attempt effect); raises ValidationError if rejected."""
         if outcome["status"] != "success":
             self.validate_failure_report(lease, outcome, source)
             return outcome["status"], outcome["summary"], "unchanged" if outcome["status"] == "blocked" else "failure"
-        self.finalize(lease, plan, outcome, what)
+        self.finalize(lease, plan, outcome, what, deadline=deadline)
         return "success", outcome["summary"], "reset"
 
     def settle(self, plan, lease, attempt, result, summary, effect, outcome=None, diagnostics=None,
@@ -50,14 +51,20 @@ class Settlement:
                                  unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers,
                                  **usage_fields(diagnostics or {}))
 
-    def finalize(self, lease, plan, outcome, what):
+    def finalize(self, lease, plan, outcome, what, *, deadline=None):
         """Validate a success report, apply its transition and accept it.
 
         A rejected report is recorded on the outcome and raised as ValidationError.
         GitHub errors retain their retry classification and leave expiry recovery
         to finish the job."""
+        merging = "merge" in outcome.get("transition", {})
         try:
-            if outcome.get("transition", {}).get("started"):
+            if merging:
+                self.validate_report(outcome)
+                if self.merger is None:
+                    raise TransitionPaused("Merge refused: launcher merge service is unavailable")
+                self.merger.prepare(lease, plan, outcome, deadline)
+            elif outcome.get("transition", {}).get("started"):
                 # Start is durable proof that success validation passed. A later
                 # head or link edit cannot strand already-applied changes.
                 self.validate_report(outcome)
@@ -69,6 +76,8 @@ class Settlement:
                                             attempt_effect="unchanged" if isinstance(exc, TransitionPaused) else "failure")
             raise
         self.coordinator.accept(lease, outcome)
+        if merging and outcome.get("merge_commit_sha"):
+            self.merger.close_issues(lease, plan.item.number)
 
     def validate_success(self, plan, outcome):
         current = self.github.item(plan.item.number, plan.item.kind)
