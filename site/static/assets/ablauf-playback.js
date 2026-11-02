@@ -215,6 +215,11 @@ function mountPlayback(container, svg, timelines, options = {}) {
   const panel = make("div", "abp-panel");
   const tabs = [];
   if (timelines.length > 1) {
+    const choose = (index) => {
+      player.select(index);
+      if (!root.ownerDocument.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+        player.play();
+    };
     const id = `ab-playback-${++mountId}`;
     const tablist = make("div", "abp-tabs");
     tablist.setAttribute("role", "tablist");
@@ -223,7 +228,7 @@ function mountPlayback(container, svg, timelines, options = {}) {
     panel.setAttribute("role", "tabpanel");
     panel.tabIndex = 0;
     for (const [index, timeline] of timelines.entries()) {
-      const tab = button(timeline.name, () => player.select(index));
+      const tab = button(timeline.name, () => choose(index));
       tab.id = `${id}-tab-${index}`;
       tab.setAttribute("role", "tab");
       tab.setAttribute("aria-controls", panel.id);
@@ -244,7 +249,7 @@ function mountPlayback(container, svg, timelines, options = {}) {
           return;
         event.preventDefault();
         tabs[target].focus();
-        player.select(target);
+        choose(target);
       });
       tabs.push(tab);
       tablist.append(tab);
@@ -328,7 +333,36 @@ function mountPlayback(container, svg, timelines, options = {}) {
   };
   synchronize(player.state);
   container.append(style, root);
+  if (options.autoplay)
+    autoplay();
   return { player, destroy };
+  function autoplay() {
+    const view = svg.ownerDocument.defaultView;
+    const Observer = view?.IntersectionObserver;
+    if (!Observer)
+      return;
+    let started = false;
+    let pausedByView = false;
+    const observer = new Observer((entries) => {
+      const visible = entries.some((entry) => entry.isIntersecting);
+      const { status: status2 } = player.state;
+      if (!visible) {
+        if (status2 === "playing") {
+          player.pause();
+          pausedByView = true;
+        }
+        return;
+      }
+      if (view.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+        return;
+      if (!started && status2 === "idle" || pausedByView && status2 === "paused")
+        player.play();
+      started = true;
+      pausedByView = false;
+    }, { threshold: 0.5 });
+    observer.observe(svg);
+    removers.push(() => observer.disconnect());
+  }
 }
 export {
   createPlayer,

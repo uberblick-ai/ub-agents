@@ -55,12 +55,15 @@ function mountPreview(container, svg, timelines) {
 }
 
 function mountEntry(container, svg, timelines, urls) {
-  const { player, destroy } = mountPlayback(container, svg, timelines);
+  // autoplay pauses the figure while it is out of view and resumes it on return.
+  const { player, destroy } = mountPlayback(container, svg, timelines, { autoplay: true });
   const select = player.select.bind(player);
   const scenarioIndex = name => Math.max(0, timelines.findIndex(t => t.slug === name));
   // Resolve once: pushState changes document.baseURI after the first tab switch.
   const scenarioUrls = urls.map(url => new URL(url, document.baseURI));
   select(scenarioIndex(container.dataset.scenario));
+  // Selecting leaves the player paused, which autoplay respects as the reader's
+  // choice; start it so autoplay's first look holds it until it is in view.
   if (!motion.matches) player.play();
 
   // The package's tabs (including keyboard navigation) use player.select.

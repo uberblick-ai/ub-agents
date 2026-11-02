@@ -279,13 +279,17 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 10px }
 .workflow-meta h2 a:hover { color: var(--accent) }
 .workflow-about { font-size: 13px; color: var(--muted) }
 .workflow-open { font-size: 13px }
-.workflow-player { --ab-bg: var(--bg); --ab-ink: var(--fg); --ab-muted: var(--muted); --ab-line: var(--line); --ab-surface: var(--bg); --ab-band: var(--code); --ab-play: var(--accent) }
+.workflow-player { --ab-bg: var(--bg); --ab-ink: var(--fg); --ab-muted: var(--muted); --ab-line: var(--line); --ab-surface: var(--bg); --ab-band: var(--code) }
 .workflow-stage { display: flex; align-items: center; justify-content: center; margin: 0; padding: 20px }
 .workflow-stage svg { min-width: 0; max-height: max(320px, calc(100svh - 360px)); width: auto; max-width: 100%; height: auto }
 .workflow-card .workflow-stage { height: 360px; padding: 18px }
+/* The entry frames its diagram and controls as two panels, so the stage reads as one figure. */
+.workflow-player[data-mode="entry"] { --ab-bg: var(--code) }
+.workflow-player[data-mode="entry"] .workflow-stage { background: var(--code); border: 1px solid var(--line); border-radius: 12px; padding: 28px }
+.workflow-player[data-mode="entry"] .ab-playback { border: 1px solid var(--line); border-radius: 12px; margin-top: 12px; overflow: hidden }
 .workflow-card .workflow-stage svg { max-height: 100% }
 .workflow-tick { display: grid; gap: 5px; padding: 12px 20px 0; font-size: 12px; min-height: 100px; margin: 0 }
-.workflow-scenario { color: var(--accent); font-weight: 600 }
+.workflow-scenario { color: var(--fg); font-weight: 600 }
 .workflow-caption { color: var(--muted) }
 .workflow-preview-toggle { font: inherit; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; background: var(--bg); margin: 12px 20px 20px; padding: 5px 10px; cursor: pointer }
 .workflow-story { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 48px; margin-top: 48px }
