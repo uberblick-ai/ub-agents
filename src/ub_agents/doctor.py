@@ -2,7 +2,6 @@
 
 from dataclasses import asdict, dataclass
 from importlib.resources import files
-import json
 import os
 from pathlib import Path
 import re
@@ -17,7 +16,7 @@ from .doctor_mcp import MCPChecks
 from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub, repository_visibility
 from .labels import LabelUse, configured_labels, confirm_label_creation
-from .launcher_lock import launcher_summary, running_launcher
+from .launcher_lock import running_launcher
 from .mcp_probe import PROBE_TIMEOUT
 from .records import iso
 from .refresh import control_checkout_checks
@@ -581,60 +580,7 @@ def diagnose(path, *, offline=False, **kwargs):
     return Doctor(**kwargs).run(path, offline=offline)
 
 
-def render_check(check):
-    scope = "/".join(value for value in (check["agent"], check["runtime"]) if value)
-    print(f"{check['status']} {check['id']} {scope or '-'} {check['message']}")
-    if check["status"] in {"warn", "fail"}:
-        print(f"  remedy: {check['remedy']}")
 
-
-def render_area(area, checks):
-    passed = 0
-    labels = set()
-    skipped = 0
-    for check in checks:
-        if check["status"] in {"warn", "fail"}:
-            render_check(check)
-        elif check["status"] == "skip":
-            skipped += 1
-        elif check["id"].startswith("github-label:"):
-            labels.add(check["id"].casefold())
-        else:
-            passed += 1
-    summary = []
-    if passed:
-        summary.append(f"{passed} check{'s' if passed != 1 else ''} passed")
-    if labels:
-        summary.append(f"{len(labels)} label{'s' if len(labels) != 1 else ''} present")
-    if skipped:
-        summary.append(f"{skipped} skipped")
-    if summary:
-        status = "ok" if passed or labels else "skip"
-        print(f"{status} {area}: {', '.join(summary)}")
-
-
-def render(result, json_output=False, verbose=False):
-    if json_output:
-        print(json.dumps(result, indent=2))
-        return
-    print(launcher_summary(result.get("launcher")))
-    if verbose:
-        for check in result["checks"]:
-            render_check(check)
-    else:
-        groups = {area: [] for area in AREAS}
-        for check in result["checks"]:
-            if check["id"] == "launcher-installation":
-                render_check(check)
-            else:
-                groups[CHECK_AREAS[check["id"].split(":", 1)[0]]].append(check)
-        for area, checks in groups.items():
-            render_area(area, checks)
-    render_counts(result)
-
-
-def render_counts(result):
-    failures = sum(c["required"] and c["status"] == "fail" for c in result["checks"])
-    warnings = sum(c["status"] == "warn" for c in result["checks"])
-    print(f"{failures} required failure{'s' if failures != 1 else ''}, "
-          f"{warnings} warning{'s' if warnings != 1 else ''}")
+def render(result, json_output=False, verbose=False, *, elapsed=0.0):
+    from .doctor_output import render as render_output
+    render_output(result, AREAS, json_output, verbose, elapsed=elapsed)

@@ -10,6 +10,7 @@ import signal
 import socket
 import subprocess
 import sys
+from time import monotonic
 
 from . import __version__
 from .approvals import pr_author_exclusions
@@ -370,17 +371,14 @@ def read_run(args):
 
 
 def doctor_run(args):
-    from .doctor import Doctor, render, render_check, render_counts
+    from .doctor import Doctor, render
+    started = monotonic()
     doctor = Doctor()
     result = doctor.run(args.config, offline=args.offline)
-    render(result, json_output=args.json, verbose=args.verbose)
+    render(result, json_output=args.json, verbose=args.verbose, elapsed=monotonic() - started)
     if not args.offline and not args.json and doctor.create_missing_labels():
-        previous = result["checks"]
         result = doctor.result()
-        for check in result["checks"]:
-            if check["status"] in {"fail", "warn"} and check not in previous:
-                render_check(check)
-        render_counts(result)
+        render(result, verbose=args.verbose, elapsed=monotonic() - started)
     return 0 if result["ok"] else 1
 
 

@@ -3,6 +3,7 @@ from importlib.resources import files
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -63,13 +64,14 @@ agents:
             render(result, json_output, verbose)
         return output.getvalue()
 
-    def cli(self, json_output=False, verbose=False, *, terminal=False, stdout_terminal=None, ci='', answer=''):
+    def cli(self, json_output=False, verbose=False, *, terminal=False, stdout_terminal=None, ci='', answer='', ticks=None):
         def respond(question):
             if isinstance(answer, Exception):
                 raise answer
             return answer(question) if callable(answer) else answer
 
         with patch("ub_agents.doctor.subprocess.run", self.runner), \
+                patch("ub_agents.cli.monotonic", return_value=100.0, side_effect=ticks), \
                 patch("ub_agents.doctor.shutil.which", self.which), \
                 patch("ub_agents.doctor.GitHub", return_value=self.github), \
                 patch("ub_agents.labels.sys.stdin.isatty", return_value=terminal), \
@@ -81,7 +83,7 @@ agents:
                             + (["--json"] if json_output else []) + (["--verbose"] if verbose else []))
         self.assertEqual(stderr.getvalue(), "")
         self.prompt = prompt
-        return code, stdout.getvalue()
+        return code, re.sub(r"\x1b\[[0-9;]*m", "", stdout.getvalue())
 
     def test_offline_accepts_checkout_setup_without_when_changed(self):
         self.path.write_text(self.path.read_text() + "checkout-setup:\n"
@@ -103,7 +105,7 @@ agents:
             self.assertEqual(set(check), expected)
             self.assertIn(check["status"], {"ok", "warn", "fail", "skip"})
             self.assertIsInstance(check["required"], bool)
-        self.assertIn("0 required failures, 0 warnings", self.capture(result))
+        self.assertIn("All 26 checks passed in 0.0s.", self.capture(result))
         self.assertEqual(self.cli()[0], 0)
         code, output = self.cli(True)
         self.assertEqual(code, 0)
@@ -114,7 +116,7 @@ agents:
         for offline in (False, True):
             baseline = self.diagnose(offline=offline)
             self.assertIsNone(baseline["launcher"])
-            self.assertIn("No launcher running on this checkout", self.capture(baseline))
+            self.assertIn("no launcher running", self.capture(baseline).splitlines()[0])
             with launcher_lock(self.root) as owner:
                 result = self.diagnose(offline=offline)
                 self.assertEqual(result["launcher"], owner)
@@ -122,7 +124,7 @@ agents:
                 self.assertEqual(result["ok"], baseline["ok"])
                 for verbose in (False, True):
                     output = self.capture(result, verbose=verbose)
-                    for value in (str(owner["pid"]), owner["host"], owner["started_at"]):
+                    for value in (str(owner["pid"]), owner["started_at"][11:16]):
                         self.assertIn(value, output)
                 self.assertEqual(json.loads(self.capture(result, json_output=True))["launcher"], owner)
             self.assertIsNone(self.diagnose(offline=offline)["launcher"])
@@ -186,7 +188,7 @@ launchers: [operator]
                     self.assertEqual(self.one(result, "command")["status"], "skip")
                     self.assertEqual(self.one(result, "different-runtime-from")["status"], "skip")
                 else:
-                    self.assertIn("0 required failures, 0 warnings", output.getvalue())
+                    self.assertRegex(output.getvalue(), r"All \d+ checks passed in \d+\.\ds\.")
                     if options:
                         self.assertIn("Approvals: from repository visibility", output.getvalue())
         self.assertEqual({command for command, _ in self.runner.calls}, {
@@ -229,7 +231,7 @@ launchers: [operator]
                 patch("socket.create_connection", side_effect=AssertionError("network accessed")), \
                 redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(["doctor", "--offline", "--config", str(self.path)]), 0)
-        self.assertIn("0 required failures, 0 warnings", output.getvalue())
+        self.assertRegex(output.getvalue(), r"All \d+ checks passed in \d+\.\ds\.")
 
     def test_doctor_uses_local_runtime_replacement_and_names_invalid_local_file(self):
         local = self.root / 'ub-agents.local.yaml'
@@ -298,14 +300,12 @@ launchers: [operator]
         result = self.diagnose()
         self.assertTrue(all(c["status"] == "ok" for c in result["checks"] if c["id"] != "launcher-installation"))
         self.assertEqual(len(self.checks(result, "github-label")), 4)
-        expected = ("No launcher running on this checkout\n"
-                    "skip launcher-installation - ub-agents: pip, source or other installation; "
-                    "only uberblick-ai/tap/ub-agents qualifies\n"
-                    "ok machine: 7 checks passed\n"
-                    "ok configuration: 11 checks passed\n"
-                    "ok GitHub: 5 checks passed, 4 labels present\n"
-                    "ok runtimes: 20 checks passed\n"
-                    "0 required failures, 0 warnings\n")
+        expected = ("org/project · ub-agents from source (updates need the Homebrew tap) · no launcher running\n\n"
+                    "  ✓ Machine          7 passed\n"
+                    "  ✓ Configuration   11 passed\n"
+                    "  ✓ GitHub           5 passed, 4 labels\n"
+                    "  ✓ Runtimes        20 passed\n\n"
+                    "All 47 checks passed in 0.0s.\n")
         self.assertEqual(self.capture(result), expected)
         self.assertEqual(self.cli(), (0, expected))
 
@@ -323,17 +323,17 @@ launchers: [operator]
         default, verbose = self.capture(result), self.capture(result, verbose=True)
         def attention(output):
             return [line for line in output.splitlines()
-                    if line.startswith(("warn ", "fail ", "  remedy:"))]
+                    if line.startswith(("      ! ", "      ✗ ", "        →"))]
         # Area grouping may reorder checks, but must retain every label and remedy.
         self.assertCountEqual(attention(default), attention(verbose))
         self.assertEqual(default.splitlines()[-1], verbose.splitlines()[-1])
-        label_line = next(line for line in default.splitlines() if line.startswith("fail github-label:ready "))
+        label_line = next(line for line in default.splitlines() if line.startswith("      ✗ Label ready "))
         self.assertIn("starts worker on an issue", label_line)
         self.assertIn("starts reviewer on an issue", label_line)
-        self.assertEqual(default.count("fail github-label:ready "), 1)
-        self.assertIn("warn github-launcher-role - Launcher account operator has admin", default)
-        self.assertIn("ok GitHub: 4 checks passed\n", default)
-        self.assertIn("skip runtimes: 1 skipped\n", default)
+        self.assertEqual(default.count("      ✗ Label ready "), 1)
+        self.assertIn("      ! Launcher account operator has admin", default)
+        self.assertIn("  ✗ GitHub           4 passed, 1 failure, 3 warnings\n", default)
+        self.assertIn("  ✗ Runtimes         3 failures, 1 skipped\n", default)
         self.assertEqual(self.cli()[0], 1)
         self.assertEqual(self.cli(verbose=True)[0], 1)
 
@@ -341,9 +341,9 @@ launchers: [operator]
         self.missing.add("gh")
         result = self.diagnose()
         output = self.capture(result)
-        self.assertIn("fail gh - gh is not on PATH\n  remedy: Install GitHub CLI", output)
-        self.assertIn("skip GitHub: 5 skipped\n", output)
-        self.assertIn("ok configuration: 4 checks passed, 2 skipped\n", output)
+        self.assertIn("      ✗ gh is not on PATH\n        → Install GitHub CLI", output)
+        self.assertIn("  – GitHub          skipped, needs gh\n", output)
+        self.assertIn("  ✓ Configuration    4 passed, 2 skipped\n", output)
         self.assertNotIn("skip github-auth", output)
         self.assertEqual(self.cli()[0], self.cli(verbose=True)[0])
         self.assertEqual(output.splitlines()[-1], self.capture(result, verbose=True).splitlines()[-1])
@@ -357,8 +357,8 @@ launchers: [operator]
 ''')
         self.missing.add("codex")
         output = self.capture(self.diagnose())
-        self.assertIn("ok configuration: 8 checks passed, 1 skipped\n", output)
-        self.assertIn("ok runtimes: 4 checks passed, 1 skipped\n", output)
+        self.assertIn("  ✓ Configuration    8 passed, 1 skipped\n", output)
+        self.assertIn("  ! Runtimes         4 passed, 1 warning, 1 skipped\n", output)
         self.assertNotIn("skip instructions", output)
         self.assertNotIn("skip runtime-auth", output)
 
@@ -366,8 +366,8 @@ launchers: [operator]
         self.path.write_text("agents: [\n")
         result = self.diagnose()
         self.assertEqual(self.one(result, "commands")["status"], "skip")
-        self.assertIn("skip runtimes: 3 skipped\n", self.capture(result))
-        self.assertIn("skip commands - configuration unavailable\n", self.capture(result, verbose=True))
+        self.assertIn("  – Runtimes        skipped, configuration unavailable\n", self.capture(result))
+        self.assertIn("      – configuration unavailable\n        id: commands\n", self.capture(result, verbose=True))
 
     def test_json_is_byte_identical_to_existing_rendering_with_or_without_verbose(self):
         for unhealthy in (False, True):
@@ -381,7 +381,7 @@ launchers: [operator]
                 self.assertEqual(self.capture(result, True, verbose=True), expected)
                 self.assertEqual(self.cli(True), self.cli(True, verbose=True))
 
-    def test_verbose_preserves_legacy_line_format_and_original_check_order(self):
+    def test_verbose_groups_every_check_with_its_id_under_its_area(self):
         checks = [
             dict(id="runtime-auth:worker:codex:model-a:high", status="skip", required=True,
                  agent="worker", runtime="codex:model-a:high", message="executable unavailable", remedy=None),
@@ -393,18 +393,86 @@ launchers: [operator]
                  agent=None, runtime=None, message="elevated account", remedy="Use write"),
         ]
         result = {"version": 2, "ok": False, "checks": checks}
-        self.assertEqual(self.capture(result, verbose=True),
-                         "No launcher running on this checkout\n"
-                         "skip runtime-auth:worker:codex:model-a:high worker/codex:model-a:high executable unavailable\n"
-                         "fail github-label:ready - Label ready is missing\n"
-                         "  remedy: Create ready\n"
-                         "ok github-auth - authenticated as operator\n"
-                         "warn github-launcher-role - elevated account\n"
-                         "  remedy: Use write\n"
-                         "1 required failure, 1 warning\n")
-        # Areas consisting entirely of failures/warnings have no summary line.
-        checks[:] = [c for c in checks if c["status"] in {"warn", "fail"}]
-        self.assertEqual(self.capture(result), self.capture(result, verbose=True))
+        output = self.capture(result, verbose=True)
+        for check in checks:
+            self.assertEqual(output.count(f"        id: {check['id']}\n"), 1)
+            self.assertNotIn(check['id'], self.capture(result))
+        self.assertLess(output.index('  ✗ GitHub'), output.index('id: github-label:ready'))
+        self.assertLess(output.index('  – Runtimes'), output.index('id: runtime-auth:worker'))
+        self.assertIn('      – worker · codex:model-a:high: executable unavailable', output)
+        self.assertNotIn('remedy: None', output)
+
+    def test_header_homebrew_policy_launcher_pause_and_warning_verdict(self):
+        from ub_agents import __version__
+        from ub_agents.launcher_lock import configuration_pause_summary
+        self.github.roles['operator'] = 'admin'
+        result = self.diagnose()
+        install = self.one(result, 'launcher-installation')
+        pause = dict(commit='abc123', error='invalid YAML', next_step='Fix ub-agents.yaml')
+        result['launcher'] = dict(pid=4182, host='other-host', started_at='2026-11-02T09:12:34Z',
+                                  configuration_pause=pause)
+        for policy in ('auto', 'off'):
+            install.update(status='ok', message=f'ub-agents: uberblick-ai/tap Homebrew formula at /brew; automatic updates: {policy}')
+            output = self.capture(result)
+            self.assertEqual(output.splitlines()[:2], [
+                f'org/project · ub-agents {__version__} (Homebrew, updates {policy}) · launcher running (pid 4182, since 09:12)',
+                configuration_pause_summary(pause)])
+            self.assertEqual(output.splitlines()[-1],
+                             '1 warning, no failures. A launcher is already running. (0.0s)')
+        result['launcher'] = None
+        self.assertEqual(self.capture(result).splitlines()[-1],
+                         '1 warning, no failures. Launch will start. (0.0s)')
+
+    def test_scoped_mcp_problems_hide_ids_and_omit_absent_remedies(self):
+        result = self.diagnose()
+        result['checks'] += [dict(id=f'runtime-mcp:worker:codex:model-a:high:{name}',
+                                 status='warn', required=False, agent='worker', runtime='codex:model-a:high',
+                                 server=name, message=f'{name}: {state}', remedy=remedy)
+                             for name, state, remedy in (('agents', 'missing', 'Define the server'),
+                                                          ('product', 'pending approval', None))]
+        output = self.capture(result)
+        self.assertIn('  ! Runtimes         3 passed, 2 warnings\n', output)
+        self.assertIn('      ! worker · codex:model-a:high: MCP server agents is missing\n'
+                      '        → Define the server\n', output)
+        self.assertIn('      ! worker · codex:model-a:high: MCP server product is pending approval\n\n', output)
+        self.assertNotIn('runtime-mcp', output)
+        self.assertNotIn('remedy:', output)
+        self.assertEqual(output.count('→'), 1)
+        self.assertEqual(output.splitlines()[-1], '2 warnings, no failures. Launch will start. (0.0s)')
+
+    def test_offline_groups_share_one_reason_and_verbose_includes_every_id(self):
+        result = self.diagnose(offline=True)
+        output = self.capture(result)
+        self.assertIn('  – GitHub          offline\n', output)
+        self.assertIn('  – Runtimes        offline\n', output)
+        self.assertEqual(output.count('offline'), 2)
+        verbose = self.capture(result, verbose=True)
+        for check in result['checks']:
+            self.assertEqual(verbose.count(f"        id: {check['id']}\n"), 1)
+
+    def test_terminal_symbols_have_colour_and_pipes_ci_no_color_are_plain(self):
+        self.missing.add('gh')
+        result = self.diagnose()
+        result['checks'].append(dict(id='runtime-permissions', status='warn', required=False,
+                                     agent=None, runtime=None, message='Check permissions [literal]', remedy=None))
+        for terminal, env, coloured in ((True, {}, True), (False, {}, False),
+                                        (True, {'CI': 'true'}, False), (True, {'NO_COLOR': ''}, False)):
+            with self.subTest(terminal=terminal, env=env), patch.dict(os.environ, env, clear=True), \
+                    redirect_stdout(io.StringIO()) as stream, patch.object(stream, 'isatty', return_value=terminal):
+                render(result)
+            output = stream.getvalue()
+            self.assertIn('Check permissions [literal]', output)
+            if coloured:
+                for style, symbol in (('32', '✓'), ('33', '!'), ('31', '✗'), ('2', '–')):
+                    self.assertIn(f'\x1b[{style}m{symbol}', output)
+                self.assertIn('\x1b[2m        →', output)
+            else:
+                self.assertNotIn('\x1b', output)
+
+    def test_verdict_uses_measured_command_duration(self):
+        code, output = self.cli(ticks=[100.0, 109.8])
+        self.assertEqual(code, 0)
+        self.assertEqual(output.splitlines()[-1], 'All 26 checks passed in 9.8s.')
 
     def test_approvals_effective_policy_and_source(self):
         for visibility, value in (("public", "on"), ("private", "off"), ("internal", "off")):
@@ -578,7 +646,7 @@ launchers: [operator]
         ])
         self.assertIn('parks an issue or PR until a person decides; added when worker reports needs-human',
                       missing[0]['message'])
-        self.assertIn('1 required failure, 0 warnings', self.capture(result))
+        self.assertIn("1 failure, 0 warnings. Launch won't start until the failures are fixed. (0.0s)", self.capture(result))
 
     def test_shared_missing_label_has_one_line_remedy_and_json_result_for_all_uses(self):
         self.path.write_text(self.path.read_text().replace('outcomes: {done: {}}',
@@ -603,13 +671,13 @@ launchers: [operator]
         ])
         for verbose in (False, True):
             output = self.capture(result, verbose=verbose)
-            lines = [line for line in output.splitlines() if line.startswith('fail github-label:ready ')]
+            lines = [line for line in output.splitlines() if line.startswith('      ✗ Label ready ')]
             self.assertEqual(len(lines), 1)
             for use in labels[0]['uses']:
                 self.assertIn(use['meaning'], lines[0])
             self.assertEqual(output.count('gh label create ready '), 1)
             self.assertEqual(output.count('gh label create needs-human '), 1)
-            self.assertEqual(output.splitlines()[-1], '1 required failure, 2 warnings')
+            self.assertEqual(output.splitlines()[-1], "1 failure, 2 warnings. Launch won't start until the failures are fixed. (0.0s)")
         code, output = self.cli(json_output=True)
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(output), result)
@@ -623,7 +691,7 @@ launchers: [operator]
 
                 def answer(question):
                     report = sys.stdout.getvalue()
-                    self.assertIn('1 required failure, 2 warnings', report)
+                    self.assertIn("1 failure, 2 warnings. Launch won't start until the failures are fixed. (0.0s)", report)
                     self.assertIn('starts worker on an issue', report)
                     self.assertIn('parks an issue or PR until a person decides', report)
                     self.assertEqual(self.github.writes, [])
@@ -635,9 +703,9 @@ launchers: [operator]
                 self.assertEqual([write[1] for write in self.github.writes], ['ready', 'needs-human', 'outside-input'])
                 self.assertEqual(self.github.reads.count('repos/org/project/labels'), 2)
                 self.assertEqual(self.github.reads.count('user'), 1)
-                self.assertEqual(output.count('fail github-label:ready '), 1)
+                self.assertEqual(output.count('      ✗ Label ready '), 1)
                 self.assertIn('Created label ready on org/project.', output)
-                self.assertEqual(output.splitlines()[-1], '0 required failures, 0 warnings')
+                self.assertEqual(output.splitlines()[-1], 'All 26 checks passed in 0.0s.')
 
     def test_confirmed_creation_never_changes_existing_labels(self):
         self.github.label_names = ['READY', 'unrelated']
@@ -646,7 +714,7 @@ launchers: [operator]
         self.assertEqual([write[1] for write in self.github.writes], ['needs-human', 'outside-input'])
         self.assertEqual(self.github.label_names, ['READY', 'unrelated', 'needs-human', 'outside-input'])
         self.assertEqual(self.github.reads.count('repos/org/project/labels'), 2)
-        self.assertEqual(output.splitlines()[-1], '0 required failures, 0 warnings')
+        self.assertEqual(output.splitlines()[-1], 'All 26 checks passed in 0.0s.')
 
     def test_color_remedies_and_confirmed_creation_exclude_priority_labels(self):
         self.path.write_text(self.path.read_text().replace('outcomes: {done: {}}', '''outcomes:
@@ -675,16 +743,16 @@ launchers: [operator]
         self.assertEqual(code, 1)
         self.assertEqual(labels.call_count, 2)
         self.assertEqual(len(self.github.writes), 3)
-        self.assertEqual(output.splitlines()[-1], '1 required failure, 1 warning')
+        self.assertEqual(output.splitlines()[-1], "1 failure, 1 warning. Launch won't start until the failures are fixed. (0.0s)")
 
     def test_unreadable_second_label_read_fails_without_exposing_private_errors(self):
         self.github.label_names = []
         with patch.object(self.github, 'labels', side_effect=[[], AgentError('ghp_private')]):
             code, output = self.cli(terminal=True, answer='yes')
         self.assertEqual(code, 1)
-        self.assertIn('fail github-labels - GitHub labels failed', output)
+        self.assertIn('      ✗ GitHub labels failed', output)
         self.assertNotIn('ghp_private', output)
-        self.assertEqual(output.splitlines()[-1], '1 required failure, 0 warnings')
+        self.assertEqual(output.splitlines()[-1], "1 failure, 0 warnings. Launch won't start until the failures are fixed. (0.0s)")
 
     def test_second_read_reports_new_missing_labels_and_quota_warnings(self):
         self.github.label_names = ['needs-human']
@@ -699,10 +767,14 @@ launchers: [operator]
         with patch.object(self.github, 'labels', side_effect=labels):
             code, output = self.cli(terminal=True, answer='yes')
         self.assertEqual(code, 1)
-        self.assertEqual(output.count('fail github-label:ready '), 1)
-        self.assertEqual(output.count('warn github-label:needs-human '), 1)
-        self.assertIn('warn github-rate-limit - 0 of 5000 requests remaining', output)
-        self.assertEqual(output.splitlines()[-1], '1 required failure, 3 warnings')
+        self.assertEqual(output.count('      ✗ Label ready '), 2)
+        self.assertEqual(output.count('      ! Label needs-human '), 1)
+        self.assertIn('      ! 0 of 5000 requests remaining', output)
+        final_report = output.split('org/project ·')[-1]
+        self.assertIn('  ✗ GitHub', final_report)
+        self.assertIn('      ✗ Label ready ', final_report)
+        self.assertIn('      ! Label needs-human ', final_report)
+        self.assertEqual(output.splitlines()[-1], "1 failure, 3 warnings. Launch won't start until the failures are fixed. (0.0s)")
 
     def test_decline_default_unrecognized_answer_and_eof_keep_commands_without_writes(self):
         for answer in ('no', '', 'maybe', EOFError()):
@@ -715,7 +787,7 @@ launchers: [operator]
                 self.assertEqual(self.github.writes, [])
                 self.assertEqual(self.github.reads.count('repos/org/project/labels'), 1)
                 self.assertEqual(output.count('gh label create '), 3)
-                self.assertEqual(output.splitlines()[-1], '1 required failure, 2 warnings')
+                self.assertEqual(output.splitlines()[-1], "1 failure, 2 warnings. Launch won't start until the failures are fixed. (0.0s)")
 
     def test_pipes_ci_and_json_never_prompt_or_create_labels(self):
         for terminal, stdout_terminal, ci, json_output in (
@@ -779,10 +851,10 @@ launchers: [operator]
         self.assertIn(url, check['remedy'])
         code, output = self.cli()
         self.assertEqual(code, 0)
-        self.assertEqual(output.count('warn runtime-permissions '), 1)
+        self.assertEqual(output.count('      ! Agents without runtime-args: '), 1)
         self.assertEqual(output.count(url), 1)
-        self.assertIn('0 required failures, 1 warning', output)
-        self.assertEqual(self.capture(result, verbose=True).count('warn runtime-permissions '), 1)
+        self.assertIn('1 warning, no failures. Launch will start. (0.0s)', output)
+        self.assertEqual(self.capture(result, verbose=True).count('      ! Agents without runtime-args: '), 1)
         self.assertEqual(self.github.writes, [])
 
     def test_missing_only_runtime_is_required_and_names_agent(self):
@@ -849,7 +921,7 @@ launchers: [operator]
                          ("warn", False, "worker", "codex:model-a:high"))
         self.assertTrue(result["ok"])
         self.assertEqual(self.cli()[0], 0)
-        self.assertIn("  remedy: Install codex", self.capture(result))
+        self.assertIn("        → Install codex", self.capture(result))
 
     def test_unauthenticated_github_still_reads_repository(self):
         self.github.auth_error = AgentError("ghp-auth-secret")
@@ -947,13 +1019,13 @@ launchers: [operator]
                 self.assertEqual(self.one(result, 'config')['message'], f'no {name} here; run ub-agents init')
                 code, output = self.cli(terminal=True, answer='yes')
                 self.assertEqual(code, 1)
-                self.assertEqual(output.splitlines()[-1], '1 required failure, 0 warnings')
+                self.assertEqual(output.splitlines()[-1], "1 failure, 0 warnings. Launch won't start until the failures are fixed. (0.0s)")
                 self.prompt.assert_not_called()
 
     def test_final_counts_pluralize_failures_and_warnings_independently(self):
         self.github.label_names = []
         self.missing.add('git')
-        self.assertEqual(self.capture(self.diagnose()).splitlines()[-1], '2 required failures, 2 warnings')
+        self.assertEqual(self.capture(self.diagnose()).splitlines()[-1], "2 failures, 2 warnings. Launch won't start until the failures are fixed. (0.0s)")
 
     def test_outside_input_is_optional_and_only_listed_with_effective_approvals_on(self):
         for visibility, override, listed in (('public', None, True), ('private', None, False),

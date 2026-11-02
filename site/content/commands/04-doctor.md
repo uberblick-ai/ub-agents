@@ -10,10 +10,47 @@ ub-agents doctor --json      # the same results, machine readable
 
 ## Results
 
-Doctor groups problems by machine, configuration, GitHub and agent CLIs, each with a fix. `--verbose` lists every check. It exits with 1 when a required check fails and 0 otherwise, so warnings alone don't fail it.
+Doctor shows one aligned line per area, with problems and their fixes underneath:
 
-Doctor also shows the launcher running on this control checkout, with pid, host
-and start time, or says none is running. This is information, with no warning or
+```text
+uberblick-ai/ub-agents · ub-agents from source (updates need the Homebrew tap) · no launcher running
+
+  ✓ Machine          7 passed
+  ✓ Configuration   12 passed
+  ! GitHub           8 passed, 7 labels, 1 warning
+      ! Launcher account bk-one has admin, so agents can start and approve their own work
+        → Use a dedicated launcher account with the write repository role
+  ! Runtimes        19 passed, 2 warnings
+      ! implementer · codex:gpt-6.1-sol:xhigh: MCP server uberblick-agents is missing
+        → Define it in runtime-args with -c mcp_servers.uberblick-agents.command=...
+      ! implementer · codex:gpt-6.1-sol:xhigh: MCP server uberblick-product is missing
+        → Define it in runtime-args with -c mcp_servers.uberblick-product.command=...
+
+3 warnings, no failures. Launch will start. (9.8s)
+```
+
+`✓` means passed, `!` warnings, `✗` failures and `–` skipped. When an entire area
+was skipped for one reason, that reason appears once, such as `offline` or
+`skipped, needs gh`. Check ids appear only with `--verbose`, which lists every
+check under its area, and in `--json`. Terminal symbols use colour; pipes, CI and
+`NO_COLOR` produce plain text.
+
+The last line gives the verdict and elapsed time. A clean result reads
+`All 48 checks passed in 6.4s.` Required failures read
+`2 failures, 1 warning. Launch won't start until the failures are fixed. (3.1s)`
+and exit with 1. Otherwise doctor exits with 0, so warnings alone don't fail it.
+Counts and times here are examples; skipped checks have not passed.
+
+The header shows the repository, installation and update policy. It also shows
+the launcher running on this control checkout, with pid and start time (UTC),
+or `no launcher running`. For example:
+
+```text
+uberblick-ai/ub-agents · ub-agents 0.5.0 (Homebrew, updates off) · launcher running (pid 4182, since 09:12)
+```
+
+A configuration pause appears on the next line when present. A warnings-only
+verdict then says `A launcher is already running.` This is information, with no warning or
 failure for a live launcher, and is included with `--offline` too. A second
 [`launch`](/docs/commands/launch.html) on this checkout refuses to start; stop the
 current launcher first, or use [`retry`](/docs/commands/retry.html) to hand it an item.
@@ -22,7 +59,7 @@ In `--json`, the top-level `launcher` is an object with `pid`, `host` and
 `started_at` (UTC), or `null` when none is running. Only the held lock counts;
 leftover owner records do not show a running launcher.
 
-When workflow labels are missing, doctor offers to create them, except with `--json`, `--offline` or outside a terminal. A missing stop label or [`outside-input`](/docs/configuration/approvals.html#outside-input-label) label is only a warning.
+When workflow labels are missing, doctor offers to create them, except with `--json`, `--offline` or outside a terminal. It rechecks the labels after creation and prints the areas, remaining problems and verdict again. A missing stop label or [`outside-input`](/docs/configuration/approvals.html#outside-input-label) label is only a warning.
 
 Doctor also warns about starter placeholders left in your shared policy, such as `@org/maintainers` or `<project test command>`, and a `## Merging` section still identical to the starter.
 
