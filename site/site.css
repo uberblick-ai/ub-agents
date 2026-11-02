@@ -325,12 +325,8 @@ body:has(> main.workflows) {
 .workflow-stage svg { min-width: 0; width: auto; max-width: 100%; height: auto }
 .workflow-player[data-mode="entry"] { --ab-bg: var(--wf-panel); margin-top: 16px }
 .workflow-player[data-mode="entry"] .workflow-stage { background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 12px; padding: 20px 28px }
-.workflow-player[data-mode="entry"] .workflow-stage svg { max-height: max(240px, calc(100svh - 420px)) }
+.workflow-player[data-mode="entry"] .workflow-stage svg { max-height: max(240px, calc(100svh - 470px)) }
 .workflow-player[data-mode="entry"] .ab-playback { border: 1px solid var(--wf-edge); border-radius: 12px; margin-top: 10px; overflow: hidden }
-/* Wide screens: the diagram keeps its natural size so labels stay legible; the scenario controls stay under it. */
-@media (min-width: 701px) {
-  .workflow-player[data-mode="entry"] .workflow-stage svg { max-height: none; width: 100%; max-width: 820px }
-}
 
 /* The entry */
 .workflow-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-top: 28px }
