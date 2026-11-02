@@ -1,7 +1,8 @@
 # Publishing ub-agents releases
 
 You publish a release after its release-prep PR merges; release prep itself is a
-loop issue, described in [AGENTS.md](../AGENTS.md#changelog). A maintainer
+loop issue, described in
+[Changelog and releases](development/changelog-and-releases.md#release-preparation). A maintainer
 invokes the [release skill](../.agents/skills/release/SKILL.md), which follows
 this procedure. No loop role publishes a release.
 

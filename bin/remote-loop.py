@@ -14,7 +14,7 @@ def ssh_command(loop, action, host):
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", loop):
         raise ValueError("loop names use lowercase letters, numbers and hyphens")
     if not host:
-        raise ValueError("set UB_AGENTS_REMOTE_HOST in mise.local.toml first; see docs/development.md")
+        raise ValueError("set UB_AGENTS_REMOTE_HOST in mise.local.toml first; see docs/development/checks.md")
     if host.startswith("-") or any(c.isspace() or ord(c) < 32 for c in host):
         raise ValueError("UB_AGENTS_REMOTE_HOST must be an SSH destination such as user@host")
     unit = f"ub-agents@{loop}.service"

@@ -180,7 +180,7 @@ and [.agents/](.agents/).
 - **Found a vulnerability?** Report it privately as [SECURITY.md](SECURITY.md)
   describes, not in an issue.
 
-[AGENTS.md](AGENTS.md) has the checks, conventions, changelog and release rules
+[AGENTS.md](AGENTS.md) indexes the checks, conventions, changelog and release rules
 that people and agents both follow. The roadmap is in the
 [milestones](https://github.com/uberblick-ai/ub-agents/milestones).
 
@@ -200,9 +200,9 @@ mise run ci                 # optional: CI's checks on HEAD in a fresh worktree
 Without mise, `python3 -m venv .venv && .venv/bin/pip install -e .` sets up the
 same `.venv`.
 
-See [development checks](docs/development.md) for the pinned type and complexity
+See [development checks](docs/development/checks.md) for the pinned type and complexity
 checks used locally and in CI, plus the directory welcome card and
-[remote loop shortcuts](docs/development.md#remote-loop-shortcuts).
+[remote loop shortcuts](docs/development/checks.md#remote-loop-shortcuts).
 
 The test runner uses every core by default. Pass test names to run a subset,
 `-j N` to set the worker count, `--durations N` to list the slowest tests and
