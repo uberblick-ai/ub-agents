@@ -39,3 +39,13 @@ The launcher's own run rules, then the shared policy, then the role file, with t
 ## Always current
 
 Before each run, the launcher pulls your default branch and rereads `ub-agents.yaml` and the instruction files, so the next run uses whatever you merged. Keep the launcher's checkout clean.
+
+## Key reference
+
+| Key | Type and default | Rules |
+|---|---|---|
+| `shared-instructions` | Path, optional | Relative to the configuration file, inside the project (including symlink targets) and readable UTF-8. |
+| Agent `instructions` | Path, required with `runtime` | Relative to the configuration file, inside the project and readable UTF-8; reread before each run. |
+
+See the [run prompt contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#run-prompt) for input order and
+[execution boundaries](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#execution-boundaries) for refresh and validation rules.

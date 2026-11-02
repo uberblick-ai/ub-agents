@@ -1748,6 +1748,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                         if not app.reading.follow:
                             app.action_follow()
                             await self.settled(app, output)
+                        await self.ready(app, pilot, lambda: output.allow_vertical_scroll)
                         self.assertEqual(output.scroll_y, output.max_scroll_y)
                         callbacks = []
                         capture = lambda callback, *args: callbacks.append((callback, args))
@@ -2321,9 +2322,19 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(app.reading.anchor, anchor)
             await pilot.press('f')
             with patch.object(app, 'update_status'):
-                for visible in (True, False):
-                    note.display = visible
-                    await pilot.pause()
+                for visible in (not note.display, note.display):
+                    height = output.size.height
+                    resized = asyncio.Event()
+                    on_resize = LogPane.on_resize
+                    def resize_finished(pane):
+                        on_resize(pane)
+                        if pane is output and pane.size.height != height:
+                            resized.set()
+                    # A refresh callback can run before the queued Resize.
+                    # Observe its handler before checking the restored scroll.
+                    with patch.object(LogPane, 'on_resize', resize_finished):
+                        note.display = visible
+                        await asyncio.wait_for(resized.wait(), 5)
                     await self.settled(app, output)
                     self.assertTrue(app.reading.follow)
                     self.assertEqual(output.scroll_y, output.max_scroll_y)
