@@ -17,8 +17,8 @@
         "target": "dependencies",
         "kind": "pill",
         "actor": "Loop picks",
-        "caption": "Trusted bot, fast path to the integrator",
-        "ms": 1800,
+        "caption": "Dependabot adds the dependencies label itself, and that label starts the pick-up: a trusted bot goes straight to the integrator",
+        "ms": 3200,
         "parts": [
           "node-1",
           "edge-0"
@@ -66,8 +66,8 @@
         "target": "dependencies",
         "kind": "pill",
         "actor": "Loop picks",
-        "caption": "Trusted bot, fast path to the integrator",
-        "ms": 1800,
+        "caption": "Dependabot adds the dependencies label itself, and that label starts the pick-up: a trusted bot goes straight to the integrator",
+        "ms": 3200,
         "parts": [
           "node-1",
           "edge-0"
@@ -148,8 +148,8 @@
         "target": "dependencies",
         "kind": "pill",
         "actor": "Loop picks",
-        "caption": "Trusted bot, fast path to the integrator",
-        "ms": 1800,
+        "caption": "Dependabot adds the dependencies label itself, and that label starts the pick-up: a trusted bot goes straight to the integrator",
+        "ms": 3200,
         "parts": [
           "node-1",
           "edge-0"
@@ -230,8 +230,8 @@
         "target": "dependencies",
         "kind": "pill",
         "actor": "Loop picks",
-        "caption": "Trusted bot, fast path to the integrator",
-        "ms": 1800,
+        "caption": "Dependabot adds the dependencies label itself, and that label starts the pick-up: a trusted bot goes straight to the integrator",
+        "ms": 3200,
         "parts": [
           "node-1",
           "edge-0"
