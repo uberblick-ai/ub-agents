@@ -571,6 +571,19 @@ class CoordinationTests(unittest.TestCase):
         self.github.change(2, updated_at=iso(self.now + 1))
         self.assertEqual(self.plan(self.github.item(2)).state, "blocked")
 
+    def test_blocked_pr_clears_after_a_later_accepted_handoff_at_the_same_head(self):
+        lease = self.start(self.github.item(2))
+        self.co.report(lease, "blocked", "PR is a draft", action="Maintainer: mark it ready.")
+        self.co.release(lease, "blocked", "PR is a draft")
+        self.now += 60
+        source = agent(self.root, name="builder")
+        handoff = self.start(self.github.item(1), source)
+        outcome = self.co.report(handoff, "success", "Ready for review", handoff=2, outcome="done")
+        self.assertEqual(self.plan(self.github.item(2)).state, "blocked")
+        self.co.accept(handoff, outcome)
+        self.assertEqual(self.github.item(2).head, lease["assignment_sha"])
+        self.assertEqual(self.plan(self.github.item(2)).state, "ready")
+
     def test_blocked_pr_own_push_before_report_does_not_clear_block(self):
         lease = self.start(self.github.item(2))
         self.github.change(2, head="b" * 40)

@@ -191,6 +191,19 @@ class ApprovalTests(unittest.TestCase):
         self.legacy_record(second=10)
         self.assertFalse(self.check().allowed)
 
+    def test_creation_reported_after_its_edits_still_counts_every_edit(self):
+        for editor, allowed in (("teammate", True), ("outsider", False)):
+            with self.subTest(editor=editor):
+                self.setUp()
+                self.github.content_histories[1] |= {"author": {"login": "teammate"}, "createdAt": at(9)}
+                self.github.content_histories[1]["edits"][0]["editedAt"] = at(9)
+                self.label()
+                self.body_edit(editor, 8)
+                check = self.check()
+                self.assertEqual(check.allowed, allowed, check.reason)
+                if not allowed:
+                    self.assertIn("Outside body edit after approval", check.reason)
+
     def test_clearance_helper_uses_both_timestamps_and_a_strict_boundary_for_each_group(self):
         groups = {
             'comments': [{'id': 1, 'created_at': at(1), 'updated_at': at(4)},

@@ -43,7 +43,7 @@ NAME` starts a fresh set of rounds.
 | Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
 | Stop label detected before the agent process exits | Unchanged | No outcome or label changes; parked by the stop label until resumed with `retry` |
 | Closed issue or closed or merged PR detected before the agent process exits | Unchanged | No outcome or label changes; the closed item needs no further action |
-| Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves or an operator uses `retry`; issues need `retry` |
+| Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves, another run's accepted outcome hands off the PR, or an operator uses `retry`; issues need `retry` |
 | Transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
 | Invalid or rejected success report, unconfirmed cleanup, or unclassified failure | +1 | Blocked; PR head changes or `retry` can resume, except unconfirmed cleanup needs operator action |
@@ -63,9 +63,11 @@ discovery can tell human pauses and interrupts from failures.
 A blocked PR becomes eligible again when its head differs from the blocked run's
 outcome `candidate_sha`, or from its lease's `assignment_sha` when there is no
 outcome. Commits the run pushed before reporting blocked do not clear its block; a
-later push by anyone does. This check writes nothing and resets no attempts or
-backoff, and every other gate still applies. Blocked issues and unchanged PR heads
-need `ub-agents retry`.
+later push by anyone does. An accepted outcome of another run that hands off the PR
+after the block also clears it at an unchanged head, such as an implementer marking
+a draft ready. This check writes nothing and resets no attempts or backoff, and
+every other gate still applies. Blocked issues, and PRs with neither a new head nor
+a later handoff, need `ub-agents retry`.
 
 ## Selection order
 
