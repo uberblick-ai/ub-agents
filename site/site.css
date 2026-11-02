@@ -361,7 +361,7 @@ body:has(> main.workflows) {
 .workflow-adopt .discuss a { justify-content: center; gap: 8px; padding: 10px 12px; border-radius: 9px; font-size: 13.5px; border-color: var(--wf-edge); background: var(--wf-page); color: var(--wf-fg) }
 .workflow-adopt .discuss a:hover { border-color: var(--wf-glow); color: var(--wf-fg) }
 .workflow-adopt .discuss svg { width: 15px; height: 15px }
-.workflow-alt { margin: 10px 2px 0; font-size: 12.5px; color: var(--wf-mute); white-space: nowrap }
+.workflow-alt { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 0; font-size: 12.5px; text-align: center }
 .workflow-alt a { color: var(--wf-glow); text-decoration: none }
 .workflow-alt a:hover { text-decoration: underline }
 .workflow-copy { margin-top: 14px; width: 100%; font: 12px var(--mono); color: var(--wf-fg); background: var(--wf-page); border: 1px solid var(--wf-edge); border-radius: 10px; height: 36px; cursor: pointer }
@@ -378,6 +378,5 @@ body:has(> main.workflows) {
   .workflow-card.workflow-wide .workflow-stage { height: 280px; border-right: 0; border-bottom: 1px solid var(--wf-edge) }
   .workflow-story { grid-template-columns: minmax(0, 1fr); gap: 24px }
   .workflow-adopt { position: static }
-  .workflow-alt { white-space: normal }
 }
 @media (prefers-reduced-motion: reduce) { .workflow-card { transition: none } .workflow-card:hover { transform: none } }
