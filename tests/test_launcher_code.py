@@ -99,9 +99,12 @@ GitHub = lambda repository: fixture
             paths.append(Path(shlex.split(launcher_report_command())[-1]).parent.parent)
             self.assertTrue(paths[-1].is_dir())
             self.assertEqual(len(descriptors()), 1)
+        # This test owns the launcher copy's lifetime, not the independent
+        # cleanup worker, which can otherwise recreate files during teardown.
         with patch("ub_agents.cli.load_config", return_value=config(self.root)), \
                 patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
                 patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.StartupCleanup"), \
                 patch("ub_agents.cli.launch_checks"), patch.object(Loop, "before_claim"), \
                 patch.object(Loop, "launch", side_effect=launch), redirect_stdout(io.StringIO()):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 0)
