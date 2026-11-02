@@ -15,7 +15,8 @@ branch from `gh pr view N --json headRefName`; record the resulting SHA.
 Your own clean base merge needs no new review. Run the declared final checks at
 the resulting head, or `candidate_sha` without a base merge.
 
-Wait for every CI check that runs on that exact head, including your own base merge,
+Unless a declared `merge` outcome lets the launcher wait for an authorized merge,
+wait for every CI check that runs on that exact head, including your own base merge,
 to complete successfully. Pending checks, including a just-pushed head with no checks
 yet, mean wait (`gh pr checks N --watch`). Skip the wait only after confirming from
 the repository's CI configuration and recent default-branch runs that no checks are
@@ -30,9 +31,17 @@ blocked if any `stop-labels` from `ub-agents.yaml` is present. Also confirm the 
 base is the default branch (`gh pr view N --json baseRefName`); a PR stacked on another
 branch would merge the reviewed work into that branch instead.
 
-If merge policy authorizes it and gates pass, merge exactly the verified head
-with the project's method (for example `gh pr merge N --squash
---match-head-commit SHA`). If the merge command fails, check
+If the project's merge policy authorizes this merge, check the declared outcomes in
+the run prompt. When `merged` declares `merge`, report `ub-agents report --outcome
+merged --summary "Policy allows merging SHA"` after your policy judgment and local
+checks. Do not run `gh pr merge` or wait for CI yourself: after you exit, the launcher
+checks the exact reported head, stop labels, all checks and statuses, and mergeability,
+then merges and closes the PR's closing issues. The report records the current PR
+head, including your own base merge, without another report option.
+
+When the outcome has no `merge` key, keep the project's existing procedure: once its
+gates pass, merge exactly the verified head with its merge method (for example
+`gh pr merge N --squash --match-head-commit SHA`). If the merge command fails, check
 `gh pr view N --json state,mergeCommit`; if merged, report `merged`.
 Close the linked issue when completion is satisfied and record
 `ub-agents report --outcome merged --summary "Merged SHA under project policy"`.

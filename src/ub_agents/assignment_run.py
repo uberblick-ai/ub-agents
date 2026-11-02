@@ -12,6 +12,7 @@ from .errors import (AgentError, CheckoutSetupInterrupted, CleanupError, Executi
 from .execution import ScratchDirectory, Workspace, command_for, supervise
 from .hooks import run_hook
 from .launcher_code import descriptors as code_descriptors
+from .merging import LauncherMerge
 from .report_command import launcher_report_command
 from .records import iso
 from .request_stats import request_counts, request_delta
@@ -34,7 +35,7 @@ class AssignmentRun:
         loop = self.loop
         self.lease = lease
         self.reservation = reservation
-        settlement = Settlement(loop.config, loop.github, loop.coordinator, loop.approvals)
+        settlement = Settlement(loop.config, loop.github, loop.coordinator, loop.approvals, LauncherMerge(loop))
         plan = replace(plan, item=replace(plan.item, head_repository=fresh.head_repository,
                                          base_branch=fresh.base_branch))
         self.run_dir = run_directory(loop.config.root.resolve(), lease["run"])
@@ -99,6 +100,7 @@ class AssignmentRun:
             if plan.runtime:
                 self.usage_output = UsageOutput(plan.runtime.cli, self.run_dir, loop.usage, env)
             try:
+                agent_deadline = loop.coordinator.clock() + plan.agent.timeout_seconds
                 code = supervise(command, cwd, env, self.run_dir,
                                  plan.agent.timeout_seconds, loop.interrupt_event,
                                  loop.prompt_for(plan, lease, context, instructions,
@@ -131,7 +133,8 @@ class AssignmentRun:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
             else:
-                result, summary, effect = settlement.reported_verdict(lease, plan, self.outcome, lease, "completion")
+                result, summary, effect = settlement.reported_verdict(lease, plan, self.outcome, lease, "completion",
+                                                                     deadline=agent_deadline)
         except CleanupError as exc:
             loop.observe("process", "unknown", str(exc))
             self.preserve_scratch = True

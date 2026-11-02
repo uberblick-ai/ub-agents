@@ -20,6 +20,11 @@ class FinalizationReads(RateLimitReads):
         self._finalization = None
         self._renewals.clear()
 
+    def refresh_finalization(self):
+        """Merge gates must observe changes made while waiting for GitHub."""
+        if self._finalization is not None:
+            self._finalization.clear()
+
     def _read(self, key, read):
         if self._finalization is None:
             return read()
