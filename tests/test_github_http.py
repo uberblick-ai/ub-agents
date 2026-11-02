@@ -17,10 +17,13 @@ from ub_agents.errors import GitHubError
 from ub_agents.github import GitHub
 from ub_agents.github_http import Token
 from ub_agents.loop import Loop
+from ub_agents.github import response_parts
+from ub_agents.records import records
+from ub_agents.run_config import run_directory
 from ub_agents.run_planning import RunPlanning, _Cancelled
 from ub_agents.startup_cleanup import StartupCleanup
-from tests.test_etags import SequenceRunner, response
-from tests.support import config
+from tests.test_etags import CoordinationRunner, SequenceRunner, response
+from tests.support import FakeGitHub, config, issue, stub_refresh
 
 
 class Reply:
@@ -128,6 +131,7 @@ class GitHubHTTPTests(unittest.TestCase):
                 with self.assertRaises(GitHubError) as raised:
                     github.request('user')
                 self.assertFalse(raised.exception.retryable)
+                self.assertIn('Authentication failed (HTTP 401)', str(raised.exception))
                 self.assertEqual(self.run.call_count, 2)
                 self.assertEqual(len(connection.calls), attempts)
 
@@ -167,6 +171,16 @@ class GitHubHTTPTests(unittest.TestCase):
         self.assertEqual(GitHub('org/project', runner).actor(), 'operator')
         self.run.assert_not_called()
         self.connect.assert_not_called()
+
+    def test_fallback_401_rereads_token_and_can_retry_over_http(self):
+        self.run.side_effect = [subprocess.CompletedProcess([], 1, '', ''), response(401),
+                                subprocess.CompletedProcess([], 0, 'recovered', '')]
+        connection = self.connection(Reply(payload={'login': 'operator'}))
+        github = GitHub('org/project')
+        self.assertEqual(github.actor(), 'operator')
+        self.assertEqual([c.args[0][1] for c in self.run.call_args_list], ['auth', 'api', 'auth'])
+        self.assertEqual(connection.calls[0][2]['headers']['Authorization'], 'Bearer recovered')
+        self.assertEqual((github.gh_calls, github.quota_requests), (2, 2))
 
     def test_http_etags_304_refetch_and_resource_quotas_keep_existing_accounting(self):
         core = [('X-RateLimit-Resource', 'core'), ('X-RateLimit-Remaining', '4000')]
@@ -360,3 +374,64 @@ class GitHubHTTPTests(unittest.TestCase):
                     github.request('user')
                 self.assertEqual(len(connection.calls), 1)
                 self.assertEqual(github.gh_calls, 1)
+
+    def test_http_requests_keep_pass_and_released_event_counter_names_and_values(self):
+        stub_refresh(self)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner = CoordinationRunner(root, True)
+            runner.store = FakeGitHub(issue())
+            output, own, boundaries = [], [], {}
+            connection = self.connection()
+
+            def getresponse():
+                method, target, sent = connection.calls[-1]
+                endpoint = target.lstrip('/')
+                command = ['gh', 'api', '--hostname', 'github.com', '--method', method,
+                           '-H', 'Accept: application/vnd.github+json', '--include', endpoint]
+                if 'If-None-Match' in sent['headers']:
+                    command += ['-H', 'If-None-Match: ' + sent['headers']['If-None-Match']]
+                wire = runner(command, input=sent['body'].decode() if sent['body'] is not None else None)
+                status, headers, payload = response_parts(wire.stdout)
+                own.append((endpoint == 'graphql', status))
+                reply = Reply(status, headers=list(headers.items()))
+                reply.payload = payload.encode()
+                return reply
+
+            connection.getresponse = getresponse
+            loop = Loop(config(root), GitHub('org/project'), 'operator', output=output.append)
+            claim, release = loop.coordinator.claim, loop.coordinator.release
+
+            def claiming(*args, **kwargs):
+                boundaries['claim'] = len(own)
+                return claim(*args, **kwargs)
+
+            def releasing(*args, **kwargs):
+                result = release(*args, **kwargs)
+                boundaries['release'] = len(own)
+                return result
+
+            def execute(*args, **kwargs):
+                self.assertNotIn('sentinel-credential', str(args[2]))
+                loop.coordinator.report(loop.github.lease, 'success', 'Finished', outcome='done')
+                return 0
+
+            with patch.object(loop.coordinator, 'claim', side_effect=claiming), \
+                    patch.object(loop.coordinator, 'release', side_effect=releasing), \
+                    patch('ub_agents.assignment_run.supervise', side_effect=execute):
+                self.assertTrue(loop.tick())
+            lease = records(runner.store.comments(1), 'operator')[0]
+            events = [json.loads(line) for line in (run_directory(root, lease['run']) / 'events.jsonl')
+                      .read_text().splitlines()]
+            released = next(event for event in events if event['event'] == 'released')
+            calls = own[boundaries['claim']:boundaries['release']]
+            self.assertEqual(released['github_requests'], {
+                'gh_calls': len(calls), 'quota_requests': sum(not gql and status != 304 for gql, status in calls),
+                'not_modified_responses': sum(status == 304 for _, status in calls),
+                'graphql_calls': sum(gql for gql, _ in calls)})
+            self.assertTrue(any('gh calls=' in line and 'GraphQL calls=' in line for line in output))
+            self.assertNotIn('sentinel-credential', '\n'.join(output) + json.dumps(events))
+            for path in run_directory(root, lease['run']).rglob('*'):
+                if path.is_file():
+                    self.assertNotIn(b'sentinel-credential', path.read_bytes())
+            self.run.assert_called_once()

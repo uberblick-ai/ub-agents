@@ -408,8 +408,8 @@ class GitHub:
         # setup, doctor and recording fakes, without reading a real credential.
         credential = token.get() if self.runner is None else None
         status, headers, payload, result = self._exchange(command, endpoint, method, data, cached, credential)
-        if status == 401 and credential is not None:
-            refreshed = token.get(rejected=credential)
+        if status == 401 and self.runner is None:
+            refreshed = token.refresh(credential)
             if refreshed is not None and refreshed != credential:
                 status, headers, payload, result = self._exchange(command, endpoint, method, data, cached, refreshed)
         return self._checked_response(endpoint, method, status, headers, payload, result)
@@ -464,6 +464,8 @@ class GitHub:
         self.rate_limited |= is_rate_limit(status, headers, result.stderr + payload)
         if result.returncode or (status is not None and status >= 400):
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
+            if status == 401:
+                detail = f"Authentication failed (HTTP 401); check gh auth status: {detail}"
             limited = is_rate_limit(status, headers, detail + " " + payload)
             retryable, reset_at = failure_retry(status, headers, detail + " " + payload if limited else detail)
             if status is None and result.returncode == 4:

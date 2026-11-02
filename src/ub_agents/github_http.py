@@ -26,15 +26,24 @@ class Token:
         self._value = None
         self._secrets = set()
 
-    def get(self, rejected=None):
+    def get(self):
+        with self._lock:
+            if not self._loaded:
+                self._load()
+            return self._value
+
+    def refresh(self, rejected):
         with self._lock:
             # Another reader may already have replaced the rejected credential.
-            if not self._loaded or (rejected is not None and rejected == self._value):
-                self._value = self._read()
-                self._loaded = True
-                if self._value:
-                    self._secrets.add(self._value)
+            if rejected == self._value:
+                self._load()
             return self._value
+
+    def _load(self):
+        self._value = self._read()
+        self._loaded = True
+        if self._value:
+            self._secrets.add(self._value)
 
     def redact(self, text):
         with self._lock:
