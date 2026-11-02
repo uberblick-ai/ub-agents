@@ -85,6 +85,10 @@ def skipped_summary(checks):
 
 
 def area_summary(checks):
+    # Approvals can be resolved locally even though the rest of GitHub is offline.
+    remote = [check for check in checks if check["id"] != "approvals"]
+    if remote and all(check["status"] == "skip" and "offline:" in check["message"] for check in remote):
+        return "skip", "offline"
     counts = Counter(check["status"] for check in checks)
     if counts["skip"] == len(checks):
         return "skip", skipped_summary(checks)
@@ -117,13 +121,17 @@ def verdict(result, elapsed):
     return f"All {passed} checks passed in {elapsed:.1f}s."
 
 
-def render_area(console, area, checks, width, verbose):
+def area_name(area):
+    return area if area == "GitHub" else area.capitalize()
+
+
+def render_area(console, area, checks, width, verbose=False, *, details=True):
     summary_checks = [check for check in checks if check["id"] != "launcher-installation"]
     if not summary_checks:
         return
     status, summary = area_summary(summary_checks)
     symbol, style = SYMBOLS[status]
-    name = area if area == "GitHub" else area.capitalize()
+    name = area_name(area)
     if summary[0].isdigit() and len(summary.split(" ", 1)[0]) == 1:
         summary = " " + summary
     line = Text("  ")
@@ -132,28 +140,52 @@ def render_area(console, area, checks, width, verbose):
     if status == "skip":
         line.stylize("dim")
     console.print(line)
+    if not details:
+        return
     for check in checks:
         if verbose or check["status"] in {"warn", "fail"}:
             render_check(console, check, verbose)
+
+
+def output_console(stream=None):
+    stream = sys.stdout if stream is None else stream
+    terminal = stream.isatty() and not os.environ.get("CI") and "NO_COLOR" not in os.environ
+    return Console(file=stream, force_terminal=terminal, markup=False, highlight=False, soft_wrap=True)
+
+
+def render_header(console, result):
+    console.print(header(result))
+    launcher = result.get("launcher")
+    if launcher and launcher.get("configuration_pause"):
+        console.print(configuration_pause_summary(launcher["configuration_pause"]))
+    console.print()
+
+
+def group_checks(result, areas):
+    check_areas = {id: area for area, ids in areas.items() for id in ids}
+    groups = {area: [] for area in areas}
+    for check in result["checks"]:
+        groups[check_areas[check["id"].split(":", 1)[0]]].append(check)
+    return groups
+
+
+def render_verdict(console, result, elapsed):
+    console.print()
+    console.print(verdict(result, elapsed))
 
 
 def render(result, areas, json_output=False, verbose=False, *, elapsed=0.0):
     if json_output:
         print(json.dumps(result, indent=2))
         return
-    terminal = sys.stdout.isatty() and not os.environ.get("CI") and "NO_COLOR" not in os.environ
-    console = Console(file=sys.stdout, force_terminal=terminal, markup=False, highlight=False, soft_wrap=True)
-    console.print(header(result))
-    launcher = result.get("launcher")
-    if launcher and launcher.get("configuration_pause"):
-        console.print(configuration_pause_summary(launcher["configuration_pause"]))
-    console.print()
-    check_areas = {id: area for area, ids in areas.items() for id in ids}
-    groups = {area: [] for area in areas}
-    for check in result["checks"]:
-        groups[check_areas[check["id"].split(":", 1)[0]]].append(check)
+    console = output_console()
+    render_header(console, result)
+    groups = group_checks(result, areas)
     width = max(len(area) for area in areas)
     for area, checks in groups.items():
-        render_area(console, area, checks, width, verbose)
-    console.print()
-    console.print(verdict(result, elapsed))
+        if verbose:
+            console.print(f"  {area_name(area)}")
+            for check in checks:
+                render_check(console, check, True)
+        render_area(console, area, checks, width, details=not verbose)
+    render_verdict(console, result, elapsed)

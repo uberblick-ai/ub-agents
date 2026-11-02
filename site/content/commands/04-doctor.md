@@ -10,14 +10,26 @@ ub-agents doctor --json      # the same results, machine readable
 
 ## Results
 
-Doctor shows one aligned line per area, with problems and their fixes underneath:
+Doctor prints the header and any configuration pause first. It then checks Machine,
+Configuration, GitHub and Runtimes in order, printing each area's summary, problems
+and fixes as soon as its last check finishes. Each area finishes before the next
+starts; probes run one at a time.
+
+On a terminal, one spinner line below the finished results names the area and the
+step doctor is waiting on, such as `reading labels`, `codex auth for implementer`
+or `starting MCP server uberblick-product for implementer`. Only that line is
+rewritten. It is erased before a result is printed and when doctor exits, including
+on an error or Ctrl-C. Pipes and CI have no spinner; finished areas are flushed
+immediately so their logs stream too.
+
+The completed output looks like this:
 
 ```text
 uberblick-ai/ub-agents · ub-agents from source (updates need the Homebrew tap) · no launcher running
 
-  ✓ Machine          7 passed
-  ✓ Configuration   12 passed
-  ! GitHub           8 passed, 7 labels, 1 warning
+  ✓ Machine          5 passed
+  ✓ Configuration   10 passed
+  ! GitHub          12 passed, 7 labels, 1 warning
       ! Launcher account bk-one has admin, so agents can start and approve their own work
         → Use a dedicated launcher account with the write repository role
   ! Runtimes        19 passed, 2 warnings
@@ -31,9 +43,15 @@ uberblick-ai/ub-agents · ub-agents from source (updates need the Homebrew tap) 
 
 `✓` means passed, `!` warnings, `✗` failures and `–` skipped. When an entire area
 was skipped for one reason, that reason appears once, such as `offline` or
-`skipped, needs gh`. Check ids appear only with `--verbose`, which lists every
-check under its area, and in `--json`. Terminal symbols use colour; pipes, CI and
+`skipped, needs gh`. With `--verbose`, a plain area heading appears when the area
+starts, each check streams beneath it with its id, and the summary closes the area.
+Check ids also appear in `--json`, which prints once after all probes finish with
+the same schema. Terminal symbols use colour; pipes, CI and
 `NO_COLOR` produce plain text.
+
+Machine includes process inspection. Configuration includes writable `.ub-agents/`
+state and its Git ignore rule. The control-checkout checks and `approvals` appear
+under GitHub because they use the repository response.
 
 The last line gives the verdict and elapsed time. A clean result reads
 `All 48 checks passed in 6.4s.` Required failures read
@@ -59,7 +77,12 @@ In `--json`, the top-level `launcher` is an object with `pid`, `host` and
 `started_at` (UTC), or `null` when none is running. Only the held lock counts;
 leftover owner records do not show a running launcher.
 
-When workflow labels are missing, doctor offers to create them, except with `--json`, `--offline` or outside a terminal. It rechecks the labels after creation and prints the areas, remaining problems and verdict again. A missing stop label or [`outside-input`](/docs/configuration/approvals.html#outside-input-label) label is only a warning.
+When workflow labels are missing, doctor offers to create them after the verdict,
+except with `--json`, `--offline` or outside a terminal. After creation it rechecks
+the labels, prints only the GitHub area summary with any remaining problems and
+fixes, then prints a new verdict. A missing stop label or
+[`outside-input`](/docs/configuration/approvals.html#outside-input-label) label is
+only a warning.
 
 Doctor also warns about starter placeholders left in your shared policy, such as `@org/maintainers` or `<project test command>`, and a `## Merging` section still identical to the starter.
 
@@ -100,6 +123,8 @@ from being probed. To make the launcher wait for a required service, configure a
 `--offline` skips GitHub, the agent CLIs and MCP probes, reporting MCP checks as
 `skip`. It checks the configuration, instruction files and repository. Use it
 after editing `ub-agents.yaml`, or in CI without GitHub credentials.
+Areas stream in the same order. The GitHub summary reads `offline`, including
+when the approval policy can be checked locally.
 
 ```text
 {{help doctor}}

@@ -15,12 +15,22 @@ from unittest.mock import patch
 from ub_agents.cli import main
 from ub_agents.config import load_config
 from ub_agents.coordination import Coordinator
-from ub_agents.doctor import diagnose, render
+from ub_agents.doctor import AREAS, CHECK_AREAS, Doctor, diagnose, render
+from ub_agents.doctor_progress import DoctorProgress
 from ub_agents.errors import AgentError
 from ub_agents.execution import repository_checks
 from ub_agents.github import GitHub
 from ub_agents.launcher_lock import launcher_lock
 from tests.support import DoctorGitHub, RecordingDiscussionRunner, RecordingRunner, issue, isolate_observations
+
+
+class FlushedOutput(io.StringIO):
+    def __init__(self):
+        super().__init__()
+        self.flushed = []
+
+    def flush(self):
+        self.flushed.append(self.getvalue())
 
 
 class DoctorTests(unittest.TestCase):
@@ -110,6 +120,135 @@ agents:
         code, output = self.cli(True)
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output), result)
+
+    def test_areas_stream_and_flush_after_their_last_check_before_next_probe(self):
+        self.github.roles['operator'] = 'admin'
+        for offline in (False, True):
+            with self.subTest(offline=offline):
+                output = FlushedOutput()
+                doctor = Doctor(runner=self.runner, which=self.which, github=self.github)
+                events, completed = [], []
+                with DoctorProgress(AREAS, stream=output) as renderer:
+                    def progress(event, area, value):
+                        events.append((event, area))
+                        if event == 'check':
+                            self.assertEqual(CHECK_AREAS[value['id'].split(':')[0]], area)
+                            self.assertEqual(doctor.checks[-1].id, value['id'])
+                            self.assertNotIn(f'  ✓ {area.capitalize()}', output.getvalue())
+                        elif event == 'area-start':
+                            if completed:
+                                self.assertIn(completed[-1], output.flushed[-1])
+                            else:
+                                self.assertTrue(output.flushed[-1].startswith('org/project ·'))
+                        elif event == 'area-end':
+                            self.assertEqual(value[-1]['id'], doctor.checks[-1].id)
+                            completed.append('GitHub' if area == 'GitHub' else area.capitalize())
+                        renderer(event, area, value)
+
+                    result = doctor.run(self.path, offline=offline, progress=progress)
+                    renderer.finish(result, 1.0)
+                self.assertEqual(events[0], ('header', None))
+                boundaries = [(event, area) for event, area in events if event.startswith('area-')]
+                self.assertEqual(boundaries, [(event, area) for area in AREAS
+                                             for event in ('area-start', 'area-end')])
+                self.assertEqual(completed, ['Machine', 'Configuration', 'GitHub', 'Runtimes'])
+                self.assertEqual(result, self.diagnose(offline=offline))
+                self.assertNotRegex(output.getvalue(), r'[\x00-\x08\x0b-\x1f\x7f]')
+                if offline:
+                    self.assertIn('  – GitHub          offline\n', output.getvalue())
+                else:
+                    self.assertIn('Use a dedicated launcher account', output.getvalue())
+
+    def test_area_map_and_probe_order(self):
+        self.assertEqual(CHECK_AREAS['process-inspection'], 'machine')
+        for id in ('local-state', 'local-state-ignored'):
+            self.assertEqual(CHECK_AREAS[id], 'configuration')
+        for id in ('approvals', 'control-checkout', 'control-checkout-branch',
+                   'control-checkout-dirty', 'control-checkout-origin'):
+            self.assertEqual(CHECK_AREAS[id], 'GitHub')
+        for offline in (False, True):
+            result = self.diagnose(offline=offline)
+            areas = [CHECK_AREAS[check['id'].split(':')[0]] for check in result['checks']]
+            self.assertEqual(areas, sorted(areas, key=list(AREAS).index))
+        commands = [command for command, _ in self.runner.calls]
+        self.assertEqual(commands[0], ('ps', '-axo', 'pid=,pgid=,stat='))
+        self.assertLess(commands.index(('git', '-C', str(self.root), 'check-ignore', '-q', '.ub-agents/')),
+                        commands.index(('codex', 'login', 'status')))
+
+    def test_verbose_streams_each_check_between_area_heading_and_summary(self):
+        output = FlushedOutput()
+        doctor = Doctor(runner=self.runner, which=self.which, github=self.github)
+        with DoctorProgress(AREAS, verbose=True, stream=output) as renderer:
+            def progress(event, area, value):
+                renderer(event, area, value)
+                if event == 'check':
+                    text = output.flushed[-1]
+                    self.assertIn(f"        id: {value['id']}\n", text)
+                    heading = 'GitHub' if area == 'GitHub' else area.capitalize()
+                    self.assertLess(text.index(f'  {heading}\n'), text.index(f"id: {value['id']}\n"))
+                    self.assertNotRegex(text, f'  [✓!✗–] {heading}')
+            result = doctor.run(self.path, progress=progress)
+            renderer.finish(result, 0)
+        for check in result['checks']:
+            self.assertEqual(output.getvalue().count(f"        id: {check['id']}\n"), 1)
+        self.assertLess(output.getvalue().index('id: runtime-auth:'), output.getvalue().index('  ✓ Runtimes'))
+
+    def test_progress_labels_name_github_auth_and_mcp_probes_before_they_run(self):
+        self.path.write_text(self.path.read_text().replace('runtime-args: [--sandbox, danger-full-access]',
+            'runtime-args: [--sandbox, danger-full-access, -c, mcp_servers.example.command=server]'))
+        labels = []
+        def progress(event, area, value):
+            if event == 'step':
+                labels.append((area, value))
+        def runner(command, **kwargs):
+            if command == ['codex', 'login', 'status']:
+                self.assertEqual(labels[-1], ('runtimes', 'codex auth for worker'))
+            return self.runner(command, **kwargs)
+        def mcp(*args, **kwargs):
+            self.assertEqual(labels[-1], ('runtimes', 'starting MCP server example for worker'))
+            return 3, None
+        original_labels = self.github.labels
+        def github_labels():
+            self.assertEqual(labels[-1], ('GitHub', 'reading labels'))
+            return original_labels()
+        with patch.object(self.github, 'labels', side_effect=github_labels), \
+                patch('ub_agents.doctor_mcp.probe_stdio', side_effect=mcp) as probe:
+            Doctor(runner=runner, which=self.which, github=self.github).run(self.path, progress=progress)
+        probe.assert_called_once()
+        for label in ('reading authenticated account', 'reading repository',
+                      'reading repository role for operator', 'checking the control checkout'):
+            self.assertIn(('GitHub', label), labels)
+
+    def test_terminal_spinner_erases_on_probe_error_and_ctrl_c_and_joins_thread(self):
+        for error in (RuntimeError('probe broke'), KeyboardInterrupt()):
+            with self.subTest(error=type(error).__name__):
+                output = FlushedOutput()
+                output.isatty = lambda: True
+                with patch.dict(os.environ, {'CI': ''}):
+                    renderer = DoctorProgress(AREAS, stream=output)
+                def runner(command, **kwargs):
+                    if command == ['codex', 'login', 'status']:
+                        self.assertIn('codex auth for worker', output.getvalue())
+                        raise error
+                    return self.runner(command, **kwargs)
+                with self.assertRaises(type(error)), renderer:
+                    Doctor(runner=runner, which=self.which, github=self.github).run(self.path, progress=renderer)
+                self.assertTrue(output.getvalue().endswith('\r\x1b[2K'))
+                self.assertFalse(renderer.spinner.thread.is_alive())
+
+    def test_terminal_spinner_clears_before_finished_lines_and_on_success(self):
+        output = FlushedOutput()
+        output.isatty = lambda: True
+        with patch.dict(os.environ, {'CI': ''}), DoctorProgress(AREAS, stream=output) as renderer:
+            doctor = Doctor(runner=self.runner, which=self.which, github=self.github)
+            result = doctor.run(self.path, progress=renderer)
+            renderer.finish(result, 0)
+        # Strip styles, leaving the single-line erase sequences to check ordering.
+        text = re.sub(r'\x1b\[[0-9;]*m', '', output.getvalue())
+        for area in ('Machine', 'Configuration', 'GitHub', 'Runtimes'):
+            self.assertIn(f'\r\x1b[2K  ✓ {area}', text)
+        self.assertTrue(text.endswith('All 26 checks passed in 0.0s.\n'))
+        self.assertFalse(renderer.spinner.thread.is_alive())
 
     def test_launcher_is_informational_online_offline_and_in_every_output_mode(self):
         (self.root / ".ub-agents").mkdir()
@@ -301,9 +440,9 @@ launchers: [operator]
         self.assertTrue(all(c["status"] == "ok" for c in result["checks"] if c["id"] != "launcher-installation"))
         self.assertEqual(len(self.checks(result, "github-label")), 4)
         expected = ("org/project · ub-agents from source (updates need the Homebrew tap) · no launcher running\n\n"
-                    "  ✓ Machine          7 passed\n"
-                    "  ✓ Configuration   11 passed\n"
-                    "  ✓ GitHub           5 passed, 4 labels\n"
+                    "  ✓ Machine          5 passed\n"
+                    "  ✓ Configuration    9 passed\n"
+                    "  ✓ GitHub           9 passed, 4 labels\n"
                     "  ✓ Runtimes        20 passed\n\n"
                     "All 47 checks passed in 0.0s.\n")
         self.assertEqual(self.capture(result), expected)
@@ -332,7 +471,7 @@ launchers: [operator]
         self.assertIn("starts reviewer on an issue", label_line)
         self.assertEqual(default.count("      ✗ Label ready "), 1)
         self.assertIn("      ! Launcher account operator has admin", default)
-        self.assertIn("  ✗ GitHub           4 passed, 1 failure, 3 warnings\n", default)
+        self.assertIn("  ✗ GitHub           8 passed, 1 failure, 3 warnings\n", default)
         self.assertIn("  ✗ Runtimes         3 failures, 1 skipped\n", default)
         self.assertEqual(self.cli()[0], 1)
         self.assertEqual(self.cli(verbose=True)[0], 1)
@@ -343,7 +482,7 @@ launchers: [operator]
         output = self.capture(result)
         self.assertIn("      ✗ gh is not on PATH\n        → Install GitHub CLI", output)
         self.assertIn("  – GitHub          skipped, needs gh\n", output)
-        self.assertIn("  ✓ Configuration    4 passed, 2 skipped\n", output)
+        self.assertIn("  ✓ Configuration    6 passed\n", output)
         self.assertNotIn("skip github-auth", output)
         self.assertEqual(self.cli()[0], self.cli(verbose=True)[0])
         self.assertEqual(output.splitlines()[-1], self.capture(result, verbose=True).splitlines()[-1])
@@ -357,7 +496,7 @@ launchers: [operator]
 ''')
         self.missing.add("codex")
         output = self.capture(self.diagnose())
-        self.assertIn("  ✓ Configuration    8 passed, 1 skipped\n", output)
+        self.assertIn("  ✓ Configuration    6 passed, 1 skipped\n", output)
         self.assertIn("  ! Runtimes         4 passed, 1 warning, 1 skipped\n", output)
         self.assertNotIn("skip instructions", output)
         self.assertNotIn("skip runtime-auth", output)
@@ -397,8 +536,10 @@ launchers: [operator]
         for check in checks:
             self.assertEqual(output.count(f"        id: {check['id']}\n"), 1)
             self.assertNotIn(check['id'], self.capture(result))
-        self.assertLess(output.index('  ✗ GitHub'), output.index('id: github-label:ready'))
-        self.assertLess(output.index('  – Runtimes'), output.index('id: runtime-auth:worker'))
+        self.assertLess(output.index('  GitHub\n'), output.index('id: github-label:ready'))
+        self.assertLess(output.index('id: github-label:ready'), output.index('  ✗ GitHub'))
+        self.assertLess(output.index('  Runtimes\n'), output.index('id: runtime-auth:worker'))
+        self.assertLess(output.index('id: runtime-auth:worker'), output.index('  – Runtimes'))
         self.assertIn('      – worker · codex:model-a:high: executable unavailable', output)
         self.assertNotIn('remedy: None', output)
 
@@ -705,6 +846,10 @@ launchers: [operator]
                 self.assertEqual(self.github.reads.count('user'), 1)
                 self.assertEqual(output.count('      ✗ Label ready '), 1)
                 self.assertIn('Created label ready on org/project.', output)
+                for area in ('Machine', 'Configuration', 'Runtimes'):
+                    self.assertEqual(len(re.findall(f'  [✓!✗–] {area} ', output)), 1)
+                self.assertEqual(len(re.findall('  [✓!✗–] GitHub ', output)), 2)
+                self.assertEqual(output.count('org/project ·'), 1)
                 self.assertEqual(output.splitlines()[-1], 'All 26 checks passed in 0.0s.')
 
     def test_confirmed_creation_never_changes_existing_labels(self):
