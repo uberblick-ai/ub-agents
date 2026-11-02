@@ -426,8 +426,8 @@ def workflow_adopt(workflow):
         article = (f'<div class="workflow-article"><span>Read the story</span>'
                    f'<a href="{story[1]}">{html.escape(story[0])} →</a></div>')
     return ('<aside class="workflow-adopt" aria-label="Adopt this workflow">'
-            '<p class="workflow-adopt-head">Adopt this workflow</p>'
-            f'{discuss(name, "Open in:")}'
+            '<p class="workflow-adopt-head">Adopt this workflow, discuss with</p>'
+            f'{discuss(name, "")}'
             f'<p class="workflow-alt">No desktop app? <a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}">Use claude.ai</a></p>'
             f'<button class="workflow-copy" type="button" data-prompt="{html.escape(prompt)}">Copy the prompt</button>'
             f'{article}</aside>')

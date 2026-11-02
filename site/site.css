@@ -356,8 +356,11 @@ body:has(> main.workflows) {
 /* The last section says where a person steps in. */
 .workflow-prose h2:last-of-type ~ p { border-left: 2px solid var(--wf-amber); padding: 4px 0 4px 14px; color: color-mix(in srgb, var(--wf-amber) 45%, var(--wf-fg)) }
 .workflow-adopt { align-self: start; position: sticky; top: 20px; background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 12px; padding: 24px }
-.workflow-adopt-head { margin: 0 0 12px; font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--wf-mute) }
-.workflow-adopt .discuss { margin-left: 0; flex-wrap: wrap; font-size: 13px; color: var(--wf-mute) }
+.workflow-adopt-head { margin: 0 0 12px; font: 500 11px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--wf-mute) }
+.workflow-adopt .discuss { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 }
+.workflow-adopt .discuss a { justify-content: center; gap: 8px; padding: 10px 12px; border-radius: 9px; font-size: 13.5px; border-color: var(--wf-edge); background: var(--wf-page); color: var(--wf-fg) }
+.workflow-adopt .discuss a:hover { border-color: var(--wf-glow); color: var(--wf-fg) }
+.workflow-adopt .discuss svg { width: 15px; height: 15px }
 .workflow-alt { margin: 10px 2px 0; font-size: 12.5px; color: var(--wf-mute); white-space: nowrap }
 .workflow-alt a { color: var(--wf-glow); text-decoration: none }
 .workflow-alt a:hover { text-decoration: underline }
