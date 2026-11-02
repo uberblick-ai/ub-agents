@@ -382,8 +382,8 @@ def workflow_card(workflow, here):
 
 def workflow_gallery():
     here = 'workflows/index.html'
-    description = ('One loop from ub-agents init, and the changes we make to it. '
-                   'Each one plays its runs and ends with a prompt to adopt it.')
+    description = ('A gallery of loops run in the real world, '
+                   'including the default loop on a fresh ub-agents init.')
     groups = ''
     for i, group in enumerate(WORKFLOW_GROUPS):
         cards = ''.join(workflow_card(w, here) for w in WORKFLOWS if w['group'] == i)
@@ -393,8 +393,9 @@ def workflow_gallery():
                    f'<div class="workflow-grid">{cards}</div></section>')
     body = ('<section class="workflow-hero"><p class="workflow-kick">Workflow gallery</p>'
             '<h1>Loops we <em>actually run</em></h1>'
-            '<p>One loop from <code>ub-agents init</code>, and the changes we make to it. '
-            'Each one plays its runs and ends with a prompt to adopt it.</p></section>' + groups)
+            '<p>A gallery of loops run in the real world, including the default loop on a fresh '
+            f'<code>ub-agents init</code>. Read more about <a href="{rel("docs/how-the-loop-works.html", here)}">'
+            'how the loop works</a>.</p></section>' + groups)
     return workflow_shell(here, 'Workflows', description, body)
 
 LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" '

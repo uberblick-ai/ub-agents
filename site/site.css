@@ -295,7 +295,8 @@ body:has(> main.workflows) {
 .workflow-kick { margin: 0; font: 500 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--wf-glow) }
 .workflow-hero h1 { font: 600 clamp(28px, 3.6vw, 42px)/1.05 var(--sans); letter-spacing: -.02em; margin: 14px 0 }
 .workflow-hero h1 em { font-style: normal; background: linear-gradient(90deg, var(--wf-glow), var(--wf-amber)); -webkit-background-clip: text; background-clip: text; color: transparent }
-.workflow-hero p:not(.workflow-kick) { color: var(--wf-mute); font-size: 16px; max-width: 58ch; margin: 0 }
+.workflow-hero p:not(.workflow-kick) { color: var(--wf-mute); font-size: 16px; margin: 0 }
+.workflow-hero p a { color: var(--wf-fg); text-decoration-color: var(--wf-glow) }
 .workflow-hero p code { font-size: 15px; color: var(--wf-fg); background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 6px; padding: 1px 6px }
 .workflow-group h2 { display: flex; align-items: center; gap: 12px; margin: 52px 0 12px; font: 500 13px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--wf-fg) }
 .workflow-group h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--wf-edge), transparent) }
