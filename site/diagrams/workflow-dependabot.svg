@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" data-ab-play="workflow-dependabot" viewBox="0 0 900 427" width="900" height="427" role="img" aria-label="Flow: Dependabot, dependencies, integrator, human, needs-changes, implementer, Merged · minor or patch. Legend: dependencies: GitHub label, agent role, a person decides">
+<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" data-ab-play="workflow-dependabot" viewBox="0 0 894 442" width="894" height="442" role="img" aria-label="Flow: Dependabot, dependencies, integrator, human, needs-changes, implementer, Merged · minor or patch. Legend: dependencies: GitHub label, agent role, a person decides">
 <style>.ab.ab-auto{--bg:var(--ab-bg,#ffffff);--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--neutral:var(--ab-neutral,#59616c);--neutral-bg:var(--ab-neutral-bg,#e1e3e6);--agent:var(--ab-agent,#3e6563);--agent-bg:var(--ab-agent-bg,#e7eeed);--system:var(--ab-system,#4f5d76);--system-bg:var(--ab-system-bg,#ebedf3);--rework:var(--ab-rework,#806752);--rework-bg:var(--ab-rework-bg,#f3f0eb);--stop:var(--ab-stop,#815f5a);--stop-bg:var(--ab-stop-bg,#ede6e5);--done:var(--ab-done,#536e5a);--done-bg:var(--ab-done-bg,#e8ede9);}@media (prefers-color-scheme:dark){.ab.ab-auto{--bg:var(--ab-bg,#171c24);--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--neutral:var(--ab-neutral,#b6bbc3);--neutral-bg:var(--ab-neutral-bg,#303640);--agent:var(--ab-agent,#85aaa5);--agent-bg:var(--ab-agent-bg,#232d2b);--system:var(--ab-system,#98a5bf);--system-bg:var(--ab-system-bg,#262a31);--rework:var(--ab-rework,#b29d87);--rework-bg:var(--ab-rework-bg,#2c2720);--stop:var(--ab-stop,#ac8c88);--stop-bg:var(--ab-stop-bg,#2b2221);--done:var(--ab-done,#95b09c);--done-bg:var(--ab-done-bg,#222a24);}}
 .ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
 .ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
@@ -19,55 +19,56 @@
 <marker id="workflow-dependabot-rework" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-rework"/></marker>
 <marker id="workflow-dependabot-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
 </defs>
-<g data-ab-part="edge-0"><path d="M405,62 L405,92" class="e e-ink"/></g>
-<g data-ab-part="edge-1"><path d="M405,126 L405,164" class="e e-ink"/></g>
-<g data-ab-part="edge-2"><path d="M405,225 L405,331" class="e e-ink"/></g>
-<g data-ab-part="edge-3"><path d="M287,195 L181,195" class="e e-rework"/></g>
-<g data-ab-part="edge-4"><path d="M116,212 L116,255" class="e e-rework"/></g>
-<g data-ab-part="edge-5"><path d="M215,278 L251,278 L251,205 L287,205" class="e e-rework"/></g>
-<g data-ab-part="edge-6"><path d="M522,195 L694,195" class="e e-stop"/></g>
-<g data-ab-part="edge-0"><path d="M405,62 L405,92" class="arrow" marker-end="url(#workflow-dependabot-ink)"/></g>
-<g data-ab-part="edge-1"><path d="M405,126 L405,164" class="arrow" marker-end="url(#workflow-dependabot-ink)"/></g>
-<g data-ab-part="edge-2"><path d="M405,225 L405,331" class="arrow" marker-end="url(#workflow-dependabot-ink)"/></g>
-<g data-ab-part="edge-3"><path d="M287,195 L181,195" class="arrow" marker-end="url(#workflow-dependabot-rework)"/></g>
-<g data-ab-part="edge-4"><path d="M116,212 L116,255" class="arrow" marker-end="url(#workflow-dependabot-rework)"/></g>
-<g data-ab-part="edge-5"><path d="M251,205 L287,205" class="arrow" marker-end="url(#workflow-dependabot-rework)"/></g>
-<g data-ab-part="edge-6"><path d="M522,195 L694,195" class="arrow" marker-end="url(#workflow-dependabot-stop)"/></g>
+<g data-ab-part="edge-0"><path d="M399,62 L399,92" class="e e-ink"/></g>
+<g data-ab-part="edge-1"><path d="M399,126 L399,164" class="e e-ink"/></g>
+<g data-ab-part="edge-2"><path d="M399,225 L399,346" class="e e-ink"/></g>
+<g data-ab-part="edge-3"><path d="M281,195 L175,195" class="e e-rework"/></g>
+<g data-ab-part="edge-4"><path d="M110,212 L110,255" class="e e-rework"/></g>
+<g data-ab-part="edge-5"><path d="M203,286 L242,286 L242,205 L281,205" class="e e-rework"/></g>
+<g data-ab-part="edge-6"><path d="M516,195 L688,195" class="e e-stop"/></g>
+<g data-ab-part="edge-0"><path d="M399,62 L399,92" class="arrow" marker-end="url(#workflow-dependabot-ink)"/></g>
+<g data-ab-part="edge-1"><path d="M399,126 L399,164" class="arrow" marker-end="url(#workflow-dependabot-ink)"/></g>
+<g data-ab-part="edge-2"><path d="M399,225 L399,346" class="arrow" marker-end="url(#workflow-dependabot-ink)"/></g>
+<g data-ab-part="edge-3"><path d="M281,195 L175,195" class="arrow" marker-end="url(#workflow-dependabot-rework)"/></g>
+<g data-ab-part="edge-4"><path d="M110,212 L110,255" class="arrow" marker-end="url(#workflow-dependabot-rework)"/></g>
+<g data-ab-part="edge-5"><path d="M242,205 L281,205" class="arrow" marker-end="url(#workflow-dependabot-rework)"/></g>
+<g data-ab-part="edge-6"><path d="M516,195 L688,195" class="arrow" marker-end="url(#workflow-dependabot-stop)"/></g>
 <g data-ab-part="node-0"><g>
-<rect x="287" y="16" width="235" height="46" rx="8" class="k-agent"/>
-<text x="405" y="35" text-anchor="middle" class="m s13 b t-agent">Dependabot</text>
-<text x="405" y="52" text-anchor="middle" class="s11 muted">opens a pull request</text>
+<rect x="281" y="16" width="235" height="46" rx="8" class="k-agent"/>
+<text x="399" y="35" text-anchor="middle" class="m s13 b t-agent">Dependabot</text>
+<text x="399" y="52" text-anchor="middle" class="s11 muted">opens a pull request</text>
 </g></g>
-<g data-ab-part="node-1"><g><rect x="344" y="92" width="122" height="34" rx="17" class="pill"/>
-<circle cx="358" cy="109" r="5" class="t-agent"/>
-<text x="370" y="113" class="m s12">dependencies</text></g></g>
+<g data-ab-part="node-1"><g><rect x="338" y="92" width="122" height="34" rx="17" class="pill"/>
+<circle cx="352" cy="109" r="5" class="t-agent"/>
+<text x="364" y="113" class="m s12">dependencies</text></g></g>
 <g data-ab-part="node-2"><g>
-<rect x="287" y="164" width="235" height="61" rx="8" class="k-agent"/>
-<text x="405" y="183" text-anchor="middle" class="m s13 b t-agent">integrator</text>
-<text x="405" y="200" text-anchor="middle" class="s11 muted">reads the title and the diff, runs</text>
-<text x="405" y="215" text-anchor="middle" class="s11 muted">the gates</text>
+<rect x="281" y="164" width="235" height="61" rx="8" class="k-agent"/>
+<text x="399" y="183" text-anchor="middle" class="m s13 b t-agent">integrator</text>
+<text x="399" y="200" text-anchor="middle" class="s11 muted">reads the title and the diff, runs</text>
+<text x="399" y="215" text-anchor="middle" class="s11 muted">the gates</text>
 </g></g>
-<g data-ab-part="node-3"><g><rect x="51" y="178" width="130" height="34" rx="17" class="pill"/>
-<circle cx="65" cy="195" r="5" class="t-rework"/>
-<text x="77" y="199" class="m s12">needs-changes</text></g></g>
+<g data-ab-part="node-3"><g><rect x="45" y="178" width="130" height="34" rx="17" class="pill"/>
+<circle cx="59" cy="195" r="5" class="t-rework"/>
+<text x="71" y="199" class="m s12">needs-changes</text></g></g>
 <g data-ab-part="node-4"><g>
-<rect x="16" y="255" width="199" height="46" rx="8" class="k-agent"/>
-<text x="116" y="274" text-anchor="middle" class="m s13 b t-agent">implementer</text>
-<text x="116" y="291" text-anchor="middle" class="s11 muted">one fix round, then a review</text>
+<rect x="16" y="255" width="187" height="61" rx="8" class="k-agent"/>
+<text x="110" y="274" text-anchor="middle" class="m s13 b t-agent">implementer</text>
+<text x="110" y="291" text-anchor="middle" class="s11 muted">one fix round, back to the</text>
+<text x="110" y="306" text-anchor="middle" class="s11 muted">integrator</text>
 </g></g>
-<g data-ab-part="node-5"><rect x="308" y="331" width="194" height="34" rx="17" class="k-done"/>
-<text x="405" y="352" text-anchor="middle" class="s12 b t-done">Merged · minor or patch</text></g>
-<g data-ab-part="node-6"><g><rect x="694" y="164" width="190" height="137" rx="10" class="k-stop panel"/>
-<rect x="732" y="208" width="115" height="30" rx="15" class="pill"/>
-<circle cx="746" cy="223" r="5" class="t-stop"/>
-<text x="758" y="227" class="m s12">needs-human</text>
-<text x="789" y="257" text-anchor="middle" class="s12 b">A person decides</text></g></g>
-<g data-ab-part="edge-1"><text x="415" y="149" class="m s11">trigger</text></g>
-<g data-ab-part="edge-2"><text x="415" y="282" class="m s11">gates green</text></g>
-<g data-ab-part="edge-3"><text x="277" y="188" text-anchor="end" class="m s11 t-rework">a gate failed</text></g>
-<g data-ab-part="edge-6"><text x="532" y="188" class="m s11 t-stop">major, or still failing</text></g>
-<line x1="8" y1="381" x2="892" y2="381" class="rule"/>
-<g><rect x="16" y="395" width="104" height="20" rx="10" class="pill"/><circle cx="23" cy="405" r="3" class="t-done"/><text x="31" y="409" class="m s11">dependencies</text><text x="126" y="409" class="s11 muted">GitHub label</text></g>
-<g><rect x="219" y="399" width="24" height="12" rx="3" class="k-agent"/><text x="249" y="409" class="s11 muted">agent role</text></g>
-<g><rect x="330" y="399" width="24" height="12" rx="3" class="k-stop panel"/><text x="360" y="409" class="s11 muted">a person decides</text></g>
+<g data-ab-part="node-5"><rect x="302" y="346" width="194" height="34" rx="17" class="k-done"/>
+<text x="399" y="367" text-anchor="middle" class="s12 b t-done">Merged · minor or patch</text></g>
+<g data-ab-part="node-6"><g><rect x="688" y="164" width="190" height="152" rx="10" class="k-stop panel"/>
+<rect x="726" y="215" width="115" height="30" rx="15" class="pill"/>
+<circle cx="740" cy="230" r="5" class="t-stop"/>
+<text x="752" y="234" class="m s12">needs-human</text>
+<text x="783" y="264" text-anchor="middle" class="s12 b">A person decides</text></g></g>
+<g data-ab-part="edge-1"><text x="409" y="149" class="m s11">trigger</text></g>
+<g data-ab-part="edge-2"><text x="409" y="290" class="m s11">minor or patch, gates green</text></g>
+<g data-ab-part="edge-3"><text x="271" y="188" text-anchor="end" class="m s11 t-rework">a gate failed</text></g>
+<g data-ab-part="edge-6"><text x="526" y="188" class="m s11 t-stop">major, or still failing</text></g>
+<line x1="8" y1="396" x2="886" y2="396" class="rule"/>
+<g><rect x="16" y="410" width="104" height="20" rx="10" class="pill"/><circle cx="23" cy="420" r="3" class="t-done"/><text x="31" y="424" class="m s11">dependencies</text><text x="126" y="424" class="s11 muted">GitHub label</text></g>
+<g><rect x="219" y="414" width="24" height="12" rx="3" class="k-agent"/><text x="249" y="424" class="s11 muted">agent role</text></g>
+<g><rect x="330" y="414" width="24" height="12" rx="3" class="k-stop panel"/><text x="360" y="424" class="s11 muted">a person decides</text></g>
 </svg>

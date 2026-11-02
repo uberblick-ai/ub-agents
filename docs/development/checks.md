@@ -52,6 +52,13 @@ mise only reads a trusted `mise.toml`, and every fresh worktree is a new path, s
 agent runs `mise trust` in its own worktree before its first `mise` command. That is
 expected and needs no approval.
 
+CLI fixtures using `isolate_observations` or `isolate_runtime_state` keep real
+startup-cleanup sweeps and join their threads during test cleanup, before removing
+fixture directories. Other tests that start real sweeps use `join_startup_cleanup`.
+Shutdown tests must release any held sweep before that join; launcher shutdown
+itself still returns without joining stalled reads. A worker that outlives its
+fixture fails the test, and directory cleanup errors remain visible.
+
 ## Remote loop shortcuts
 
 The checkout includes a mise convenience task for hosts running the per-loop

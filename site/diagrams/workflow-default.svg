@@ -81,7 +81,7 @@
 <g data-ab-part="node-6"><g>
 <rect x="278" y="452" width="199" height="46" rx="8" class="k-agent"/>
 <text x="378" y="471" text-anchor="middle" class="m s13 b t-agent">reviewer</text>
-<text x="378" y="488" text-anchor="middle" class="s11 muted">reviews the exact head SHA</text>
+<text x="378" y="488" text-anchor="middle" class="s11 muted">reviews the exact commit</text>
 </g></g>
 <g data-ab-part="node-7"><g><rect x="309" y="536" width="137" height="34" rx="17" class="pill"/>
 <circle cx="323" cy="553" r="5" class="t-done"/>

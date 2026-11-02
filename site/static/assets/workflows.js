@@ -92,6 +92,10 @@ for (const container of document.querySelectorAll('.workflow-player')) {
     ? mountPreview(container, svg, timelines)
     : mountEntry(container, svg, timelines, urls));
 }
+// On phones the entry diagram scrolls sideways; start it centred on the main path.
+for (const stage of document.querySelectorAll('.workflow-player[data-mode="entry"] .workflow-stage')) {
+  stage.scrollLeft = (stage.scrollWidth - stage.clientWidth) / 2;
+}
 window.addEventListener('pagehide', event => {
   if (!event.persisted) cleanups.forEach(cleanup => cleanup());
 });

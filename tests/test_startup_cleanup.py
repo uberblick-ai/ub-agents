@@ -18,13 +18,14 @@ from ub_agents.execution import Workspace, git
 from ub_agents.github import GitHub
 from ub_agents.records import timestamp
 from ub_agents.startup_cleanup import StartupCleanup, sweep
-from tests.support import FakeGitHub, agent, config, issue, pr
+from tests.support import FakeGitHub, agent, config, issue, join_startup_cleanup, pr
 
 
 class StartupCleanupTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        join_startup_cleanup(self)
         parent = Path(temp.name).resolve()
         self.root = parent / "checkout"
         self.root.mkdir()
