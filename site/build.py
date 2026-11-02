@@ -26,7 +26,7 @@ SECTIONS = [  # (title, content entry, kind)
     ('Upgrading', 'upgrading.md', 'page'),
 ]
 WORKFLOW_GROUPS = [  # The wall: one section per group; a hero workflow gets the wide card.
-    {'title': 'Default after ub-agents init', 'repo': 'one command, any repository',
+    {'title': 'Default after ub-agents init',
      'blurb': 'The one full loop on this page: five roles, the labels, and a person at every hard decision. '
               'Every workflow below is a change to it.'},
     {'title': 'Uberblick', 'repo': 'uberblick-ai/uberblick-2 · public',
@@ -387,8 +387,8 @@ def workflow_gallery():
     groups = ''
     for i, group in enumerate(WORKFLOW_GROUPS):
         cards = ''.join(workflow_card(w, here) for w in WORKFLOWS if w['group'] == i)
-        groups += (f'<section class="workflow-group"><h2>{html.escape(group["title"])}'
-                   f'<span class="workflow-repo">{html.escape(group["repo"])}</span></h2>'
+        repo = f'<span class="workflow-repo">{html.escape(group["repo"])}</span>' if group.get('repo') else ''
+        groups += (f'<section class="workflow-group"><h2>{html.escape(group["title"])}{repo}</h2>'
                    f'<p class="workflow-blurb">{html.escape(group["blurb"])}</p>'
                    f'<div class="workflow-grid">{cards}</div></section>')
     body = ('<section class="workflow-hero"><p class="workflow-kick">Workflow gallery</p>'
