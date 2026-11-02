@@ -42,6 +42,7 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(page.count('class="workflow-card'), 2)
         self.assertEqual(page.count('class="workflow-card workflow-wide"'), 1)
         self.assertEqual(page.count('class="workflow-group"'), len(build.WORKFLOW_GROUPS))
+        self.assertIn('Built on ub-agents, a minimal agent loop for experienced developers', page)
         self.assertEqual(page.count('data-mode="preview"'), 2)
         self.assertNotIn('<details class="side"', page)
         self.assertIn('href="default/"', page)
@@ -51,6 +52,12 @@ class SiteTests(unittest.TestCase):
             self.assertIn(workflow['intent'], html.unescape(page))
         ids = Links(page).ids
         self.assertEqual(len(ids), len(set(ids)), 'gallery SVG ids must be unique')
+
+    def test_workflow_pages_name_no_project_that_runs_them(self):
+        for path, page in build.workflow_pages():
+            text = html.unescape(re.sub(r'<svg.*?</svg>|<script.*?</script>', '', page, flags=re.S))
+            for project in ('We run it on', 'uberblick-2', 'CampfireFM'):
+                self.assertNotIn(project, text, path)
 
     def test_workflow_scenarios_have_urls_and_native_playback_data(self):
         expected = {'default': ['clean-merge', 'one-fix-round', 'a-person-decides'],
@@ -95,8 +102,10 @@ class SiteTests(unittest.TestCase):
             self.assertIn('diff before writing anything', prompt)
             for heading in ('Why it exists', 'What you gain', 'Where a person steps in'):
                 self.assertIn(heading, page)
-            adopt = [link for link in Links(page).hrefs if link.startswith(('claude://', 'https://claude.ai/new'))]
-            self.assertEqual(len(adopt), 2)
+            adopt = [link for link in Links(page).hrefs
+                     if link.startswith(('claude://', 'https://claude.ai/new', 'codex://'))]
+            self.assertEqual(len(adopt), 3)
+            self.assertIn('codex://new?prompt=', page)
             for link in adopt:
                 self.assertEqual(unquote(link.split('=', 1)[1]), prompt)
             self.assertIn(f'data-prompt="{html.escape(prompt)}"', page)

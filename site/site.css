@@ -315,6 +315,7 @@ body:has(> main.workflows) {
 .workflow-card.workflow-wide .workflow-meta { display: flex; flex-direction: column; justify-content: center; padding: 24px 28px }
 .workflow-card.workflow-wide h3 { font-size: 22px }
 .workflow-card.workflow-wide .workflow-intent { font-size: 15px }
+.workflow-about { margin: 10px 0 0; color: var(--wf-faint); font-size: 13px; line-height: 1.5 }
 
 /* Diagrams and ablauf's controls */
 .workflow-player { --ab-bg: transparent; --ab-ink: var(--wf-fg); --ab-muted: var(--wf-mute); --ab-line: var(--wf-edge); --ab-surface: var(--wf-panel); --ab-band: var(--wf-panel) }
@@ -358,6 +359,8 @@ body:has(> main.workflows) {
 .workflow-cta:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -12px color-mix(in srgb, var(--wf-glow) 80%, transparent); text-decoration: none }
 .workflow-cta span { transition: transform .2s }
 .workflow-cta:hover span { transform: translateX(4px) }
+.workflow-cta-alt { margin-top: 12px; color: var(--wf-fg); background: var(--wf-page); border: 1px solid var(--wf-edge); box-shadow: none }
+.workflow-cta-alt:hover { border-color: var(--wf-glow); box-shadow: 0 10px 30px -14px color-mix(in srgb, var(--wf-glow) 50%, transparent) }
 .workflow-alt { margin: 10px 2px 0; font-size: 12.5px; color: var(--wf-mute); white-space: nowrap }
 .workflow-alt a { color: var(--wf-glow); text-decoration: none }
 .workflow-alt a:hover { text-decoration: underline }
@@ -366,7 +369,6 @@ body:has(> main.workflows) {
 .workflow-article { display: block; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--wf-edge); color: var(--wf-amber); text-decoration: none; font-size: 14px }
 .workflow-article:hover { text-decoration: underline }
 .workflow-article span { display: block; margin-bottom: 6px; font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--wf-faint) }
-.workflow-runs { margin: 14px 0 0; font: 12px/1.5 var(--mono); color: var(--wf-faint) }
 .workflow-footnote { margin: 40px 0 0; padding-top: 16px; border-top: 1px solid var(--wf-edge); font-size: 12.5px; color: var(--wf-faint) }
 .workflow-footnote a { color: var(--wf-mute); text-decoration: underline; text-decoration-color: var(--wf-edge) }
 .workflow-footnote a:hover { color: var(--wf-fg) }

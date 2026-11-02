@@ -29,19 +29,17 @@ WORKFLOW_GROUPS = [  # The wall: one section per group; a hero workflow gets the
     {'title': 'Default after ub-agents init',
      'blurb': 'The one full loop on this page: five roles, the labels, and a person at every hard decision. '
               'Every workflow below is a change to it.'},
-    {'title': 'Uberblick', 'repo': 'uberblick-ai/uberblick-2 · public',
-     'blurb': 'How we build Uberblick itself. Every issue starts from the product pages in our workspace, '
-              'Codex writes the code, and a different model reviews it.'},
+    {'title': 'Changes to the default loop',
+     'blurb': 'Each workflow here starts from the default loop and changes a trigger, a label or the merge policy.'},
 ]
 WORKFLOWS = [
     {'name': 'default', 'group': 0, 'hero': True, 'title': 'The default ub-agents loop',
-     'intent': 'Label an issue. Get back a reviewed, merged pull request.'},
+     'intent': 'Label an issue. Get back a reviewed, merged pull request.', 'about': True},
     {'name': 'dependabot', 'group': 1, 'title': 'Dependabot on autopilot',
      'intent': "Patch and minor bumps merge on their own once the tests pass, without anyone opening the PR. "
                "Majors, and failures one fix round can't settle, wait for you.",
      'article': ('Letting agents auto-merge Dependabot pull requests',
-                 'https://uberblick.ai/blog/2026/agents-auto-merge-dependabot'),
-     'runs': 'Uberblick'},
+                 'https://uberblick.ai/blog/2026/agents-auto-merge-dependabot')},
 ]
 ABOUT_UB_AGENTS = ('a minimal agent loop for experienced developers: '
                    'plain GitHub labels, your own coding agents, nothing to host.')
@@ -64,12 +62,18 @@ def inline(text):
     s = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', s)
     return re.sub(r'\x00(\d+)\x00', lambda m: codes[int(m.group(1))], s)
 
+def prompt_links(name):
+    """The prompt in site/prompts/NAME.md, and the links that open it in Claude Code and in Codex."""
+    prompt = ' '.join((ROOT / 'prompts' / f'{name}.md').read_text().split())
+    q = urllib.parse.quote(prompt, safe='')
+    return prompt, f'claude://code/new?q={q}', f'codex://new?prompt={q}'
+
 def discuss(name):
     """Buttons that open site/prompts/NAME.md in Claude Code or Codex."""
-    q = urllib.parse.quote(' '.join((ROOT / 'prompts' / f'{name}.md').read_text().split()), safe='')
+    _, claude, codex = prompt_links(name)
     icon = {cli: (ROOT / 'icons' / f'{cli}.svg').read_text().strip() for cli in ('claude', 'openai')}
-    return (f'<span class="discuss">Discuss with:<a class="claude" href="claude://code/new?q={q}" title="Opens the Claude desktop app">{icon["claude"]}Claude</a>'
-            f'<a href="codex://new?prompt={q}" title="Opens the Codex app">{icon["openai"]}Codex</a></span>')
+    return (f'<span class="discuss">Discuss with:<a class="claude" href="{claude}" title="Opens the Claude desktop app">{icon["claude"]}Claude</a>'
+            f'<a href="{codex}" title="Opens the Codex app">{icon["openai"]}Codex</a></span>')
 
 def slug(text):
     return re.sub(r'[^a-z0-9]+', '-', re.sub(r'<[^>]+>', '', text).lower()).strip('-')
@@ -378,7 +382,9 @@ def workflow_card(workflow, here):
     return (f'<a class="workflow-card{wide}" href="{rel("workflows/" + workflow["name"] + "/", here)}">'
             f'{workflow_player(workflow, here, preview=True)}'
             f'<div class="workflow-meta"><h3>{html.escape(workflow["title"])}</h3>'
-            f'<p class="workflow-intent">{html.escape(workflow["intent"])}</p></div></a>')
+            f'<p class="workflow-intent">{html.escape(workflow["intent"])}</p>'
+            + (f'<p class="workflow-about">Built on ub-agents, {html.escape(ABOUT_UB_AGENTS)}</p>' if workflow.get('about') else '')
+            + '</div></a>')
 
 def workflow_gallery():
     here = 'workflows/index.html'
@@ -404,22 +410,21 @@ LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke
              '<path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>')
 
 def workflow_adopt(workflow):
-    """Open the workflow's prompt in Claude Code or on claude.ai, or copy it."""
-    prompt = ' '.join((ROOT / 'prompts' / f'workflow-{workflow["name"]}.md').read_text().split())
-    q = urllib.parse.quote(prompt, safe='')
-    extra = ''
-    if article := workflow.get('article'):
-        extra += (f'<a class="workflow-article" href="{article[1]}"><span>Read the story</span>'
-                  f'{html.escape(article[0])} →</a>')
-    if runs := workflow.get('runs'):
-        extra += f'<p class="workflow-runs">We run it on: {html.escape(runs)}</p>'
+    """Open the workflow's prompt in Claude Code, on claude.ai or in Codex, or copy it."""
+    prompt, claude, codex = prompt_links(f'workflow-{workflow["name"]}')
+    article = ''
+    if story := workflow.get('article'):
+        article = (f'<a class="workflow-article" href="{story[1]}"><span>Read the story</span>'
+                   f'{html.escape(story[0])} →</a>')
     return ('<aside class="workflow-adopt" aria-label="Adopt this workflow">'
-            '<p class="workflow-adopt-head">Adopt it with Claude</p>'
-            f'<a class="workflow-cta" href="claude://code/new?q={q}" title="Opens the Claude desktop app">'
+            '<p class="workflow-adopt-head">Adopt this workflow</p>'
+            f'<a class="workflow-cta" href="{claude}" title="Opens the Claude desktop app">'
             'Open in Claude Code <span aria-hidden="true">→</span></a>'
-            f'<p class="workflow-alt">No desktop app? <a href="https://claude.ai/new?q={q}">Use claude.ai</a></p>'
+            f'<p class="workflow-alt">No desktop app? <a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}">Use claude.ai</a></p>'
+            f'<a class="workflow-cta workflow-cta-alt" href="{codex}" title="Opens the Codex app">'
+            'Open in Codex <span aria-hidden="true">→</span></a>'
             f'<button class="workflow-copy" type="button" data-prompt="{html.escape(prompt)}">Copy the prompt</button>'
-            f'{extra}</aside>')
+            f'{article}</aside>')
 
 def workflow_entry(workflow, scenario=''):
     name = workflow['name']
