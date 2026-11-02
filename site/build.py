@@ -413,8 +413,8 @@ def workflow_adopt(workflow):
     prompt, claude, codex = prompt_links(f'workflow-{workflow["name"]}')
     article = ''
     if story := workflow.get('article'):
-        article = (f'<a class="workflow-article" href="{story[1]}"><span>Read the story</span>'
-                   f'{html.escape(story[0])} →</a>')
+        article = (f'<div class="workflow-article"><span>Read the story</span>'
+                   f'<a href="{story[1]}">{html.escape(story[0])} →</a></div>')
     return ('<aside class="workflow-adopt" aria-label="Adopt this workflow">'
             '<p class="workflow-adopt-head">Adopt this workflow</p>'
             f'<a class="workflow-cta" href="{claude}" title="Opens the Claude desktop app">'

@@ -365,8 +365,9 @@ body:has(> main.workflows) {
 .workflow-alt a:hover { text-decoration: underline }
 .workflow-copy { margin-top: 14px; width: 100%; font: 12px var(--mono); color: var(--wf-fg); background: var(--wf-page); border: 1px solid var(--wf-edge); border-radius: 10px; height: 36px; cursor: pointer }
 .workflow-copy:hover { border-color: var(--wf-faint) }
-.workflow-article { display: block; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--wf-edge); color: var(--wf-amber); text-decoration: none; font-size: 14px }
-.workflow-article:hover { text-decoration: underline }
+.workflow-article { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--wf-edge); font-size: 14px }
+.workflow-article a { color: var(--wf-amber); text-decoration: none }
+.workflow-article a:hover { text-decoration: underline }
 .workflow-article span { display: block; margin-bottom: 6px; font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--wf-faint) }
 .workflow-footnote { margin: 40px 0 0; padding-top: 16px; border-top: 1px solid var(--wf-edge); font-size: 12.5px; color: var(--wf-faint) }
 .workflow-footnote a { color: var(--wf-mute); text-decoration: underline; text-decoration-color: var(--wf-edge) }
