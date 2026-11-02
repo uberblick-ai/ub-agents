@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" data-ab-play="workflow-milestone-branches" viewBox="0 0 1248 702" width="1248" height="702" role="img" aria-label="Flow: Team member, issue-preparer, implementer, create the branch, reviewer + integrator, update the branch, description, human, Milestone branch, Milestone PR, In main · deployed. Legend: team member, agent role, milestone branch, a person decides">
+<style>.ab.ab-auto{--bg:var(--ab-bg,#ffffff);--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--neutral:var(--ab-neutral,#59616c);--neutral-bg:var(--ab-neutral-bg,#e1e3e6);--agent:var(--ab-agent,#3e6563);--agent-bg:var(--ab-agent-bg,#e7eeed);--system:var(--ab-system,#4f5d76);--system-bg:var(--ab-system-bg,#ebedf3);--rework:var(--ab-rework,#806752);--rework-bg:var(--ab-rework-bg,#f3f0eb);--stop:var(--ab-stop,#815f5a);--stop-bg:var(--ab-stop-bg,#ede6e5);--done:var(--ab-done,#536e5a);--done-bg:var(--ab-done-bg,#e8ede9);}@media (prefers-color-scheme:dark){.ab.ab-auto{--bg:var(--ab-bg,#171c24);--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--neutral:var(--ab-neutral,#b6bbc3);--neutral-bg:var(--ab-neutral-bg,#303640);--agent:var(--ab-agent,#85aaa5);--agent-bg:var(--ab-agent-bg,#232d2b);--system:var(--ab-system,#98a5bf);--system-bg:var(--ab-system-bg,#262a31);--rework:var(--ab-rework,#b29d87);--rework-bg:var(--ab-rework-bg,#2c2720);--stop:var(--ab-stop,#ac8c88);--stop-bg:var(--ab-stop-bg,#2b2221);--done:var(--ab-done,#95b09c);--done-bg:var(--ab-done-bg,#222a24);}}
+.ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
+.ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
+.ab .muted{fill:var(--muted)}.ab .b{font-weight:600}
+.ab .cap{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.08em;fill:var(--muted)}
+.ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
+.ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
+.ab .knockout{fill:none;stroke:var(--bg);stroke-width:5.6}.ab .knockout-band{stroke:var(--band)}
+.ab .arrow{fill:none;stroke:none}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-neutral{fill:var(--neutral)}.ab .e-neutral{stroke:var(--neutral)}.ab .k-neutral{fill:var(--neutral-bg);stroke:var(--neutral);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-system{fill:var(--system)}.ab .e-system{stroke:var(--system)}.ab .k-system{fill:var(--system-bg);stroke:var(--system);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}
+.ab.ab-auto{--play:var(--ab-play,#0a7a60);}@media (prefers-color-scheme:dark){.ab.ab-auto{--play:var(--ab-play,#6ff0cf);}}.ab[data-ab-play="workflow-milestone-branches"].ab-in-progress [data-ab-part]:not(.ab-current):not(.ab-played):not(:has(.gap)){opacity:.3}.ab[data-ab-play="workflow-milestone-branches"].ab-in-progress [data-ab-part]:not(.ab-current):not(.ab-played):has(.gap) text{opacity:.3}
+.ab[data-ab-play="workflow-milestone-branches"] [data-ab-part]{color:var(--play)}.ab[data-ab-play="workflow-milestone-branches"] [data-ab-part]:has(circle.t-agent){color:var(--agent)}.ab[data-ab-play="workflow-milestone-branches"] [data-ab-part]:has(circle.t-system){color:var(--system)}.ab[data-ab-play="workflow-milestone-branches"] [data-ab-part]:has(circle.t-done){color:var(--done)}.ab[data-ab-play="workflow-milestone-branches"] [data-ab-part]:has(circle.t-rework){color:var(--rework)}.ab[data-ab-play="workflow-milestone-branches"] [data-ab-part]:has(circle.t-stop){color:var(--stop)}.ab[data-ab-play="workflow-milestone-branches"] :is(.k-agent,.e-agent){color:var(--agent)}.ab[data-ab-play="workflow-milestone-branches"] :is(.k-system,.e-system){color:var(--system)}.ab[data-ab-play="workflow-milestone-branches"] :is(.k-done,.e-done){color:var(--done)}.ab[data-ab-play="workflow-milestone-branches"] :is(.k-rework,.e-rework){color:var(--rework)}.ab[data-ab-play="workflow-milestone-branches"] :is(.k-stop,.e-stop){color:var(--stop)}.ab[data-ab-play="workflow-milestone-branches"] [data-ab-part].ab-current :is(rect:not(.gap),.decision,.e){filter:drop-shadow(0 0 var(--ab-play-glow,6px) color-mix(in srgb,currentColor 55%,transparent));stroke-width:2.2}.ab[data-ab-play="workflow-milestone-branches"].ab-playing [data-ab-part].ab-current .e{stroke-dasharray:8 6;animation:ab-run-77-6f-72-6b-66-6c-6f-77-2d-6d-69-6c-65-73-74-6f-6e-65-2d-62-72-61-6e-63-68-65-73 .7s linear infinite}@keyframes ab-run-77-6f-72-6b-66-6c-6f-77-2d-6d-69-6c-65-73-74-6f-6e-65-2d-62-72-61-6e-63-68-65-73{from{stroke-dashoffset:0}to{stroke-dashoffset:-14}}.ab[data-ab-play="workflow-milestone-branches"].ab-playing [data-ab-part]:not(:has(.gap)),.ab[data-ab-play="workflow-milestone-branches"].ab-playing [data-ab-part] text{transition:opacity .35s ease}@media (prefers-reduced-motion:reduce){.ab[data-ab-play="workflow-milestone-branches"].ab-playing [data-ab-part].ab-current .e{animation:none}.ab[data-ab-play="workflow-milestone-branches"].ab-playing [data-ab-part]:not(:has(.gap)),.ab[data-ab-play="workflow-milestone-branches"].ab-playing [data-ab-part] text{transition:none}}</style>
+<defs>
+<marker id="workflow-milestone-branches-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
+<marker id="workflow-milestone-branches-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-muted"/></marker>
+<marker id="workflow-milestone-branches-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
+</defs>
+
+<rect x="8" y="385" width="1232" height="271" class="band"/>
+<line x1="8" y1="385" x2="1240" y2="385" class="rule"/>
+<g data-ab-part="edge-0"><path d="M390,62 L390,100" class="e e-ink"/></g>
+<g data-ab-part="edge-1"><path d="M390,161 L390,199" class="e e-ink"/></g>
+<g data-ab-part="edge-2"><path d="M390,260 L390,298" class="e e-ink"/></g>
+<g data-ab-part="edge-3"><path d="M390,359 L390,425" class="e e-ink"/></g>
+<g data-ab-part="edge-4"><path d="M504,219 L722,219" class="e e-ink"/></g>
+<g data-ab-part="edge-5"><path d="M722,240 L504,240" class="e e-ink"/></g>
+<g data-ab-part="edge-6"><path d="M219,448 L275,448" class="e e-muted dash"/></g>
+<g data-ab-part="edge-7"><path d="M504,318 L722,318" class="e e-ink"/></g>
+<g data-ab-part="edge-8"><path d="M722,339 L504,339" class="e e-ink"/></g>
+<g data-ab-part="edge-9"><path d="M933,329 L1111,329 L1111,411" class="e e-stop"/></g>
+<g data-ab-part="edge-10"><path d="M390,471 L390,515" class="e e-muted dash"/></g>
+<g data-ab-part="edge-11"><path d="M989,546 L504,546" class="e e-stop"/></g>
+<g data-ab-part="edge-12"><path d="M390,576 L390,614" class="e e-ink"/></g>
+<g data-ab-part="edge-0"><path d="M390,62 L390,100" class="arrow" marker-end="url(#workflow-milestone-branches-ink)"/></g>
+<g data-ab-part="edge-1"><path d="M390,161 L390,199" class="arrow" marker-end="url(#workflow-milestone-branches-ink)"/></g>
+<g data-ab-part="edge-2"><path d="M390,260 L390,298" class="arrow" marker-end="url(#workflow-milestone-branches-ink)"/></g>
+<g data-ab-part="edge-3"><path d="M390,359 L390,425" class="arrow" marker-end="url(#workflow-milestone-branches-ink)"/></g>
+<g data-ab-part="edge-4"><path d="M504,219 L722,219" class="arrow" marker-end="url(#workflow-milestone-branches-ink)"/></g>
+<g data-ab-part="edge-5"><path d="M722,240 L504,240" class="arrow" marker-end="url(#workflow-milestone-branches-ink)"/></g>
+<g data-ab-part="edge-6"><path d="M219,448 L275,448" class="arrow" marker-end="url(#workflow-milestone-branches-muted)"/></g>
+<g data-ab-part="edge-7"><path d="M504,318 L722,318" class="arrow" marker-end="url(#workflow-milestone-branches-ink)"/></g>
+<g data-ab-part="edge-8"><path d="M722,339 L504,339" class="arrow" marker-end="url(#workflow-milestone-branches-ink)"/></g>
+<g data-ab-part="edge-9"><path d="M1111,329 L1111,411" class="arrow" marker-end="url(#workflow-milestone-branches-stop)"/></g>
+<g data-ab-part="edge-10"><path d="M390,471 L390,515" class="arrow" marker-end="url(#workflow-milestone-branches-muted)"/></g>
+<g data-ab-part="edge-11"><path d="M989,546 L504,546" class="arrow" marker-end="url(#workflow-milestone-branches-stop)"/></g>
+<g data-ab-part="edge-12"><path d="M390,576 L390,614" class="arrow" marker-end="url(#workflow-milestone-branches-ink)"/></g>
+<text x="20" y="22" class="cap">EACH ISSUE</text>
+<text x="20" y="407" class="cap">THE MILESTONE</text>
+<g data-ab-part="node-0"><g>
+<rect x="275" y="16" width="229" height="46" rx="8" class="k-neutral"/>
+<text x="390" y="35" text-anchor="middle" class="m s13 b t-neutral">Team member</text>
+<text x="390" y="52" text-anchor="middle" class="s11 muted">files an issue in a milestone</text>
+</g></g>
+<g data-ab-part="node-1"><g>
+<rect x="275" y="100" width="229" height="61" rx="8" class="k-agent"/>
+<text x="390" y="119" text-anchor="middle" class="m s13 b t-agent">issue-preparer</text>
+<text x="390" y="136" text-anchor="middle" class="s11 muted">prepares it, attaches the ready</text>
+<text x="390" y="151" text-anchor="middle" class="s11 muted">label</text>
+</g></g>
+<g data-ab-part="node-2"><g>
+<rect x="275" y="199" width="229" height="61" rx="8" class="k-agent"/>
+<text x="390" y="218" text-anchor="middle" class="m s13 b t-agent">implementer</text>
+<text x="390" y="235" text-anchor="middle" class="s11 muted">builds the change, opens its PR</text>
+<text x="390" y="250" text-anchor="middle" class="s11 muted">into the milestone branch</text>
+</g></g>
+<g data-ab-part="node-3"><g>
+<rect x="722" y="199" width="211" height="61" rx="8" class="k-agent"/>
+<text x="828" y="218" text-anchor="middle" class="m s13 b t-agent">create the branch</text>
+<text x="828" y="235" text-anchor="middle" class="s11 muted">from main, on the milestone's</text>
+<text x="828" y="250" text-anchor="middle" class="s11 muted">first issue</text>
+</g></g>
+<g data-ab-part="node-4"><g>
+<rect x="275" y="298" width="229" height="61" rx="8" class="k-agent"/>
+<text x="390" y="317" text-anchor="middle" class="m s13 b t-agent">reviewer + integrator</text>
+<text x="390" y="334" text-anchor="middle" class="s11 muted">merges the PR into the milestone</text>
+<text x="390" y="349" text-anchor="middle" class="s11 muted">branch, closes the issue</text>
+</g></g>
+<g data-ab-part="node-5"><g>
+<rect x="722" y="298" width="211" height="61" rx="8" class="k-agent"/>
+<text x="828" y="317" text-anchor="middle" class="m s13 b t-agent">update the branch</text>
+<text x="828" y="334" text-anchor="middle" class="s11 muted">merges main into the milestone</text>
+<text x="828" y="349" text-anchor="middle" class="s11 muted">branch</text>
+</g></g>
+<g data-ab-part="node-6"><g>
+<rect x="275" y="425" width="229" height="46" rx="8" class="k-system"/>
+<text x="390" y="444" text-anchor="middle" class="m s13 b t-system">Milestone branch</text>
+<text x="390" y="461" text-anchor="middle" class="s11 muted">one preview of every landed issue</text>
+</g></g>
+<g data-ab-part="node-7"><g><rect x="16" y="411" width="203" height="74" rx="10" class="k-muted panel"/>
+<text x="118" y="436" text-anchor="middle" class="s12 b">Milestone description</text>
+<text x="118" y="454" text-anchor="middle" class="s11">names the milestone branch</text>
+<text x="118" y="472" text-anchor="middle" class="s11 muted">and its preview URL</text></g></g>
+<g data-ab-part="node-8"><g>
+<rect x="275" y="515" width="229" height="61" rx="8" class="k-neutral"/>
+<text x="390" y="534" text-anchor="middle" class="m s13 b t-neutral">Milestone PR</text>
+<text x="390" y="551" text-anchor="middle" class="s11 muted">from the milestone branch into</text>
+<text x="390" y="566" text-anchor="middle" class="s11 muted">main</text>
+</g></g>
+<g data-ab-part="node-9"><rect x="305" y="614" width="170" height="34" rx="17" class="k-done"/>
+<text x="390" y="635" text-anchor="middle" class="s12 b t-done">In main · deployed</text></g>
+<g data-ab-part="node-10"><g><rect x="989" y="411" width="243" height="237" rx="10" class="k-stop panel"/>
+<text x="1111" y="502" text-anchor="middle" class="s12 b">The team decides</text>
+<text x="1111" y="520" text-anchor="middle" class="s11">tries the milestone preview</text>
+<text x="1111" y="538" text-anchor="middle" class="s11 muted">decides to release the milestone</text>
+<line x1="1005" y1="550" x2="1216" y2="550" class="rule"/>
+<text x="1111" y="570" text-anchor="middle" class="s11 muted">resolves a conflict with main</text></g></g>
+<g data-ab-part="edge-0"><text x="400" y="85" class="m s11">needs-preparation</text></g>
+<g data-ab-part="edge-1"><text x="400" y="184" class="m s11">ready</text></g>
+<g data-ab-part="edge-2"><text x="400" y="283" class="m s11">handed-off</text></g>
+<g data-ab-part="edge-3"><text x="400" y="396" class="m s11">merged</text></g>
+<g data-ab-part="edge-4"><text x="514" y="212" class="m s11">no branch yet</text></g>
+<g data-ab-part="edge-5"><text x="514" y="233" class="m s11">Branch and Preview lines added</text></g>
+<g data-ab-part="edge-7"><text x="514" y="311" class="m s11">main has changed</text></g>
+<g data-ab-part="edge-8"><text x="514" y="332" class="m s11">branch up to date</text></g>
+<g data-ab-part="edge-9"><text x="943" y="322" class="m s11 t-stop">conflict</text></g>
+<g data-ab-part="edge-11"><text x="979" y="539" text-anchor="end" class="m s11 t-stop">opens it</text></g>
+<g data-ab-part="edge-12"><text x="400" y="599" class="m s11">gates pass, merged by hand</text></g>
+<line x1="8" y1="664" x2="1240" y2="664" class="rule"/>
+<g><rect x="16" y="678" width="24" height="12" rx="3" class="k-neutral"/><text x="46" y="688" class="s11 muted">team member</text></g>
+<g><rect x="133" y="678" width="24" height="12" rx="3" class="k-agent"/><text x="163" y="688" class="s11 muted">agent role</text></g>
+<g><rect x="244" y="678" width="24" height="12" rx="3" class="k-system"/><text x="274" y="688" class="s11 muted">milestone branch</text></g>
+<g><rect x="392" y="678" width="24" height="12" rx="3" class="k-stop panel"/><text x="422" y="688" class="s11 muted">a person decides</text></g>
+</svg>

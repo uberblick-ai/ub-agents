@@ -1,0 +1,86 @@
+flow v0
+# Milestone branches: issues land on their milestone's branch, the team lands the milestone in main.
+
+columns note main sync stop
+
+section "Each issue"
+box start col=main title="Team member" tone=neutral "files an issue in a milestone"
+box issue-preparer "prepares it, attaches the ready label"
+box implementer "builds the change, opens its PR into the milestone branch"
+box create-branch col=sync row=implementer title="create the branch" "from main, on the milestone's first issue"
+box review-merge col=main title="reviewer + integrator" "merges the PR into the milestone branch, closes the issue"
+box update-branch col=sync row=review-merge title="update the branch" "merges main into the milestone branch"
+
+section "The milestone"
+box branch col=main title="Milestone branch" tone=system "one preview of every landed issue"
+panel description col=note row=branch tone=muted
+  strong "Milestone description"
+  text "names the milestone branch"
+  muted "and its preview URL"
+box milestone-pr col=main title="Milestone PR" tone=neutral "from the milestone branch into main"
+end production "In main · deployed"
+
+panel human col=stop row=branch span=3 tone=stop
+  strong "The team decides"
+  text "tries the milestone preview"
+  muted "decides to release the milestone"
+  rule
+  muted "resolves a conflict with main"
+
+start --> issue-preparer : needs-preparation
+issue-preparer --> implementer : ready
+implementer --> review-merge : handed-off
+review-merge --> branch : merged
+implementer --> create-branch from=right.1 to=left.1 : no branch yet
+create-branch --> implementer from=left.2 to=right.2 label=end : Branch and Preview lines added
+description -.-> branch tone=muted
+review-merge --> update-branch from=right.1 to=left.1 : main has changed
+update-branch --> review-merge from=left.2 to=right.2 label=end : branch up to date
+update-branch --> human tone=stop : conflict
+branch -.-> milestone-pr tone=muted
+human --> milestone-pr tone=stop : opens it
+milestone-pr --> production : gates pass, merged by hand
+
+legend
+  box tone=neutral "team member"
+  box "agent role"
+  box tone=system "milestone branch"
+  panel tone=stop "a person decides"
+
+play "First issue"
+  tempo 1.8s
+  step start actor="Team member" "Files an issue in the “Team invoices” milestone"
+  step issue-preparer 2.4s actor="Issue preparer" "Prepares the issue and attaches the ready label"
+  step implementer 2.4s actor="Implementer" "Checks whether the milestone already has a branch"
+  step create-branch 3s actor="Implementer" "No branch yet: creates it from main"
+  step implementer 2.6s actor="Implementer" "Builds the change, opens a PR against the milestone branch"
+  step review-merge 2.6s actor="Integrator" "PR reviewed; main is unchanged"
+  step branch 3s actor="Integrator" "Adds the PR to the milestone branch, closes the issue"
+
+play "Next issue"
+  tempo 1.8s
+  step start actor="Team member" "Files the next issue in the same milestone"
+  step issue-preparer 2.4s actor="Issue preparer" "Prepares the issue and attaches the ready label"
+  step implementer 2.6s actor="Implementer" "Creates a PR against the existing milestone branch"
+  step review-merge 2.6s actor="Integrator" "PR reviewed; main is unchanged"
+  step branch 2.6s actor="Integrator" "Adds the PR; the preview now shows both changes"
+
+play "Main moved"
+  tempo 1.8s
+  step implementer 2.4s actor="Implementer" "Opens a PR against the milestone branch"
+  step review-merge 2.6s actor="Integrator" "PR reviewed, but main has changed"
+  step update-branch 3s actor="Integrator" "Merges main into the milestone branch"
+  step review-merge 2.6s actor="Integrator" "Back on the PR: the branch is up to date"
+  step branch 3s actor="Integrator" "Adds the PR; the preview runs on current main"
+
+play "Conflict with main"
+  tempo 1.8s
+  step review-merge 2.6s actor="Integrator" "A reviewed PR is waiting, and main has changed"
+  step update-branch 3s actor="Integrator" "main conflicts with the milestone branch: it stops"
+  step human 3s actor="Maintainer" "Resolves the conflict on the milestone branch by hand"
+
+play "Milestone lands"
+  tempo 1.8s
+  step human 3s actor="Team" "Tries the preview and decides to release the milestone"
+  step milestone-pr 3s actor="Team" "Opens the milestone PR into main, checks the gates"
+  step production 3s actor="Team" "Merges the milestone PR into main by hand"

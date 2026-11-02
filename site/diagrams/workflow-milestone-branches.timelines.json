@@ -1,0 +1,280 @@
+[
+  {
+    "name": "First issue",
+    "slug": "first-issue",
+    "steps": [
+      {
+        "target": "start",
+        "kind": "box",
+        "actor": "Team member",
+        "caption": "Files an issue in the “Team invoices” milestone",
+        "ms": 1800,
+        "parts": [
+          "node-0"
+        ]
+      },
+      {
+        "target": "issue-preparer",
+        "kind": "box",
+        "actor": "Issue preparer",
+        "caption": "Prepares the issue and attaches the ready label",
+        "ms": 2400,
+        "parts": [
+          "node-1",
+          "edge-0"
+        ]
+      },
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Checks whether the milestone already has a branch",
+        "ms": 2400,
+        "parts": [
+          "node-2",
+          "edge-1"
+        ]
+      },
+      {
+        "target": "create-branch",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "No branch yet: creates it from main",
+        "ms": 3000,
+        "parts": [
+          "node-3",
+          "edge-4"
+        ]
+      },
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Builds the change, opens a PR against the milestone branch",
+        "ms": 2600,
+        "parts": [
+          "node-2",
+          "edge-5"
+        ]
+      },
+      {
+        "target": "review-merge",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "PR reviewed; main is unchanged",
+        "ms": 2600,
+        "parts": [
+          "node-4",
+          "edge-2"
+        ]
+      },
+      {
+        "target": "branch",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Adds the PR to the milestone branch, closes the issue",
+        "ms": 3000,
+        "parts": [
+          "node-6",
+          "edge-3"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Next issue",
+    "slug": "next-issue",
+    "steps": [
+      {
+        "target": "start",
+        "kind": "box",
+        "actor": "Team member",
+        "caption": "Files the next issue in the same milestone",
+        "ms": 1800,
+        "parts": [
+          "node-0"
+        ]
+      },
+      {
+        "target": "issue-preparer",
+        "kind": "box",
+        "actor": "Issue preparer",
+        "caption": "Prepares the issue and attaches the ready label",
+        "ms": 2400,
+        "parts": [
+          "node-1",
+          "edge-0"
+        ]
+      },
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Creates a PR against the existing milestone branch",
+        "ms": 2600,
+        "parts": [
+          "node-2",
+          "edge-1"
+        ]
+      },
+      {
+        "target": "review-merge",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "PR reviewed; main is unchanged",
+        "ms": 2600,
+        "parts": [
+          "node-4",
+          "edge-2"
+        ]
+      },
+      {
+        "target": "branch",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Adds the PR; the preview now shows both changes",
+        "ms": 2600,
+        "parts": [
+          "node-6",
+          "edge-3"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Main moved",
+    "slug": "main-moved",
+    "steps": [
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Opens a PR against the milestone branch",
+        "ms": 2400,
+        "parts": [
+          "node-2"
+        ]
+      },
+      {
+        "target": "review-merge",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "PR reviewed, but main has changed",
+        "ms": 2600,
+        "parts": [
+          "node-4",
+          "edge-2"
+        ]
+      },
+      {
+        "target": "update-branch",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Merges main into the milestone branch",
+        "ms": 3000,
+        "parts": [
+          "node-5",
+          "edge-7"
+        ]
+      },
+      {
+        "target": "review-merge",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Back on the PR: the branch is up to date",
+        "ms": 2600,
+        "parts": [
+          "node-4",
+          "edge-8"
+        ]
+      },
+      {
+        "target": "branch",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Adds the PR; the preview runs on current main",
+        "ms": 3000,
+        "parts": [
+          "node-6",
+          "edge-3"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Conflict with main",
+    "slug": "conflict-with-main",
+    "steps": [
+      {
+        "target": "review-merge",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "A reviewed PR is waiting, and main has changed",
+        "ms": 2600,
+        "parts": [
+          "node-4"
+        ]
+      },
+      {
+        "target": "update-branch",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "main conflicts with the milestone branch: it stops",
+        "ms": 3000,
+        "parts": [
+          "node-5",
+          "edge-7"
+        ]
+      },
+      {
+        "target": "human",
+        "kind": "panel",
+        "actor": "Maintainer",
+        "caption": "Resolves the conflict on the milestone branch by hand",
+        "ms": 3000,
+        "parts": [
+          "node-10",
+          "edge-9"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Milestone lands",
+    "slug": "milestone-lands",
+    "steps": [
+      {
+        "target": "human",
+        "kind": "panel",
+        "actor": "Team",
+        "caption": "Tries the preview and decides to release the milestone",
+        "ms": 3000,
+        "parts": [
+          "node-10"
+        ]
+      },
+      {
+        "target": "milestone-pr",
+        "kind": "box",
+        "actor": "Team",
+        "caption": "Opens the milestone PR into main, checks the gates",
+        "ms": 3000,
+        "parts": [
+          "node-8",
+          "edge-11"
+        ]
+      },
+      {
+        "target": "production",
+        "kind": "end",
+        "actor": "Team",
+        "caption": "Merges the milestone PR into main by hand",
+        "ms": 3000,
+        "parts": [
+          "node-9",
+          "edge-12"
+        ]
+      }
+    ]
+  }
+]
