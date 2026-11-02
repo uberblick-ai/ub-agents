@@ -1,7 +1,6 @@
 """Expendable, read-only queue planning alongside a supervised assignment."""
 
 import threading
-import subprocess
 from copy import deepcopy
 from contextlib import contextmanager
 from time import monotonic
@@ -132,12 +131,10 @@ class RunPlanning:
         self.stop = threading.Event()
         if isinstance(github, GitHub):
             source = github
-            runner = github.runner or subprocess.run
-            def request(*args, **kwargs):
+            def before_request():
                 if self.stop.is_set():
                     raise _Cancelled
-                return runner(*args, **kwargs)
-            github = GitHub(github.repository, request)
+            github = GitHub(github.repository, github.runner, before_request=before_request)
             github.resource_quotas = deepcopy(source.resource_quotas)
             github._etag_cache = deepcopy(source._etag_cache)
             github._comment_cache = deepcopy(source._comment_cache)

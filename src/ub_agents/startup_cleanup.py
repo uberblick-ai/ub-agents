@@ -2,7 +2,6 @@
 
 import threading
 import uuid
-import subprocess
 
 from .cleanup import Cleaner
 from .cleanup_control import CleanupControl, CleanupLogError, CleanupStopped
@@ -65,13 +64,7 @@ class StartupCleanup:
         # Use the same transport/authentication with private request counters,
         # caches and rate-limit state. Recording fakes share their durable store.
         if isinstance(github, GitHub):
-            runner = github.runner or subprocess.run
-
-            def request(*args, **kwargs):
-                self.control.checkpoint()
-                return runner(*args, **kwargs)
-
-            github = GitHub(github.repository, request)
+            github = GitHub(github.repository, github.runner, before_request=self.control.checkpoint)
         self.config, self.github, self.actor, self.session = config, github, actor, session
         self.thread = threading.Thread(target=sweep, name="startup-cleanup", daemon=True,
                                        args=(config, github, actor),

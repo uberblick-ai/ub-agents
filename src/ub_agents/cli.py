@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import signal
 import socket
+import subprocess
 import sys
 
 from . import __version__
@@ -153,12 +154,14 @@ def init_project(args):
     interactive = (not args.use_defaults and not os.environ.get("CI")
                    and sys.stdin.isatty() and sys.stdout.isatty())
     prompter = interactive_prompter(os.environ) if interactive else DefaultPrompter()
+    def github_factory(repository):
+        return GitHub(repository, runner=subprocess.run)
     if args.create_boards or args.create_priorities:
         from .init.extend import ExistingFlow
-        return ExistingFlow(Path(args.config).absolute(), args.repository, args.runtime, GitHub, prompter, Transcript(),
+        return ExistingFlow(Path(args.config).absolute(), args.repository, args.runtime, github_factory, prompter, Transcript(),
                             unattended=not interactive, create_boards=args.create_boards,
                             create_priorities=args.create_priorities).run()
-    return Flow(Path(args.config).absolute(), args.repository, args.runtime, GitHub, prompter, Transcript(),
+    return Flow(Path(args.config).absolute(), args.repository, args.runtime, github_factory, prompter, Transcript(),
                 unattended=not interactive).run()
 
 

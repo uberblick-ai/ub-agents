@@ -5,6 +5,13 @@ What a launcher prints, how to stop it, and what to do when something fails. The
 [coordination contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md) has the exact rules for claims, attempts and
 recovery.
 
+GitHub requests reuse HTTPS connections with your existing `gh` token. The
+launcher reads it with `gh auth token --hostname github.com` once per process and
+again after an authentication failure. If it cannot read a token, it uses `gh api`.
+No extra setup is needed; `init` and `doctor` still use `gh`. See
+[GitHub request handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling)
+for token refresh, timeouts and fallback rules.
+
 ## Launch output
 
 In a terminal, `launch` opens a read-only [terminal view](/docs/guides/terminal-view.html) of its own
@@ -17,7 +24,8 @@ with `tail -f .ub-agents/launch.log`.
 
 Discovery lines report the pass kind, elapsed time and request counts; identical
 consecutive passes print once. Each run also records its launcher requests in
-`events.jsonl`. See [request accounting](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#accounting-and-diagnostics) for
+`events.jsonl`. The `gh calls` count includes requests sent over HTTPS or through
+`gh api`. See [request accounting](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#accounting-and-diagnostics) for
 the fields. When discovery declines a ready item, one line names the item, agent and
 reason, for example `#400 implementer: declined — Head moved before claim`.
 
@@ -112,8 +120,9 @@ first error; run them again later. `doctor --verbose` shows the remaining quota.
 [quota and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling).
 
 **Launch stops with "ub-agents does not retry this error."** Authentication failures,
-other HTTP 4xx errors are not retried. Fix the cause, for
-example with `gh auth login`, and restart. The restarted launcher recovers any claim
+redirects returned by GitHub and other HTTP 4xx errors are not retried. Fix the cause,
+for example with `gh auth login` or by correcting your repository configuration,
+and restart. The restarted launcher recovers any claim
 it left open.
 
 **A runtime reached its usage limit.** The launcher pauses that CLI until the limit
