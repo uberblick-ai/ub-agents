@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="ab" viewBox="0 0 606 327" width="606" height="327" role="img" aria-label="Flow: input, held, check, The agent runs. Legend: GitHub label, like ready, human involved">
-<style>.ab{--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--agent:var(--ab-agent,#0b6b67);--agent-bg:var(--ab-agent-bg,#dff1ee);--rework:var(--ab-rework,#a65f0c);--rework-bg:var(--ab-rework-bg,#fbefdc);--stop:var(--ab-stop,#b2382f);--stop-bg:var(--ab-stop-bg,#f9e2df);--done:var(--ab-done,#2a7845);--done-bg:var(--ab-done-bg,#e0f1e5);}@media (prefers-color-scheme:dark){.ab{--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--agent:var(--ab-agent,#5cc5bb);--agent-bg:var(--ab-agent-bg,#12302d);--rework:var(--ab-rework,#e3a250);--rework-bg:var(--ab-rework-bg,#33250f);--stop:var(--ab-stop,#ef7f73);--stop-bg:var(--ab-stop-bg,#3a1916);--done:var(--ab-done,#72cf91);--done-bg:var(--ab-done-bg,#142e1d);}}
+<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" viewBox="0 0 607 327" width="607" height="327" role="img" aria-label="Flow: input, held, check, The agent runs. Legend: GitHub label, like ready, human involved">
+<style>.ab.ab-auto{--bg:var(--ab-bg,#ffffff);--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--neutral:var(--ab-neutral,#59616c);--neutral-bg:var(--ab-neutral-bg,#e1e3e6);--agent:var(--ab-agent,#3e6563);--agent-bg:var(--ab-agent-bg,#e7eeed);--system:var(--ab-system,#4f5d76);--system-bg:var(--ab-system-bg,#ebedf3);--rework:var(--ab-rework,#806752);--rework-bg:var(--ab-rework-bg,#f3f0eb);--stop:var(--ab-stop,#815f5a);--stop-bg:var(--ab-stop-bg,#ede6e5);--done:var(--ab-done,#536e5a);--done-bg:var(--ab-done-bg,#e8ede9);}@media (prefers-color-scheme:dark){.ab.ab-auto{--bg:var(--ab-bg,#171c24);--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--neutral:var(--ab-neutral,#b6bbc3);--neutral-bg:var(--ab-neutral-bg,#303640);--agent:var(--ab-agent,#85aaa5);--agent-bg:var(--ab-agent-bg,#232d2b);--system:var(--ab-system,#98a5bf);--system-bg:var(--ab-system-bg,#262a31);--rework:var(--ab-rework,#b29d87);--rework-bg:var(--ab-rework-bg,#2c2720);--stop:var(--ab-stop,#ac8c88);--stop-bg:var(--ab-stop-bg,#2b2221);--done:var(--ab-done,#95b09c);--done-bg:var(--ab-done-bg,#222a24);}}
 .ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
 .ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 .ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
@@ -8,37 +8,43 @@
 .ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
 .ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
 .ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
-.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .knockout{fill:none;stroke:var(--bg);stroke-width:5.6}.ab .knockout-band{stroke:var(--band)}
+.ab .arrow{fill:none;stroke:none}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-neutral{fill:var(--neutral)}.ab .e-neutral{stroke:var(--neutral)}.ab .k-neutral{fill:var(--neutral-bg);stroke:var(--neutral);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-system{fill:var(--system)}.ab .e-system{stroke:var(--system)}.ab .k-system{fill:var(--system-bg);stroke:var(--system);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
 .ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}</style>
 <defs>
 <marker id="approvals-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
 <marker id="approvals-stop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-stop"/></marker>
 </defs>
-<path d="M137,69 L137,108" class="e e-ink" marker-end="url(#approvals-ink)"/>
-<path d="M137,200 L137,239" class="e e-ink" marker-end="url(#approvals-ink)"/>
-<path d="M248,154 L354,154" class="e e-stop" marker-end="url(#approvals-stop)"/>
-<path d="M472,99 L472,43 L258,43" class="e e-stop" marker-end="url(#approvals-stop)"/>
-<g><rect x="16" y="16" width="242" height="53" rx="10" class="k-muted panel"/>
-<text x="137" y="41" text-anchor="middle" class="s12 b">An issue or PR carries a trigger</text>
-<text x="137" y="56" text-anchor="middle" class="s12 b">label</text></g>
-<g><rect x="26" y="108" width="222" height="92" rx="10" class="k-muted panel"/>
-<text x="137" y="133" text-anchor="middle" class="s12 b">The launcher checks the input</text>
-<text x="137" y="151" text-anchor="middle" class="s11 muted">who applied the trigger</text>
-<text x="137" y="169" text-anchor="middle" class="s11 muted">who edited it since</text>
-<text x="137" y="187" text-anchor="middle" class="s11 muted">who approved the PR head</text></g>
-<rect x="52" y="239" width="170" height="34" rx="17" class="k-done"/>
-<text x="137" y="260" text-anchor="middle" class="s12 b t-done">The agent runs</text>
-<g><rect x="354" y="99" width="236" height="110" rx="10" class="k-stop panel"/>
-<rect x="415" y="111" width="115" height="30" rx="15" class="pill"/>
-<circle cx="429" cy="126" r="5" class="t-stop"/>
-<text x="441" y="130" class="m s12">needs-human</text>
-<text x="472" y="160" text-anchor="middle" class="s12 b">Held for a maintainer</text>
-<text x="472" y="178" text-anchor="middle" class="s11 muted">an authorized GitHub org member</text>
-<text x="472" y="196" text-anchor="middle" class="s11 muted">must approve it</text></g>
-<text x="147" y="224" class="m s11">a maintainer started it</text>
-<text x="258" y="147" class="m s11 t-stop">outside input</text>
-<text x="268" y="36" class="m s11 t-stop">maintainer acts</text>
-<line x1="8" y1="289" x2="598" y2="289" class="rule"/>
+<path d="M138,69 L138,108" class="e e-ink"/>
+<path d="M138,200 L138,239" class="e e-ink"/>
+<path d="M249,154 L355,154" class="e e-stop"/>
+<path d="M473,99 L473,43 L259,43" class="e e-stop"/>
+<path d="M138,69 L138,108" class="arrow" marker-end="url(#approvals-ink)"/>
+<path d="M138,200 L138,239" class="arrow" marker-end="url(#approvals-ink)"/>
+<path d="M249,154 L355,154" class="arrow" marker-end="url(#approvals-stop)"/>
+<path d="M473,43 L259,43" class="arrow" marker-end="url(#approvals-stop)"/>
+<g><rect x="16" y="16" width="243" height="53" rx="10" class="k-muted panel"/>
+<text x="138" y="41" text-anchor="middle" class="s12 b">An issue or PR carries a trigger</text>
+<text x="138" y="56" text-anchor="middle" class="s12 b">label</text></g>
+<g><rect x="26" y="108" width="223" height="92" rx="10" class="k-muted panel"/>
+<text x="138" y="133" text-anchor="middle" class="s12 b">The launcher checks the input</text>
+<text x="138" y="151" text-anchor="middle" class="s11 muted">who applied the trigger</text>
+<text x="138" y="169" text-anchor="middle" class="s11 muted">who edited it since</text>
+<text x="138" y="187" text-anchor="middle" class="s11 muted">who approved the PR head</text></g>
+<rect x="53" y="239" width="170" height="34" rx="17" class="k-done"/>
+<text x="138" y="260" text-anchor="middle" class="s12 b t-done">The agent runs</text>
+<g><rect x="355" y="99" width="236" height="110" rx="10" class="k-stop panel"/>
+<rect x="416" y="111" width="115" height="30" rx="15" class="pill"/>
+<circle cx="430" cy="126" r="5" class="t-stop"/>
+<text x="442" y="130" class="m s12">needs-human</text>
+<text x="473" y="160" text-anchor="middle" class="s12 b">Held for a maintainer</text>
+<text x="473" y="178" text-anchor="middle" class="s11 muted">an authorized GitHub org member</text>
+<text x="473" y="196" text-anchor="middle" class="s11 muted">must approve it</text></g>
+<text x="148" y="224" class="m s11">a maintainer started it</text>
+<text x="259" y="147" class="m s11 t-stop">outside input</text>
+<text x="269" y="36" class="m s11 t-stop">maintainer acts</text>
+<line x1="8" y1="289" x2="599" y2="289" class="rule"/>
 <g><rect x="16" y="303" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="309" r="3" class="t-done"/><text x="46" y="313" class="s11 muted">GitHub label, like ready</text></g>
 <g><rect x="212" y="303" width="24" height="12" rx="3" class="k-stop panel"/><text x="242" y="313" class="s11 muted">human involved</text></g>
 </svg>

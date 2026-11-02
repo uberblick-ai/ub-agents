@@ -10,10 +10,10 @@ from textual.widgets import Static
 
 from tests.test_view_data import event, fixture, publish_snapshot
 from tests.terminal import Terminal
-from ub_agents.view_scroll import PaneScroll
-from ub_agents.view_ui import LogPane, View
-from ub_agents.view_unblock import ACTION_MARKER
-from ub_agents.view_work import WorkTree
+from ub_agents.view.scroll import PaneScroll
+from ub_agents.view.ui import LogPane, View
+from ub_agents.view.unblock import ACTION_MARKER
+from ub_agents.view.work import WorkTree
 
 
 class ViewScrollbarTests(unittest.IsolatedAsyncioTestCase):
@@ -29,7 +29,7 @@ class ViewScrollbarTests(unittest.IsolatedAsyncioTestCase):
             {'item': number, 'agent': 'worker', 'state': 'ready', 'title': f'Work {number}'}
             for number in range(20, 50)]
         publish_snapshot(self.path, self.state)
-        clock_patch = patch('ub_agents.view_scroll.monotonic', return_value=100)
+        clock_patch = patch('ub_agents.view.scroll.monotonic', return_value=100)
         self.clock = clock_patch.start()
         self.addCleanup(clock_patch.stop)
 
@@ -232,8 +232,8 @@ class TerminalScrollbarTests(unittest.TestCase):
             script = '''
 import pathlib, sys
 from textual.binding import Binding
-from ub_agents import view_scroll
-from ub_agents.view_ui import LogPane, View
+from ub_agents.view import scroll as view_scroll
+from ub_agents.view.ui import LogPane, View
 clock = [100]
 view_scroll.monotonic = lambda: clock[0]
 class ProofView(checkpoint_view(View, sys.argv[3])):

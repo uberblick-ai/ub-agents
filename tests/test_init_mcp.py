@@ -4,8 +4,8 @@ import unittest
 
 from unittest.mock import patch
 
-from ub_agents.init_mcp import preview
-from ub_agents.init_prompts import Cancelled
+from ub_agents.init.mcp import preview
+from ub_agents.init.prompts import Cancelled
 from tests import test_init_flow
 from tests.test_init_flow import Script
 

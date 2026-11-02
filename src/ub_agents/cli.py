@@ -22,7 +22,7 @@ from .execution import repository_checks
 from .github import GitHub
 from .help import CommentHelpFormatter, HelpParser, InitHelpFormatter
 from .loop import Loop, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS, _GracefulStop
-from .init_setup import runtime_guidance
+from .init.setup import runtime_guidance
 from .launch_log import launch_output
 from .launcher_lock import launcher_lock, launcher_summary, running_launcher
 from .labels import configured_labels
@@ -148,13 +148,13 @@ def parser():
 
 
 def init_project(args):
-    from .init_flow import Flow
-    from .init_prompts import DefaultPrompter, Transcript, interactive_prompter
+    from .init.flow import Flow
+    from .init.prompts import DefaultPrompter, Transcript, interactive_prompter
     interactive = (not args.use_defaults and not os.environ.get("CI")
                    and sys.stdin.isatty() and sys.stdout.isatty())
     prompter = interactive_prompter(os.environ) if interactive else DefaultPrompter()
     if args.create_boards or args.create_priorities:
-        from .init_extend import ExistingFlow
+        from .init.extend import ExistingFlow
         return ExistingFlow(Path(args.config).absolute(), args.repository, args.runtime, GitHub, prompter, Transcript(),
                             unattended=not interactive, create_boards=args.create_boards,
                             create_priorities=args.create_priorities).run()

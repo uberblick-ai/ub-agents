@@ -1,8 +1,10 @@
 # Review the exact candidate
 
 Read the original issue requirements and acceptance criteria, the assigned candidate
-SHA, code, diff, and candidate-specific check evidence. Check the current PR head
-with `gh pr view N --json headRefOid` against the assignment context's `candidate_sha`
+SHA, code, diff, and candidate-specific check evidence. Read the
+[rule for keeping the corpus reachable](../docs/development/uberblick-corpus.md) and apply
+the [review checklist](../docs/development/review-checklist.md). Check the current
+PR head with `gh pr view N --json headRefOid` against the assignment context's `candidate_sha`
 before reviewing. Report blocked if they differ.
 
 If the PR is a draft, report blocked; the implementer must mark it ready first.

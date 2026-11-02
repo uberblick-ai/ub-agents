@@ -15,9 +15,9 @@ from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER, action_body
 from ub_agents.observations import Observations
 from ub_agents.records import iso
-from ub_agents.view_data import Session, work_rows
-from ub_agents.view_unblock import ActionComment, unblock_metadata
-from ub_agents.view_work import work_lines
+from ub_agents.view.data import Session, work_rows
+from ub_agents.view.unblock import ActionComment, unblock_metadata
+from ub_agents.view.work import work_lines
 
 
 class AttentionTests(unittest.TestCase):

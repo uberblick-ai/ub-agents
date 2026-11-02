@@ -4,7 +4,7 @@ Standard library only, plus an installed ub-agents for the command help pages:
 
     pip install . && python3 site/build.py
 """
-import html, os, posixpath, re, shutil, subprocess, sys, urllib.parse
+import html, json, os, posixpath, re, shutil, subprocess, sys, urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -25,6 +25,26 @@ SECTIONS = [  # (title, content entry, kind)
     ('Best practices', 'best-practices', 'dir'),
     ('Upgrading', 'upgrading.md', 'page'),
 ]
+WORKFLOW_GROUPS = [  # The wall: one section per group; a hero workflow gets the wide card.
+    {'title': 'Default after ub-agents init',
+     'blurb': 'The loop ub-agents init sets up: five roles, the labels, and a person at every hard decision.'},
+    {'title': 'Scenarios to adopt',
+     'blurb': 'You shape the loop around how your team works. These come from repositories running '
+              'ub-agents today, and each one can be adopted on its own.'},
+]
+WORKFLOWS = [
+    {'name': 'default', 'group': 0, 'hero': True, 'title': 'The default ub-agents loop',
+     'intent': 'The loop every repository starts with after ub-agents init.',
+     'intent_html': 'The loop every repository starts with after <code>ub-agents init</code>.',
+     'install': True, 'about': True},
+    {'name': 'dependabot', 'group': 1, 'title': 'Dependabot on autopilot',
+     'intent': "Patch and minor bumps merge on their own once the tests pass, without anyone opening the PR. "
+               "Majors, and failures one fix round can't settle, wait for you.",
+     'article': ('Letting agents auto-merge Dependabot pull requests',
+                 'https://uberblick.ai/blog/2026/agents-auto-merge-dependabot')},
+]
+ABOUT_UB_AGENTS = ('a minimal agent loop for experienced developers: '
+                   'plain GitHub labels, your own coding agents, nothing to host.')
 
 # ---------- Markdown (the subset these pages use) ----------
 
@@ -44,12 +64,18 @@ def inline(text):
     s = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', s)
     return re.sub(r'\x00(\d+)\x00', lambda m: codes[int(m.group(1))], s)
 
-def discuss(name):
+def prompt_links(name):
+    """The prompt in site/prompts/NAME.md, and the links that open it in Claude Code and in Codex."""
+    prompt = ' '.join((ROOT / 'prompts' / f'{name}.md').read_text().split())
+    q = urllib.parse.quote(prompt, safe='')
+    return prompt, f'claude://code/new?q={q}', f'codex://new?prompt={q}'
+
+def discuss(name, label='Discuss with:'):
     """Buttons that open site/prompts/NAME.md in Claude Code or Codex."""
-    q = urllib.parse.quote(' '.join((ROOT / 'prompts' / f'{name}.md').read_text().split()), safe='')
+    _, claude, codex = prompt_links(name)
     icon = {cli: (ROOT / 'icons' / f'{cli}.svg').read_text().strip() for cli in ('claude', 'openai')}
-    return (f'<span class="discuss">Discuss with:<a class="claude" href="claude://code/new?q={q}" title="Opens the Claude desktop app">{icon["claude"]}Claude</a>'
-            f'<a href="codex://new?prompt={q}" title="Opens the Codex app">{icon["openai"]}Codex</a></span>')
+    return (f'<span class="discuss">{label}<a class="claude" href="{claude}" title="Opens the Claude desktop app">{icon["claude"]}Claude</a>'
+            f'<a href="{codex}" title="Opens the Codex app">{icon["openai"]}Codex</a></span>')
 
 def slug(text):
     return re.sub(r'[^a-z0-9]+', '-', re.sub(r'<[^>]+>', '', text).lower()).strip('-')
@@ -178,7 +204,8 @@ def collect():
 def rel(target, here):
     """Turn a site path ('/docs/x.html' or 'docs/x.html') into a link relative to `here`."""
     target = target.lstrip('/')
-    return posixpath.relpath(target, posixpath.dirname(here) or '.')
+    path = posixpath.relpath(target, posixpath.dirname(here) or '.')
+    return path + '/' if target.endswith('/') else path
 
 def fix_links(body, here):
     return re.sub(r'href="/([^"]+)"', lambda m: f'href="{rel(m.group(1), here)}"', body)
@@ -189,6 +216,7 @@ def header(here):
   <a class="ver" href="{REPO}/releases">v{VERSION}</a>
   <nav>
     <a href="{rel('docs/installation.html', here)}">Docs</a>
+    <a href="{rel('workflows/', here)}">Workflows</a>
     <a href="{REPO}/releases">Releases</a>
     <a href="{REPO}">GitHub</a>
   </nav>
@@ -206,6 +234,7 @@ def footer(here):
   <div><h3>Learn</h3><ul>
     <li><a href="{rel('docs/installation.html', here)}">Installation</a></li>
     <li><a href="{rel('docs/how-the-loop-works.html', here)}">How the loop works</a></li>
+    <li><a href="{rel('workflows/', here)}">Workflows</a></li>
     <li><a href="{rel('docs/configuration/index.html', here)}">Configuration</a></li>
     <li><a href="{rel('docs/commands/index.html', here)}">Commands</a></li>
     <li><a href="{rel('docs/faq.html', here)}">FAQ</a></li>
@@ -328,6 +357,118 @@ def not_found():
     body = body.replace('url(assets/', 'url(/assets/')
     return re.sub(r'href="(?!https?:|/|#)', 'href="/', body)
 
+def workflow_timelines(name):
+    return json.loads((ROOT / 'diagrams' / f'workflow-{name}.timelines.json').read_text())
+
+def workflow_player(workflow, here, scenario='', preview=False):
+    name = workflow['name']
+    timelines = workflow_timelines(name)
+    # Escape '<' so a caption can never terminate this inline data block.
+    data = json.dumps({'timelines': timelines, 'urls': [
+        rel(f'workflows/{name}/{t["slug"]}/', here) for t in timelines
+    ]}).replace('<', '\\u003c')
+    svg = (ROOT / 'diagrams' / f'workflow-{name}.svg').read_text()
+    mode = 'preview' if preview else 'entry'
+    return (f'<div class="workflow-player" data-mode="{mode}" data-scenario="{scenario}">'
+            f'<div class="workflow-stage flow">{svg}</div>'
+            f'<script type="application/json" class="workflow-data">{data}</script></div>')
+
+def workflow_shell(here, title, description, body):
+    return (head(here, title=html.escape(title + ' · ub-agents'),
+                 description=html.escape(description), canonical=public_url(here))
+            + header(here) + '<main class="workflows">' + body + '</main>' + footer(here)
+            + f'<script type="module" src="{rel("assets/workflows.js", here)}"></script>\n</body>\n</html>\n')
+
+def intent_html(workflow):
+    return workflow.get('intent_html') or html.escape(workflow['intent'])
+
+def workflow_via(here, extra=''):
+    """The line under a diagram that names what it is built on and drawn with."""
+    return (f'<p class="workflow-via{extra}">Built on <a href="{rel("index.html", here)}">ub-agents</a>, '
+            f'{html.escape(ABOUT_UB_AGENTS)} Visualized by <a href="https://ablauf.uberblick.ai">ablauf</a>.</p>')
+
+def workflow_card(workflow, here):
+    wide = ' workflow-wide' if workflow.get('hero') else ''
+    return (f'<a class="workflow-card{wide}" href="{rel("workflows/" + workflow["name"] + "/", here)}">'
+            f'{workflow_player(workflow, here, preview=True)}'
+            f'<div class="workflow-meta"><h3>{html.escape(workflow["title"])}</h3>'
+            f'<p class="workflow-intent">{intent_html(workflow)}</p>'
+            + '</div></a>' + (workflow_via(here, ' workflow-about') if workflow.get('about') else ''))
+
+def workflow_gallery():
+    here = 'workflows/index.html'
+    description = ('A gallery of loops run in the real world, '
+                   'including the default loop on a fresh ub-agents init.')
+    groups = ''
+    for i, group in enumerate(WORKFLOW_GROUPS):
+        cards = ''.join(workflow_card(w, here) for w in WORKFLOWS if w['group'] == i)
+        groups += (f'<section class="workflow-group"><h2>{html.escape(group["title"])}</h2>'
+                   f'<p class="workflow-blurb">{html.escape(group["blurb"])}</p>'
+                   f'<div class="workflow-grid">{cards}</div></section>')
+    body = ('<section class="workflow-hero"><p class="workflow-kick">Workflow gallery</p>'
+            '<h1>Loops we <em>actually run</em></h1>'
+            '<p>A gallery of loops run in the real world, including the default loop on a fresh '
+            f'<code>ub-agents init</code>. Read more about <a href="{rel("docs/how-the-loop-works.html", here)}">'
+            'how the loop works</a>.</p></section>' + groups)
+    return workflow_shell(here, 'Workflows', description, body)
+
+LINK_ICON = ('<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" '
+             'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+             '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/>'
+             '<path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>')
+
+def workflow_adopt(workflow):
+    """Open the workflow's prompt in Claude Code, on claude.ai or in Codex, or copy it.
+
+    The default loop's prompt evaluates and installs ub-agents; the others weigh adding a workflow with evidence and plan its adoption."""
+    name = f'workflow-{workflow["name"]}'
+    prompt, _, _ = prompt_links(name)
+    article = ''
+    if story := workflow.get('article'):
+        article = (f'<div class="workflow-article"><span>Read the story</span>'
+                   f'<a href="{story[1]}">{html.escape(story[0])} →</a></div>')
+    head = 'Try ub-agents' if workflow.get('install') else 'Adopt this workflow'
+    return (f'<aside class="workflow-adopt" aria-label="{head}">'
+            f'<p class="workflow-adopt-head">{head}, discuss with</p>'
+            f'{discuss(name, "")}'
+            '<p class="workflow-alt">No desktop app? Use '
+            f'<a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}" title="Opens the prompt on claude.ai">claude.ai</a> / '
+            '<a href="https://chatgpt.com/codex" title="Opens Codex on the web; paste the copied prompt">chatgpt.com</a></p>'
+            f'<button class="workflow-copy" type="button" data-prompt="{html.escape(prompt)}">Copy the prompt</button>'
+            f'{article}</aside>')
+
+def workflow_entry(workflow, scenario=''):
+    name = workflow['name']
+    here = f'workflows/{name}/' + (f'{scenario}/' if scenario else '') + 'index.html'
+    _, story = markdown((CONTENT / 'workflows' / f'{name}.md').read_text())
+    link = public_url(f'workflows/{name}/' + (f'{scenario}/' if scenario else ''))
+    home = rel('index.html', here)
+    body = (f'<div class="workflow-top"><div><h1>{html.escape(workflow["title"])}</h1>'
+            f'<p>{intent_html(workflow)}'
+            + (f' <a href="{rel("docs/installation.html", here)}">Install ub-agents</a> to run it on yours.'
+               if workflow.get('install') else '')
+            + '</p></div>'
+            f'<div class="workflow-buttons"><button class="workflow-link" type="button" data-url="{link}" '
+            f'title="Copy link to this run" aria-label="Copy link to this run">{LINK_ICON}</button>'
+            f'<a class="workflow-close" href="{rel("workflows/", here)}">Close</a></div></div>'
+            + workflow_player(workflow, here, scenario)
+            + workflow_via(here)
+            + f'<div class="workflow-story"><div class="workflow-prose">{fix_links(story, here)}</div>'
+            + workflow_adopt(workflow) + '</div>'
+            '<p class="workflow-footnote">Drawn with the <a href="https://skills.uberblick.ai/skills/ub-agents-flow">'
+            "ub-agents-flow skill</a>, which can keep your own loop's version in your "
+            '<a href="https://uberblick.ai">Uberblick</a> knowledge base. Requires '
+            f'<a href="{home}">ub-agents</a> and <a href="https://ablauf.uberblick.ai">ablauf</a>.</p>')
+    return here, workflow_shell(here, workflow['title'], workflow['intent'], body)
+
+def workflow_pages():
+    pages = [('workflows/index.html', workflow_gallery())]
+    for workflow in WORKFLOWS:
+        pages.append(workflow_entry(workflow))
+        for timeline in workflow_timelines(workflow['name']):
+            pages.append(workflow_entry(workflow, timeline['slug']))
+    return pages
+
 def main():
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -339,6 +480,11 @@ def main():
         dest = OUT / p['path']
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(doc_page(pages, i))
+    workflows = workflow_pages()
+    for path, body in workflows:
+        dest = OUT / path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body)
     landing = (ROOT / 'index.html').read_text()
     landing = landing.replace('{{header}}', header('index.html')).replace('{{footer}}', footer('index.html'))
     landing = landing.replace('{{demo}}', (ROOT / 'demo.html').read_text().rstrip())
@@ -349,12 +495,13 @@ def main():
         landing = top + landing + '\n</body>\n</html>\n'
     (OUT / 'index.html').write_text(fix_links(landing, 'index.html'))
     (OUT / '404.html').write_text(not_found())
-    urls = [public_url('index.html')] + [public_url(p['path']) for p in pages]
+    urls = ([public_url('index.html')] + [public_url(p['path']) for p in pages]
+            + [public_url(path) for path, _ in workflows])
     (OUT / 'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
         + ''.join(f'  <url><loc>{u}</loc></url>\n' for u in urls) + '</urlset>\n')
     (OUT / 'robots.txt').write_text(f'User-agent: *\nAllow: /\n\nSitemap: {SITE}/sitemap.xml\n')
-    print(f'{len(pages)} pages')
+    print(f'{len(pages) + len(workflows)} pages')
 
 if __name__ == '__main__':
     main()

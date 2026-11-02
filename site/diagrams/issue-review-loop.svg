@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="ab" viewBox="0 0 594 384" width="594" height="384" role="img" aria-label="Flow: issue-preparer, needs-review, issue-reviewer, needs-preparation, ready, Delivery picks it up. Legend: GitHub label, like ready">
-<style>.ab{--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--agent:var(--ab-agent,#0b6b67);--agent-bg:var(--ab-agent-bg,#dff1ee);--rework:var(--ab-rework,#a65f0c);--rework-bg:var(--ab-rework-bg,#fbefdc);--stop:var(--ab-stop,#b2382f);--stop-bg:var(--ab-stop-bg,#f9e2df);--done:var(--ab-done,#2a7845);--done-bg:var(--ab-done-bg,#e0f1e5);}@media (prefers-color-scheme:dark){.ab{--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--agent:var(--ab-agent,#5cc5bb);--agent-bg:var(--ab-agent-bg,#12302d);--rework:var(--ab-rework,#e3a250);--rework-bg:var(--ab-rework-bg,#33250f);--stop:var(--ab-stop,#ef7f73);--stop-bg:var(--ab-stop-bg,#3a1916);--done:var(--ab-done,#72cf91);--done-bg:var(--ab-done-bg,#142e1d);}}
+<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" viewBox="0 0 557 415" width="557" height="415" role="img" aria-label="Flow: issue-preparer, needs-review, issue-reviewer, needs-preparation, ready, Delivery picks it up. Legend: GitHub label, like ready">
+<style>.ab.ab-auto{--bg:var(--ab-bg,#ffffff);--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--neutral:var(--ab-neutral,#59616c);--neutral-bg:var(--ab-neutral-bg,#e1e3e6);--agent:var(--ab-agent,#3e6563);--agent-bg:var(--ab-agent-bg,#e7eeed);--system:var(--ab-system,#4f5d76);--system-bg:var(--ab-system-bg,#ebedf3);--rework:var(--ab-rework,#806752);--rework-bg:var(--ab-rework-bg,#f3f0eb);--stop:var(--ab-stop,#815f5a);--stop-bg:var(--ab-stop-bg,#ede6e5);--done:var(--ab-done,#536e5a);--done-bg:var(--ab-done-bg,#e8ede9);}@media (prefers-color-scheme:dark){.ab.ab-auto{--bg:var(--ab-bg,#171c24);--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--neutral:var(--ab-neutral,#b6bbc3);--neutral-bg:var(--ab-neutral-bg,#303640);--agent:var(--ab-agent,#85aaa5);--agent-bg:var(--ab-agent-bg,#232d2b);--system:var(--ab-system,#98a5bf);--system-bg:var(--ab-system-bg,#262a31);--rework:var(--ab-rework,#b29d87);--rework-bg:var(--ab-rework-bg,#2c2720);--stop:var(--ab-stop,#ac8c88);--stop-bg:var(--ab-stop-bg,#2b2221);--done:var(--ab-done,#95b09c);--done-bg:var(--ab-done-bg,#222a24);}}
 .ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
 .ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 .ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
@@ -8,43 +8,52 @@
 .ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
 .ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
 .ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
-.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .knockout{fill:none;stroke:var(--bg);stroke-width:5.6}.ab .knockout-band{stroke:var(--band)}
+.ab .arrow{fill:none;stroke:none}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-neutral{fill:var(--neutral)}.ab .e-neutral{stroke:var(--neutral)}.ab .k-neutral{fill:var(--neutral-bg);stroke:var(--neutral);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-system{fill:var(--system)}.ab .e-system{stroke:var(--system)}.ab .k-system{fill:var(--system-bg);stroke:var(--system);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
 .ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}</style>
 <defs>
 <marker id="issue-review-loop-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-ink"/></marker>
 <marker id="issue-review-loop-rework" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-rework"/></marker>
 </defs>
-<path d="M442,62 L442,92" class="e e-ink" marker-end="url(#issue-review-loop-ink)"/>
-<path d="M442,126 L442,156" class="e e-ink" marker-end="url(#issue-review-loop-ink)"/>
-<path d="M442,202 L442,232" class="e e-ink" marker-end="url(#issue-review-loop-ink)"/>
-<path d="M442,266 L442,296" class="e e-ink" marker-end="url(#issue-review-loop-ink)"/>
-<path d="M306,179 L174,179" class="e e-rework" marker-end="url(#issue-review-loop-rework)"/>
-<path d="M95,162 L95,39 L306,39" class="e e-rework" marker-end="url(#issue-review-loop-rework)"/>
+<path d="M424,62 L424,100" class="e e-ink"/>
+<path d="M424,134 L424,164" class="e e-ink"/>
+<path d="M424,225 L424,263" class="e e-ink"/>
+<path d="M424,297 L424,327" class="e e-ink"/>
+<path d="M306,195 L174,195" class="e e-rework"/>
+<path d="M95,178 L95,39 L306,39" class="e e-rework"/>
+<path d="M424,62 L424,100" class="arrow" marker-end="url(#issue-review-loop-ink)"/>
+<path d="M424,134 L424,164" class="arrow" marker-end="url(#issue-review-loop-ink)"/>
+<path d="M424,225 L424,263" class="arrow" marker-end="url(#issue-review-loop-ink)"/>
+<path d="M424,297 L424,327" class="arrow" marker-end="url(#issue-review-loop-ink)"/>
+<path d="M306,195 L174,195" class="arrow" marker-end="url(#issue-review-loop-rework)"/>
+<path d="M95,39 L306,39" class="arrow" marker-end="url(#issue-review-loop-rework)"/>
 <g>
-<rect x="306" y="16" width="272" height="46" rx="8" class="k-agent"/>
-<text x="442" y="35" text-anchor="middle" class="m s13 b t-agent">issue-preparer</text>
-<text x="442" y="52" text-anchor="middle" class="s11 muted">grounds the issue, writes criteria</text>
+<rect x="306" y="16" width="235" height="46" rx="8" class="k-agent"/>
+<text x="424" y="35" text-anchor="middle" class="m s13 b t-agent">issue-preparer</text>
+<text x="424" y="52" text-anchor="middle" class="s11 muted">grounds the issue, writes criteria</text>
 </g>
-<g><rect x="381" y="92" width="122" height="34" rx="17" class="pill"/>
-<circle cx="395" cy="109" r="5" class="t-agent"/>
-<text x="407" y="113" class="m s12">needs-review</text></g>
+<g><rect x="363" y="100" width="122" height="34" rx="17" class="pill"/>
+<circle cx="377" cy="117" r="5" class="t-agent"/>
+<text x="389" y="121" class="m s12">needs-review</text></g>
 <g>
-<rect x="306" y="156" width="272" height="46" rx="8" class="k-agent"/>
-<text x="442" y="175" text-anchor="middle" class="m s13 b t-agent">issue-reviewer</text>
-<text x="442" y="192" text-anchor="middle" class="s11 muted">second opinion, ideally on another model</text>
+<rect x="306" y="164" width="235" height="61" rx="8" class="k-agent"/>
+<text x="424" y="183" text-anchor="middle" class="m s13 b t-agent">issue-reviewer</text>
+<text x="424" y="200" text-anchor="middle" class="s11 muted">second opinion, ideally on another</text>
+<text x="424" y="215" text-anchor="middle" class="s11 muted">model</text>
 </g>
-<g><rect x="406" y="232" width="72" height="34" rx="17" class="pill"/>
-<circle cx="420" cy="249" r="5" class="t-done"/>
-<text x="432" y="253" class="m s12">ready</text></g>
-<rect x="355" y="296" width="174" height="34" rx="17" class="k-done"/>
-<text x="442" y="317" text-anchor="middle" class="s12 b t-done">Delivery picks it up</text>
-<g><rect x="16" y="162" width="158" height="34" rx="17" class="pill"/>
-<circle cx="30" cy="179" r="5" class="t-rework"/>
-<text x="42" y="183" class="m s12">needs-preparation</text></g>
-<text x="452" y="81" class="m s11">review</text>
-<text x="452" y="221" class="m s11">approved</text>
-<text x="296" y="172" text-anchor="end" class="m s11 t-rework">changes-requested</text>
+<g><rect x="388" y="263" width="72" height="34" rx="17" class="pill"/>
+<circle cx="402" cy="280" r="5" class="t-done"/>
+<text x="414" y="284" class="m s12">ready</text></g>
+<rect x="337" y="327" width="174" height="34" rx="17" class="k-done"/>
+<text x="424" y="348" text-anchor="middle" class="s12 b t-done">Delivery picks it up</text>
+<g><rect x="16" y="178" width="158" height="34" rx="17" class="pill"/>
+<circle cx="30" cy="195" r="5" class="t-rework"/>
+<text x="42" y="199" class="m s12">needs-preparation</text></g>
+<text x="434" y="85" class="m s11">review</text>
+<text x="434" y="248" class="m s11">approved</text>
+<text x="296" y="188" text-anchor="end" class="m s11 t-rework">changes-requested</text>
 <text x="296" y="32" text-anchor="end" class="m s11 t-rework">apply the findings</text>
-<line x1="8" y1="346" x2="586" y2="346" class="rule"/>
-<g><rect x="16" y="360" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="366" r="3" class="t-done"/><text x="46" y="370" class="s11 muted">GitHub label, like ready</text></g>
+<line x1="8" y1="377" x2="549" y2="377" class="rule"/>
+<g><rect x="16" y="391" width="24" height="12" rx="6" class="pill"/><circle cx="23" cy="397" r="3" class="t-done"/><text x="46" y="401" class="s11 muted">GitHub label, like ready</text></g>
 </svg>

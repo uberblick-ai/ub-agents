@@ -1,7 +1,9 @@
 # Integrate according to project policy
 
-Read the project's acceptance and merge rules. Verify that every owed review
-applies to the assigned candidate SHA; old-head evidence is insufficient. Only
+Read the project's acceptance and merge rules and the
+[rule for keeping the corpus reachable](../docs/development/uberblick-corpus.md).
+Verify that every owed review applies to the assigned candidate SHA; old-head
+evidence is insufficient. Only
 your own clean base merge below keeps the review at a new head. Do not infer
 permission to merge from a label alone.
 

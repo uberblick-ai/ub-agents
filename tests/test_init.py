@@ -13,8 +13,8 @@ import yaml
 from ub_agents.cli import main, runtime_guidance
 from ub_agents.config import load_config
 from ub_agents.errors import AgentError
-from ub_agents.init_flow import PRIORITIES
-from ub_agents.init_setup import Choices, priority_labels
+from ub_agents.init.flow import PRIORITIES
+from ub_agents.init.setup import Choices, priority_labels
 from ub_agents.labels import configured_labels
 from tests.support import DoctorGitHub, RecordingRunner
 

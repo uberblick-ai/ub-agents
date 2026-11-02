@@ -1,0 +1,264 @@
+[
+  {
+    "name": "Clean merge",
+    "slug": "clean-merge",
+    "steps": [
+      {
+        "target": "dependabot",
+        "kind": "box",
+        "actor": "Dependabot files",
+        "caption": "Bump vite from 7.1.2 to 7.1.5",
+        "ms": 1800,
+        "parts": [
+          "node-0"
+        ]
+      },
+      {
+        "target": "dependencies",
+        "kind": "pill",
+        "actor": "Loop picks",
+        "caption": "Trusted bot, fast path to the integrator",
+        "ms": 1800,
+        "parts": [
+          "node-1",
+          "edge-0"
+        ]
+      },
+      {
+        "target": "integrator",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "No conflicts, tests pass, no gate prevents merging",
+        "ms": 2600,
+        "parts": [
+          "node-2",
+          "edge-1"
+        ]
+      },
+      {
+        "target": "merged",
+        "kind": "end",
+        "actor": "Merged",
+        "caption": "PR merged, nobody had to step in",
+        "ms": 3000,
+        "parts": [
+          "node-5",
+          "edge-2"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Tests failing",
+    "slug": "tests-failing",
+    "steps": [
+      {
+        "target": "dependabot",
+        "kind": "box",
+        "actor": "Dependabot files",
+        "caption": "Bump zod from 4.4.3 to 4.6.6",
+        "ms": 1800,
+        "parts": [
+          "node-0"
+        ]
+      },
+      {
+        "target": "dependencies",
+        "kind": "pill",
+        "actor": "Loop picks",
+        "caption": "Trusted bot, fast path to the integrator",
+        "ms": 1800,
+        "parts": [
+          "node-1",
+          "edge-0"
+        ]
+      },
+      {
+        "target": "integrator",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "A test fails on the new version, so it gets one fix round",
+        "ms": 2400,
+        "parts": [
+          "node-2",
+          "edge-1"
+        ]
+      },
+      {
+        "target": "needs-changes",
+        "kind": "pill",
+        "actor": "Loop hands back",
+        "caption": "Labels it needs-changes",
+        "ms": 1800,
+        "parts": [
+          "node-3",
+          "edge-3"
+        ]
+      },
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Fixes two assertions; a reviewer checks the fix",
+        "ms": 2800,
+        "parts": [
+          "node-4",
+          "edge-4"
+        ]
+      },
+      {
+        "target": "integrator",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Tests pass now, no gate prevents merging",
+        "ms": 2200,
+        "parts": [
+          "node-2",
+          "edge-5"
+        ]
+      },
+      {
+        "target": "merged",
+        "kind": "end",
+        "actor": "Merged",
+        "caption": "PR merged after one fix round",
+        "ms": 3000,
+        "parts": [
+          "node-5",
+          "edge-2"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Fix fails",
+    "slug": "fix-fails",
+    "steps": [
+      {
+        "target": "dependabot",
+        "kind": "box",
+        "actor": "Dependabot files",
+        "caption": "Bump zod from 4.4.3 to 4.6.6",
+        "ms": 1800,
+        "parts": [
+          "node-0"
+        ]
+      },
+      {
+        "target": "dependencies",
+        "kind": "pill",
+        "actor": "Loop picks",
+        "caption": "Trusted bot, fast path to the integrator",
+        "ms": 1800,
+        "parts": [
+          "node-1",
+          "edge-0"
+        ]
+      },
+      {
+        "target": "integrator",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "A test fails on the new version, so it gets one fix round",
+        "ms": 2400,
+        "parts": [
+          "node-2",
+          "edge-1"
+        ]
+      },
+      {
+        "target": "needs-changes",
+        "kind": "pill",
+        "actor": "Loop hands back",
+        "caption": "Labels it needs-changes",
+        "ms": 1800,
+        "parts": [
+          "node-3",
+          "edge-3"
+        ]
+      },
+      {
+        "target": "implementer",
+        "kind": "box",
+        "actor": "Implementer",
+        "caption": "Adapts the code; a reviewer checks the fix",
+        "ms": 2600,
+        "parts": [
+          "node-4",
+          "edge-4"
+        ]
+      },
+      {
+        "target": "integrator",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Still failing after the one round, so no second try",
+        "ms": 2400,
+        "parts": [
+          "node-2",
+          "edge-5"
+        ]
+      },
+      {
+        "target": "human",
+        "kind": "panel",
+        "actor": "Needs a human",
+        "caption": "A person decides: fix by hand, pin the old version or close it",
+        "ms": 3000,
+        "parts": [
+          "node-6",
+          "edge-6"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Major release",
+    "slug": "major-release",
+    "steps": [
+      {
+        "target": "dependabot",
+        "kind": "box",
+        "actor": "Dependabot files",
+        "caption": "Bump a package to a new major version",
+        "ms": 1800,
+        "parts": [
+          "node-0"
+        ]
+      },
+      {
+        "target": "dependencies",
+        "kind": "pill",
+        "actor": "Loop picks",
+        "caption": "Trusted bot, fast path to the integrator",
+        "ms": 1800,
+        "parts": [
+          "node-1",
+          "edge-0"
+        ]
+      },
+      {
+        "target": "integrator",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Tests pass, but a major can change behaviour",
+        "ms": 2600,
+        "parts": [
+          "node-2",
+          "edge-1"
+        ]
+      },
+      {
+        "target": "human",
+        "kind": "panel",
+        "actor": "Needs a human",
+        "caption": "A person reads the changelog, then merges or closes the PR",
+        "ms": 3000,
+        "parts": [
+          "node-6",
+          "edge-6"
+        ]
+      }
+    ]
+  }
+]

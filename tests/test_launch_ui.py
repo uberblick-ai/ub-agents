@@ -22,7 +22,7 @@ from unittest.mock import Mock, patch
 from ub_agents import __version__
 from ub_agents.launch_log import launch_output
 from ub_agents.launch_ui import ViewProcess, open_view
-from ub_agents.view import LauncherConnection, attach
+from ub_agents.view.main import LauncherConnection, attach
 from tests.terminal import Terminal
 from tests.test_view_data import fixture
 
@@ -357,7 +357,6 @@ class LaunchTerminalTests(unittest.TestCase):
                 wait_for_observation_worker(root)
 
     # Each launch form is its own test so a parallel run spreads them over cores.
-    @unittest.skip("Times out in agent runs; see #805")
     def test_q_drains_the_active_run_through_report_and_cleanup(self):
         self.check_launch_form('q')
 

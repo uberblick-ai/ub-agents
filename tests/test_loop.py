@@ -18,7 +18,7 @@ from ub_agents.prompts import RETROSPECTIVE_PROMPT
 from ub_agents.records import issue_branch, outcome_declarations, attempts, body, iso, timestamp
 from ub_agents.report_command import launcher_report_command
 from ub_agents.run_branches import earlier_branches
-from ub_agents.view_data import Session, work_pane
+from ub_agents.view.data import Session, work_pane
 from tests.support import settlement, stub_refresh, FakeGitHub, MemoryPublisher, agent, config, edit_lease, issue, pr
 
 

@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from tests.support import RecordingDescriptionTransport
-from ub_agents.view_github import (CACHE_ITEMS, QUERY, REQUEST_SECONDS, DescriptionLoads,
+from ub_agents.view.github import (CACHE_ITEMS, QUERY, REQUEST_SECONDS, DescriptionLoads,
                                    GhTransport, Response, parse_response, rate_limit_reset)
 
 
@@ -105,7 +105,7 @@ time.sleep(60)
             script = '''
 from pathlib import Path
 import sys, time
-from ub_agents.view_github import GhTransport
+from ub_agents.view.github import GhTransport
 transport = GhTransport()
 transport.start('example/repo', 116)
 Path(sys.argv[1]).write_text(str(transport.process.pid))
@@ -162,7 +162,7 @@ time.sleep(60)
         def recording(command, **kwargs):
             calls.append(command)
             return process([sys.executable, '-c', 'import sys; sys.stdout.buffer.write(' + repr(reply(body='x' * 9000)) + ')'], **kwargs)
-        with patch('ub_agents.view_github.subprocess.Popen', side_effect=recording):
+        with patch('ub_agents.view.github.subprocess.Popen', side_effect=recording):
             transport.start('example/repo', 115)
             try:
                 deadline = time.monotonic() + 3
@@ -190,7 +190,7 @@ time.sleep(60)
         def hung(command, **kwargs):
             return process([sys.executable, '-c', 'import time; time.sleep(60)'], **kwargs)
         for timeout in (False, True):
-            with self.subTest(timeout=timeout), patch('ub_agents.view_github.subprocess.Popen', side_effect=hung):
+            with self.subTest(timeout=timeout), patch('ub_agents.view.github.subprocess.Popen', side_effect=hung):
                 now = [0]
                 transport = GhTransport(clock=lambda: now[0])
                 transport.start('example/repo', 115)
