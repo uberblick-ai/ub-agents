@@ -1,6 +1,7 @@
 # Prepare an issue
 
 Prepare the issue input provided in the assignment context.
+Read the [rule for keeping the corpus reachable](../docs/development/uberblick-corpus.md).
 Clarify the requested behavior, scope, and acceptance criteria. Preserve the user's
 intent. Do not implement code during preparation. Reference the repository's standard
 validation instructions unless this change needs an additional check.

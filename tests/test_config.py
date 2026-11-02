@@ -260,6 +260,18 @@ agents:
         root = Path(__file__).resolve().parents[1]
         project = (root / 'AGENTS.md').read_text()
         shared = (root / '.agents/ub_agents.md').read_text()
+        self.assertIn('## Checks', project)
+        for topic in ('principles', 'conventions', 'testing', 'checks',
+                      'changelog-and-releases', 'uberblick-corpus', 'review-checklist'):
+            path = f'docs/development/{topic}.md'
+            self.assertIn(f']({path})', project)
+            self.assertTrue((root / path).is_file(), path)
+        self.assertFalse((root / 'docs/development.md').exists())
+        for role in ('issue-preparer', 'implementer', 'reviewer', 'integrator'):
+            instructions = (root / f'.agents/{role}.md').read_text()
+            self.assertIn('reachable](../docs/development/uberblick-corpus.md)', instructions)
+            if role in ('implementer', 'reviewer'):
+                self.assertIn('](../docs/development/review-checklist.md)', instructions)
         for section in ('Inside the loop', 'Retrospectives', 'Merging', 'Human decisions', 'Review focus'):
             self.assertNotIn('## ' + section, project)
         for section in ('Checks', 'Merging', 'Human decisions', 'Review focus'):
