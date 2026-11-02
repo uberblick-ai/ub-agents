@@ -32,6 +32,9 @@ claude --print --output-format stream-json --verbose --model MODEL --effort EFFO
 codex exec --json --model MODEL --config model_reasoning_effort="EFFORT" --config model_reasoning_summary="detailed"
 ```
 
+`process.log` records CLI JSON output as is; only the
+[report command](/docs/commands/loop-internal.html#report) sets an outcome.
+
 ## Usage limits
 
 Nothing to configure. When a run reports a usage limit, the launcher stops starting runs on that CLI until the limit resets, plus one minute. Other CLIs keep working, and the item spends no attempt. Restarting the launcher clears the pause. The terminal footer shows each pause, such as `claude paused for 1d 4h · codex paused for 35m`.
@@ -39,6 +42,11 @@ Nothing to configure. When a run reports a usage limit, the launcher stops start
 ```text
 claude usage limit reached; pausing claude runs until 2026-10-04T12:01:00Z
 ```
+
+If the reset is missing, past, or more than seven days away, the pause is 15 minutes.
+Pauses are held in memory per launcher; alternatives skip paused CLIs, and an item
+with every runtime paused stays `waiting`. See the [usage pause contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#runtime-usage-pauses)
+for detection and reset rules.
 
 ## Not allowed
 

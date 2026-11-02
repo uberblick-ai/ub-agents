@@ -201,7 +201,8 @@ Without mise, `python3 -m venv .venv && .venv/bin/pip install -e .` sets up the
 same `.venv`.
 
 See [development checks](docs/development.md) for the pinned type and complexity
-checks used locally and in CI.
+checks used locally and in CI, plus the directory welcome card and
+[remote loop shortcuts](docs/development.md#remote-loop-shortcuts).
 
 The test runner uses every core by default. Pass test names to run a subset,
 `-j N` to set the worker count, `--durations N` to list the slowest tests and
@@ -211,10 +212,9 @@ The website builds from `site/content/` into `site/out/` with
 `.venv/bin/python site/build.py`; open `site/out/index.html` to preview it.
 Workflow diagrams have their own [README](site/diagrams/README.md).
 
-Reference for contributors: [configuration](docs/configuration.md),
-[coordination contract](docs/coordination.md), [approvals](docs/approvals.md),
-[polling](docs/polling.md), [operations](docs/operations.md),
-[terminal view](docs/terminal-view.md), [init wizard](docs/init-wizard.md),
+Reference for contributors: [coordination contract](docs/coordination.md),
+[approvals](docs/approvals.md), [polling](docs/polling.md),
+[init wizard](docs/init-wizard.md),
 [session snapshots](docs/session-snapshots.md) and [releases](docs/releases.md).
 
 ## License

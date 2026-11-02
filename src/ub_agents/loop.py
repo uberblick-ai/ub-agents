@@ -21,6 +21,7 @@ from .errors import (AgentError, CleanupError, GitHubError, LostOwnership, Recor
 from .execution import git, repository_checks
 from .events import EventHooks
 from .finalization import FinalizationReads
+from .merging import LauncherMerge, MergeNotRecovered
 from .launcher_lock import configuration_pause_summary, publish_configuration_pause
 from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
@@ -958,7 +959,7 @@ class Loop:
                    "that cover the PR's changes and hand it off again.")
         outcome = self.coordinator.report(lease, "success", summary, outcome=plan.agent.on_conflict,
                                           agent_report=False)
-        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals)
+        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals, LauncherMerge(self))
         try:
             result, summary, effect = settlement.reported_verdict(lease, plan, outcome, lease, "completion")
         except TransitionPaused as exc:
@@ -1019,10 +1020,12 @@ class Loop:
             raise LostOwnership("Recovered outcome disappeared after claiming")
         # Validate against the originally assigned candidate, not today's head.
         original = replace(plan, item=replace(plan.item, head=source["assignment_sha"]))
-        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals)
+        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals, LauncherMerge(self))
         try:
             result, summary, effect = settlement.reported_verdict(recovery, original, outcome, source,
                                                                  "recovered completion")
+        except MergeNotRecovered as exc:
+            result, summary, effect = "retry", str(exc), "unchanged"
         except ValidationError as exc:
             result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
             effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"

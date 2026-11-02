@@ -275,7 +275,8 @@ class InitTests(unittest.TestCase):
         self.assertIn('Immediately before merging', roles['integrator'])
         self.assertIn('gh pr merge N --squash --match-head-commit SHA', roles['integrator'])
         for expected in (
-            'Wait for every CI check that runs on that exact head, including your own base merge, '
+            'Unless a declared `merge` outcome lets the launcher wait for an authorized merge, '
+            'wait for every CI check that runs on that exact head, including your own base merge, '
             'to complete successfully',
             'Pending checks, including a just-pushed head with no checks yet, mean wait '
             '(`gh pr checks N --watch`)',
@@ -562,8 +563,7 @@ class InitTests(unittest.TestCase):
                 text = self.path.read_text()
                 self.assertEqual(text.count('# runtime-args:'), 1)
                 comment = (f'# {grant}: '
-                           'https://github.com/uberblick-ai/ub-agents/blob/main/docs/'
-                           'configuration.md#runtime-permissions')
+                           'https://agents.uberblick.ai/docs/configuration/permissions.html')
                 self.assertIn(comment, text)
                 self.assertIn("An agent's runtime-args list or mapping replaces these defaults entirely", text)
                 if runtime.startswith('claude:'):

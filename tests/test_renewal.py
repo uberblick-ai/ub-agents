@@ -485,10 +485,10 @@ class RenewalTests(unittest.TestCase):
             for _ in range(4):
                 self.advance()
             return prepare(workspace)
-        def complete(*args):
+        def complete(*args, **kwargs):
             for _ in range(4):
                 self.advance()
-            return finalize(*args)
+            return finalize(*args, **kwargs)
         with patch.object(Workspace, "prepare", setup), patch.object(Settlement, "finalize", autospec=True, side_effect=complete):
             self.execute(lambda *args, **kwargs: self.finish())
 
@@ -543,12 +543,12 @@ class RenewalTests(unittest.TestCase):
         self.co.report(source, "success", "Durable outcome", outcome="done")
         self.now += 1800
         finalize = Settlement.finalize
-        def complete(settlement, recovery, *args):
+        def complete(settlement, recovery, *args, **kwargs):
             self.assertEqual(recovery["mode"], "recovery")
             with patch.object(self.github, "item", side_effect=AssertionError("recovery does not check for stops")):
                 for _ in range(4):
                     self.advance()
-            return finalize(settlement, recovery, *args)
+            return finalize(settlement, recovery, *args, **kwargs)
         with patch.object(Settlement, "finalize", autospec=True, side_effect=complete):
             self.assertTrue(self.loop.tick())
         self.assertEqual(self.co.history(1)[2]["state"], "released")

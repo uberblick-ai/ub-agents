@@ -1,8 +1,8 @@
 # Polling contract
 
 Reference for changing discovery without weakening authority checks or exhausting a
-shared GitHub account. The only setting is
-[`poll-seconds`](configuration.md#top-level), default 30 seconds.
+shared GitHub account. The [poll interval](https://agents.uberblick.ai/docs/configuration/index.html#poll-interval)
+page defines the setting, default and validation.
 
 ## Flow and authority
 
@@ -69,7 +69,7 @@ Use headers from real requests via `gh api --include`; never probe
 | Any resource below 20% remaining | Double the idle/observation gap until the earliest applicable reset; never shorten the ordinary gap or exceed its one-hour cap. Ignore expired/incomplete headers. |
 | Rate-limited 403/429 | Recognize zero remaining, `Retry-After`, or GitHub's primary/secondary rate-limit message. Primary: reset plus **5 seconds**. Secondary: `Retry-After`. Missing wait metadata: one minute. Cap each wait at one hour, then retry. |
 | Retryable continuous-launch failure | A failed gh call without an HTTP status (regardless of its text), request timeouts, truncated/empty JSON reported by gh, and HTTP 5xx: back off from **5 seconds** to **60 seconds**, doubling, without a retry limit. A completed poll resets the delay. |
-| Configuration or instruction errors after refresh | Continuous launch pauses all claims, including recoveries, and refreshes and validates on every poll or `r`; valid files resume claims. See [configuration pauses](operations.md#when-things-go-wrong). Startup validation, `launch --once` and `launch N` still fail. |
+| Configuration or instruction errors after refresh | Continuous launch pauses all claims, including recoveries, and refreshes and validates on every poll or `r`; valid files resume claims. See [configuration pauses](https://agents.uberblick.ai/docs/guides/running-launchers.html#when-things-go-wrong). Startup validation, `launch --once` and `launch N` still fail. |
 | Other errors | gh authentication required (exit 4), a gh binary that cannot run, non-rate-limited HTTP 4xx and other malformed responses stop immediately. `launch --once` and `status` fail on their first request error. |
 
 Only reads wait and retry. A rate-limited write is not replayed automatically.
@@ -82,7 +82,7 @@ A retryable failure of the claim POST uses the same poll backoff. Before replann
 the launcher checks whether the claim was created and withdraws it, charging no
 attempt or item backoff. Failures after a claim follow
 [recovery](coordination.md#recovery); see also
-[signal handling](operations.md#stopping-and-restarting).
+[signal handling](https://agents.uberblick.ai/docs/guides/running-launchers.html#stopping-and-restarting).
 
 ## Accounting and diagnostics
 
@@ -96,5 +96,5 @@ and candidates print once.
 The run's `released` event records `github_requests` with `gh_calls`,
 `quota_requests`, `not_modified_responses` and `graphql_calls`. These cover the
 launcher's claim checks, renewals and finalization, not observation, agent calls or
-display refresh after release. See [Running launchers](operations.md#launch-output)
+display refresh after release. See [Running launchers](https://agents.uberblick.ai/docs/guides/running-launchers.html#launch-output)
 for operator messages and logs.
