@@ -32,7 +32,7 @@ play "Clean merge"
   step dependabot actor="Dependabot files" "Bump vite from 7.1.2 to 7.1.5"
   step dependencies 3.2s actor="Loop picks" "Dependabot adds the dependencies label itself, and that label starts the pick-up: a trusted bot goes straight to the integrator"
   step integrator 2.6s actor="Integrator" "No conflicts, tests pass, no gate prevents merging"
-  step merged 3s actor="Merged" "PR merged, nobody had to step in"
+  step merged 3s actor="Merged" "PR merged, nobody had to step in 🎉"
 
 play "Tests failing"
   tempo 1.8s
@@ -42,7 +42,7 @@ play "Tests failing"
   step needs-changes actor="Loop hands back" "Labels it needs-changes"
   step implementer 3.2s actor="Implementer" "Picks it up on its own, finds the cause, fixes two assertions and sends it back to the integrator"
   step integrator 2.2s actor="Integrator" "Tests pass now, no gate prevents merging"
-  step merged 3s actor="Merged" "PR merged after one fix round"
+  step merged 3s actor="Merged" "Integrator reports green gates: merged after one fix round, no human bothered 🥳"
 
 play "Fix fails"
   tempo 1.8s

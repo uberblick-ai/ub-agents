@@ -39,7 +39,7 @@
         "target": "merged",
         "kind": "end",
         "actor": "Merged",
-        "caption": "PR merged, nobody had to step in",
+        "caption": "PR merged, nobody had to step in 🎉",
         "ms": 3000,
         "parts": [
           "node-5",
@@ -121,7 +121,7 @@
         "target": "merged",
         "kind": "end",
         "actor": "Merged",
-        "caption": "PR merged after one fix round",
+        "caption": "Integrator reports green gates: merged after one fix round, no human bothered 🥳",
         "ms": 3000,
         "parts": [
           "node-5",
