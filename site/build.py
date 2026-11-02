@@ -428,9 +428,9 @@ def workflow_adopt(workflow):
     return ('<aside class="workflow-adopt" aria-label="Adopt this workflow">'
             '<p class="workflow-adopt-head">Adopt this workflow, discuss with</p>'
             f'{discuss(name, "")}'
-            '<p class="workflow-alt">'
-            f'<a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}" title="Opens the prompt on claude.ai">or on claude.ai</a>'
-            '<a href="https://chatgpt.com/codex" title="Opens Codex on the web; paste the copied prompt">or on chatgpt.com</a></p>'
+            '<p class="workflow-alt">No desktop app? Use '
+            f'<a href="https://claude.ai/new?q={urllib.parse.quote(prompt, safe="")}" title="Opens the prompt on claude.ai">claude.ai</a> / '
+            '<a href="https://chatgpt.com/codex" title="Opens Codex on the web; paste the copied prompt">chatgpt.com</a></p>'
             f'<button class="workflow-copy" type="button" data-prompt="{html.escape(prompt)}">Copy the prompt</button>'
             f'{article}</aside>')
 
