@@ -43,6 +43,16 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual((stopped["ask"]["actions"], stopped["ask"]["options"]), (["Choose a scope"], ["Small", "Large"]))
         self.assertEqual([run["result"] for run in snapshot["recent"]], ["blocked"])
 
+    def test_a_blocked_run_needs_a_person_only_while_its_item_is_open(self):
+        github = FakeGitHub(issue(3, labels=()))
+        github.create_comment(3, body(lease(3, "d", state="released", result="blocked", attempt_effect="unchanged")))
+        source = MonitorSource(config(Path("/checkout")), github, Coordinator(github, None), timestamp)
+        waiting = []
+        for state in ("open", "closed", "open"):
+            github.change(3, state=state)
+            waiting.append([entry["item"]["number"] for entry in source.snapshot()["needs_human"]])
+        self.assertEqual(waiting, [[3], [], [3]])
+
     def test_server_answers_only_this_machine_and_its_own_page(self):
         self.assertTrue(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "same-origin", "cors"))
         self.assertTrue(allowed("localhost:4377", 4377, "/", "cross-site", "navigate"))
