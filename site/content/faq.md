@@ -34,6 +34,8 @@ Outside issues, comments and pull requests reach agents only after a maintainer 
 
 A run that goes past its [timeout](/docs/configuration/limits.html#timeout) is stopped and retried. If a launcher dies, another launcher picks up its work once the claim expires. If the last run already opened a pull request, the next run continues it instead of starting over. After repeated failures the item stops and waits for you; see [Unstick an item](/docs/guides/stuck-items.html).
 
+{{flow launcher-takeover}}
+
 ## What if two launchers want the same issue?
 
 Each launcher posts a claim comment and reads the issue again. The first claim posted wins; the other launcher edits its comment to withdraw and tries its next item without starting an agent.
