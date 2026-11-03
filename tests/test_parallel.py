@@ -11,7 +11,7 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-from tests.parallel import main, ROOT, supervise
+from tests.parallel import discover, main, ROOT, supervise
 from tests.parallel_worker import process_table, signal_process, stop_process_trees
 
 
@@ -24,6 +24,69 @@ class ParallelTests(unittest.TestCase):
                                 cwd=ROOT, env=environment, capture_output=True, text=True, timeout=15)
         self.assertLess(time.monotonic() - started, 10)
         return result
+
+    def dispatched_names(self, names, *options):
+        empty = {'run': 0, 'failures': [], 'errors': [], 'skipped': 0,
+                 'unexpected_successes': [], 'seconds': 0}
+        dispatched = []
+
+        def start(_directory, number, events):
+            worker = Mock(complete=False, process=Mock(pid=number + 100, poll=lambda: None),
+                          closed=False, since=time.monotonic())
+            worker.name = None
+
+            def send(kind, **data):
+                if kind == 'discover':
+                    events.put((worker, {'kind': 'discovered', 'names': names, 'outcome': empty.copy()}))
+                elif kind == 'run':
+                    dispatched.append(data['name'])
+                    events.put((worker, {'kind': 'finished', 'name': data['name'],
+                                         'outcome': empty | {'run': 1}}))
+                elif kind == 'stop':
+                    events.put((worker, {'kind': 'stopped'}))
+            worker.send = send
+            events.put((worker, {'kind': 'ready'}))
+            return worker
+
+        with patch('tests.parallel.Worker.start', side_effect=start), \
+                patch('tests.parallel.stop_workers'), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(['-j', '2', *options]), 0)
+        return dispatched
+
+    def test_shards_partition_every_discovered_test_in_sorted_order(self):
+        names, outcome = discover([])
+        self.assertFalse(outcome['errors'])
+        self.assertTrue(names)
+        names.reverse()
+        self.assertEqual(self.dispatched_names(names), names)
+        for count in (1, 2, 3):
+            with self.subTest(count=count):
+                shards = [self.dispatched_names(names, '--shard', f'{index}/{count}')
+                          for index in range(1, count + 1)]
+                self.assertCountEqual([name for shard in shards for name in shard], names)
+                for index, shard in enumerate(shards):
+                    self.assertEqual(shard, sorted(names)[index::count])
+        self.assertEqual(self.dispatched_names(names[:1], '--shard', '2/2'), [])
+
+    def test_named_tests_are_sharded_in_sorted_order(self):
+        names = [f'tests.parallel_fixtures.Results.test_{name}' for name in ('stderr_noise', 'skip', 'pass')]
+        for shard, selected in (('1/2', [names[2], names[0]]), ('2/2', [names[1]]), ('4/4', [])):
+            with self.subTest(shard=shard):
+                result = self.run_runner('--shard', shard, '--durations', '10', *names)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f'Ran {len(selected)} tests', result.stderr)
+                for name in names:
+                    self.assertEqual(name in result.stderr, name in selected)
+
+    def test_invalid_shards_fail_before_starting_a_worker(self):
+        for value in ('0/2', '3/2', 'x', '1/0', '-1/2', '1/-2', '1/2/3', '1/', '/2'):
+            with self.subTest(value=value), patch('tests.parallel.Worker.start') as start, \
+                    contextlib.redirect_stderr(io.StringIO()) as output, \
+                    self.assertRaises(SystemExit) as raised:
+                main(['--shard', value])
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn('usage:', output.getvalue())
+            start.assert_not_called()
 
     def assert_stopped(self, pids):
         # Orphan zombies can briefly await init's reaper; they hold no pipes and
@@ -234,6 +297,7 @@ class ParallelTests(unittest.TestCase):
             main(['--help'])
         self.assertEqual(raised.exception.code, 0)
         self.assertIn('--timeout SECONDS', output.getvalue())
+        self.assertIn('--shard K/N', output.getvalue())
         self.assertIn('default: 300s', output.getvalue())
         for value in ('0', '-1', 'nan', 'inf'):
             with self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()), \

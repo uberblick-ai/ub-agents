@@ -82,7 +82,8 @@ class ObservationPlanner:
         self.queue_planner = QueuePlanner(
             lambda: self.config, lambda: self.github, lambda: self.coordinator, approvals,
             health=lambda: self.health, usage=lambda: self.usage, maintenance=lambda: self.maintenance,
-            output=self.output, observe=self.observe, before_claim=None, reconcile_blocked_notices=None,
+            output=self.output, observe=self.observe, observing=lambda: self.observer is not None,
+            before_claim=None, reconcile_blocked_notices=None,
             targeted=lambda: False, claiming=lambda: False, notice_agent=lambda: self._launch_agent,
             discovery=lambda: self.discovery, pass_stats=lambda: self._pass_stats,
             launch_agent=lambda: self._launch_agent, launch_number=lambda: None)
