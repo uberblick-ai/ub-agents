@@ -1,0 +1,52 @@
+"""The browser monitor shows every launcher's trusted runs and serves only this machine."""
+
+from pathlib import Path
+import unittest
+
+from ub_agents.coordination import Coordinator
+from ub_agents.monitor.server import allowed
+from ub_agents.monitor.snapshot import MonitorSource
+from ub_agents.records import body, iso, timestamp
+from tests.support import FakeGitHub, config, issue
+
+
+def lease(number, run, **changes):
+    now = timestamp()
+    return {"kind": "lease", "run": run, "agent": "worker", "assignment": number, "assignment_sha": None,
+            "runtime": "direct", "triggers": [], "actor": "operator", "created": iso(now - 60),
+            "expires": iso(now + 600), "state": "running", "attempt": 1, "started": True,
+            "attempt_effect": "pending", "host": "server"} | changes
+
+
+class MonitorTests(unittest.TestCase):
+    def test_snapshot_shows_trusted_runs_and_stopped_items_with_their_ask(self):
+        github = FakeGitHub(issue(1), issue(2, labels=("needs-human",)))
+        github.create_comment(1, body(lease(1, "a")))
+        github.create_comment(1, body(lease(1, "b")), login="outsider")
+        released = github.create_comment(2, body(lease(2, "c", state="released", result="blocked",
+                                                      attempt_effect="unchanged")))
+        github.create_comment(2, body({"kind": "outcome", "agent": "worker", "actor": "operator", "assignment": 2,
+                                       "created": iso(timestamp()), "status": "blocked", "summary": "Unclear scope",
+                                       "lease_id": released["id"], "accepted": True,
+                                       "actions": ["Choose a scope"], "options": ["Small", "Large"]}))
+        source = MonitorSource(config(Path("/checkout")), github, Coordinator(github, None), timestamp)
+
+        snapshot = source.snapshot()
+
+        self.assertEqual([run["item"]["number"] for run in snapshot["running"]], [1])
+        self.assertEqual(snapshot["running"][0]["host"], "server")
+        [stopped] = snapshot["needs_human"]
+        self.assertEqual((stopped["item"]["number"], stopped["labels"]), (2, ["needs-human"]))
+        self.assertEqual((stopped["ask"]["actions"], stopped["ask"]["options"]), (["Choose a scope"], ["Small", "Large"]))
+        self.assertEqual([run["result"] for run in snapshot["recent"]], ["blocked"])
+
+    def test_server_answers_only_this_machine_and_its_own_page(self):
+        self.assertTrue(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "same-origin", "cors"))
+        self.assertTrue(allowed("localhost:4377", 4377, "/", "cross-site", "navigate"))
+        self.assertFalse(allowed("rebound.example:4377", 4377, "/snapshot.json", None, None))
+        self.assertFalse(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "cross-site", "cors"))
+        self.assertFalse(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "cross-site", "navigate"))
+
+
+if __name__ == "__main__":
+    unittest.main()

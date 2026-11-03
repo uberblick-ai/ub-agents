@@ -37,6 +37,12 @@ from .status import lease_summary, process_details
 from .startup_cleanup import StartupCleanup
 
 
+def port_number(value):
+    if not value.isdigit() or not 1 <= int(value) <= 65535:
+        raise argparse.ArgumentTypeError("must be a port number from 1 to 65535")
+    return int(value)
+
+
 def parser():
     result = HelpParser(prog="ub-agents", description="project-owned engineering loops on GitHub",
                         usage="%(prog)s <command> [options]")
@@ -95,6 +101,14 @@ def parser():
                                  examples=("ub-agents status", "ub-agents status 143", "ub-agents status 143 --json"))
     status.add_argument("number", metavar="NUMBER", type=int, nargs="?", help="inspect only this item (optional)")
     status.add_argument("--json", action="store_true", help="emit structured status")
+    monitor = commands.add_parser("monitor", help="every launcher's runs in a browser, with notifications",
+                                  description="Serve a page on 127.0.0.1 that shows what needs a person, what runs now "
+                                  "and what ended in the last 24 hours, on every machine that runs a launcher for the "
+                                  "repository. It reads GitHub with your gh login, polls every 30 seconds and can send "
+                                  "browser notifications. It never changes anything on GitHub; Ctrl-C stops it.",
+                                  examples=("ub-agents monitor", "ub-agents monitor --port 4400 --no-open"))
+    monitor.add_argument("--port", type=port_number, default=4377, help="port on 127.0.0.1 (default: 4377)")
+    monitor.add_argument("--no-open", action="store_true", help="serve without opening a browser")
     report = commands.add_parser("report", help="record the run's outcome", overview_hidden=True,
                                  description="Record a supervised run's explicit result on GitHub. "
                                  "Use inside the launcher-provided assignment environment; choose --status or --outcome (required). "
@@ -137,7 +151,7 @@ def parser():
                                "its repository and configuration are pinned by the launcher. This command makes no writes.",
                                examples=("ub-agents read 143", "ub-agents read 150 --config workflow.yaml"))
     read.add_argument("number", metavar="NUMBER", type=int, help="issue or PR number in the configured repository")
-    for command in (init, doctor, launch, status, retry, read):
+    for command in (init, doctor, launch, status, monitor, retry, read):
         command.add_argument("--config", dest="command_config", metavar="PATH",
                              help="project configuration (default: ub-agents.yaml)")
     help_command = commands.add_parser("help", overview_hidden=True,
@@ -342,6 +356,9 @@ def run(args):
                                                                      config.approvals, github))
     if args.command == "retry":
         return retry_run(args, config, github, actor, coordinator)
+    if args.command == "monitor":
+        from .monitor import monitor_run
+        return monitor_run(config, github, coordinator, args.port, open_page=not args.no_open)
     stop = SignalEvent()
     interrupt = SignalEvent()
     loop = Loop(config, github, actor, stop,
@@ -706,7 +723,7 @@ def _prepare_args(command_line, args):
     args.config = (Path(args.config or DEFAULT_CONFIG).absolute() if args.command == "init" else
                    Path(args.config or DEFAULT_CONFIG).resolve() if args.command in {"report", "retrospective"}
                    else resolve_config_path(args.config))
-    needs_config = args.command in {"status", "launch", "retry", "read"}
+    needs_config = args.command in {"status", "launch", "monitor", "retry", "read"}
     if args.command == "read" and "UB_AGENTS_RUN" in os.environ:
         needs_config = False  # Supervised reads use the launcher's pinned input policy.
     if needs_config and not _config_exists_or_paused(args):

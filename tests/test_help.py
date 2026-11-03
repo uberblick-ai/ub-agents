@@ -27,6 +27,7 @@ commands:
   launch [NUMBER]        run the queue in the foreground, or handle one item
   status [NUMBER] [--json]
                          matching work, owners, attempts and why items wait
+  monitor                every launcher's runs in a browser, with notifications
   retry NUMBER           let stopped work run again, with a recorded reason
 
 options:
@@ -284,7 +285,7 @@ class HelpTests(unittest.TestCase):
 
     def test_command_usage_has_positionals_required_options_and_compact_optional_options(self):
         expected = {"init": "[options]", "doctor": "[options]",
-                    "launch": "[NUMBER] [options]", "status": "[NUMBER] [options]",
+                    "launch": "[NUMBER] [options]", "status": "[NUMBER] [options]", "monitor": "[options]",
                     "report": "(--outcome OUTCOME | --status {retry,blocked}) --summary SUMMARY [options]",
                     "retrospective": "--body-file PATH [options]",
                     "retry": "NUMBER --reason REASON [options]",
