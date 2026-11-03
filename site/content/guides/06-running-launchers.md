@@ -115,8 +115,12 @@ attempts, run `ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"`.
 
 **GitHub is slow, unreachable or rate limited.** Continuous launch waits and retries
 without a limit, printing `Skipped GitHub poll: …; retrying in Ns`. No attempt is
-charged and no action is needed. `launch --once`, `launch N` and `status` fail on the
-first error; run them again later. `doctor --verbose` shows the remaining quota. See
+charged and no action is needed. A direct HTTPS REST `GET` that fails before a
+response retries three times, after 1, 2 and 4 seconds, using fresh connections.
+Each retry appears in `launch.log` with the method, endpoint and attempt. Ctrl-C
+interrupts the wait. Writes and the `gh api` fallback keep their existing behavior.
+`launch --once`, `launch N` and `status` fail if the request still fails after these
+retries; run them again later. `doctor --verbose` shows the remaining quota. See
 [quota and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling).
 
 **Launch stops with "ub-agents does not retry this error."** Authentication failures,

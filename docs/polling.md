@@ -69,10 +69,14 @@ nothing, requests use `gh api --include`. Setup and doctor keep using `gh`, as d
 non-request commands such as `gh pr merge`.
 
 Each thread has its own connection. A transport failure discards that connection;
-the next request reconnects, without automatically replaying the failed request.
+REST `GET` requests that fail before a response retry up to three times on fresh
+connections, after waits of **1, 2 and 4 seconds**. Each retry logs the method,
+endpoint and attempt to `launch.log`. Writes, GraphQL and the `gh api` fallback
+are not replayed here, nor are requests that received any HTTP response.
 Planning and startup cleanup check cancellation before every request, including
-refetches and authentication retries. Requests have a **20-second** timeout;
-Ctrl-C interrupts them. Tokens stay in process memory and request authentication
+connection retries, refetches and authentication retries. Requests have a
+**20-second** timeout; Ctrl-C interrupts requests and retry waits.
+Tokens stay in process memory and request authentication
 headers, never diagnostics, agent environments or launcher files.
 
 Use headers from real requests with either transport; never probe `GET /rate_limit`.
@@ -110,7 +114,8 @@ and candidates print once.
 
 The `gh calls` display and `gh_calls` field retain their names and count every
 attempted request with either transport, including the one retry after a token
-change. Token lookups themselves are not API requests and do not enter the counts.
+change and each connection retry. Token lookups themselves are not API requests
+and do not enter the counts.
 
 The run's `released` event records `github_requests` with `gh_calls`,
 `quota_requests`, `not_modified_responses` and `graphql_calls`. These cover the

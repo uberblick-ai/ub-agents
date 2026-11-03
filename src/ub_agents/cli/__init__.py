@@ -12,7 +12,7 @@ from . import _runtime
 from ._registry import commands
 
 # Registration order is the public command overview order.
-from . import init, doctor, launch, status, report, retrospective, retry, read
+from . import init, doctor, launch, status, monitor, report, retrospective, retry, read
 
 
 def parser():

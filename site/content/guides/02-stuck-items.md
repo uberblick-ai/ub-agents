@@ -1,6 +1,6 @@
 # Unstick an item
 
-Work stops for a reason, and ub-agents says which. Start with [`status`](/docs/commands/status.html), or ask about one item.
+Work stops for a reason, and ub-agents says which. Start with [`status`](/docs/commands/status.html), or ask about one item. [`monitor`](/docs/commands/monitor.html) shows what stopped on every machine in a browser page, and can notify you when something new needs a person.
 
 ```sh
 ub-agents status
