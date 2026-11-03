@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/doctor.py: 16%</title>
+    <title>Coverage for src/ub_agents/doctor/doctor.py: 16%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -11,7 +11,7 @@
 <header>
     <div class="content">
         <h1>
-            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>doctor.py</b>:
+            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>doctor<span class="sep">/</span>doctor.py</b>:
             <span class="pc_cov">16%</span>
         </h1>
         <aside id="help_panel_wrapper">
@@ -62,10 +62,10 @@
         <p class="text">
             <a id="prevFileLink" class="nav" href="z_5a8b66d9765f9a8f_discovery_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_doctor_mcp_py.html">&#xbb; next</a>
+            <a id="nextFileLink" class="nav" href="z_11431ef55a3d9c04_doctor_mcp_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 14:02 +0000
+            created at 2026-11-03 14:26 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -92,18 +92,18 @@
     <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">import</span> <span class="nam">subprocess</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">import</span> <span class="nam">sys</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">config</span> <span class="key">import</span> <span class="nam">instruction_text</span><span class="op">,</span> <span class="nam">load_config</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">approvals</span> <span class="key">import</span> <span class="nam">Roles</span><span class="op">,</span> <span class="nam">resolve_policy</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">errors</span> <span class="key">import</span> <span class="nam">AgentError</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">config</span> <span class="key">import</span> <span class="nam">instruction_text</span><span class="op">,</span> <span class="nam">load_config</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">approvals</span> <span class="key">import</span> <span class="nam">Roles</span><span class="op">,</span> <span class="nam">resolve_policy</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">errors</span> <span class="key">import</span> <span class="nam">AgentError</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">doctor_mcp</span> <span class="key">import</span> <span class="nam">MCPChecks</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">execution</span> <span class="key">import</span> <span class="nam">parse_process_table</span><span class="op">,</span> <span class="nam">repository_checks</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">github</span> <span class="key">import</span> <span class="nam">REPOSITORY</span><span class="op">,</span> <span class="nam">GitHub</span><span class="op">,</span> <span class="nam">repository_visibility</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">labels</span> <span class="key">import</span> <span class="nam">LabelUse</span><span class="op">,</span> <span class="nam">configured_labels</span><span class="op">,</span> <span class="nam">confirm_label_creation</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">launcher_lock</span> <span class="key">import</span> <span class="nam">running_launcher</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">execution</span> <span class="key">import</span> <span class="nam">parse_process_table</span><span class="op">,</span> <span class="nam">repository_checks</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">github</span> <span class="key">import</span> <span class="nam">REPOSITORY</span><span class="op">,</span> <span class="nam">GitHub</span><span class="op">,</span> <span class="nam">repository_visibility</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">labels</span> <span class="key">import</span> <span class="nam">LabelUse</span><span class="op">,</span> <span class="nam">configured_labels</span><span class="op">,</span> <span class="nam">confirm_label_creation</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">launcher_lock</span> <span class="key">import</span> <span class="nam">running_launcher</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">mcp_probe</span> <span class="key">import</span> <span class="nam">PROBE_TIMEOUT</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">records</span> <span class="key">import</span> <span class="nam">iso</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">refresh</span> <span class="key">import</span> <span class="nam">control_checkout_checks</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">trust</span> <span class="key">import</span> <span class="nam">WRITERS</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">records</span> <span class="key">import</span> <span class="nam">iso</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">refresh</span> <span class="key">import</span> <span class="nam">control_checkout_checks</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">trust</span> <span class="key">import</span> <span class="nam">WRITERS</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t"><span class="nam">PERMISSIONS_URL</span> <span class="op">=</span> <span class="str">&quot;https://agents.uberblick.ai/docs/configuration/permissions.html&quot;</span>&nbsp;</span><span class="r"></span></p>
@@ -361,7 +361,7 @@
     <p class="mis show_mis"><span class="n"><a id="t279" href="#t279">279</a></span><span class="t">                <span class="nam">self</span><span class="op">.</span><span class="nam">add</span><span class="op">(</span><span class="nam">id</span><span class="op">,</span> <span class="str">&quot;skip&quot;</span><span class="op">,</span> <span class="str">&quot;configuration unavailable&quot;</span> <span class="key">if</span> <span class="key">not</span> <span class="nam">config</span> <span class="key">else</span> <span class="str">&quot;git unavailable&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t280" href="#t280">280</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t281" href="#t281">281</a></span><span class="t">    <span class="key">def</span> <span class="nam">_launcher_installation</span><span class="op">(</span><span class="nam">self</span><span class="op">,</span> <span class="nam">config</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t282" href="#t282">282</a></span><span class="t">        <span class="key">from</span> <span class="op">.</span><span class="nam">self_updates</span> <span class="key">import</span> <span class="nam">installation</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t282" href="#t282">282</a></span><span class="t">        <span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">updates</span><span class="op">.</span><span class="nam">self_updates</span> <span class="key">import</span> <span class="nam">installation</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t283" href="#t283">283</a></span><span class="t">        <span class="nam">install</span><span class="op">,</span> <span class="nam">reason</span> <span class="op">=</span> <span class="nam">installation</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t284" href="#t284">284</a></span><span class="t">        <span class="nam">policy</span> <span class="op">=</span> <span class="op">(</span><span class="nam">config</span><span class="op">.</span><span class="nam">runtime_updates</span><span class="op">.</span><span class="nam">policies</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&quot;ub-agents&quot;</span><span class="op">,</span> <span class="str">&quot;off&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t285" href="#t285">285</a></span><span class="t">                  <span class="key">if</span> <span class="nam">config</span> <span class="key">and</span> <span class="nam">config</span><span class="op">.</span><span class="nam">runtime_updates</span> <span class="key">else</span> <span class="str">&quot;off&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -730,10 +730,10 @@
         <p>
             <a class="nav" href="z_5a8b66d9765f9a8f_discovery_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a class="nav" href="z_5a8b66d9765f9a8f_doctor_mcp_py.html">&#xbb; next</a>
+            <a class="nav" href="z_11431ef55a3d9c04_doctor_mcp_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 14:02 +0000
+            created at 2026-11-03 14:26 +0000
         </p>
     </div>
 </footer>

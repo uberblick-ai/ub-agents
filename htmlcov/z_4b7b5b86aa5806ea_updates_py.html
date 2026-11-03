@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/updates.py: 39%</title>
+    <title>Coverage for src/ub_agents/updates/updates.py: 39%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -11,7 +11,7 @@
 <header>
     <div class="content">
         <h1>
-            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>updates.py</b>:
+            <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>updates<span class="sep">/</span>updates.py</b>:
             <span class="pc_cov">39%</span>
         </h1>
         <aside id="help_panel_wrapper">
@@ -60,12 +60,12 @@
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
-            <a id="prevFileLink" class="nav" href="z_5a8b66d9765f9a8f_uberblick_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a id="prevFileLink" class="nav" href="z_4b7b5b86aa5806ea_self_updates_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_usage_output_py.html">&#xbb; next</a>
+            <a id="nextFileLink" class="nav" href="z_0e6a6d17ef4b8ac1_context_usage_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 14:02 +0000
+            created at 2026-11-03 14:26 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -93,8 +93,8 @@
     <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">import</span> <span class="nam">time</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="nam">urllib</span><span class="op">.</span><span class="nam">parse</span> <span class="key">import</span> <span class="nam">unquote</span><span class="op">,</span> <span class="nam">urlparse</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span> <span class="key">import</span> <span class="nam">__version__</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">launcher_code</span> <span class="key">import</span> <span class="nam">descriptors</span><span class="op">,</span> <span class="nam">helper_command</span><span class="op">,</span> <span class="nam">source_directory</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span> <span class="key">import</span> <span class="nam">__version__</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">launcher_code</span> <span class="key">import</span> <span class="nam">descriptors</span><span class="op">,</span> <span class="nam">helper_command</span><span class="op">,</span> <span class="nam">source_directory</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="nam">DAY</span> <span class="op">=</span> <span class="num">24</span> <span class="op">*</span> <span class="num">60</span> <span class="op">*</span> <span class="num">60</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="nam">CHECK_SECONDS</span> <span class="op">=</span> <span class="num">10</span>&nbsp;</span><span class="r"></span></p>
@@ -103,7 +103,7 @@
     <p class="pln"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t"><span class="key">def</span> <span class="nam">installation</span><span class="op">(</span><span class="nam">root</span><span class="op">,</span> <span class="nam">source</span><span class="op">=</span><span class="key">None</span><span class="op">,</span> <span class="nam">dist</span><span class="op">=</span><span class="key">None</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t">    <span class="str">&quot;&quot;&quot;Only the control source checkout is eligible for commit notices.&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t">    <span class="nam">source</span> <span class="op">=</span> <span class="nam">Path</span><span class="op">(</span><span class="nam">source</span> <span class="key">or</span> <span class="nam">source_directory</span><span class="op">(</span><span class="op">)</span> <span class="op">/</span> <span class="str">&#x27;updates.py&#x27;</span><span class="op">)</span><span class="op">.</span><span class="nam">resolve</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t">    <span class="nam">source</span> <span class="op">=</span> <span class="nam">Path</span><span class="op">(</span><span class="nam">source</span> <span class="key">or</span> <span class="nam">source_directory</span><span class="op">(</span><span class="op">)</span> <span class="op">/</span> <span class="str">&#x27;updates/updates.py&#x27;</span><span class="op">)</span><span class="op">.</span><span class="nam">resolve</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t">        <span class="nam">dist</span> <span class="op">=</span> <span class="nam">dist</span> <span class="key">or</span> <span class="nam">distribution</span><span class="op">(</span><span class="str">&#x27;ub-agents&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t">        <span class="nam">direct</span> <span class="op">=</span> <span class="nam">json</span><span class="op">.</span><span class="nam">loads</span><span class="op">(</span><span class="nam">dist</span><span class="op">.</span><span class="nam">read_text</span><span class="op">(</span><span class="str">&#x27;direct_url.json&#x27;</span><span class="op">)</span> <span class="key">or</span> <span class="str">&#x27;{}&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -115,7 +115,7 @@
     <p class="run"><span class="n"><a id="t33" href="#t33">33</a></span><span class="t">            <span class="key">return</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t34" href="#t34">34</a></span><span class="t">        <span class="com"># Also suppress release checks when running source without an editable</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t35" href="#t35">35</a></span><span class="t">        <span class="com"># distribution, e.g. via PYTHONPATH alongside an installed release.</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t36" href="#t36">36</a></span><span class="t">        <span class="key">if</span> <span class="nam">source</span><span class="op">.</span><span class="nam">parent</span><span class="op">.</span><span class="nam">parent</span><span class="op">.</span><span class="nam">name</span> <span class="op">==</span> <span class="str">&#x27;src&#x27;</span> <span class="key">and</span> <span class="op">(</span><span class="nam">source</span><span class="op">.</span><span class="nam">parents</span><span class="op">[</span><span class="num">2</span><span class="op">]</span> <span class="op">/</span> <span class="str">&#x27;pyproject.toml&#x27;</span><span class="op">)</span><span class="op">.</span><span class="nam">is_file</span><span class="op">(</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t36" href="#t36">36</a></span><span class="t">        <span class="key">if</span> <span class="nam">source</span><span class="op">.</span><span class="nam">parent</span><span class="op">.</span><span class="nam">parent</span><span class="op">.</span><span class="nam">parent</span><span class="op">.</span><span class="nam">name</span> <span class="op">==</span> <span class="str">&#x27;src&#x27;</span> <span class="key">and</span> <span class="op">(</span><span class="nam">source</span><span class="op">.</span><span class="nam">parents</span><span class="op">[</span><span class="num">3</span><span class="op">]</span> <span class="op">/</span> <span class="str">&#x27;pyproject.toml&#x27;</span><span class="op">)</span><span class="op">.</span><span class="nam">is_file</span><span class="op">(</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t37" href="#t37">37</a></span><span class="t">            <span class="key">return</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t38" href="#t38">38</a></span><span class="t">        <span class="key">for</span> <span class="nam">parent</span> <span class="key">in</span> <span class="nam">source</span><span class="op">.</span><span class="nam">parents</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t39" href="#t39">39</a></span><span class="t">            <span class="key">if</span> <span class="nam">parent</span><span class="op">.</span><span class="nam">name</span> <span class="op">==</span> <span class="str">&#x27;ub-agents&#x27;</span> <span class="key">and</span> <span class="nam">parent</span><span class="op">.</span><span class="nam">parent</span><span class="op">.</span><span class="nam">name</span> <span class="op">==</span> <span class="str">&#x27;Cellar&#x27;</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -303,12 +303,12 @@
 <footer>
     <div class="content">
         <p>
-            <a class="nav" href="z_5a8b66d9765f9a8f_uberblick_py.html">&#xab; prev</a> &nbsp; &nbsp;
+            <a class="nav" href="z_4b7b5b86aa5806ea_self_updates_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a class="nav" href="z_5a8b66d9765f9a8f_usage_output_py.html">&#xbb; next</a>
+            <a class="nav" href="z_0e6a6d17ef4b8ac1_context_usage_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 14:02 +0000
+            created at 2026-11-03 14:26 +0000
         </p>
     </div>
 </footer>

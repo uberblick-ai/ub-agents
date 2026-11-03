@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_6ac896d45f1ef32d_read_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 14:02 +0000
+            created at 2026-11-03 14:26 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -92,7 +92,7 @@
     <p class="pln"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="com"># Preserve the lightweight init.setup import boundary used by startup copies.</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">init</span><span class="op">.</span><span class="nam">setup</span> <span class="key">import</span> <span class="nam">runtime_guidance</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">labels</span> <span class="key">import</span> <span class="nam">configured_labels</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">launch_log</span> <span class="key">import</span> <span class="nam">launch_output</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">logs</span><span class="op">.</span><span class="nam">launch_log</span> <span class="key">import</span> <span class="nam">launch_output</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">launcher_lock</span> <span class="key">import</span> <span class="nam">launcher_lock</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">loop</span> <span class="key">import</span> <span class="nam">POLL_RETRY_BASE_SECONDS</span><span class="op">,</span> <span class="nam">POLL_RETRY_MAX_SECONDS</span><span class="op">,</span> <span class="nam">_GracefulStop</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">refresh</span> <span class="key">import</span> <span class="nam">control_checkout_checks</span>&nbsp;</span><span class="r"></span></p>
@@ -219,7 +219,7 @@
     <p class="pln"><span class="n"><a id="t137" href="#t137">137</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t138" href="#t138">138</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t139" href="#t139">139</a></span><span class="t"><span class="key">def</span> <span class="nam">_start_updates</span><span class="op">(</span><span class="nam">config</span><span class="op">,</span> <span class="nam">loop</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t140" href="#t140">140</a></span><span class="t">    <span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">updates</span> <span class="key">import</span> <span class="nam">Updates</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t140" href="#t140">140</a></span><span class="t">    <span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">updates</span><span class="op">.</span><span class="nam">updates</span> <span class="key">import</span> <span class="nam">Updates</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t141" href="#t141">141</a></span><span class="t">    <span class="nam">loop</span><span class="op">.</span><span class="nam">updates</span> <span class="op">=</span> <span class="nam">Updates</span><span class="op">(</span><span class="nam">config</span><span class="op">.</span><span class="nam">root</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t142" href="#t142">142</a></span><span class="t">    <span class="key">if</span> <span class="nam">loop</span><span class="op">.</span><span class="nam">updates</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t143" href="#t143">143</a></span><span class="t">        <span class="nam">loop</span><span class="op">.</span><span class="nam">updates</span><span class="op">.</span><span class="nam">start</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -359,7 +359,7 @@
             <a class="nav" href="z_6ac896d45f1ef32d_read_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 14:02 +0000
+            created at 2026-11-03 14:26 +0000
         </p>
     </div>
 </footer>

@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_attention_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 14:02 +0000
+            created at 2026-11-03 14:26 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -87,7 +87,7 @@
     <p class="run"><span class="n"><a id="t5" href="#t5">5</a></span><span class="t"><span class="key">import</span> <span class="nam">socket</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t6" href="#t6">6</a></span><span class="t"><span class="key">from</span> <span class="nam">dataclasses</span> <span class="key">import</span> <span class="nam">replace</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t7" href="#t7">7</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t8" href="#t8">8</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">context_usage</span> <span class="key">import</span> <span class="nam">collect_context</span><span class="op">,</span> <span class="nam">context_fields</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t8" href="#t8">8</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">usage</span><span class="op">.</span><span class="nam">context_usage</span> <span class="key">import</span> <span class="nam">collect_context</span><span class="op">,</span> <span class="nam">context_fields</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t9" href="#t9">9</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">denials</span> <span class="key">import</span> <span class="nam">collect_denials</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">errors</span> <span class="key">import</span> <span class="op">(</span><span class="nam">AgentError</span><span class="op">,</span> <span class="nam">CheckoutSetupInterrupted</span><span class="op">,</span> <span class="nam">CleanupError</span><span class="op">,</span> <span class="nam">ExecutionStopped</span><span class="op">,</span> <span class="nam">GitHubError</span><span class="op">,</span> <span class="nam">LostOwnership</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t">                     <span class="nam">RecordError</span><span class="op">,</span> <span class="nam">RetryableExecutionError</span><span class="op">,</span> <span class="nam">TransitionPaused</span><span class="op">,</span> <span class="nam">ValidationError</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -97,13 +97,13 @@
     <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">merging</span> <span class="key">import</span> <span class="nam">LauncherMerge</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">report_command</span> <span class="key">import</span> <span class="nam">launcher_report_command</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">records</span> <span class="key">import</span> <span class="nam">iso</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">request_stats</span> <span class="key">import</span> <span class="nam">request_counts</span><span class="op">,</span> <span class="nam">request_delta</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">usage</span><span class="op">.</span><span class="nam">request_stats</span> <span class="key">import</span> <span class="nam">request_counts</span><span class="op">,</span> <span class="nam">request_delta</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">run_branches</span> <span class="key">import</span> <span class="nam">earlier_branches</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">run_config</span> <span class="key">import</span> <span class="nam">record_process_group</span><span class="op">,</span> <span class="nam">run_config</span><span class="op">,</span> <span class="nam">run_directory</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">run_prompt</span> <span class="key">import</span> <span class="nam">run_context</span><span class="op">,</span> <span class="nam">run_environment</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">run_usage</span> <span class="key">import</span> <span class="nam">usage_fields</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">usage</span><span class="op">.</span><span class="nam">run_usage</span> <span class="key">import</span> <span class="nam">usage_fields</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">settlement</span> <span class="key">import</span> <span class="nam">Settlement</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">usage_output</span> <span class="key">import</span> <span class="nam">UsageOutput</span><span class="op">,</span> <span class="nam">collect_usage</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">usage</span><span class="op">.</span><span class="nam">usage_output</span> <span class="key">import</span> <span class="nam">UsageOutput</span><span class="op">,</span> <span class="nam">collect_usage</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">worktree_setup</span> <span class="key">import</span> <span class="nam">run_worktree_setup</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -417,7 +417,7 @@
             <a class="nav" href="z_5a8b66d9765f9a8f_attention_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 14:02 +0000
+            created at 2026-11-03 14:26 +0000
         </p>
     </div>
 </footer>
