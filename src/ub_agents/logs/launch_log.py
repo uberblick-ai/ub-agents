@@ -7,7 +7,7 @@ import stat
 import sys
 import threading
 
-from .records import iso, timestamp
+from ..records import iso, timestamp
 
 LOG_CAP_BYTES = 5 * 1024 * 1024
 

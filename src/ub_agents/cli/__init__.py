@@ -89,7 +89,7 @@ def run(args):
 
 
 def main(argv=None):
-    from ..self_updates import RestartLauncher
+    from ..updates.self_updates import RestartLauncher
 
     try:
         return _main(argv)

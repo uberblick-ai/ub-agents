@@ -19,7 +19,7 @@ from ub_agents.loop import Loop
 from ub_agents.settlement import Settlement
 from ub_agents.records import issue_branch, attempts, seconds, timestamp
 from ub_agents.refresh import refresh_checkout
-from ub_agents.updates import Updates
+from ub_agents.updates.updates import Updates
 from tests.support import FakeGitHub, PollGitHub, agent, config, isolate_runtime_state, issue, pr
 # Import before setUp patches Updates; parallel workers load modules on demand.
 from tests.test_updates import eventually, stop_checker

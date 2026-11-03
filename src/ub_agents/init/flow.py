@@ -8,7 +8,7 @@ import subprocess
 from rich.text import Text
 
 from .. import __version__
-from ..doctor import public
+from ..doctor.doctor import public
 from ..errors import AgentError
 from ..execution import git
 from ..github import REPOSITORY

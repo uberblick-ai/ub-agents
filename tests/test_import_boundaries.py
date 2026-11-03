@@ -57,8 +57,8 @@ class ImportBoundaryTests(unittest.TestCase):
         self.assertIn('init/setup.py imports terminal view modules', result.failures[0][1])
 
     def test_log_format_and_json_do_not_import_each_other(self):
-        formats = imported_modules((SOURCE / 'log_format.py').read_text())
-        json = imported_modules((SOURCE / 'log_json.py').read_text())
+        formats = imported_modules((SOURCE / 'logs/log_format.py').read_text())
+        json = imported_modules((SOURCE / 'logs/log_json.py').read_text())
         self.assertFalse('log_json' in formats and 'log_format' in json,
                          'log_format and log_json must have at most one import direction')
 

@@ -5,7 +5,7 @@ from textual.binding import Binding
 from textual.screen import ModalScreen
 from textual.widgets import Static, TabbedContent, Tabs
 
-from ..updates import release_age
+from ..updates.updates import release_age
 from .data import mapping, text
 from .scroll import PaneScroll
 from .status import pane_line

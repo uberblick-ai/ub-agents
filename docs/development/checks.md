@@ -25,8 +25,8 @@ check covers `tests/`.
 
 `tests/test_import_boundaries.py` reads source imports, including function-local
 imports, to keep core modules independent of the `view/` package and prevent
-a cycle between `log_format` and `log_json`. Shared snapshot grouping and history
-paths live in `observation_data`; shared log bounds live in `log_limits`.
+a cycle between `logs.log_format` and `logs.log_json`. Shared snapshot grouping and
+history paths live in `observation_data`; shared log bounds live in `logs.log_limits`.
 
 ## CI
 

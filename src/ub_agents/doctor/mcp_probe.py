@@ -6,7 +6,7 @@ import selectors
 import subprocess
 from time import monotonic
 
-from .execution import stop_group
+from ..execution import stop_group
 
 
 PROBE_TIMEOUT = 20

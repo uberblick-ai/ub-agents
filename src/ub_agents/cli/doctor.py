@@ -26,8 +26,8 @@ def arguments(commands):
 
 @command("doctor", arguments)
 def doctor_run(args):
-    from ..doctor import AREAS, Doctor, render
-    from ..doctor_progress import DoctorProgress
+    from ..doctor.doctor import AREAS, Doctor, render
+    from ..doctor.doctor_progress import DoctorProgress
     started = monotonic()
     doctor = Doctor()
     if args.json:

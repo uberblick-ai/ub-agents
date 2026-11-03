@@ -6,7 +6,7 @@ import shlex
 import unittest
 from unittest.mock import patch
 
-from ub_agents.doctor import Doctor, render
+from ub_agents.doctor.doctor import Doctor, render
 from ub_agents.labels import Label, LabelUse, configured_labels
 from tests.support import DoctorGitHub, agent, config
 

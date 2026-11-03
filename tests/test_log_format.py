@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from tests.test_log_reader import FIXTURE, progress, record, result, tool
-from ub_agents.log_format import ClaudeFormatter, MAX_TEXT, SHORTENED, with_elapsed
+from ub_agents.logs.log_format import ClaudeFormatter, MAX_TEXT, SHORTENED, with_elapsed
 from ub_agents.view.theme import log_style
 
 
@@ -187,7 +187,7 @@ class CompactClaudeTests(unittest.TestCase):
         self.assertIsNone(log_style(None, prompt.styles[0][2]).color)
 
     def test_synthetic_thinking_summary_continuations_drop_blank_lines(self):
-        with patch('ub_agents.log_format._time_column', return_value=' 11:00:17 '):
+        with patch('ub_agents.logs.log_format._time_column', return_value=' 11:00:17 '):
             entry = self.decode(record(content=[
                 {'type': 'thinking', 'thinking': '\n \t\nChecking the workflow.\n\n \t\nReading ci.yml.\n\n'},
                 {'type': 'text', 'text': 'Next step.'}]))

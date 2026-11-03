@@ -7,8 +7,8 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from ub_agents.log_format import ClaudeFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED, inert
-from ub_agents.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET, TAIL_BYTES
+from ub_agents.logs.log_format import ClaudeFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED, inert
+from ub_agents.logs.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET, TAIL_BYTES
 
 FIXTURE = Path(__file__).parent / "fixtures" / "runtime_logs" / "claude.log"
 NOW = datetime(2026, 10, 3, 20, 0, tzinfo=timezone.utc)
@@ -543,7 +543,7 @@ class ReadingTests(unittest.TestCase):
     def test_read_errors_are_inert_and_reader_recovers(self):
         self.path.unlink()
         reader = self.reader()
-        with patch("ub_agents.log_reader.os.open", side_effect=PermissionError("denied\x1b[2J")):
+        with patch("ub_agents.logs.log_reader.os.open", side_effect=PermissionError("denied\x1b[2J")):
             snapshot = reader.update()
         self.assertIn(r"\x1b", snapshot.error)
         self.append(b"recovered\n")

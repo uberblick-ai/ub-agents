@@ -10,7 +10,7 @@ import stat
 import time
 from typing import ClassVar
 
-from ..log_format import CONTROLS, inert
+from ..logs.log_format import CONTROLS, inert
 from ..attention import attention_state, stamp
 from ..observation_data import (ELIGIBLE_LIMIT, WORK_GROUPS, WorkRow, history_path, mapping,
                                omitted_plan, own_run, plan_group, rows, runtime_type, text,

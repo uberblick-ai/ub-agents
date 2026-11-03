@@ -37,7 +37,7 @@ class LaunchSetupTests(unittest.TestCase):
         self.enterContext(patch("ub_agents.observations.Publisher", return_value=self.publisher))
         self.checks = self.enterContext(patch("ub_agents.cli.launch.launch_checks"))
         self.open_view = self.enterContext(patch("ub_agents.launch_ui.open_view", return_value=self.view))
-        self.update_factory = self.enterContext(patch("ub_agents.updates.Updates", return_value=self.updates))
+        self.update_factory = self.enterContext(patch("ub_agents.updates.updates.Updates", return_value=self.updates))
         self.sweep = self.enterContext(patch("ub_agents.cli.launch.StartupCleanup"))
 
         def create(*args, **kwargs):

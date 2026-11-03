@@ -5,7 +5,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from .attention import stamp
-from .log_format import inert, shorten
+from .logs.log_format import inert, shorten
 from .run_config import run_directory
 
 WORK_GROUPS = ('Running', 'Needs attention', 'Eligible', 'Recent activity')

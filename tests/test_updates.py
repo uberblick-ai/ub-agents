@@ -15,7 +15,7 @@ from tests.support import (FakeGitHub, MemoryPublisher, RecordingUpdateRunner, c
                            isolate_runtime_state)
 from ub_agents.loop import Loop
 from ub_agents.observations import Observations
-from ub_agents.updates import DAY, Updates, installation, release_age, release_banner
+from ub_agents.updates.updates import DAY, Updates, installation, release_age, release_banner
 
 
 def release(tag='v99.0.0', **values):
@@ -55,7 +55,7 @@ class UpdateTests(unittest.TestCase):
         return update
 
     def test_installation_detection_and_checkout_scope(self):
-        source = self.root / 'src/ub_agents/updates.py'
+        source = self.root / 'src/ub_agents/updates/updates.py'
         source.parent.mkdir(parents=True)
         (self.root / 'pyproject.toml').touch()
         dist = Mock()
@@ -66,9 +66,9 @@ class UpdateTests(unittest.TestCase):
         dist.read_text.return_value = None
         self.assertIsNone(installation(self.root, source, dist))
         for path, expected in (
-                ('Cellar/ub-agents/0.1.11/libexec/lib/python3.11/site-packages/ub_agents/updates.py', 'brew'),
-                ('Cellar/python@3.11/3.11/lib/python3.11/site-packages/ub_agents/updates.py', 'pip'),
-                ('venv/lib/python3.11/site-packages/ub_agents/updates.py', 'pip')):
+                ('Cellar/ub-agents/0.1.11/libexec/lib/python3.11/site-packages/ub_agents/updates/updates.py', 'brew'),
+                ('Cellar/python@3.11/3.11/lib/python3.11/site-packages/ub_agents/updates/updates.py', 'pip'),
+                ('venv/lib/python3.11/site-packages/ub_agents/updates/updates.py', 'pip')):
             self.assertEqual(installation(self.root, self.root / path, dist), expected)
         # URL decoding and symlinked control paths preserve the checkout identity.
         spaced = self.root / 'source checkout'
@@ -76,7 +76,7 @@ class UpdateTests(unittest.TestCase):
         dist.read_text.return_value = json.dumps({'url': spaced.as_uri(), 'dir_info': {'editable': True}})
         link = self.root / 'control-link'
         link.symlink_to(spaced, target_is_directory=True)
-        self.assertEqual(installation(link, spaced / 'src/ub_agents/updates.py', dist), 'checkout')
+        self.assertEqual(installation(link, spaced / 'src/ub_agents/updates/updates.py', dist), 'checkout')
         dist.read_text.return_value = 'invalid json'
         self.assertIsNone(installation(self.root, source, dist))
 
@@ -283,7 +283,7 @@ while True: time.sleep(1)
 ''')
         shim.chmod(0o700)
         with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}), \
-                patch('ub_agents.updates.CHECK_SECONDS', 0.5):
+                patch('ub_agents.updates.updates.CHECK_SECONDS', 0.5):
             update = Updates(self.root, detect=lambda _: 'pip')
             update.banner = previous = release_banner(release(), 'pip')
             self.addCleanup(stop_checker, update)
@@ -320,7 +320,7 @@ while True: time.sleep(1)
         parent = subprocess.Popen([sys.executable, '-P', '-c', '''
 import sys
 from pathlib import Path
-from ub_agents.updates import Updates
+from ub_agents.updates.updates import Updates
 updates = Updates(Path(sys.argv[1]), detect=lambda _: 'pip')
 updates.start()
 sys.stdin.read()

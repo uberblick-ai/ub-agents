@@ -523,7 +523,7 @@ ProofView(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])).run()
                                    and value['anchor'] == value['first_anchor'] == value['saved_anchor'])
                     self.assertFalse(paused['follow'])
                     from tests.test_updates import release
-                    from ub_agents.updates import release_banner
+                    from ub_agents.updates.updates import release_banner
                     cases = [release_banner(release(), 'brew'), release_banner(release(), 'pip'),
                              {'text': '⬆ This launcher runs code 2 commits behind origin/main · restart the launcher'}]
                     for banner in cases:

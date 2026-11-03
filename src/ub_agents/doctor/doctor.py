@@ -10,18 +10,18 @@ import shutil
 import subprocess
 import sys
 
-from .config import instruction_text, load_config
-from .approvals import Roles, resolve_policy
-from .errors import AgentError
+from ..config import instruction_text, load_config
+from ..approvals import Roles, resolve_policy
+from ..errors import AgentError
 from .doctor_mcp import MCPChecks
-from .execution import parse_process_table, repository_checks
-from .github import REPOSITORY, GitHub, repository_visibility
-from .labels import LabelUse, configured_labels, confirm_label_creation
-from .launcher_lock import running_launcher
+from ..execution import parse_process_table, repository_checks
+from ..github import REPOSITORY, GitHub, repository_visibility
+from ..labels import LabelUse, configured_labels, confirm_label_creation
+from ..launcher_lock import running_launcher
 from .mcp_probe import PROBE_TIMEOUT
-from .records import iso
-from .refresh import control_checkout_checks
-from .trust import WRITERS
+from ..records import iso
+from ..refresh import control_checkout_checks
+from ..trust import WRITERS
 
 
 PERMISSIONS_URL = "https://agents.uberblick.ai/docs/configuration/permissions.html"
@@ -279,7 +279,7 @@ class Doctor:
                 self.add(id, "skip", "configuration unavailable" if not config else "git unavailable")
 
     def _launcher_installation(self, config):
-        from .self_updates import installation
+        from ..updates.self_updates import installation
         install, reason = installation()
         policy = (config.runtime_updates.policies.get("ub-agents", "off")
                   if config and config.runtime_updates else "off")

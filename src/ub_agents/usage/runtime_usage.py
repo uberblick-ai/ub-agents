@@ -2,7 +2,7 @@
 
 import math
 
-from .records import iso, timestamp
+from ..records import iso, timestamp
 
 MARGIN_SECONDS = 60
 FALLBACK_SECONDS = 15 * 60

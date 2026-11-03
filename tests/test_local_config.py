@@ -17,8 +17,8 @@ class LocalConfigTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
         self.path = self.root / 'ub-agents.yaml'
-        self.enterContext(patch('ub_agents.doctor.subprocess.run', RecordingRunner(self.root)))
-        self.enterContext(patch('ub_agents.doctor.shutil.which', return_value='/tools/git'))
+        self.enterContext(patch('ub_agents.doctor.doctor.subprocess.run', RecordingRunner(self.root)))
+        self.enterContext(patch('ub_agents.doctor.doctor.shutil.which', return_value='/tools/git'))
         self.local = self.root / 'ub-agents.local.yaml'
         (self.root / 'role.md').write_text('Synthetic instructions')
         self.path.write_text('''repository: org/project
@@ -224,7 +224,7 @@ agents: {implementer: {worktree: true}}
         custom.write_text(self.path.read_text())
         (selected / 'role.md').write_text('Selected instructions')
         self.local.write_text('invalid: unrelated local configuration')
-        with chdir(self.root), patch('ub_agents.doctor.subprocess.run', RecordingRunner(selected)), \
+        with chdir(self.root), patch('ub_agents.doctor.doctor.subprocess.run', RecordingRunner(selected)), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(main(['--config', str(custom), 'doctor', '--offline']), 0)
             self.assertEqual(load_config(custom).poll_seconds, 45)

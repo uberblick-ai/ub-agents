@@ -40,7 +40,7 @@ class RequestStatsTests(unittest.TestCase):
 
     def test_idle_pass_coalesces_changed_duration_but_reports_changed_counts_or_candidates(self):
         self.github.items.clear()
-        with patch('ub_agents.request_stats.monotonic', side_effect=[1, 2, 10, 50]):
+        with patch('ub_agents.usage.request_stats.monotonic', side_effect=[1, 2, 10, 50]):
             self.assertFalse(self.loop.tick())
             self.assertFalse(self.loop.tick())
         self.assertEqual(len(self.lines), 1)

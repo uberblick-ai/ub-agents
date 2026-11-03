@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.log_reader import LogReader, READ_BUDGET, TAIL_BYTES
-from ub_agents.log_times import (EPOCH, GROWTH, HEADER, LogTimes, MAGIC, TIMES_BUDGET,
+from ub_agents.logs.log_reader import LogReader, READ_BUDGET, TAIL_BYTES
+from ub_agents.logs.log_times import (EPOCH, GROWTH, HEADER, LogTimes, MAGIC, TIMES_BUDGET,
                                  growth_position, growth_window, read_times)
 from ub_agents.view.logs import ViewReader
 from ub_agents.view.worker import LocalWorker, Request
@@ -44,7 +44,7 @@ class LogTimesTests(unittest.TestCase):
             for index, chunk in enumerate(chunks):
                 stream.write(chunk)
                 stamp = NOW + timedelta(seconds=index)
-                with patch("ub_agents.log_times.time.time_ns", return_value=int(stamp.timestamp()) * 10**9):
+                with patch("ub_agents.logs.log_times.time.time_ns", return_value=int(stamp.timestamp()) * 10**9):
                     times.observe()
         return times
 
@@ -88,7 +88,7 @@ class LogTimesTests(unittest.TestCase):
         with self.log.open("ab", buffering=0) as stream:
             times.log = stream
             stream.write(raw[17:] + raw)
-            with patch("ub_agents.log_times.time.time_ns", return_value=int(NOW.timestamp() + 1) * 10**9):
+            with patch("ub_agents.logs.log_times.time.time_ns", return_value=int(NOW.timestamp() + 1) * 10**9):
                 times.observe()
         entries = self.drain(reader).entries
         self.assertEqual([value.capture for value in entries],
@@ -206,7 +206,7 @@ class LogTimesTests(unittest.TestCase):
         def append_then_read(path, info, position, **kwargs):
             self.timed_output([record()])
             return original(path, info, position, **kwargs)
-        with patch("ub_agents.log_reader.read_times", side_effect=append_then_read):
+        with patch("ub_agents.logs.log_reader.read_times", side_effect=append_then_read):
             snapshot = reader.update()
         self.assertIsNone(snapshot.error)
         self.assertEqual(snapshot.entries[0].capture, NOW.isoformat())

@@ -182,7 +182,7 @@ print('survived removal')
 
     def test_lazy_update_checker_preserves_original_installation_and_banner_selection(self):
         with startup_copy() as copied:
-            spec = spec_from_file_location("ub_agents.copied_updates", copied / "ub_agents/updates.py")
+            spec = spec_from_file_location("ub_agents.updates.copied_updates", copied / "ub_agents/updates/updates.py")
             updates = module_from_spec(spec)
             spec.loader.exec_module(updates)
             self.assertTrue(Path(updates.__file__).is_relative_to(copied))

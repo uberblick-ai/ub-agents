@@ -9,9 +9,9 @@ from rich.measure import Measurement
 from rich.table import Table
 from rich.text import Text
 
-from ..context_usage import context_fields
+from ..usage.context_usage import context_fields
 from ..denials import denial_count
-from ..run_usage import short_tokens, usage_fields
+from ..usage.run_usage import short_tokens, usage_fields
 from .data import item_history, mapping, text
 from .spinner import spinner_frame
 from .theme import theme_style
