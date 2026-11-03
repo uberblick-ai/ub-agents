@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.cli import main, status_rows
+from ub_agents.cli import main
+from ub_agents.cli.status import status_rows
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Plan
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership, RetryableExecutionError
@@ -688,8 +689,8 @@ class QueueTests(unittest.TestCase):
         for row in rows[1:]:
             self.assertEqual(row["state"], "ready")
             self.assertIsNone(row["milestone_inherited_from"])
-        with patch("ub_agents.cli.load_config", return_value=settings), \
-                patch("ub_agents.cli.GitHub", return_value=self.github):
+        with patch("ub_agents.cli._runtime.load_config", return_value=settings), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github):
             structured = io.StringIO()
             with redirect_stdout(structured):
                 self.assertEqual(main(["status", "--json"]), 0)
@@ -926,8 +927,8 @@ class MilestoneGateTests(unittest.TestCase):
         self.assertEqual(rows[-1]["state"], "ready")
         for row in rows[1:3]:
             self.assertEqual(row["state"], "ready")
-        with patch("ub_agents.cli.load_config", return_value=settings), \
-                patch("ub_agents.cli.GitHub", return_value=self.github):
+        with patch("ub_agents.cli._runtime.load_config", return_value=settings), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github):
             structured = io.StringIO()
             with redirect_stdout(structured):
                 self.assertEqual(main(["status", "--json"]), 0)

@@ -247,7 +247,7 @@ needed for these local checks.
 
 ## 6. Terminal view and status
 
-`status_rows` in [`cli.py`](../../src/ub_agents/cli.py) currently attaches
+`status_rows` in [`cli/status.py`](../../src/ub_agents/cli/status.py) currently attaches
 `active[0]` to every plan on the item. With two runs, security can show visual's
 owner, expiry and process even while its outcome comes from security. Select the
 plan's own lease by item, agent and run; show **all** incompatible owners for an

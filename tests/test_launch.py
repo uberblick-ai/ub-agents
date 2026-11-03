@@ -33,7 +33,7 @@ class LaunchTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         (self.root / "ub-agents.yaml").touch()
-        self.enterContext(patch("ub_agents.cli.launch_checks"))
+        self.enterContext(patch("ub_agents.cli.launch.launch_checks"))
         self.enterContext(patch("ub_agents.cleanup.Cleaner.inventory", return_value=[]))
         self.argv = ["--config", str(self.root / "ub-agents.yaml"), "launch"]
         self.log = self.root / ".ub-agents" / "launch.log"
@@ -87,11 +87,11 @@ class LaunchTests(unittest.TestCase):
                         loop.stop_event.set()
                         return True
 
-                    with patch("ub_agents.cli.load_config", return_value=self.config), \
-                            patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                            patch("ub_agents.cli.repository_checks", return_value=[]), \
+                    with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                            patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                            patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                             patch("ub_agents.observations.Publisher", return_value=publisher), \
-                            patch("ub_agents.cli.StartupCleanup", side_effect=factory), \
+                            patch("ub_agents.cli.launch.StartupCleanup", side_effect=factory), \
                             patch("ub_agents.launch_ui.open_view", side_effect=view), \
                             patch("ub_agents.cleanup.Cleaner.clean", autospec=True, side_effect=sweep) as clean, \
                             patch.object(Loop, "tick", autospec=True, side_effect=poll), \
@@ -134,10 +134,10 @@ class LaunchTests(unittest.TestCase):
                     self.assertFalse(workers[0].thread.is_alive())
                     return True
 
-                with patch("ub_agents.cli.load_config", return_value=self.config), \
-                        patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
-                        patch("ub_agents.cli.StartupCleanup", side_effect=factory), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli.launch.StartupCleanup", side_effect=factory), \
                         patch("ub_agents.cleanup.Cleaner.clean", side_effect=error), \
                         patch.object(Loop, "tick", side_effect=poll) as tick, \
                         redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as stderr:
@@ -149,9 +149,9 @@ class LaunchTests(unittest.TestCase):
                 self.assertTrue(any(f"Startup cleanup failed: {error}" in log.read_text() for log in logs))
 
     def test_failed_repository_checks_do_not_sweep(self):
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                patch("ub_agents.cli.repository_checks", return_value=[("repository", AgentError("Missing remote"))]), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[("repository", AgentError("Missing remote"))]), \
                 patch("ub_agents.cleanup.Cleaner.clean") as clean, \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(main(self.argv + ["--once"]), 1)
@@ -183,10 +183,10 @@ class LaunchTests(unittest.TestCase):
                         signal.raise_signal(quitting)
                     return True
 
-                with patch("ub_agents.cli.load_config", return_value=self.config), \
-                        patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
-                        patch("ub_agents.cli.StartupCleanup", side_effect=factory), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli.launch.StartupCleanup", side_effect=factory), \
                         patch("ub_agents.cleanup.Cleaner.inventory", side_effect=inventory), \
                         patch("ub_agents.startup_cleanup.prune") as prune, \
                         patch.object(Loop, "tick", autospec=True, side_effect=poll), \
@@ -207,9 +207,9 @@ class LaunchTests(unittest.TestCase):
     def test_once_always_observes_and_status_does_not_create_a_publisher(self):
         from tests.support import MemoryPublisher
         publisher = MemoryPublisher()
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 patch("ub_agents.observations.Publisher", return_value=publisher) as factory, \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(main(self.argv + ["--once"]), 0)
@@ -227,9 +227,9 @@ class LaunchTests(unittest.TestCase):
             with self.subTest(items=items):
                 github = FakeGitHub(*items)
                 stdout, stderr = io.StringIO(), io.StringIO()
-                with patch("ub_agents.cli.load_config", return_value=self.config), \
-                        patch("ub_agents.cli.GitHub", return_value=github), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=github), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                         patch.object(Loop, "wait") as wait, \
                         redirect_stdout(stdout), redirect_stderr(stderr):
                     self.assertEqual(main(self.argv + ["--once"]), 0)
@@ -260,9 +260,9 @@ class LaunchTests(unittest.TestCase):
                     def stop_waiting(loop, *_):
                         loop.stop_event.set()
 
-                    with patch("ub_agents.cli.load_config", return_value=settings), \
-                            patch("ub_agents.cli.GitHub", return_value=github), \
-                            patch("ub_agents.cli.repository_checks", return_value=[]), \
+                    with patch("ub_agents.cli._runtime.load_config", return_value=settings), \
+                            patch("ub_agents.cli._runtime.GitHub", return_value=github), \
+                            patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                             patch("ub_agents.observations.Publisher", return_value=publisher), \
                             patch.object(Loop, "execute", autospec=True, side_effect=execute_later) as execute, \
                             patch.object(Loop, "wait", autospec=True, side_effect=stop_waiting), \
@@ -299,9 +299,9 @@ class LaunchTests(unittest.TestCase):
                              agent(self.root, name="worker", triggers=("ready", "needs-changes")),
                              agent(self.root, name="reviewer", triggers=("needs-review", "needs-changes"), kind="pr"),
                              agent(self.root, name="integrator", triggers=("ready-to-merge",), kind="pr"))
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), redirect_stdout(io.StringIO()) as stdout:
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), redirect_stdout(io.StringIO()) as stdout:
             self.assertEqual(main(self.argv + ["--once"]), 0)
         self.assertEqual("\n".join(stdout.getvalue().splitlines()[1:]) + "\n", "No open issue or PR has a trigger label "
                          "(needs-preparation, ready, needs-changes, needs-review, ready-to-merge); add one to start\n")
@@ -309,9 +309,9 @@ class LaunchTests(unittest.TestCase):
     def test_triggered_but_parked_work_does_not_suggest_adding_a_trigger(self):
         for item in (issue(labels=("ready", "needs-human")), pr(labels=("ready", "needs-human"))):
             with self.subTest(kind=item.kind):
-                with patch("ub_agents.cli.load_config", return_value=self.config), \
-                        patch("ub_agents.cli.GitHub", return_value=FakeGitHub(item)), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), redirect_stdout(io.StringIO()) as stdout:
+                with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub(item)), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), redirect_stdout(io.StringIO()) as stdout:
                     self.assertEqual(main(self.argv + ["--once"]), 0)
                 self.assertIn("parked", stdout.getvalue())
                 self.assertNotIn("add one to start", stdout.getvalue())
@@ -346,10 +346,10 @@ class LaunchTests(unittest.TestCase):
                 def start(*args, **kwargs):
                     signal.raise_signal(sig)
                 stdout, stderr = io.StringIO(), io.StringIO()
-                with patch("ub_agents.cli.load_config", return_value=self.config), \
-                        patch("ub_agents.cli.GitHub", return_value=github), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=github), \
                         patch.object(github, "actor") as actor, \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                         patch("ub_agents.observations.Publisher", side_effect=start), \
                         redirect_stdout(stdout), redirect_stderr(stderr):
                     self.assertEqual(main(self.argv + ["--once"]), result)
@@ -367,9 +367,9 @@ class LaunchTests(unittest.TestCase):
             self.assertEqual(self.log_lines()[-4:],
                              ["Progress — working", "Diagnostic", "second line", ""])
 
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 patch.object(Loop, "launch", side_effect=launch), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             for _ in range(2):
@@ -381,7 +381,7 @@ class LaunchTests(unittest.TestCase):
 
     def test_configuration_error_is_logged_before_loop_startup(self):
         stderr = io.StringIO()
-        with patch("ub_agents.cli.load_config", side_effect=AgentError("Invalid configuration")), \
+        with patch("ub_agents.cli._runtime.load_config", side_effect=AgentError("Invalid configuration")), \
                 redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 1)
         self.assertEqual(stderr.getvalue(), "ub-agents: Invalid configuration\n")
@@ -396,9 +396,9 @@ class LaunchTests(unittest.TestCase):
                                                "add one to start; next poll in 1s (0 requests last poll)"])
             signal.raise_signal(signal.SIGINT)
 
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 patch.object(Loop, "wait", side_effect=wait), \
                 patch("ub_agents.loop.monotonic", return_value=0), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
@@ -421,9 +421,9 @@ class LaunchTests(unittest.TestCase):
             loop.usage.limit("claude", now + 100)
             return True
 
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 patch.object(Loop, "tick", autospec=True, side_effect=tick), \
                 redirect_stdout(stdout):
             self.assertEqual(main(self.argv + ["--once"]), 0)
@@ -454,10 +454,10 @@ class LaunchTests(unittest.TestCase):
                     github = GitHub("org/project", interrupted_request)
                     stderr = io.StringIO()
                     original_handler = signal.getsignal(signal.SIGINT)
-                    with patch("ub_agents.cli.load_config", return_value=self.config), \
-                            patch("ub_agents.cli.GitHub", return_value=github), \
+                    with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                            patch("ub_agents.cli._runtime.GitHub", return_value=github), \
                             patch.object(github, "actor", return_value="operator"), \
-                            patch("ub_agents.cli.repository_checks", return_value=[]), \
+                            patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                             patch.object(Loop, "tick", side_effect=lambda: github.request(endpoint, array=True)), \
                             patch.object(Loop, "wait") as wait, redirect_stderr(stderr):
                         self.assertEqual(main(self.argv + (["--once"] if once else [])), 130)
@@ -480,9 +480,9 @@ class LaunchTests(unittest.TestCase):
                     loop.output("Finished current assignment")
                     return True
 
-                with patch("ub_agents.cli.load_config", return_value=self.config), \
-                        patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                         patch.object(Loop, "tick", autospec=True, side_effect=tick) as ticks, \
                         redirect_stdout(stdout), redirect_stderr(stderr):
                     self.assertEqual(main(self.argv + (["--once"] if once else [])), 0)
@@ -494,11 +494,11 @@ class LaunchTests(unittest.TestCase):
     def test_interrupt_during_initial_authentication_is_logged(self):
         github = GitHub("org/project")
         stderr = io.StringIO()
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=github), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=github), \
                 patch("ub_agents.github.subprocess.run", return_value=
                       subprocess.CompletedProcess([], -signal.SIGINT, "", "")), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 130)
         self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
@@ -580,10 +580,10 @@ class LaunchFixtureTests(unittest.TestCase):
                     events.append("fixture checked")
 
                 inner.addCleanup(before_removal)
-                inner.enterContext(patch("ub_agents.cli.load_config", return_value=inner.config))
-                inner.enterContext(patch("ub_agents.cli.GitHub", return_value=FakeGitHub()))
-                inner.enterContext(patch("ub_agents.cli.repository_checks", return_value=[]))
-                inner.enterContext(patch("ub_agents.cli.StartupCleanup", side_effect=factory))
+                inner.enterContext(patch("ub_agents.cli._runtime.load_config", return_value=inner.config))
+                inner.enterContext(patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()))
+                inner.enterContext(patch("ub_agents.cli.launch.repository_checks", return_value=[]))
+                inner.enterContext(patch("ub_agents.cli.launch.StartupCleanup", side_effect=factory))
                 inner.enterContext(patch("ub_agents.startup_cleanup.sweep", side_effect=delayed_sweep))
                 inner.enterContext(patch.object(Loop, "tick", side_effect=lambda: entered.wait(5)))
                 inner.enterContext(redirect_stdout(io.StringIO()))
@@ -618,7 +618,7 @@ class TargetedLaunchTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         (self.root / "ub-agents.yaml").touch()
-        self.enterContext(patch("ub_agents.cli.launch_checks"))
+        self.enterContext(patch("ub_agents.cli.launch.launch_checks"))
         self.enterContext(patch("ub_agents.cleanup.Cleaner.inventory", return_value=[]))
         self.argv = ["--config", str(self.root / "ub-agents.yaml"), "launch"]
         self.config = config(self.root)
@@ -660,12 +660,12 @@ class TargetedLaunchTests(unittest.TestCase):
             return view
 
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch("ub_agents.cli.load_config", side_effect=lambda *_: self.config), \
+        with patch("ub_agents.cli._runtime.load_config", side_effect=lambda *_: self.config), \
                 patch("ub_agents.loop.load_config", side_effect=lambda *_: self.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.Loop", side_effect=create), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli._runtime.Loop", side_effect=create), \
                 patch("ub_agents.launch_ui.open_view", side_effect=open_view), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 patch("ub_agents.loop.refresh_checkout", side_effect=refresh), \
                 patch("ub_agents.assignment_run.supervise", side_effect=execute or self.report_success) as run, \
                 redirect_stdout(stdout), redirect_stderr(stderr):
@@ -841,9 +841,9 @@ class TargetedLaunchTests(unittest.TestCase):
     def test_missing_and_closed_items_are_named(self):
         self.github.read_results["item"] = [GitHubError("GET", "repos/org/project/issues/11", "HTTP 404")]
         # A failed read is an ordinary one-off launch error, with the item named.
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 redirect_stderr(io.StringIO()) as stderr:
             self.assertEqual(main(self.argv + ["11"]), 1)
         self.assertIn("Cannot read #11", stderr.getvalue())
@@ -1272,8 +1272,8 @@ class TargetedLaunchTests(unittest.TestCase):
         for args in (("--agent", "unknown"), ("11", "--agent", "unknown"), ("0",), ("-1",),
                      ("--number", "11")):
             with self.subTest(args=args), \
-                    patch("ub_agents.cli.load_config", return_value=self.config), \
-                    patch("ub_agents.cli.GitHub") as github, \
+                    patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                    patch("ub_agents.cli._runtime.GitHub") as github, \
                     redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
                 main(self.argv + list(args))
             self.assertEqual(raised.exception.code, 2)

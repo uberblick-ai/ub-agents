@@ -136,7 +136,7 @@ class LauncherLockTests(unittest.TestCase):
 
     def test_errors_release_lock_and_refusal_precedes_any_startup_calls(self):
         with launcher_lock(self.root), \
-                patch("ub_agents.cli.launch_output") as log, \
+                patch("ub_agents.cli.launch.launch_output") as log, \
                 patch("ub_agents.launcher_code.startup_copy") as copy, \
                 patch("ub_agents.cli.run") as run, redirect_stderr(io.StringIO()):
             self.assertEqual(main(["launch", "--config", str(self.path)]), 1)
@@ -185,8 +185,8 @@ class LauncherLockTests(unittest.TestCase):
     def test_status_text_and_json_show_owner_or_none_without_github_writes(self):
         github = FakeGitHub()
         configured = config(self.root)
-        with patch("ub_agents.cli.load_config", return_value=configured), \
-                patch("ub_agents.cli.GitHub", return_value=github):
+        with patch("ub_agents.cli._runtime.load_config", return_value=configured), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=github):
             for active in (False, True):
                 if active:
                     process, owner = self.holder()

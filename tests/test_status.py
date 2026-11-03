@@ -10,7 +10,8 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.attention import attention_details, display_notice
-from ub_agents.cli import main, status_rows
+from ub_agents.cli import main
+from ub_agents.cli.status import status_rows
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import CleanupError, GitHubError
@@ -31,7 +32,7 @@ class StatusTests(unittest.TestCase):
         self.loop = Loop(config(self.root, self.agent), self.github, "operator", output=lambda *_: None)
         self.now = seconds("2026-10-03T09:50:00Z")
         self.loop.coordinator.clock = lambda: self.now
-        self.enterContext(patch("ub_agents.cli.socket.gethostname", return_value="local-host"))
+        self.enterContext(patch("ub_agents.cli.status.socket.gethostname", return_value="local-host"))
         self.groups = self.enterContext(patch("ub_agents.status.group_members", return_value=[]))
 
     def claim(self, agent_name=None):
@@ -42,10 +43,10 @@ class StatusTests(unittest.TestCase):
 
     def status(self, *args):
         writes = list(self.github.writes)
-        with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.Loop", return_value=self.loop), \
-                patch("ub_agents.cli.timestamp", return_value=self.now):
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
+                patch("ub_agents.cli.status.timestamp", return_value=self.now):
             structured, plain = io.StringIO(), io.StringIO()
             with redirect_stdout(structured):
                 self.assertEqual(main(["status", *args, "--json"]), 0)
@@ -505,12 +506,12 @@ class ItemStatusTests(unittest.TestCase):
         self.config = config(self.root)
         self.github = PollGitHub(issue(11), issue(1, labels=("ready", "urgent")))
         self.now = seconds("2026-10-03T09:50:00Z")
-        self.enterContext(patch("ub_agents.cli.socket.gethostname", return_value="local-host"))
+        self.enterContext(patch("ub_agents.cli.status.socket.gethostname", return_value="local-host"))
         self.groups = self.enterContext(patch("ub_agents.status.group_members", return_value=[]))
         for target in ("ub_agents.loop.Loop.maintain_runtimes", "ub_agents.loop.Loop.execute",
                        "ub_agents.loop.Loop.recover", "ub_agents.loop.Loop.park_approval",
-                       "ub_agents.cli.repository_checks", "ub_agents.cli.launch_checks",
-                       "ub_agents.cli.launch_output", "ub_agents.updates.Updates",
+                       "ub_agents.cli.launch.repository_checks", "ub_agents.cli.launch.launch_checks",
+                       "ub_agents.cli.launch.launch_output", "ub_agents.updates.Updates",
                        "ub_agents.observations.Publisher"):
             self.enterContext(patch(target, side_effect=AssertionError(f"Status touched {target}")))
 
@@ -533,10 +534,10 @@ class ItemStatusTests(unittest.TestCase):
         before = deepcopy((self.github.items, self.github.store, self.github.writes))
         files = list(self.root.iterdir())
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.Loop", side_effect=create), \
-                patch("ub_agents.cli.timestamp", return_value=self.now), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli._runtime.Loop", side_effect=create), \
+                patch("ub_agents.cli.status.timestamp", return_value=self.now), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             code = main(["--config", str(self.root / "ub-agents.yaml"), "status", *args])
         self.assertEqual((self.github.items, self.github.store, self.github.writes), before)

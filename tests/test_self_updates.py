@@ -390,15 +390,15 @@ class SelfUpdateTests(unittest.TestCase):
                 if view is not None:
                     view.close.assert_called_once()
                 raise RuntimeError("exec replaced the process")
-            with patch("ub_agents.cli.load_config", return_value=self.settings), \
-                    patch("ub_agents.cli.GitHub", return_value=FakeGitHub()), \
-                    patch("ub_agents.cli.repository_checks", return_value=[]), \
-                    patch("ub_agents.cli.check_launch_setup"), \
+            with patch("ub_agents.cli._runtime.load_config", return_value=self.settings), \
+                    patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
+                    patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                    patch("ub_agents.cli.launch.check_launch_setup"), \
                     patch("ub_agents.launch_ui.open_view", return_value=view), \
                     patch("ub_agents.updates.Updates.start"), \
                     patch("ub_agents.startup_cleanup.StartupCleanup.start"), \
                     patch.object(Loop, "launch", side_effect=restart), \
-                    patch("ub_agents.cli.os.execv", side_effect=execute), redirect_stdout(io.StringIO()):
+                    patch("ub_agents.cli.launch.os.execv", side_effect=execute), redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(RuntimeError, "exec replaced"):
                     main(args)
 

@@ -33,8 +33,8 @@ cfg = Config(root, 'example/project', (), 1, (), approvals='off')
 class GitHub:
     repository = 'example/project'
     def __init__(self, *_): pass
-with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.cli.GitHub', GitHub), \\
-     patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.cli.launch_checks'), \\
+with patch('ub_agents.cli._runtime.load_config', return_value=cfg), patch('ub_agents.cli._runtime.GitHub', GitHub), \\
+     patch('ub_agents.cli.launch.repository_checks', return_value=[]), patch('ub_agents.cli.launch.launch_checks'), \\
      patch.object(Loop, 'launch'), \\
      patch('ub_agents.observations.Publisher', side_effect=OSError('packaging fake')):
     assert main(['--config', str(root / 'ub-agents.yaml'), 'launch', '--no-ui', '--once']) == 0

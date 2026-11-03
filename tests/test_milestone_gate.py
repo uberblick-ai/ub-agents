@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.cli import main, status_rows
+from ub_agents.cli import main
+from ub_agents.cli.status import status_rows
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, GitHubError
@@ -323,8 +324,8 @@ class MilestoneGateTests(unittest.TestCase):
         self.assertEqual(self.loop.milestone_skips, (expected,))
         for snapshot in memory.snapshots:
             self.assertNotIn("milestone_skips", snapshot)
-        with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github):
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github):
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(["status"]), 0)
             self.assertIn(expected, output.getvalue())
@@ -579,8 +580,8 @@ class MilestoneGateTests(unittest.TestCase):
         pane = work_pane(Session(self.root / "session.json", memory.snapshots[-1]), self.root)
         eligible = next(section for section in pane.sections if section.name == "Eligible")
         self.assertEqual([r.item for r in eligible.rows], expected)
-        with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github):
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github):
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(["status", "--json"]), 0)
             self.assertEqual(json.loads(output.getvalue())["assignments"], rows)

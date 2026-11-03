@@ -20,7 +20,7 @@ class ArgumentTests(unittest.TestCase):
         self.path = self.root / "nested" / "project.yaml"
         self.path.parent.mkdir()
         self.path.touch()
-        self.load = self.enterContext(patch("ub_agents.cli.load_config"))
+        self.load = self.enterContext(patch("ub_agents.cli._runtime.load_config"))
         self.run = self.enterContext(patch("ub_agents.cli.run"))
         self.stdout = self.enterContext(redirect_stdout(io.StringIO()))
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
@@ -194,7 +194,7 @@ class MissingConfigTests(unittest.TestCase):
                     positions = ([*selection, *command], [*command, *selection]) if selection else (list(command),)
                     for argv in positions:
                         with self.subTest(argv=argv), patch("ub_agents.config.Path.cwd", return_value=root), \
-                                patch("ub_agents.cli.os.environ", {}), \
+                                patch("os.environ", {}), \
                                 patch("ub_agents.cli.run") as run, \
                                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
                             self.assertEqual(main(argv), 1)

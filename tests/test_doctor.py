@@ -81,7 +81,7 @@ agents:
             return answer(question) if callable(answer) else answer
 
         with patch("ub_agents.doctor.subprocess.run", self.runner), \
-                patch("ub_agents.cli.monotonic", return_value=100.0, side_effect=ticks), \
+                patch("ub_agents.cli.doctor.monotonic", return_value=100.0, side_effect=ticks), \
                 patch("ub_agents.doctor.shutil.which", self.which), \
                 patch("ub_agents.doctor.GitHub", return_value=self.github), \
                 patch("ub_agents.labels.sys.stdin.isatty", return_value=terminal), \
@@ -1386,8 +1386,8 @@ launchers: [operator]
                 patch('ub_agents.execution.subprocess.run', self.runner), \
                 patch('ub_agents.refresh.git', side_effect=lambda root, *args:
                       self.runner(['git', '-C', str(root), *args]).stdout.strip()), \
-                patch('ub_agents.cli.GitHub', return_value=self.github), \
-                patch('ub_agents.cli.Loop') as loop:
+                patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
+                patch('ub_agents.cli._runtime.Loop') as loop:
             self.assertEqual(main(['--config', str(self.path), 'launch', '--once']), 0)
             loop.return_value.launch.assert_called_once_with(once=True)
         self.assertTrue(any(command == ('ssh', '-G', '--', 'github-work')
@@ -1544,8 +1544,8 @@ agents:
         with patch("ub_agents.execution.git", side_effect=read_git) as git, \
                 patch("ub_agents.refresh.git", side_effect=lambda root, *args:
                       self.runner(["git", "-C", str(root), *args]).stdout.strip()), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.Loop") as loop, \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli._runtime.Loop") as loop, \
                 patch("ub_agents.doctor.Doctor.probe", side_effect=AssertionError("launch must not probe")):
             self.assertEqual(main(["--config", str(self.path), "launch", "--once"]), 0)
             loop.return_value.launch.assert_called_once_with(once=True)
@@ -1557,8 +1557,8 @@ agents:
                     return result
                 return str(root)
             with patch("ub_agents.execution.git", side_effect=mismatch) as git, \
-                    patch("ub_agents.cli.GitHub", return_value=self.github), \
-                    patch("ub_agents.cli.Loop") as loop, redirect_stderr(io.StringIO()):
+                    patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                    patch("ub_agents.cli._runtime.Loop") as loop, redirect_stderr(io.StringIO()):
                 self.assertEqual(main(["--config", str(self.path), "launch", "--once"]), 1)
                 loop.return_value.launch.assert_not_called()
                 self.assertEqual(git.call_count, expected_calls)

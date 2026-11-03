@@ -217,8 +217,8 @@ class TrustedPRAuthorTests(unittest.TestCase):
         pinned = json.loads(Path(env["UB_AGENTS_RUN_CONFIG"]).read_text())
         self.assertEqual(pinned["trusted-pr-authors"], ["dependabot"])
         with patch.dict(os.environ, env, clear=True), \
-                patch("ub_agents.cli.load_config", side_effect=AssertionError("worktree config")), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
+                patch("ub_agents.cli._runtime.load_config", side_effect=AssertionError("worktree config")), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
                 redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(["read", "2", "--config", str(self.root / "changed.yaml")]), 0)
         self.assertEqual(json.loads(output.getvalue())["body"], WITHHELD)

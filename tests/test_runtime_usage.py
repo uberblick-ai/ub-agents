@@ -520,9 +520,9 @@ agents:
         self.loop.usage.limit("claude", self.now + 100)
         for github in (FakeGitHub(), FakeGitHub(issue())):
             with self.subTest(items=github.items), \
-                    patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                    patch("ub_agents.cli.GitHub", return_value=github), \
-                    patch("ub_agents.cli.timestamp", return_value=self.now):
+                    patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                    patch("ub_agents.cli._runtime.GitHub", return_value=github), \
+                    patch("ub_agents.cli.status.timestamp", return_value=self.now):
                 for json_output in (False, True):
                     with redirect_stdout(io.StringIO()) as output:
                         self.assertEqual(main(["status"] + (["--json"] if json_output else [])), 0)
@@ -552,10 +552,10 @@ agents:
                     self.assertLessEqual(delay, 160)
                     signal.raise_signal(sig)
 
-                with patch("ub_agents.cli.load_config", return_value=settings), \
-                        patch("ub_agents.cli.launch_checks"), \
-                        patch("ub_agents.cli.GitHub", return_value=self.github), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=settings), \
+                        patch("ub_agents.cli.launch.launch_checks"), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                         patch.object(Loop, "tick", autospec=True, side_effect=tick), \
                         patch.object(Loop, "wait", side_effect=wait), \
                         redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):

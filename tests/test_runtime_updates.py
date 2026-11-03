@@ -1335,11 +1335,11 @@ class RuntimeUpdateTests(unittest.TestCase):
                     loop.maintenance = manager
                     loop.coordinator.runtime_available = manager.available
                     return loop
-                with patch("ub_agents.cli.load_config", return_value=settings), \
-                        patch("ub_agents.cli.launch_checks"), \
-                        patch("ub_agents.cli.GitHub", return_value=github), \
-                        patch("ub_agents.cli.Loop", side_effect=create_loop), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=settings), \
+                        patch("ub_agents.cli.launch.launch_checks"), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=github), \
+                        patch("ub_agents.cli._runtime.Loop", side_effect=create_loop), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                     self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), expected)
                 self.assertEqual(github.writes, [])

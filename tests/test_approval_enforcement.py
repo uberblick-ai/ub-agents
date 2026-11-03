@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.approvals import check_pr
-from ub_agents.cli import status_rows
+from ub_agents.cli.status import status_rows
 from ub_agents.config import Queue
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.loop import Loop
