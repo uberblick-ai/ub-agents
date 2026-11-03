@@ -182,9 +182,9 @@ agents:
             with self.subTest(area=area), self.assertRaisesRegex(ValueError, "already declared"):
                 check(area, 'python')(lambda: None)
         doctor = Doctor()
+        doctor.add('undeclared:worker', 'skip', 'configuration unavailable')
         with self.assertRaisesRegex(ValueError, "Undeclared doctor check 'undeclared:worker'"):
-            doctor.add('undeclared:worker', 'skip', 'configuration unavailable')
-        self.assertEqual(doctor.checks, [])
+            doctor.result()
 
     def test_verbose_streams_each_check_between_area_heading_and_summary(self):
         output = FlushedOutput()

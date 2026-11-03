@@ -51,6 +51,9 @@ class Check:
     server: str | None = None
 
     def record(self):
+        # Init reuses the collector for setup-only ids without serializing them.
+        if self.id.split(":", 1)[0] not in CHECK_AREAS:
+            raise ValueError(f"Undeclared doctor check {self.id!r}")
         value = asdict(self)
         for key in ("uses", "server"):
             if value[key] is None:
@@ -82,8 +85,6 @@ class Doctor:
                            public(message), public(remedy) if remedy else None, uses, server))
 
     def _record(self, check):
-        if check.id.split(":", 1)[0] not in CHECK_AREAS:
-            raise ValueError(f"Undeclared doctor check {check.id!r}")
         self.checks.append(check)
         if self.progress:
             self.notify("check", check.record())
