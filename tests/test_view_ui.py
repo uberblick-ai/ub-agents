@@ -588,6 +588,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 launcher.interrupt.assert_not_called()
                 for size in ((110, 32), (60, 16), (59, 15), (160, 45)):
                     await pilot.resize_terminal(*size)
+                    # The resize message can still be waiting for layout.
+                    await self.ready(app, pilot, lambda: shutdown.region.size == Size(*size))
                     self.assertEqual(shutdown.region.size, app.size)
                     self.assertEqual(shutdown.styles.content_align, ('center', 'middle'))
                     lines = [shutdown.render_line(y).text for y in range(app.size.height)]
