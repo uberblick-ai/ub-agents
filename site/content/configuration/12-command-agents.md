@@ -52,7 +52,7 @@ Commands and agent CLIs get the same variables.
 
 ## Scratch
 
-Write temporary files to `UB_AGENTS_SCRATCH`. It is removed when the run's processes have ended; run logs stay for 7 days.
+Write temporary files to `UB_AGENTS_SCRATCH`. It is removed when the run's processes have ended, or by the next launch's cleanup if that fails; run logs stay for 7 days.
 
 `UB_AGENTS_REPORT` is shell-quoted; split it with `shlex.split` to run without a shell.
 See [execution boundaries](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#execution-boundaries) for scratch ownership

@@ -703,8 +703,8 @@ created, with a guard against path redirection.
 The [command-agent environment](https://agents.uberblick.ai/docs/configuration/command-agents.html#environment)
 lists run variables. `TMPDIR` is unchanged. The launcher creates scratch with mode `0700` and removes it
 once the run's processes are confirmed stopped. A removal failure records
-`scratch-removal-failed` in `events.jsonl` without changing the result. Run logs stay
-for the [7-day retention](#stale-artifact-cleanup).
+`scratch-removal-failed` in `events.jsonl` without changing the result; the next
+[startup sweep](#stale-artifact-cleanup) retries it. Run logs stay for the 7-day retention.
 
 Helpers that detach into another session or group escape this supervision. This
 framework cannot reliably fence a launcher killed with SIGKILL, detached helpers or
@@ -762,11 +762,15 @@ Operator usage and recovery are on [Cleanup hook](https://agents.uberblick.ai/do
 Every `ub-agents launch`, including `--agent`, `NUMBER` and `--once`, sweeps leftovers
 once in the background after its startup checks. There is no periodic sweep. It looks
 at worktrees under this checkout's `.ub-agents/worktrees/`, local branches named
-`ub-agents/<agent>/<number>/<run>` or the older `ub-agent/...`, and fork PR head refs
-left by interrupted runs.
+`ub-agents/<agent>/<number>/<run>` or the older `ub-agent/...`, fork PR head refs
+left by interrupted runs, and the repository's run scratch directories. Scratch is
+shared by every checkout of the repository on the host; another checkout's runs are
+protected only by their GitHub records, not by its local diagnostics.
+Scratch inventory includes directories and symlinks, leaving plain files alone.
+Removal never follows symlinks, and a scratch path whose parent redirects is kept.
 
 The sweep finds a branch's item from its name and its head PRs from GitHub. For a
-worktree or fork head ref, it finds the run's assignment in
+worktree, fork head ref or scratch directory, it finds the run's assignment in
 `.ub-agents/runs/<run>/run.json`. It rereads those items' histories as the authority.
 If the local record is missing or unreadable, or the named item's history has no
 lease for the artifact's run, it falls back to the full repository comment scan
@@ -776,7 +780,8 @@ authorize removal.
 It removes each artifact unless:
 
 1. its run has a live claim on this host;
-2. the branch heads an open PR, or is checked out in a worktree the sweep keeps; or
+2. the branch heads an open PR, or is checked out in a worktree the sweep keeps, or the
+   fork head ref's or scratch's run worktree is kept; or
 3. the run's processes may still be running, for example after unconfirmed cleanup.
 
 Claims on other hosts, missing claims, ended runs, uncommitted changes and locked

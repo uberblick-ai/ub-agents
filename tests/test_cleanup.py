@@ -15,7 +15,7 @@ from ub_agents.cleanup import Artifact, Cleaner
 from ub_agents.config import CleanupHook
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, CleanupError
-from ub_agents.execution import git, stop_group
+from ub_agents.execution import ScratchDirectory, git, stop_group
 from ub_agents.github import GitHub
 from ub_agents.records import iso, timestamp
 from tests.support import FakeGitHub, config, edit_lease, issue, pr, run_environment
@@ -314,6 +314,77 @@ class CleanupTests(unittest.TestCase):
                 self.github.login = "operator"
                 self.lease.clear()
                 self.lease.update(original_lease)
+
+    def test_leftover_scratch_is_kept_while_its_run_is_live_then_removed(self):
+        scratch = ScratchDirectory(self.root, self.config.repository, self.lease["run"]).prepare()
+        (scratch / "trace").write_text("left behind")
+        self.update(state="running", expires=iso(timestamp() + 60))
+        self.cleaner.clean(True)
+        self.assertTrue(scratch.exists())
+        self.update(state="released")
+        rows = self.cleaner.clean(True)
+        self.assertIn({"kind": "scratch", "name": str(scratch.parent), "action": "removed",
+                       "reason": "No live run or open PR"}, rows)
+        self.assertFalse(scratch.parent.exists())
+
+    def test_redirected_scratch_parents_are_kept(self):
+        for component in ("runs", "project", "org"):
+            with self.subTest(component=component):
+                state = self.root / "state" / component
+                runs = state / "org" / "project" / "runs"
+                redirect = next(path for path in (runs, *runs.parents) if path.name == component)
+                redirect.parent.mkdir(parents=True, exist_ok=True)
+                target = self.root / f"target-{component}"
+                target.mkdir()
+                redirect.symlink_to(target, target_is_directory=True)
+                scratch = runs / "orphan" / "scratch"
+                scratch.mkdir(parents=True)
+                (scratch / "trace").write_text("preserve")
+                (runs / "notes.txt").write_text("preserve")
+                output = []
+                self.cleaner.output = output.append
+                with patch("ub_agents.cleanup.user_state_directory", return_value=state):
+                    rows = [row for row in self.cleaner.clean(True) if row["kind"] == "scratch"]
+                self.assertEqual(rows, [{"kind": "scratch", "name": str(scratch.parent), "action": "kept",
+                                         "reason": "Scratch parent path redirects"}])
+                self.assertIn(f"kept scratch {scratch.parent}: Scratch parent path redirects", output)
+                self.assertEqual((scratch / "trace").read_text(), "preserve")
+                self.assertEqual((runs / "notes.txt").read_text(), "preserve")
+
+    def test_scratch_cleanup_ignores_files_and_never_follows_symlinks(self):
+        state = self.root / "state"
+        runs = state / "org" / "project" / "runs"
+        scratch = runs / "orphan" / "scratch"
+        scratch.mkdir(parents=True)
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "data").write_text("preserve")
+        (scratch / "linked").symlink_to(outside, target_is_directory=True)
+        (runs / "linked-run").symlink_to(outside, target_is_directory=True)
+        (runs / "linked-file").symlink_to(outside / "data")
+        (runs / "dangling").symlink_to(outside / "missing")
+        (runs / "notes.txt").write_text("preserve")
+        with patch("ub_agents.cleanup.user_state_directory", return_value=state):
+            rows = [row for row in self.cleaner.clean(True) if row["kind"] == "scratch"]
+        self.assertEqual({Path(row["name"]).name for row in rows},
+                         {"orphan", "linked-run", "linked-file", "dangling"})
+        self.assertTrue(all(row["action"] == "removed" for row in rows))
+        self.assertEqual(list(runs.iterdir()), [runs / "notes.txt"])
+        self.assertEqual((runs / "notes.txt").read_text(), "preserve")
+        self.assertEqual((outside / "data").read_text(), "preserve")
+
+    def test_scratch_cleanup_allows_redirected_user_state_base(self):
+        state = self.root / "state"
+        state.mkdir()
+        link = self.root / "state-link"
+        link.symlink_to(state, target_is_directory=True)
+        run = state / "org" / "project" / "runs" / "orphan"
+        (run / "scratch").mkdir(parents=True)
+        with patch("ub_agents.cleanup.user_state_directory", return_value=link):
+            rows = [row for row in self.cleaner.clean(True) if row["kind"] == "scratch"]
+        self.assertEqual(rows, [{"kind": "scratch", "name": str(run), "action": "removed",
+                                 "reason": "No live run or open PR"}])
+        self.assertFalse(run.exists())
 
     def test_unreadable_github_keeps_artifacts(self):
         self.github.unreadable = True

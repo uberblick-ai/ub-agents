@@ -15,6 +15,7 @@ from .execution import fetched_head, git, group_members
 from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
 from .records import lease_branch, positive_int, records, seconds
 from .run_config import process_group, run_directory
+from .state import user_state_directory
 from .worktree_setup import confirm_worktree_setup_stopped
 
 BRANCH = re.compile(r"ub-agents?/([a-z][a-z0-9_-]*)/([1-9][0-9]*)/([A-Za-z0-9_-]+)\Z")
@@ -42,6 +43,14 @@ def worktrees(root):
             raise AgentError("Unreadable Git worktree inventory")
         result.append(fields)
     return result
+
+
+def remove_path(path):
+    # rmtree never follows links inside the tree; a link itself is only unlinked.
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
 
 
 class Cleaner:
@@ -82,7 +91,18 @@ class Cleaner:
             match = FORK_HEAD.fullmatch(ref)
             if match:
                 artifacts.append(Artifact("ref", ref, match[1]))
-        return artifacts
+        return artifacts + self.scratch()
+
+    def scratch_root(self):
+        return user_state_directory().resolve() / self.config.repository / "runs"
+
+    def scratch(self):
+        # Scratch outlives its run when removal at run end failed or the launcher died.
+        root = self.scratch_root()
+        if not root.is_dir():
+            return []
+        return [Artifact("scratch", str(path), path.name) for path in sorted(root.iterdir())
+                if path.is_dir() or path.is_symlink()]
 
     def history(self, number):
         # An unreadable record is not a keep reason. Parse independently so it
@@ -204,7 +224,10 @@ class Cleaner:
     def check(self, artifact):
         if artifact.run in self.blocked_runs:
             raise AgentError("Cleanup hook failed; artifacts preserved")
-        if artifact.kind == "ref":
+        if artifact.kind in {"ref", "scratch"}:
+            parent = Path(artifact.name).parent
+            if artifact.kind == "scratch" and parent.resolve() != parent:
+                raise AgentError("Scratch parent path redirects")
             path = str(self.root / ".ub-agents" / "worktrees" / artifact.run)
             present = Path(path).exists() or any(t["worktree"] == path for t in worktrees(self.root))
             if present and path not in self.preview_worktrees:
@@ -255,10 +278,8 @@ class Cleaner:
                 return
         if registered:
             git(self.root, "worktree", "remove", "--force", "--force", artifact.name)
-        elif path.is_dir():
-            shutil.rmtree(path)
         else:
-            path.unlink()
+            remove_path(path)
 
     def mutation(self, artifact):
         if self.control is None:
@@ -310,6 +331,10 @@ class Cleaner:
                     self.control.checkpoint()
                 git(self.root, "update-ref", "-d", f"refs/heads/{artifact.name}",
                     self.branch_tips[artifact.name])
+        elif artifact.kind == "scratch":
+            with self.mutation(artifact):
+                self.intent(artifact, reason)
+                remove_path(Path(artifact.name))
         else:
             with self.mutation(artifact):
                 self.intent(artifact, reason)
