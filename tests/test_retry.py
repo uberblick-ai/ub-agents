@@ -10,6 +10,7 @@ from unittest.mock import patch
 from ub_agents.cli import main
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import GitHubError
+from ub_agents.loop import Loop
 from ub_agents.records import iso, records, seconds
 from tests.support import PollGitHub, agent, config, edit_lease, issue, pr
 
@@ -197,6 +198,38 @@ class RetryTests(unittest.TestCase):
                          (1, "", "ub-agents: Cannot reset attempts while an assignment is owned\n"))
         self.assertEqual(self.github.reads, [("comments", (97,)), ("role", ("operator",))])
         self.assertEqual(self.github.writes, writes)
+
+    def test_issue_retry_after_blocked_handoff_is_ready_and_claimable(self):
+        self.worker = replace(self.worker, name="implementer")
+        self.config = config(self.root, self.worker)
+        self.github = PollGitHub(issue(80), pr(108, labels=(), body="Closes #80", draft=True))
+        coordinator = Coordinator(self.github, "operator", clock=lambda: 1000)
+        lease = coordinator.claim(coordinator.plan(self.github.item(80), self.worker, ()))
+        coordinator.update(lease, state="running", started=True)
+        outcome = coordinator.report(lease, "blocked", "Main is red", handoff=108,
+                                     action="Maintainer: fix the checks on main.")
+        coordinator.copy_handoff(lease, outcome)
+        coordinator.release(lease, "blocked", outcome["summary"])
+
+        loop = Loop(self.config, self.github, "operator", output=lambda *_: None)
+        loop.coordinator.clock = lambda: 1000
+        blocked, = loop.plans()
+        self.assertEqual((blocked.item.number, blocked.state), (80, "blocked"))
+        copied, = coordinator.history(108)
+        self.assertEqual((copied["status"], copied["handoff"]), ("blocked", 108))
+
+        result, output, errors = self.retry(80, name="implementer", reason="Main is green")
+        self.assertEqual((result, errors), (0, ""))
+        self.assertIn("Reset implementer attempts on #80:", output)
+        ready, = loop.plans()
+        self.assertEqual((ready.item.number, ready.state, ready.attempt), (80, "ready", 1))
+        resumed = loop.coordinator.claim(ready, self.config.stop_labels,
+                                        authorize=lambda item, matches: loop.input_check(item, matches=matches).allowed)
+        self.assertIsNotNone(resumed)
+        self.assertEqual((resumed["assignment"], resumed["agent"]), (80, "implementer"))
+        self.assertNotEqual(resumed["id"], lease["id"])
+        self.assertEqual(coordinator.history(108), [copied])
+        self.assertEqual(self.github.item(108).labels, frozenset())
 
     def test_renewed_lease_refuses_reset_with_explicit_or_default_agent(self):
         self.config = config(self.root, self.worker)
