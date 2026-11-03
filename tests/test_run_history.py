@@ -49,9 +49,9 @@ class RunsTests(unittest.TestCase):
         self.observer.begin_pass()
         self.now = datetime(2026, 10, 4, 12, tzinfo=timezone(timedelta(hours=2)))
 
-    def plan(self, item=None, history=(), filing=None):
+    def plan(self, item=None, history=(), filing=None, closing_history=()):
         plan = Plan(item or issue(), agent(self.root, name='implementer'), None, 'ready', 'Ready', 1, history=tuple(history))
-        self.observer.plan(plan, filing)
+        self.observer.plan(plan, filing, closing_history=closing_history)
         return plan
 
     def display(self, item=1, width=110):
@@ -141,6 +141,38 @@ class RunsTests(unittest.TestCase):
         self.plan(pr(), (outcome(),))
         value, _ = self.display(2)
         self.assertIn('unknown', value)
+
+    def test_pr_item_history_merges_closing_runs_and_counts_handoff_once(self):
+        filed = replace(issue(), author='bk-one')
+        source = outcome(id=4)
+        closing = (claim('prepared', 600, agent='issue-preparer'),
+                   claim('reviewed', 800, agent='issue-reviewer'), claim(id=3), source)
+        own = (claim('reviewing', 1200, assignment=2, agent='reviewer'), source | {'id': 5})
+        plan = Plan(pr(), agent(self.root), None, 'ready', 'Ready', 1, history=own)
+        history = self.observer.item_history(plan, filed, closing)
+        self.assertEqual([run['agent'] for run in history['runs']],
+                         ['issue-preparer', 'issue-reviewer', 'implementer', 'reviewer'])
+        self.assertEqual([run['time'] for run in history['runs']],
+                         [iso(600), iso(800), iso(1100), iso(1200)])
+        self.assertEqual(history['runs'][2]['host'], 'build-01.tail9c.ts.net')
+        self.assertEqual(history['runs'][2]['acceptance'], 'finalized')
+        self.plan(pr(), own, filed, closing)
+        with patch('ub_agents.github.GitHub.comments', side_effect=AssertionError('View GitHub read')):
+            value, view = self.display(2)
+        self.assertIn('closes #1 · filed by bk-one · 4 runs', value)
+        table = list(view.renderables)[1]
+        self.assertEqual(len(table.rows), 5)
+        self.assertIn('filed by bk-one', table.columns[2]._cells[0].plain)
+
+    def test_item_history_without_closing_issue_uses_only_own_runs(self):
+        own = (claim(assignment=2),)
+        for item in (issue(2), pr(body='No closing issue')):
+            with self.subTest(kind=item.kind):
+                plan = Plan(item, agent(self.root), None, 'ready', 'Ready', 1, history=own)
+                history = self.observer.item_history(plan, issue(), (claim('other'),))
+                self.assertEqual(len(history['runs']), 1)
+                self.assertEqual(history['runs'][0]['run'], 'run')
+                self.assertIsNone(history['closes'])
 
     def test_all_launchers_oldest_first_and_live_record_updates(self):
         other = claim('other', 800, actor='other-launcher', agent='reviewer', host='other-host')

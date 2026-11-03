@@ -26,7 +26,7 @@ from ub_agents.observations import (MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
                                    MAX_TEXT, RETAINED_SESSIONS, STALE_SECONDS, VERSION,
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
-from ub_agents.records import iso, records, timestamp
+from ub_agents.records import body, iso, payload, records, timestamp
 from ub_agents.view.data import Session, history_path, item_history, load_session, local_description, work_pane, work_rows
 from ub_agents.view.worker import LocalWorker, Request
 from tests.support import FakeGitHub, MemoryPublisher, PollGitHub, agent, config, issue, pr, observation_writer_command, stub_refresh
@@ -829,6 +829,86 @@ class ObservationTests(unittest.TestCase):
         list(plans)
         self.assertIsNone(self.memory.snapshots[-1]["histories"]["2"]["filing"])
         self.assertFalse(any(name == "item" and args[0] == 1 for name, args in github.reads))
+
+    def closing_issue_run(self, github, name='issue-preparer', handoff=None):
+        coordinator = self.loop(github, False).coordinator
+        coordinator.clock = lambda: 1000
+        role = agent(self.root, name=name, kind='issue')
+        lease = coordinator.claim(coordinator.plan(github.items[1], role, ()))
+        coordinator.update(lease, state='running', host='source-host')
+        reported = coordinator.report(lease, 'success', 'Prepared', outcome='done', handoff=handoff)
+        coordinator.accept(lease, reported)
+        coordinator.release(lease, 'success', 'Prepared')
+        return coordinator.history(1)[-1]
+
+    def test_pr_closing_issue_handoff_joins_legacy_provenance_once(self):
+        self.cfg = config(self.root, agent(self.root, kind='pr'))
+        github = PollGitHub(issue(), pr())
+        self.closing_issue_run(github, name='implementer', handoff=2)
+        coordinator = self.loop(github, False).coordinator
+        coordinator.claim(coordinator.plan(github.items[2], self.cfg.agents[0], ()))
+        self.observer.begin_pass()
+        plans = list(self.loop(github).iter_plans())
+        self.assertEqual([run['agent'] for run in self.memory.histories[-1]['2']['runs']],
+                         ['implementer', 'worker'])
+        self.assertEqual(self.memory.histories[-1]['2']['runs'][0]['host'], 'source-host')
+        self.assertEqual(len(next(plan for plan in plans if plan.item.number == 2).history), 2)
+
+    def test_pr_closing_issue_comments_reuse_store_across_passes(self):
+        self.cfg = config(self.root, agent(self.root, kind='pr'))
+        github = PollGitHub(issue(), pr(body='Closes #1 and #3'), issue(3, labels=()))
+        self.closing_issue_run(github)
+        github.change(1, comments_count=len(github.store[1]))
+        github.reads.clear()
+        loop = self.loop(github)
+        for _ in range(2):
+            self.observer.begin_pass()
+            plans = list(loop.iter_plans())
+            self.observer.complete_pass()
+            runs = self.memory.histories[-1]['2']['runs']
+            self.assertEqual([run['agent'] for run in runs], ['issue-preparer'])
+            self.assertEqual(runs[0]['host'], 'source-host')
+            self.assertEqual(next(plan for plan in plans if plan.item.number == 2).history, ())
+        self.assertEqual([args for name, args in github.reads if name == 'comments' and args == (1,)],
+                         [(1,)])
+        self.assertFalse(any(name == 'comments' and args == (3,) for name, args in github.reads))
+
+    def test_pr_closing_issue_history_uses_coordination_trust(self):
+        for launchers, bots in ((None, ()), (('operator',), ()), (None, ('outsider',))):
+            with self.subTest(launchers=launchers, bots=bots):
+                self.cfg = replace(config(self.root, agent(self.root, kind='pr')),
+                                   launchers=launchers, trusted_bots=bots)
+                github = PollGitHub(issue(), pr())
+                reported = self.closing_issue_run(github)
+                github.roles['outsider'] = 'read' if launchers is None and not bots else 'write'
+                github.create_comment(1, body(payload(reported) | {'run': 'untrusted', 'agent': 'untrusted'}),
+                                      login='outsider')
+                if bots:
+                    github.store[1][-1]['user']['type'] = 'Bot'
+                self.observer.begin_pass()
+                list(self.loop(github).iter_plans())
+                self.assertEqual([run['agent'] for run in self.memory.histories[-1]['2']['runs']],
+                                 ['issue-preparer'])
+
+    def test_pr_closing_issue_read_failure_keeps_pr_runs(self):
+        self.cfg = config(self.root, agent(self.root, kind='pr'))
+        github = PollGitHub(issue(), pr())
+        self.closing_issue_run(github)
+        coordinator = self.loop(github, False).coordinator
+        coordinator.claim(coordinator.plan(github.items[2], self.cfg.agents[0], ()))
+        loop = self.loop(github)
+        lines = []
+        loop.queue_planner.output = lines.append
+        read_comments = github.comments
+        def comments(number):
+            if number == 1:
+                raise GitHubError('GET', 'comments', 'Unavailable')
+            return read_comments(number)
+        with patch.object(github, 'comments', side_effect=comments):
+            self.observer.begin_pass()
+            list(loop.iter_plans())
+        self.assertEqual([run['agent'] for run in self.memory.histories[-1]['2']['runs']], ['worker'])
+        self.assertTrue(any('Cannot read closing issue #1 run history' in line for line in lines))
 
     def test_targeted_launch_preserves_request_order_writes_and_outcomes(self):
         results = []

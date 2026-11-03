@@ -16,7 +16,9 @@ files have mode `0600`.
 Complete item histories live beside the snapshot, under
 `.ub-agents/sessions/<session-id>.histories/`. Each JSON file contains the item's
 metadata and every known run, oldest first, including failed, rejected, blocked
-and abandoned runs. The filename is the SHA-256 hash of the item's history key
+and abandoned runs. A PR's history also includes its first closing issue's runs,
+when readable, with copied handoff outcomes reduced to the same run.
+The filename is the SHA-256 hash of the item's history key
 (normally its number). Carried rows can have a separate key for their prior
 observation. History directories have mode `0700`; files and temporary files have
 mode `0600` and are replaced atomically before the snapshot is published. History
