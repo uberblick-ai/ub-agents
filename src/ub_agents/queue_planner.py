@@ -21,7 +21,7 @@ COMMENT_RECOVERY_SECONDS = 7 * 24 * 60 * 60
 
 class QueuePlanner:
     def __init__(self, config, github, coordinator, approvals, *, health, usage, maintenance,
-                 output, observe, before_claim, reconcile_blocked_notices, targeted, claiming,
+                 output, observe, observing, before_claim, reconcile_blocked_notices, targeted, claiming,
                  notice_agent, discovery, pass_stats, launch_agent, launch_number):
         self._config = config
         self._github = github
@@ -34,6 +34,7 @@ class QueuePlanner:
         self.maintenance = maintenance
         self.output = output
         self.observe = observe
+        self.observing = observing
         self.before_claim = before_claim
         self.reconcile_blocked_notices = reconcile_blocked_notices
         # Pass scope and claim-write state can change after construction or a yield.
@@ -294,7 +295,8 @@ class QueuePlanner:
             self._queue_waits[plan.item.number] = (plan.state, plan.reason)
         closing = sorted(closing_issues(plan.item, self.config.repository)) if plan.item.kind == "pr" else []
         filing = github.observed_item(closing[0]) if closing else None
-        closing_history = self.closing_history(closing[0], github, observe) if closing else ()
+        closing_history = (self.closing_history(closing[0], github, observe)
+                           if closing and (observe is not None or self.observing()) else ())
         authors = {login: role in {"write", "maintain", "admin"} and
                    (self.config.launchers is None or login in {a.casefold() for a in self.config.launchers})
                    for login, role in github.pass_roles.items()}

@@ -817,7 +817,8 @@ class ObservationTests(unittest.TestCase):
             self.observer.begin_pass()
             list(loop.iter_plans())
             reads.append(github.reads[:])
-        self.assertEqual(reads[0], reads[1])
+        self.assertEqual(reads[0], [read for read in reads[1] if read != ('comments', (1,))])
+        self.assertEqual(reads[1].count(('comments', (1,))), 1)
         history = self.memory.snapshots[-1]["histories"]["2"]
         self.assertEqual(history["filing"], {"author": "bk-one", "time": filed.created_at})
         # A targeted pass has not read the closing issue. Its PR author's data
