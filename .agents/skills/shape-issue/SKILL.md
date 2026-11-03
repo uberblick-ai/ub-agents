@@ -30,10 +30,9 @@ and grounding later, so leave out architecture, file lists and edge cases.
    - Every milestone delivers a user benefit. Internal work, such as a refactor,
      tests or CI, joins a milestone that also ships something users notice; never
      propose a milestone of internal work alone.
-   - Follow the [release rules](../../../docs/development/changelog-and-releases.md#release-preparation): a patch milestone
-     holds only fixes. Anything users would see under Added, Changed or Removed, a
+   - Follow the [release rules](../../../docs/development/changelog-and-releases.md#release-preparation): a
      new config key or value, or an upgrade step beyond restarting launchers one at
-     a time belongs in a minor milestone.
+     a time, belongs in a minor milestone. Other work may go in a patch milestone.
    - Prefer the active milestone when the work serves its goal, otherwise the
      next one that fits. When none fits, propose a new milestone: a version title
      that sorts in roadmap order, a one-line goal stating the user benefit, and the
