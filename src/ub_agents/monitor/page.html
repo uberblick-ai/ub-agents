@@ -118,6 +118,14 @@
         background: var(--background);
         white-space: nowrap;
       }
+      /* The terminal view's spinner (view/spinner.py), shown while GitHub is read. */
+      .spinner { display: inline-block; width: 2ch; color: var(--running); }
+      .spinner[hidden] { display: none; }
+      /* The GitHub REST budget left this hour, coral when it runs low. */
+      .budget { display: inline-flex; align-items: center; gap: 6px; }
+      .bar { display: inline-block; width: 8ch; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+      .bar > span { display: block; height: 100%; background: var(--success); }
+      .bar.low > span { background: var(--attention); }
       .link { border: 0; background: none; padding: 0; color: var(--muted); cursor: pointer; text-decoration: underline; }
       .picker { position: fixed; right: 24px; bottom: 44px; background: var(--panel); }
       .picker > h2 { background: var(--panel); }
@@ -132,10 +140,10 @@
     <main>
       <strong>ub-agents</strong> <span class="muted" id="repository"></span>
       <p class="hint" id="notify-hint" hidden></p>
-      <div id="app" class="muted">Reading coordination records…</div>
+      <div id="app" class="muted"><span class="spinner">⠋</span>Reading coordination records…</div>
     </main>
     <div class="status" role="status">
-      <span id="freshness"></span>
+      <span><span class="spinner" id="poll-spinner" hidden>⠋</span><span id="freshness"></span></span>
       <span id="keys"></span>
     </div>
     <section class="panel picker" id="picker" hidden></section>
@@ -155,6 +163,7 @@
       // More ordinary notifications than this in one poll arrive as one summary.
       const NOTIFY_SINGLY = 3;
       const TEST_HINT_MS = 20_000;
+      const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
       const state = { data: null, error: null, loading: false, lastPoll: 0, seen: null, open: new Set(), choosing: false, testSentAt: 0 };
       const time = (stamp) => new Date(stamp).getTime();
@@ -264,7 +273,7 @@
         const app = document.getElementById("app");
         const { data } = state;
         if (!data) {
-          app.replaceChildren(state.error ? el("div", { class: "banner" }, `Couldn't read GitHub: ${state.error}`) : "Reading coordination records…");
+          app.replaceChildren(...(state.error ? [el("div", { class: "banner" }, `Couldn't read GitHub: ${state.error}`)] : [el("span", { class: "spinner" }, SPINNER[0]), "Reading coordination records…"]));
           return tick();
         }
         app.className = "";
@@ -397,21 +406,23 @@
         hint.hidden = !hint.textContent;
         for (const node of document.querySelectorAll("[data-since]")) node.textContent = FORMATS[node.dataset.format](now - time(node.dataset.since));
         const next = Math.max(0, Math.ceil((state.lastPoll + POLL_SECONDS * 1000 - now) / 1000));
+        document.getElementById("poll-spinner").hidden = !state.loading;
         document.getElementById("freshness").textContent = [
           state.data ? `updated ${duration(now - time(state.data.generated_at))} ago` : null,
-          state.loading ? "polling…" : document.hidden && !notifyOn() ? "paused while hidden" : `next poll ${next}s`,
+          state.loading ? "reading GitHub…" : document.hidden && !notifyOn() ? "paused while hidden" : `next poll ${next}s`,
         ].filter(Boolean).join(" · ");
         const rates = state.data?.rates ?? {};
+        const percent = rates.core ? Math.round((100 * rates.core.remaining) / rates.core.limit) : 0;
         const count = (r) => `${r.remaining.toLocaleString("en")} of ${r.limit.toLocaleString("en")}`;
         document.getElementById("keys").replaceChildren(...[
           "r poll now",
-          rates.core ? [" · ", el("span", { title: [
-            `REST calls left until ${new Date(rates.core.reset * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}; every tool using this account draws from them.`,
+          rates.core ? [" · ", el("span", { class: "budget", title: [
+            `${count(rates.core)} REST calls left until ${new Date(rates.core.reset * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}; every tool using this account draws from them.`,
             rates.graphql ? `GraphQL: ${count(rates.graphql)} left.` : "",
             `This monitor: ${rates.counted} counted calls and ${rates.not_modified} free "not modified" answers.`,
-          ].join(" ") }, `GitHub ${count(rates.core)} left`)] : "",
+          ].join(" ") }, "GH API budget", el("span", { class: `bar${percent < 20 ? " low" : ""}` }, el("span", { style: `width: ${percent}%` })), `${percent}%`)] : "",
           " · ", notifyControl(),
-          permission() !== "denied" ? [" · ", el("button", { class: "link", type: "button", onclick: () => { state.choosing = !state.choosing; renderPicker(); } }, `choose (${chosen().length})`)] : "",
+          permission() !== "denied" ? [" · ", el("button", { class: "link", type: "button", onclick: () => { state.choosing = !state.choosing; renderPicker(); } }, `notify when (${chosen().length})`)] : "",
         ].flat());
       };
 
@@ -434,6 +445,14 @@
         }
         render();
       };
+
+      // Ten frames a second, as in the terminal view; a steady dot for reduced motion.
+      const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+      let frame = 0;
+      setInterval(() => {
+        frame = (frame + 1) % SPINNER.length;
+        for (const node of document.querySelectorAll(".spinner")) node.textContent = reducedMotion.matches ? "●" : SPINNER[frame];
+      }, 100);
 
       // With notifications on, a hidden tab keeps polling; browsers slow its timers.
       setInterval(() => {

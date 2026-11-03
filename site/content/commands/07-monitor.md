@@ -33,14 +33,15 @@ and listed in [`launchers`](/docs/configuration/launchers.html) when that is set
 
 ## Polling and notifications
 
-The page polls every 30 seconds; press `r` to poll now. The status bar shows the
-GitHub REST calls left for your account, since every tool using it draws from them.
+The page polls every 30 seconds; press `r` to poll now. **GH API budget** in the
+status bar shows the share of your account's GitHub REST calls left this hour, since
+every tool using the account draws from them; hover it for the counts.
 A poll costs about one counted call while nothing changed, because unchanged reads
 answer "not modified".
 
 Click **notify: off** to switch on browser notifications. The page sends one test
 notification and, for 20 seconds, says where to look if none appeared (on macOS:
-System Settings › Notifications › your browser, and Focus). **choose** sets what
+System Settings › Notifications › your browser, and Focus). **notify when** sets what
 notifies: an item gets a stop label (the default), a run reports blocked, starts,
 ends or expires. Stop labels and blocked reports stay on screen until dismissed;
 clicking a notification opens the item. Nothing notifies for what was already
