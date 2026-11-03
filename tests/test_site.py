@@ -64,19 +64,20 @@ class VisibleText(HTMLParser):
 
 
 class SiteTests(unittest.TestCase):
-    def test_workflow_gallery_has_two_cards_and_no_docs_sidebar(self):
+    def test_workflow_gallery_has_three_cards_and_no_docs_sidebar(self):
         page = build.workflow_gallery()
         self.assertIn('<h1>Loops we <em>actually run</em></h1>', page)
-        self.assertEqual(page.count('class="workflow-card'), 2)
+        self.assertEqual(page.count('class="workflow-card'), 3)
         self.assertEqual(page.count('class="workflow-card workflow-wide"'), 1)
         self.assertEqual(page.count('class="workflow-group"'), len(build.WORKFLOW_GROUPS))
         self.assertIn('Built on ub-agents, a minimal agent loop for experienced developers: '
                       'plain GitHub labels, your own coding agents, nothing to host. Visualized by ablauf.',
                       VisibleText(page).text)
-        self.assertEqual(page.count('data-mode="preview"'), 2)
+        self.assertEqual(page.count('data-mode="preview"'), 3)
         self.assertNotIn('<details class="side"', page)
         self.assertIn('href="default/"', page)
         self.assertIn('href="dependabot/"', page)
+        self.assertIn('href="milestone-branches/"', page)
         for workflow in build.WORKFLOWS:
             self.assertIn(workflow['title'], page)
             self.assertIn(workflow['intent'], VisibleText(page).text)
@@ -97,9 +98,11 @@ class SiteTests(unittest.TestCase):
 
     def test_workflow_scenarios_have_urls_and_native_playback_data(self):
         expected = {'default': ['clean-merge', 'one-fix-round', 'main-moves-on', 'a-person-decides'],
-                    'dependabot': ['clean-merge', 'tests-failing', 'fix-fails', 'major-release']}
+                    'dependabot': ['clean-merge', 'tests-failing', 'fix-fails', 'major-release'],
+                    'milestone-branches': ['first-issue', 'next-issue', 'main-moved', 'trivial-conflict', 'complex-conflict',
+                                           'milestone-lands']}
         pages = dict(build.workflow_pages())
-        self.assertEqual(len(pages), 11)
+        self.assertEqual(len(pages), 18)
         for workflow in build.WORKFLOWS:
             name = workflow['name']
             timelines = build.workflow_timelines(name)

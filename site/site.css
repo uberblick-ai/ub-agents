@@ -327,6 +327,10 @@ body:has(> main.workflows) {
 .workflow-player[data-mode="entry"] .workflow-stage { background: var(--wf-panel); border: 1px solid var(--wf-edge); border-radius: 12px; padding: 20px 28px }
 .workflow-player[data-mode="entry"] .workflow-stage svg { max-height: max(240px, calc(100svh - 470px)) }
 .workflow-player[data-mode="entry"] .ab-playback { border: 1px solid var(--wf-edge); border-radius: 12px; margin-top: 10px; overflow: hidden }
+/* One line per caption, scrolled sideways when long, so the controls below never move between steps. */
+.workflow-player .ab-playback .abp-step > * { min-width: 0 }
+.workflow-player .ab-playback .abp-caption { white-space: nowrap; overflow-x: auto; scrollbar-width: none }
+.workflow-player .ab-playback .abp-caption::-webkit-scrollbar { display: none }
 
 /* The entry */
 .workflow-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-top: 28px }
