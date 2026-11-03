@@ -65,6 +65,7 @@
     <ul>
       <li>A Mac or Linux machine with your agent CLIs signed in: a laptop, or an always-on server for overnight runs.</li>
       <li>A GitHub account for the launcher with write access. We recommend <a href="/docs/best-practices/launcher-account.html">a dedicated account</a>, not an admin.</li>
+      <li>A dedicated machine, VM or low-privilege user for the launcher. A worktree isolates the checkout, not the machine; see the <a href="/docs/security-model.html">security model</a>.</li>
       <li>The checks that gate a merge, such as your CI.</li>
     </ul>
 <pre><code><span class="c"># in your checkout</span>
