@@ -13,8 +13,14 @@ integrator's own base merge, starts a new run: wait with `gh pr checks N --watch
 No agent enables auto-merge, changes branch protection or publishes a release.
 Leave the merge to `@uberblick-ai/maintainers` when the PR:
 
-- changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` or `AGENTS.md`;
-- changes setup, CI or release tooling: `mise.toml`, `.github/` or `scripts/`;
+- changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` or `AGENTS.md`
+  beyond what the closing issue asks for;
+- changes setup, CI or release tooling: `mise.toml`, `.github/` or `scripts/`
+  beyond what the closing issue asks for;
+- changes what decides the `Test result` check: any file under `.github/workflows/`,
+  or a script under `scripts/` that `.github/workflows/test.yml` runs, even when the
+  closing issue asks for it (this bullet does not cover changes to tests or source
+  code);
 - is labelled `outside-input` (built from outside text);
 - changes the `ub-agents` command line (adds, removes or renames commands or options,
   or changes what they do or print) beyond what the closing issue asks for;
@@ -22,6 +28,11 @@ Leave the merge to `@uberblick-ai/maintainers` when the PR:
   previous build would reject or misread its coordination record format, agent
   branch names, config file, or a config key or value this repository's
   `ub-agents.yaml` starts using.
+
+"What the closing issue asks for" means the issue text as a maintainer last wrote
+it, before the issue preparer's edits. Check the issue's edit history to see who
+wrote each version. An edit added to the scope by the preparer, or requested only
+by a preparer-written acceptance criterion, still leaves the merge to a maintainer.
 
 ## Human decisions
 
