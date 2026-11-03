@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/poll_now.py: 74%</title>
+    <title>Coverage for src/ub_agents/poll_now.py: 76%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>poll_now.py</b>:
-            <span class="pc_cov">74%</span>
+            <span class="pc_cov">76%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">68 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">50<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">18<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">52<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">16<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_polling_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 02:36 +0000
+            created at 2026-11-03 02:38 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -138,8 +138,8 @@
     <p class="run"><span class="n"><a id="t56" href="#t56">56</a></span><span class="t">                <span class="key">if</span> <span class="nam">remaining</span> <span class="op">&lt;=</span> <span class="num">0</span> <span class="key">or</span> <span class="nam">wake</span><span class="op">.</span><span class="nam">wait</span><span class="op">(</span><span class="nam">min</span><span class="op">(</span><span class="num">0.1</span><span class="op">,</span> <span class="nam">remaining</span><span class="op">)</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t57" href="#t57">57</a></span><span class="t">                    <span class="key">break</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t58" href="#t58">58</a></span><span class="t">                <span class="key">if</span> <span class="nam">update</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span> <span class="key">and</span> <span class="nam">self</span><span class="op">.</span><span class="nam">clock</span><span class="op">(</span><span class="op">)</span> <span class="op">&gt;=</span> <span class="nam">next_update</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t59" href="#t59">59</a></span><span class="t">                    <span class="nam">update</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t60" href="#t60">60</a></span><span class="t">                    <span class="nam">next_update</span> <span class="op">=</span> <span class="nam">self</span><span class="op">.</span><span class="nam">clock</span><span class="op">(</span><span class="op">)</span> <span class="op">+</span> <span class="num">1</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t59" href="#t59">59</a></span><span class="t">                    <span class="nam">update</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t60" href="#t60">60</a></span><span class="t">                    <span class="nam">next_update</span> <span class="op">=</span> <span class="nam">self</span><span class="op">.</span><span class="nam">clock</span><span class="op">(</span><span class="op">)</span> <span class="op">+</span> <span class="num">1</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t61" href="#t61">61</a></span><span class="t">            <span class="key">if</span> <span class="nam">wake</span><span class="op">.</span><span class="nam">is_set</span><span class="op">(</span><span class="op">)</span> <span class="key">and</span> <span class="key">not</span> <span class="nam">stop</span><span class="op">.</span><span class="nam">is_set</span><span class="op">(</span><span class="op">)</span> <span class="key">and</span> <span class="nam">on_request</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t62" href="#t62">62</a></span><span class="t">                <span class="nam">on_request</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t63" href="#t63">63</a></span><span class="t">            <span class="key">return</span> <span class="nam">stop</span><span class="op">.</span><span class="nam">is_set</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -170,7 +170,7 @@
             <a class="nav" href="z_5a8b66d9765f9a8f_polling_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-03 02:36 +0000
+            created at 2026-11-03 02:38 +0000
         </p>
     </div>
 </footer>
