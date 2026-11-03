@@ -3537,6 +3537,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             with patch('ub_agents.view.ui.datetime', wraps=datetime) as clock:
                 clock.now.return_value = now
                 app._static_values.clear()
+                app._status_dirty = True
                 app.last_runs = None
                 with patch.object(Static, 'update', autospec=True) as update:
                     app.tick()
@@ -3554,6 +3555,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 clock.now.return_value = now
                 # Rebuild the baseline at Runs' laid-out width after tab activation.
                 app._static_values.clear()
+                app._status_dirty = True
                 app.last_runs = None
                 app.tick()
                 with patch.object(Static, 'update', autospec=True) as update:
