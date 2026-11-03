@@ -94,12 +94,15 @@ class Cleaner:
         return artifacts + self.scratch()
 
     def scratch_root(self):
-        return (user_state_directory() / self.config.repository / "runs").resolve()
+        return user_state_directory().resolve() / self.config.repository / "runs"
 
     def scratch(self):
         # Scratch outlives its run when removal at run end failed or the launcher died.
         root = self.scratch_root()
-        return [Artifact("scratch", str(path), path.name) for path in sorted(root.iterdir())] if root.is_dir() else []
+        if not root.is_dir():
+            return []
+        return [Artifact("scratch", str(path), path.name) for path in sorted(root.iterdir())
+                if path.is_dir() or path.is_symlink()]
 
     def history(self, number):
         # An unreadable record is not a keep reason. Parse independently so it
@@ -222,7 +225,8 @@ class Cleaner:
         if artifact.run in self.blocked_runs:
             raise AgentError("Cleanup hook failed; artifacts preserved")
         if artifact.kind in {"ref", "scratch"}:
-            if artifact.kind == "scratch" and Path(artifact.name).parent != self.scratch_root():
+            parent = Path(artifact.name).parent
+            if artifact.kind == "scratch" and parent.resolve() != parent:
                 raise AgentError("Scratch parent path redirects")
             path = str(self.root / ".ub-agents" / "worktrees" / artifact.run)
             present = Path(path).exists() or any(t["worktree"] == path for t in worktrees(self.root))

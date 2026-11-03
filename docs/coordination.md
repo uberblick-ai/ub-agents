@@ -766,6 +766,8 @@ at worktrees under this checkout's `.ub-agents/worktrees/`, local branches named
 left by interrupted runs, and the repository's run scratch directories. Scratch is
 shared by every checkout of the repository on the host; another checkout's runs are
 protected only by their GitHub records, not by its local diagnostics.
+Scratch inventory includes directories and symlinks, leaving plain files alone.
+Removal never follows symlinks, and a scratch path whose parent redirects is kept.
 
 The sweep finds a branch's item from its name and its head PRs from GitHub. For a
 worktree, fork head ref or scratch directory, it finds the run's assignment in
