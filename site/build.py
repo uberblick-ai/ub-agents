@@ -49,6 +49,14 @@ WORKFLOWS = [
                       '<code>dependencies</code> as an integrator trigger. <code>max-rounds: 1</code> enforces the single fix round.',
      'article': ('Letting agents auto-merge Dependabot pull requests',
                  'https://uberblick.ai/blog/2026/agents-auto-merge-dependabot')},
+    {'name': 'milestone-branches', 'group': 1, 'title': 'Ship to milestone branch instead of main',
+     'intent': "Each issue in a milestone merges into the milestone's own branch, behind one preview. "
+               "The team tries the whole milestone, then lands it in main with a single merge.",
+     'lede_html': "Issues in a milestone merge into the milestone's own branch instead of <code>main</code>. "
+                  'The team tries the whole milestone on that branch\'s preview, then merges it into '
+                  '<code>main</code> by hand.',
+     'requires_html': 'Works with any ub-agents version: <code>milestones: gate</code> in the queue, and loop policy '
+                      'that sends issue PRs to the milestone branch. Previews need a host that deploys every branch.'},
 ]
 ABOUT_UB_AGENTS = ('a minimal agent loop for experienced developers: '
                    'plain GitHub labels, your own coding agents, nothing to host.')
