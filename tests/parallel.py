@@ -1,11 +1,14 @@
 """Run the unit suite on every core.
 
-    python -m tests [-j N] [--durations N] [--timeout SECONDS] [name ...]
+    python -m tests [-j N] [--durations N] [--timeout SECONDS] [--shard K/N] [name ...]
 
 Each test runs in one of N worker processes (default: every available core),
 so the suite takes about as long as its share per core or its slowest test.
 Names are the same dotted names `python -m unittest` takes; without names the
-whole suite under tests/ runs. Each test has a 300-second limit, configurable
+whole suite under tests/ runs. With --shard K/N, run every N-th discovered test
+in sorted name order, starting with the K-th (1 <= K <= N). Named tests are
+sharded the same way; without --shard, run the whole selection.
+Each test has a 300-second limit, configurable
 with --timeout SECONDS. Worker startup, discovery and shutdown use the same
 limit when no test is in flight. A timeout prints worker thread stacks, stops
 workers and their child processes, and fails the run. Workers also stop their
@@ -92,7 +95,17 @@ def positive_seconds(value):
     return seconds
 
 
-def supervise(requested, jobs, timeout, outcomes, durations, directory):
+def shard_value(value):
+    try:
+        index, count = map(int, value.split('/'))
+        if 1 <= index <= count:
+            return index, count
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError('shard must be K/N with 1 <= K <= N')
+
+
+def supervise(requested, jobs, timeout, outcomes, durations, directory, shard=None):
     events = queue.Queue()
     workers = []
     pending = None
@@ -132,7 +145,11 @@ def supervise(requested, jobs, timeout, outcomes, durations, directory):
         elif kind == 'discovered':
             if event['outcome']['run']:
                 outcomes.append(event['outcome'])
-            pending = list(reversed(event['names']))
+            names = event['names']
+            if shard is not None:
+                index, count = shard
+                names = sorted(names)[index - 1::count]
+            pending = list(reversed(names))
             jobs = max(1, min(jobs, len(pending)))
             for number in range(1, jobs):
                 workers.append(Worker.start(directory, number, events))
@@ -242,6 +259,8 @@ def main(argv=None):
     parser.add_argument('--timeout', type=positive_seconds, default=DEFAULT_TIMEOUT, metavar='SECONDS',
                         help='per-test time limit; also bounds idle worker startup, discovery and shutdown '
                              f'(default: {DEFAULT_TIMEOUT}s)')
+    parser.add_argument('--shard', type=shard_value, metavar='K/N',
+                        help='run every N-th test in sorted name order, starting with K (1 <= K <= N)')
     parser.add_argument('names', nargs='*', help='test modules, classes or methods (default: all)')
     args = parser.parse_args(argv)
 
@@ -252,7 +271,7 @@ def main(argv=None):
     jobs = max(1, args.jobs)
     try:
         with tempfile.TemporaryDirectory(prefix='test-workers-') as directory:
-            jobs = supervise(args.names, jobs, args.timeout, outcomes, durations, Path(directory))
+            jobs = supervise(args.names, jobs, args.timeout, outcomes, durations, Path(directory), args.shard)
     except KeyboardInterrupt:
         sys.stderr.write('\nInterrupted\n')
         return 130
