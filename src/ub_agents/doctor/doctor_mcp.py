@@ -7,8 +7,8 @@ from pathlib import Path
 import re
 import tomllib
 
-from .config import instruction_text
-from .errors import AgentError
+from ..config import instruction_text
+from ..errors import AgentError
 from .mcp_probe import probe_stdio
 
 

@@ -47,16 +47,16 @@ agents:
                 patch("ub_agents.execution.git", side_effect=self.read_git), \
                 patch("ub_agents.refresh.git", side_effect=self.read_git), \
                 patch("ub_agents.observations.Publisher", MemoryPublisher), \
-                patch("ub_agents.updates.Updates", return_value=None), \
+                patch("ub_agents.updates.updates.Updates", return_value=None), \
                 patch("ub_agents.cli._runtime.Loop.launch") as launch, \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             code = main(["--config", str(self.path), "launch", *arguments])
         return code, stdout.getvalue(), stderr.getvalue(), launch
 
     def doctor(self):
-        with patch("ub_agents.doctor.subprocess.run", self.runner), \
-                patch("ub_agents.doctor.shutil.which", side_effect=lambda name: f"/tools/{name}"), \
-                patch("ub_agents.doctor.GitHub", return_value=self.github), \
+        with patch("ub_agents.doctor.doctor.subprocess.run", self.runner), \
+                patch("ub_agents.doctor.doctor.shutil.which", side_effect=lambda name: f"/tools/{name}"), \
+                patch("ub_agents.doctor.doctor.GitHub", return_value=self.github), \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             self.assertEqual(main(["--config", str(self.path), "doctor", "--json"]), 0)
         self.assertEqual(stderr.getvalue(), "")

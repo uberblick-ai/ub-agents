@@ -1,9 +1,9 @@
 """Display-only run reduction from already-read coordination records."""
 
-from .context_usage import context_fields
+from .usage.context_usage import context_fields
 from .records import seconds
 from .denials import denial_fields
-from .run_usage import usage_fields
+from .usage.run_usage import usage_fields
 
 
 def display_run(row):

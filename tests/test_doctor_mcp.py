@@ -9,9 +9,9 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import load_config
-from ub_agents.doctor import Doctor
-from ub_agents.doctor_mcp import MCPChecks
-from ub_agents.mcp_probe import probe_stdio
+from ub_agents.doctor.doctor import Doctor
+from ub_agents.doctor.doctor_mcp import MCPChecks
+from ub_agents.doctor.mcp_probe import probe_stdio
 from tests.support import RecordingMCPProbe
 
 

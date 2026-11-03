@@ -285,7 +285,7 @@ def apply_labels(plan, github, remote_labels, result, pending):
 
 def apply_plan(plan, github, remote_labels=()):
     """Stop on partial failure; retain and describe successful effects, never roll back."""
-    from ..doctor import Doctor, public
+    from ..doctor.doctor import Doctor, public
     result = Applied()
     pending = [f"Create {p}" for p in plan.targets]
     change_ignore = plan.ignore_after != (plan.ignore_before or b"")

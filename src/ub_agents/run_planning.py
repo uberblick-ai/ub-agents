@@ -15,7 +15,7 @@ from .pass_messages import PassMessages
 from .polling import IDLE_MAX_SECONDS, idle_interval
 from .queue_planner import QueuePlanner
 from .rate_limits import READS
-from .request_stats import COUNTERS, DiscoveryPass, PassOutput
+from .usage.request_stats import COUNTERS, DiscoveryPass, PassOutput
 
 
 class _Cancelled(Exception):

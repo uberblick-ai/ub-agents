@@ -7,7 +7,7 @@ import unittest
 from tests.terminal import Terminal
 from tests.test_codex_logs import encoded, recorded_item
 from tests.test_view_data import fixture
-from ub_agents.log_format import MAX_RECORD
+from ub_agents.logs.log_format import MAX_RECORD
 
 
 class CodexTerminalTests(unittest.TestCase):

@@ -36,7 +36,7 @@ from .worker import LocalWorker, Request
 from .work import RecentActivity, WorkTree, assignment_elapsed
 from .theme import VIEW_THEME, item_reference, theme_style, variable_defaults
 from ..poll_now import COOLDOWN_SECONDS
-from ..log_format import inert
+from ..logs.log_format import inert
 from .time import deadline as poll_deadline, pause_status, plan_pauses, remaining_time, runtime_pauses
 
 

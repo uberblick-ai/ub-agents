@@ -138,8 +138,8 @@ class InitTests(unittest.TestCase):
                     self.assertEqual(code, 0)
                     cli = runtime.split(':', 1)[0] if runtime else 'codex'
                     self.assertIn(f'{cli} loads no project guidance', flat(output))
-                    with patch('ub_agents.doctor.subprocess.run', RecordingRunner(self.path.parent.resolve())), \
-                            patch('ub_agents.doctor.shutil.which', return_value='/tools/git'), \
+                    with patch('ub_agents.doctor.doctor.subprocess.run', RecordingRunner(self.path.parent.resolve())), \
+                            patch('ub_agents.doctor.doctor.shutil.which', return_value='/tools/git'), \
                             redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                         self.assertEqual(main(['--config', str(self.path), 'doctor', '--offline']), 0)
                     for name in ('AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'):

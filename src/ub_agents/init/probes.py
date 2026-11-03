@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 from ..approvals import Roles, resolve_policy
-from ..doctor import AUTH_PROBES, Doctor
+from ..doctor.doctor import AUTH_PROBES, Doctor
 from ..errors import AgentError
 from ..execution import parse_process_table, repository_checks
 from ..github import repository_visibility

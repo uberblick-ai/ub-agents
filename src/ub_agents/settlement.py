@@ -5,7 +5,7 @@ from .github import links_issue
 from .labels import OUTSIDE_INPUT
 from .records import backoff, iso, lease_by_id, resolve_transition, same_run, validate_report_action
 from .run_branches import earlier_branches
-from .run_usage import usage_fields
+from .usage.run_usage import usage_fields
 
 
 class Settlement:

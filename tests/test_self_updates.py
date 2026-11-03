@@ -15,11 +15,11 @@ from unittest.mock import Mock, patch
 from ub_agents import __version__
 from ub_agents.cli import main
 from ub_agents.config import RuntimeUpdates, load_config
-from ub_agents.doctor import diagnose
+from ub_agents.doctor.doctor import diagnose
 from ub_agents.launcher_lock import running_launcher
 from ub_agents.loop import Loop
-from ub_agents.runtime_updates import MaintenanceFailure
-from ub_agents.self_updates import (BrewInstallation, FORMULA, RestartLauncher, SelfUpdates,
+from ub_agents.updates.runtime_updates import MaintenanceFailure
+from ub_agents.updates.self_updates import (BrewInstallation, FORMULA, RestartLauncher, SelfUpdates,
                                     installation, release_range)
 from tests.support import FakeGitHub, config, isolate_runtime_state, issue
 
@@ -102,7 +102,7 @@ class SelfUpdateTests(unittest.TestCase):
             self.assertIn("only uberblick", installation(self.root / path)[1])
         path = self.root / "ub-agents.yaml"
         path.write_text("repository: org/project\nagents: {worker: {command: [echo], trigger: ready, outcomes: {done: {}}}}\n")
-        with patch("ub_agents.self_updates.installation", return_value=(self.install, None)):
+        with patch("ub_agents.updates.self_updates.installation", return_value=(self.install, None)):
             result = diagnose(path, offline=True)
         check, = [entry for entry in result["checks"] if entry["id"] == "launcher-installation"]
         self.assertEqual(check["status"], "ok")
@@ -395,7 +395,7 @@ class SelfUpdateTests(unittest.TestCase):
                     patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                     patch("ub_agents.cli.launch.check_launch_setup"), \
                     patch("ub_agents.launch_ui.open_view", return_value=view), \
-                    patch("ub_agents.updates.Updates.start"), \
+                    patch("ub_agents.updates.updates.Updates.start"), \
                     patch("ub_agents.startup_cleanup.StartupCleanup.start"), \
                     patch.object(Loop, "launch", side_effect=restart), \
                     patch("ub_agents.cli.launch.os.execv", side_effect=execute), redirect_stdout(io.StringIO()):

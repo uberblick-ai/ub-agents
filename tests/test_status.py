@@ -511,7 +511,7 @@ class ItemStatusTests(unittest.TestCase):
         for target in ("ub_agents.loop.Loop.maintain_runtimes", "ub_agents.loop.Loop.execute",
                        "ub_agents.loop.Loop.recover", "ub_agents.loop.Loop.park_approval",
                        "ub_agents.cli.launch.repository_checks", "ub_agents.cli.launch.launch_checks",
-                       "ub_agents.cli.launch.launch_output", "ub_agents.updates.Updates",
+                       "ub_agents.cli.launch.launch_output", "ub_agents.updates.updates.Updates",
                        "ub_agents.observations.Publisher"):
             self.enterContext(patch(target, side_effect=AssertionError(f"Status touched {target}")))
 
@@ -648,12 +648,12 @@ class ItemStatusTests(unittest.TestCase):
     def test_runtime_wait_and_unavailability_match_launch_gates(self):
         self.config = config(self.root, agent(self.root, command=(), runtimes=(Runtime("codex", "model", "high"),)))
         pause = {"reason": "usage limit reached", "ends_at": "2026-10-04T00:00:00Z"}
-        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", return_value=True), \
-                patch("ub_agents.runtime_usage.RuntimeUsage.paused", return_value=pause):
+        with patch("ub_agents.updates.runtime_updates.RuntimeMaintenance.available", return_value=True), \
+                patch("ub_agents.usage.runtime_usage.RuntimeUsage.paused", return_value=pause):
             result, plain = self.status()
         self.assertEqual(result["assignments"][0]["state"], "waiting")
         self.assertIn("Waiting for codex: usage limit reached; pause ends 2026-10-04T00:00:00Z", plain)
-        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", return_value=False):
+        with patch("ub_agents.updates.runtime_updates.RuntimeMaintenance.available", return_value=False):
             result, plain = self.status()
         self.assertEqual(result["assignments"][0]["state"], "blocked")
         self.assertIn("No eligible runtime executable is installed, usable and available", plain)

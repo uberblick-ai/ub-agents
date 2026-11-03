@@ -18,7 +18,7 @@ from .records import (MARKER, attempt_effect, attempts, backoff, body, display_p
                       outcome_declarations, outcome_rounds, payload, records, recovers, report_asks,
                       same_handoff, same_run, seconds, stop_report, timestamp)
 from .trust import LauncherTrust
-from .run_usage import usage_fields
+from .usage.run_usage import usage_fields
 
 
 @dataclass(frozen=True)

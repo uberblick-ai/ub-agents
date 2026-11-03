@@ -321,9 +321,9 @@ class TrustedPRAuthorConfigurationTests(unittest.TestCase):
                     path.write_text(base + f"trusted-pr-authors: {value}\n")
                     with self.assertRaisesRegex(AgentError, "trusted-pr-authors"):
                         load_config(path)
-                    with patch("ub_agents.doctor.GitHub") as github, \
-                            patch("ub_agents.doctor.subprocess.run", RecordingRunner(root)), \
-                            patch("ub_agents.doctor.shutil.which", return_value="/tools/git"), \
+                    with patch("ub_agents.doctor.doctor.GitHub") as github, \
+                            patch("ub_agents.doctor.doctor.subprocess.run", RecordingRunner(root)), \
+                            patch("ub_agents.doctor.doctor.shutil.which", return_value="/tools/git"), \
                             redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()):
                         self.assertEqual(main(["--config", str(path), "doctor", "--offline"]), 1)
                     github.assert_not_called()

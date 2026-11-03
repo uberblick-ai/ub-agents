@@ -11,7 +11,7 @@ from tests import test_init_flow
 from tests.test_init_flow import Script, flat
 from ub_agents.cli import main
 from ub_agents.config import load_config
-from ub_agents.doctor import Doctor
+from ub_agents.doctor.doctor import Doctor
 from ub_agents.errors import AgentError
 from ub_agents.init.edit import RULE, UnsafeEdit, additions
 from ub_agents.init.extend import ExistingFlow

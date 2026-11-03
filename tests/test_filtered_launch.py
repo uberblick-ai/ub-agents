@@ -294,15 +294,15 @@ class FilteredLaunchTests(unittest.TestCase):
     def test_runtime_availability_pause_and_health_checks_still_gate_selected_work(self):
         self.selected = replace(self.selected, command=(), runtimes=(Runtime("codex", "model", "high"),))
         self.config = config(self.root, self.other, self.selected)
-        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", side_effect=lambda cli: cli == "gh"):
+        with patch("ub_agents.updates.runtime_updates.RuntimeMaintenance.available", side_effect=lambda cli: cli == "gh"):
             _, stdout, _, run = self.launch("--once", "--agent", "triage")
         run.assert_not_called()
         self.assertIn("waiting items: 1 blocked", stdout)
         self.assertIn("blocked — No eligible runtime executable", stdout)
         self.assertEqual(self.github.writes, [])
         pause = {"reason": "usage limit reached", "ends_at": "2026-10-10T00:00:00Z"}
-        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", return_value=True), \
-                patch("ub_agents.runtime_usage.RuntimeUsage.paused", return_value=pause):
+        with patch("ub_agents.updates.runtime_updates.RuntimeMaintenance.available", return_value=True), \
+                patch("ub_agents.usage.runtime_usage.RuntimeUsage.paused", return_value=pause):
             _, stdout, _, run = self.launch("--once", "--agent", "triage")
         run.assert_not_called()
         self.assertIn("waiting items: 1 waiting", stdout)

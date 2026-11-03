@@ -20,7 +20,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from ub_agents import __version__
-from ub_agents.launch_log import launch_output
+from ub_agents.logs.launch_log import launch_output
 from ub_agents.launch_ui import ViewProcess, open_view
 from ub_agents.view.main import LauncherConnection, attach
 from tests.terminal import Terminal

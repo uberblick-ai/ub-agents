@@ -9,11 +9,11 @@ from pathlib import Path
 import re
 import time
 
-from . import __version__
-from .launcher_code import source_directory
+from .. import __version__
+from ..launcher_code import source_directory
 from .runtime_installations import writable
 from .runtime_updates import MaintenanceFailure, RuntimeMaintenance
-from .state import lock, user_state_directory
+from ..state import lock, user_state_directory
 from .updates import REPOSITORY, version
 
 FORMULA = "uberblick-ai/tap/ub-agents"

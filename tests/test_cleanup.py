@@ -807,7 +807,7 @@ class CleanupTests(unittest.TestCase):
         with patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
                 patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.launch.launch_checks"), \
-                patch("ub_agents.updates.Updates", return_value=None), \
+                patch("ub_agents.updates.updates.Updates", return_value=None), \
                 patch("ub_agents.observations.Publisher", return_value=publisher), \
                 patch("ub_agents.cli.launch.StartupCleanup", side_effect=factory), \
                 patch("ub_agents.cli._runtime.Loop.tick", side_effect=after_cleanup), \

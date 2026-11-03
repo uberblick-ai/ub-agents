@@ -16,11 +16,11 @@ from ub_agents.config import Runtime, RuntimeUpdates
 from ub_agents.execution import supervise
 from ub_agents.loop import Loop
 from ub_agents.records import attempts, iso
-from ub_agents.runtime_installations import installation
-from ub_agents.runtime_updates import (COOLDOWN_SECONDS, MaintenanceFailure, RuntimeMaintenance,
+from ub_agents.updates.runtime_installations import installation
+from ub_agents.updates.runtime_updates import (COOLDOWN_SECONDS, MaintenanceFailure, RuntimeMaintenance,
                                       lock, state_directory)
-from ub_agents.runtime_usage import RuntimeUsage
-from ub_agents.usage_output import UsageOutput
+from ub_agents.usage.runtime_usage import RuntimeUsage
+from ub_agents.usage.usage_output import UsageOutput
 from tests.support import FakeGitHub, agent, config, isolate_observations, issue, stub_refresh
 
 
@@ -1489,7 +1489,7 @@ class RuntimeUpdateTests(unittest.TestCase):
 from pathlib import Path
 from types import SimpleNamespace
 from ub_agents.config import Runtime, RuntimeUpdates
-from ub_agents.runtime_updates import RuntimeMaintenance
+from ub_agents.updates.runtime_updates import RuntimeMaintenance
 manager = RuntimeMaintenance(output=lambda *_: None, root=Path({str(self.manager.root)!r}))
 settings = SimpleNamespace(runtime_updates=RuntimeUpdates({{"codex": ({str(updater)!r},)}}),
                            root=Path({str(self.root)!r}),

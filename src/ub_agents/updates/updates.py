@@ -11,8 +11,8 @@ import threading
 import time
 from urllib.parse import unquote, urlparse
 
-from . import __version__
-from .launcher_code import descriptors, helper_command, source_directory
+from .. import __version__
+from ..launcher_code import descriptors, helper_command, source_directory
 
 DAY = 24 * 60 * 60
 CHECK_SECONDS = 10
@@ -21,7 +21,7 @@ REPOSITORY = 'uberblick-ai/ub-agents'
 
 def installation(root, source=None, dist=None):
     """Only the control source checkout is eligible for commit notices."""
-    source = Path(source or source_directory() / 'updates.py').resolve()
+    source = Path(source or source_directory() / 'updates/updates.py').resolve()
     try:
         dist = dist or distribution('ub-agents')
         direct = json.loads(dist.read_text('direct_url.json') or '{}')
@@ -33,7 +33,7 @@ def installation(root, source=None, dist=None):
             return None
         # Also suppress release checks when running source without an editable
         # distribution, e.g. via PYTHONPATH alongside an installed release.
-        if source.parent.parent.name == 'src' and (source.parents[2] / 'pyproject.toml').is_file():
+        if source.parents[2].name == 'src' and (source.parents[3] / 'pyproject.toml').is_file():
             return None
         for parent in source.parents:
             if parent.name == 'ub-agents' and parent.parent.name == 'Cellar':

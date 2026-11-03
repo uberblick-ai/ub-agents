@@ -15,7 +15,7 @@ from tests.support import RecordingRunner, SetupGitHub
 from tests.terminal import Terminal
 from ub_agents.cli import main
 from ub_agents.config import load_config
-from ub_agents.doctor import Doctor
+from ub_agents.doctor.doctor import Doctor
 from ub_agents.errors import AgentError
 from ub_agents.init.flow import Flow
 from ub_agents.init.inline import Question

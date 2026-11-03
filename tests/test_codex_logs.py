@@ -10,9 +10,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from ub_agents.log_format import ClaudeFormatter, CodexFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
-from ub_agents.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET
-from ub_agents.log_json import BoundedJSON
+from ub_agents.logs.log_format import ClaudeFormatter, CodexFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
+from ub_agents.logs.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET
+from ub_agents.logs.log_json import BoundedJSON
 from ub_agents.view.logs import FileChanged, PAGE_BYTES, ViewReader
 from ub_agents.view.theme import log_style
 
@@ -172,7 +172,7 @@ class CodexFormattingTests(unittest.TestCase):
         value = {'type': 'item.completed', 'item': {'id': 'summary', 'type': 'reasoning',
                  'text': '\n \t\n**\n**Generating Anagrams and Counts**\n\n \t\n'
                          'I am focusing on **anagrams** for "alert".\n\nCounting the results.\n\n'}}
-        with patch('ub_agents.log_format._time_column', return_value=' 11:00:17 '):
+        with patch('ub_agents.logs.log_format._time_column', return_value=' 11:00:17 '):
             projected = self.decode(value)
         self.assertEqual(projected.kind, 'reasoning')
         self.assertEqual(projected.text.split('\n'), [

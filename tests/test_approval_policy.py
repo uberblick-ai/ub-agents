@@ -215,9 +215,9 @@ class PolicyConfigurationTests(unittest.TestCase):
             for value, expected in ((None, None), ("on", "on"), ("off", "off"), ("'on'", "on"), ('"off"', "off")):
                 path.write_text(base + (f"approvals: {value}\n" if value is not None else ""))
                 self.assertEqual(load_config(path).approvals, expected)
-                with patch("ub_agents.doctor.GitHub") as github, \
-                        patch("ub_agents.doctor.subprocess.run", RecordingRunner(path.parent.resolve())), \
-                        patch("ub_agents.doctor.shutil.which", return_value="/tools/git"), \
+                with patch("ub_agents.doctor.doctor.GitHub") as github, \
+                        patch("ub_agents.doctor.doctor.subprocess.run", RecordingRunner(path.parent.resolve())), \
+                        patch("ub_agents.doctor.doctor.shutil.which", return_value="/tools/git"), \
                         redirect_stdout(io.StringIO()) as output:
                     self.assertEqual(main(["--config", str(path), "doctor", "--offline", "--verbose"]), 0)
                 github.assert_not_called()

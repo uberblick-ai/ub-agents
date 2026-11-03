@@ -18,8 +18,8 @@ from ub_agents.execution import supervise
 from ub_agents.errors import AgentError, LostOwnership
 from ub_agents.loop import Loop, _GracefulStop
 from ub_agents.records import attempts, iso, seconds
-from ub_agents.runtime_usage import MAX_RESET_SECONDS, RuntimeUsage
-from ub_agents.usage_output import UsageOutput
+from ub_agents.usage.runtime_usage import MAX_RESET_SECONDS, RuntimeUsage
+from ub_agents.usage.usage_output import UsageOutput
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 
