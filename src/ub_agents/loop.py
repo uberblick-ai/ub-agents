@@ -120,6 +120,7 @@ class Loop:
             health=lambda: self.health, usage=lambda: self.usage,
             maintenance=lambda: self.maintenance,
             output=lambda line: self.output(line), observe=lambda *args: self.observe(*args),
+            observing=lambda: self.observer is not None,
             before_claim=lambda: self.before_claim(),
             reconcile_blocked_notices=lambda *args: self.reconcile_blocked_notices(*args),
             targeted=lambda: self._targeted_pass, claiming=lambda: self._poll_complete,

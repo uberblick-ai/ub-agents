@@ -564,12 +564,12 @@ class Observations:
             referenced.add(str(state["assignment"]["item"]))
         return [state["histories"].pop(key) for key in tuple(state["histories"]) if key not in referenced]
 
-    def item_history(self, plan, filing=None):
+    def item_history(self, plan, filing=None, closing_history=()):
         closing = sorted(closing_issues(plan.item, self.state["repository"])) if plan.item.kind == "pr" else []
         source = (plan.item if plan.item.kind == "issue" else
                   filing if closing and filing and filing.kind == "issue" and filing.number == closing[0] else None)
         runs = []
-        for record in plan.history:
+        for record in (*closing_history, *plan.history) if closing else plan.history:
             merge_record(runs, record, self.stop_labels)
         sort_runs(runs)
         history = {"item": plan.item.number, "kind": plan.item.kind, "title": plan.item.title,
@@ -621,10 +621,10 @@ class Observations:
             row["owner"]["host_reason"] = None if plan.owner.get("host") else "Host not recorded"
         return self.bounded(row)
 
-    def plan_history(self, plan, filing, key, rows):
+    def plan_history(self, plan, filing, key, rows, closing_history=()):
         listed = any(r["item"] == plan.item.number for r in rows)
         if listed or key in self.pass_rows:
-            history = self.item_history(plan, filing)
+            history = self.item_history(plan, filing, closing_history)
             if key in self.pass_rows:
                 self.pass_histories[str(plan.item.number)] = history
             if listed:
@@ -641,7 +641,7 @@ class Observations:
                 self.state["histories"][str(plan.item.number)] = history
                 self.prune_histories(self.state)
 
-    def plan(self, plan, filing=None, comments=None, authors=None):
+    def plan(self, plan, filing=None, comments=None, authors=None, closing_history=()):
         notice = self.plan_notice(plan, comments, authors)
         row = self.plan_row(plan, notice)
         key = (row["item"], row["agent"])
@@ -659,7 +659,7 @@ class Observations:
             rows.append(row)
         visible = {(r["item"], r["agent"]) for r in rows}
         self.state["omitted"]["plans"] = self.pass_omitted + len(self.pass_rows.keys() - visible)
-        self.plan_history(plan, filing, key, rows)
+        self.plan_history(plan, filing, key, rows, closing_history)
         for outcome in self.state["outcomes"]:
             if outcome["target"] == plan.item.number and outcome["completed"]:
                 outcome["human_blocker"] = sorted(plan.item.labels.intersection(self.stop_labels))

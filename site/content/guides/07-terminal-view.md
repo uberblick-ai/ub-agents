@@ -193,7 +193,10 @@ content below the description, fully expanded.
 ### Runs
 
 Runs reads the selected item's local history file and shows every known run,
-oldest first, including runs by other launchers. A dim line above the table gives `closes #N` for a PR, `filed by
+oldest first, including runs by other launchers. A PR also shows its closing
+issue's runs, with a copied handoff counted once. If it closes several issues,
+only the first supplies history. If the issue's comments cannot be read, the
+PR's own runs still appear. A dim line above the table gives `closes #N` for a PR, `filed by
 LOGIN` and the run count. When the filing is known, the first row shows who filed
 the issue and when.
 

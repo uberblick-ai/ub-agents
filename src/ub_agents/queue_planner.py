@@ -21,7 +21,7 @@ COMMENT_RECOVERY_SECONDS = 7 * 24 * 60 * 60
 
 class QueuePlanner:
     def __init__(self, config, github, coordinator, approvals, *, health, usage, maintenance,
-                 output, observe, before_claim, reconcile_blocked_notices, targeted, claiming,
+                 output, observe, observing, before_claim, reconcile_blocked_notices, targeted, claiming,
                  notice_agent, discovery, pass_stats, launch_agent, launch_number):
         self._config = config
         self._github = github
@@ -34,6 +34,7 @@ class QueuePlanner:
         self.maintenance = maintenance
         self.output = output
         self.observe = observe
+        self.observing = observing
         self.before_claim = before_claim
         self.reconcile_blocked_notices = reconcile_blocked_notices
         # Pass scope and claim-write state can change after construction or a yield.
@@ -294,12 +295,15 @@ class QueuePlanner:
             self._queue_waits[plan.item.number] = (plan.state, plan.reason)
         closing = sorted(closing_issues(plan.item, self.config.repository)) if plan.item.kind == "pr" else []
         filing = github.observed_item(closing[0]) if closing else None
+        closing_history = (self.closing_history(closing[0], github, observe)
+                           if closing and (observe is not None or self.observing()) else ())
         authors = {login: role in {"write", "maintain", "admin"} and
                    (self.config.launchers is None or login in {a.casefold() for a in self.config.launchers})
                    for login, role in github.pass_roles.items()}
         comments = github.observed_comments(plan.item.number)
         plan = replace(plan, attention_notice=latest_notice(plan.history, comments, authors))
-        histories = {plan.item.number: plan.history}
+        histories = {closing[0]: closing_history} if closing_history else {}
+        histories[plan.item.number] = plan.history
         for record in plan.history:
             if record["kind"] == "outcome" and record["assignment"] not in histories:
                 seen = github.observed_comments(record["assignment"]) or ()
@@ -307,8 +311,18 @@ class QueuePlanner:
                     if authors.get((comment.get("user") or {}).get("login", "").casefold())])
         displayed = replace(plan, history=tuple(display_provenance(record, histories[record["assignment"]])
                                                for record in plan.history))
-        (observe or self.observe)("plan", displayed, filing, comments, authors)
+        displayed_closing = tuple(display_provenance(record, closing_history) for record in closing_history)
+        (observe or self.observe)("plan", displayed, filing, comments, authors, displayed_closing)
         return plan
+
+    def closing_history(self, number, github, observe):
+        # Read through Discovery's per-pass comment store and the same trust
+        # policy as the PR. These records are display input only.
+        try:
+            return tuple(self.planning_coordinator(github, observe).history(number))
+        except AgentError as exc:
+            self.output(f"Cannot read closing issue #{number} run history: {exc}")
+            return ()
 
     def idle_message(self):
         if self.launch_agent() is not None and self.launch_number() is None:

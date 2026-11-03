@@ -683,7 +683,11 @@ class TargetedLaunchTests(unittest.TestCase):
         self.assertFalse(forbidden.intersection(name for name, _ in self.github.reads), self.github.reads)
         item_reads = {"item", "comments", "timeline", "issue_content", "pr_content", "reviews",
                       "review_comments", "blocked_by"}
-        self.assertTrue(all(args[0] == number for name, args in self.github.reads if name in item_reads),
+        # A PR's Runs history can read its closing issue's comments, without
+        # discovering, approving or changing the issue's work.
+        closing = self.github.items[number].kind == 'pr'
+        self.assertTrue(all(args[0] == number or (closing and name == 'comments' and args == (1,))
+                            for name, args in self.github.reads if name in item_reads),
                         self.github.reads)
         self.assertNotIn(1, self.github.store)
         self.assertEqual(self.github.items[1].labels, frozenset({"ready", "urgent"}))
