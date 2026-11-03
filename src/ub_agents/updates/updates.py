@@ -33,7 +33,7 @@ def installation(root, source=None, dist=None):
             return None
         # Also suppress release checks when running source without an editable
         # distribution, e.g. via PYTHONPATH alongside an installed release.
-        if source.parents[2].name == 'src' and (source.parents[3] / 'pyproject.toml').is_file():
+        if source.parent.parent.parent.name == 'src' and (source.parents[3] / 'pyproject.toml').is_file():
             return None
         for parent in source.parents:
             if parent.name == 'ub-agents' and parent.parent.name == 'Cellar':
