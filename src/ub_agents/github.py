@@ -6,10 +6,12 @@ import math
 import re
 import signal
 import subprocess
+import sys
+from time import sleep
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError, GitHubError
-from .github_http import REQUEST_TIMEOUT_SECONDS, Transport, token
+from .github_http import REQUEST_TIMEOUT_SECONDS, Transport, interruptible_request, token
 from .records import iso, positive_int, seconds, timestamp
 
 REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
@@ -415,20 +417,14 @@ class GitHub:
         return self._checked_response(endpoint, method, status, headers, payload, result)
 
     def _exchange(self, command, endpoint, method, data, cached, credential):
-        if self.before_request is not None:
-            self.before_request()
         if cached is not None:
             command = command + ["-H", f"If-None-Match: {cached[0]}"]
         rest = urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}
-        self.gh_calls += 1
-        if rest:
-            self.rest_requests += 1
-        else:
-            self.graphql_calls += 1
         if credential is not None:
-            status, headers, payload, detail = self._http.send(endpoint, method, data, cached, credential)
+            status, headers, payload, detail = self._http_response(endpoint, method, data, cached, credential, rest)
             result = subprocess.CompletedProcess([], int(status >= 400 or bool(detail)), payload, detail)
         else:
+            self._begin_request(rest)
             result = self._gh_response(command, endpoint, method, data)
             try:
                 status, headers, payload = response_parts(result.stdout)
@@ -436,6 +432,31 @@ class GitHub:
                 raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
         self._record_response_quota(status, headers, result, rest)
         return status, headers, payload, result
+
+    def _begin_request(self, rest):
+        if self.before_request is not None:
+            self.before_request()
+        self.gh_calls += 1
+        if rest:
+            self.rest_requests += 1
+        else:
+            self.graphql_calls += 1
+
+    def _http_response(self, endpoint, method, data, cached, credential, rest):
+        for attempt in range(4):
+            self._begin_request(rest)
+            try:
+                return self._http.send(endpoint, method, data, cached, credential)
+            except GitHubError as exc:
+                # Only transport failures before a response raise here. Replaying
+                # writes could duplicate a request that GitHub already applied.
+                if not (rest and method == "GET" and exc.retryable and attempt < 3):
+                    raise
+            delay = 2 ** attempt
+            with interruptible_request():
+                print(token.redact(f"Retrying GitHub {method} {endpoint}: attempt {attempt + 2}/4 in {delay}s"),
+                      file=sys.stderr, flush=True)
+                sleep(delay)
 
     def _gh_response(self, command, endpoint, method, data):
         try:

@@ -10,12 +10,14 @@ import tempfile
 import threading
 import traceback
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
+from urllib.parse import urlsplit
 
 from ub_agents.cleanup_control import CleanupStopped
-from ub_agents.errors import GitHubError
+from ub_agents.errors import GitHubError, LostOwnership
 from ub_agents.github import GitHub
 from ub_agents.github_http import Token
+from ub_agents.logs.launch_log import launch_output
 from ub_agents.loop import Loop
 from ub_agents.github import response_parts
 from ub_agents.records import records
@@ -23,7 +25,7 @@ from ub_agents.run_config import run_directory
 from ub_agents.run_planning import RunPlanning, _Cancelled
 from ub_agents.startup_cleanup import StartupCleanup
 from tests.test_etags import CoordinationRunner, SequenceRunner, response
-from tests.support import FakeGitHub, config, issue, stub_refresh
+from tests.support import FakeGitHub, agent, config, issue, stub_refresh
 
 
 class Reply:
@@ -67,6 +69,7 @@ class GitHubHTTPTests(unittest.TestCase):
                                           subprocess.CompletedProcess([], 0, 'sentinel-credential\n', '')))
         self.connect = self.enterContext(patch('ub_agents.github_http.http.client.HTTPSConnection',
                                               side_effect=AssertionError('Unscripted HTTP connection')))
+        self.sleep = self.enterContext(patch('ub_agents.github.sleep'))
 
     def connection(self, *responses):
         connection = Connection(*responses)
@@ -106,6 +109,62 @@ class GitHubHTTPTests(unittest.TestCase):
         github.request('user')
         self.assertEqual(len(second.calls), 1)
         self.assertEqual((github.gh_calls, github.quota_requests), (3, 2))
+
+    def test_get_connection_failure_or_timeout_retries_on_a_fresh_connection(self):
+        for failure in (OSError('connection refused'), TimeoutError('timed out'),
+                        http.client.RemoteDisconnected('stale keep-alive')):
+            with self.subTest(failure=type(failure)):
+                first, second = Connection(failure), Connection(Reply(payload={'login': 'operator'}))
+                self.connect.side_effect = [first, second]
+                github = GitHub('org/project')
+                with redirect_stderr(io.StringIO()):
+                    self.assertEqual(github.actor(), 'operator')
+                self.assertTrue(first.closed)
+                self.assertFalse(second.closed)
+                self.assertEqual([len(c.calls) for c in (first, second)], [1, 1])
+                self.assertEqual((github.gh_calls, github.rest_requests, github.quota_requests), (2, 2, 1))
+
+    def test_get_stops_after_four_failures_with_backoff_and_one_log_line_per_retry(self):
+        connections = [Connection(OSError('sentinel-credential')) for _ in range(4)]
+        self.connect.side_effect = connections
+        github = GitHub('org/project')
+        with tempfile.TemporaryDirectory() as directory, redirect_stderr(io.StringIO()):
+            root = Path(directory)
+            with launch_output(root), self.assertRaises(GitHubError) as raised:
+                github.request('repos/org/project/issues/1/comments')
+            lines = (root / '.ub-agents' / 'launch.log').read_text().splitlines()
+        self.assertEqual(self.sleep.call_args_list, [call(1), call(2), call(4)])
+        self.assertEqual(len(lines), 3)
+        for line, attempt, delay in zip(lines, (2, 3, 4), (1, 2, 4)):
+            self.assertIn(f'Retrying GitHub GET repos/org/project/issues/1/comments: '
+                          f'attempt {attempt}/4 in {delay}s', line)
+        self.assertEqual([len(c.calls) for c in connections], [1, 1, 1, 1])
+        self.assertTrue(all(c.closed for c in connections))
+        self.assertEqual((github.gh_calls, github.rest_requests, github.quota_requests), (4, 4, 0))
+        self.assertTrue(raised.exception.retryable)
+        self.assertEqual(raised.exception.probe_reason, 'connection failed')
+        self.assertNotIn('sentinel-credential', ''.join(traceback.format_exception(raised.exception)))
+
+    def test_writes_and_graphql_connection_failures_are_not_replayed(self):
+        cases = [('resource', method) for method in ('POST', 'PATCH', 'PUT', 'DELETE')]
+        cases += [('graphql', 'POST'), ('https://api.github.com/graphql', 'GET')]
+        for endpoint, method in cases:
+            with self.subTest(endpoint=endpoint, method=method):
+                connection = self.connection(OSError('connection failed'))
+                with self.assertRaises(GitHubError):
+                    GitHub('org/project').request(endpoint, method)
+                self.assertEqual(len(connection.calls), 1)
+                self.assertTrue(connection.closed)
+        self.sleep.assert_not_called()
+
+    def test_get_failure_in_gh_fallback_is_not_replayed(self):
+        self.run.side_effect = [subprocess.CompletedProcess([], 1, '', ''),
+                                subprocess.TimeoutExpired('gh', 20)]
+        with self.assertRaises(GitHubError):
+            GitHub('org/project').request('user')
+        self.assertEqual(self.run.call_count, 2)
+        self.connect.assert_not_called()
+        self.sleep.assert_not_called()
 
     def test_401_refreshes_changed_token_and_retries_once_counting_both_responses(self):
         self.run.side_effect = [subprocess.CompletedProcess([], 0, 'old-credential', ''),
@@ -226,7 +285,7 @@ class GitHubHTTPTests(unittest.TestCase):
         ]
         for status, headers, message, retryable, limited, reset in cases:
             with self.subTest(status=status, message=message):
-                self.connection(Reply(status, {'message': message}, headers))
+                connection = self.connection(Reply(status, {'message': message}, headers))
                 github = GitHub('org/project')
                 with patch('ub_agents.github.timestamp', return_value=1000), self.assertRaises(GitHubError) as raised:
                     github.request('user')
@@ -234,6 +293,8 @@ class GitHubHTTPTests(unittest.TestCase):
                                   raised.exception.reset_at), (retryable, limited, reset))
                 self.assertEqual(github.rate_limited, limited)
                 self.assertEqual(github.quota_requests, 1)
+                self.assertEqual(len(connection.calls), 1)
+        self.sleep.assert_not_called()
 
     def test_redirected_reads_stop_without_returning_or_caching_redirect_body(self):
         for status in (300, 301, 302, 303, 305, 307, 308, 399):
@@ -302,22 +363,24 @@ class GitHubHTTPTests(unittest.TestCase):
         self.assertNotIn('sentinel-credential', output.getvalue())
         self.assertIn('[redacted]', str(raised.exception))
 
-    def test_truncated_body_keeps_status_and_quota_and_does_not_replay_writes(self):
-        for status, retryable in ((200, True), (403, False), (500, True)):
-            with self.subTest(status=status):
+    def test_truncated_body_keeps_status_and_quota_without_replaying(self):
+        for method, status, retryable in (('GET', 200, True), ('GET', 403, False), ('GET', 500, True),
+                                          ('POST', 200, True), ('POST', 403, False), ('POST', 500, True)):
+            with self.subTest(method=method, status=status):
                 reply = Reply(status, headers=[('X-RateLimit-Remaining', '100'),
                                                ('X-RateLimit-Resource', 'core')])
                 reply.read = Mock(side_effect=http.client.IncompleteRead(b'sentinel-credential'))
                 connection = self.connection(reply)
                 github = GitHub('org/project')
                 with self.assertRaises(GitHubError) as raised:
-                    github.request('resource', 'POST', {'body': 'write'})
+                    github.request('resource', method)
                 self.assertEqual(raised.exception.retryable, retryable)
                 self.assertNotIn('sentinel-credential', str(raised.exception))
                 self.assertEqual(github.quota_headers['x-ratelimit-remaining'], '100')
                 self.assertEqual((github.gh_calls, github.quota_requests), (1, 1))
                 self.assertEqual(len(connection.calls), 1)
                 self.assertTrue(connection.closed)
+        self.sleep.assert_not_called()
 
     def test_server_connection_close_opens_a_new_connection_on_next_request(self):
         first, second = Connection(Reply(will_close=True)), Connection(Reply())
@@ -353,6 +416,37 @@ class GitHubHTTPTests(unittest.TestCase):
             self.assertTrue(connection.closed)
         finally:
             signal.signal(signal.SIGINT, previous)
+
+    def test_ctrl_c_during_retry_wait_unwinds_with_deferred_launcher_handler(self):
+        handler = Mock()
+        previous = signal.signal(signal.SIGINT, handler)
+        try:
+            connection = self.connection(OSError('connection failed'))
+            self.sleep.side_effect = lambda delay: signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+            with redirect_stderr(io.StringIO()), self.assertRaises(KeyboardInterrupt):
+                GitHub('org/project').request('user')
+            handler.assert_called_once_with(signal.SIGINT, None)
+            self.assertIs(signal.getsignal(signal.SIGINT), handler)
+            self.assertEqual(len(connection.calls), 1)
+            self.assertTrue(connection.closed)
+        finally:
+            signal.signal(signal.SIGINT, previous)
+
+    def test_cancellation_during_backoff_prevents_next_connection(self):
+        stop = threading.Event()
+        self.sleep.side_effect = lambda delay: stop.set()
+        connection = self.connection(OSError('connection failed'))
+
+        def checkpoint():
+            if stop.is_set():
+                raise _Cancelled
+
+        github = GitHub('org/project', before_request=checkpoint)
+        with redirect_stderr(io.StringIO()), self.assertRaises(_Cancelled):
+            github.request('user')
+        self.assertEqual(len(connection.calls), 1)
+        self.assertEqual(github.gh_calls, 1)
+        self.assertTrue(connection.closed)
 
     def test_planning_and_cleanup_use_private_connections_and_stop_before_next_request(self):
         connections = []
@@ -411,15 +505,14 @@ class GitHubHTTPTests(unittest.TestCase):
                 self.assertEqual(len(connection.calls), 1)
                 self.assertEqual(github.gh_calls, 1)
 
-    def test_http_requests_keep_pass_and_released_event_counter_names_and_values(self):
-        stub_refresh(self)
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            runner = CoordinationRunner(root, True)
-            runner.store = FakeGitHub(issue())
-            output, own, boundaries = [], [], {}
-            connection = self.connection()
+    def coordination_http(self, root):
+        runner = CoordinationRunner(root, True)
+        runner.store = FakeGitHub(issue())
+        own, connections = [], []
 
+        def connect(*args, **kwargs):
+            connection = Connection()
+            connections.append(connection)
             def getresponse():
                 method, target, sent = connection.calls[-1]
                 endpoint = target.lstrip('/')
@@ -435,7 +528,65 @@ class GitHubHTTPTests(unittest.TestCase):
                 return reply
 
             connection.getresponse = getresponse
-            loop = Loop(config(root), GitHub('org/project'), 'operator', output=output.append)
+            return connection
+
+        self.connect.side_effect = connect
+        return runner, GitHub('org/project'), own, connections
+
+    def test_finalization_retries_get_and_preserves_lease_if_all_attempts_fail(self):
+        stub_refresh(self)
+        for failure_count in (1, 4):
+            with self.subTest(failure_count=failure_count), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                runner, github, own, connections = self.coordination_http(root)
+                role = agent(root, outcomes={'done': {'add': ('needs-review',), 'remove': ()}})
+                loop = Loop(config(root, role), github, 'operator', output=lambda line: None)
+                finished, failures = [], []
+                original_dispatch = runner.dispatch
+
+                def dispatch(method, endpoint, data):
+                    if (finished and method == 'GET'
+                            and urlsplit(endpoint).path == 'repos/org/project/issues/1/comments'
+                            and len(failures) < failure_count):
+                        failures.append(endpoint)
+                        raise OSError('stale connection after execution')
+                    return original_dispatch(method, endpoint, data)
+
+                def execute(*args, **kwargs):
+                    loop.coordinator.report(loop.github.lease, 'success', 'Finished', outcome='done')
+                    finished.append(True)
+                    return 0
+
+                with patch.object(runner, 'dispatch', side_effect=dispatch), \
+                        patch('ub_agents.assignment_run.supervise', side_effect=execute), \
+                        redirect_stderr(io.StringIO()):
+                    if failure_count == 1:
+                        self.assertTrue(loop.tick())
+                    else:
+                        with self.assertRaisesRegex(LostOwnership, 'HTTPS connection failed') as raised:
+                            loop.tick()
+                        self.assertIsInstance(raised.exception.__cause__, GitHubError)
+                lease = records(runner.store.comments(1), 'operator')[0]
+                if failure_count == 1:
+                    self.assertEqual(lease['result'], 'success')
+                    self.assertIn('needs-review', runner.store.item(1).labels)
+                    self.assertNotIn('ready', runner.store.item(1).labels)
+                else:
+                    self.assertIsNone(lease.get('result'))
+                    self.assertNotIn('released_at', lease)
+                    self.assertGreater(loop.coordinator.deadline(lease), loop.coordinator.clock())
+                    self.assertIn('ready', runner.store.item(1).labels)
+                    self.assertNotIn('needs-review', runner.store.item(1).labels)
+                self.assertEqual(len(failures), failure_count)
+                self.assertEqual(sum(c.closed for c in connections), failure_count)
+
+    def test_http_requests_keep_pass_and_released_event_counter_names_and_values(self):
+        stub_refresh(self)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner, github, own, connections = self.coordination_http(root)
+            output, boundaries = [], {}
+            loop = Loop(config(root), github, 'operator', output=output.append)
             claim, release = loop.coordinator.claim, loop.coordinator.release
 
             def claiming(*args, **kwargs):
