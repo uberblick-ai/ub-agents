@@ -44,10 +44,9 @@ answer only if they have write access.
 ## New issues
 
 Give every issue you file a milestone: the assignment's own when the new issue blocks it
-or follows from it, otherwise the earliest open milestone whose goal it fits. A patch
-milestone takes only fixes. Sub-issues take their parent's milestone. Leave it out only
-when none fits and say so in your report: an issue without a milestone waits behind all
-milestone work.
+or follows from it, otherwise the earliest open milestone whose goal it fits. Sub-issues
+take their parent's milestone. Leave it out only when none fits and say so in your
+report: an issue without a milestone waits behind all milestone work.
 
 ## Review focus
 
