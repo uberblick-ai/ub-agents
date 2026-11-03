@@ -106,9 +106,12 @@ def parser():
                                   "and what ended in the last 24 hours, on every machine that runs a launcher for the "
                                   "repository. It reads GitHub with your gh login, polls every 30 seconds and can send "
                                   "browser notifications. It never changes anything on GitHub; Ctrl-C stops it.",
-                                  examples=("ub-agents monitor", "ub-agents monitor --port 4400 --no-open"))
+                                  examples=("ub-agents monitor", "ub-agents monitor --background",
+                                            "ub-agents monitor --port 4400 --no-open"))
     monitor.add_argument("--port", type=port_number, default=4377, help="port on 127.0.0.1 (default: 4377)")
     monitor.add_argument("--no-open", action="store_true", help="serve without opening a browser")
+    monitor.add_argument("--background", action="store_true",
+                         help="keep serving after this command exits; prints the pid to stop it")
     report = commands.add_parser("report", help="record the run's outcome", overview_hidden=True,
                                  description="Record a supervised run's explicit result on GitHub. "
                                  "Use inside the launcher-provided assignment environment; choose --status or --outcome (required). "
@@ -357,8 +360,7 @@ def run(args):
     if args.command == "retry":
         return retry_run(args, config, github, actor, coordinator)
     if args.command == "monitor":
-        from .monitor import monitor_run
-        return monitor_run(config, github, coordinator, args.port, open_page=not args.no_open)
+        return monitor_command(args, config, github, coordinator)
     stop = SignalEvent()
     interrupt = SignalEvent()
     loop = Loop(config, github, actor, stop,
@@ -367,6 +369,13 @@ def run(args):
     if args.command == "status":
         return status_run(args, config, loop)
     return launch_run(args, config, github, actor, loop, stop, interrupt)
+
+
+def monitor_command(args, config, github, coordinator):
+    from .monitor import monitor_background, monitor_run
+    if args.background:
+        return monitor_background(args.config, config.root, args.port, open_page=not args.no_open)
+    return monitor_run(config, github, coordinator, args.port, open_page=not args.no_open)
 
 
 def retrospective_run(args):

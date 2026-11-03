@@ -9,10 +9,14 @@ shows all of them, including a server's. It never changes anything on GitHub.
 ub-agents monitor                      # serves on 127.0.0.1:4377 and opens it
 ub-agents monitor --port 4400          # another port
 ub-agents monitor --no-open            # serves without opening a browser
+ub-agents monitor --background         # keeps serving after the command exits
 ```
 
 It reads GitHub with your `gh` login, as the launcher does, so there's no token to
-paste. Ctrl-C stops it. Running it again while it runs just opens the page.
+paste. Ctrl-C stops it. With `--background` it keeps serving after the terminal
+closes: the command waits until the page answers, prints the process id, and
+`kill PID` stops it; its output goes to `.ub-agents/monitor.log` in the checkout.
+Running it again while it runs just opens the page.
 
 ## What the page shows
 

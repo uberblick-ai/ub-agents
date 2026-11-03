@@ -1,9 +1,12 @@
 """The browser monitor shows every launcher's trusted runs and serves only this machine."""
 
 from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from ub_agents.coordination import Coordinator
+from ub_agents.monitor import monitor_background
 from ub_agents.monitor.server import allowed
 from ub_agents.monitor.snapshot import MonitorSource
 from ub_agents.records import body, iso, timestamp
@@ -46,6 +49,16 @@ class MonitorTests(unittest.TestCase):
         self.assertFalse(allowed("rebound.example:4377", 4377, "/snapshot.json", None, None))
         self.assertFalse(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "cross-site", "cors"))
         self.assertFalse(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "cross-site", "navigate"))
+
+    def test_background_monitor_runs_in_its_own_session_until_it_answers(self):
+        with tempfile.TemporaryDirectory() as root, \
+                patch("ub_agents.monitor.already_serving", side_effect=[False, False, True]), \
+                patch("ub_agents.monitor.subprocess.Popen") as popen, patch("ub_agents.monitor.sleep"):
+            popen.return_value.poll.return_value = None
+            monitor_background(Path(root) / "ub-agents.yaml", Path(root), 4400, open_page=False)
+        command, options = popen.call_args.args[0], popen.call_args.kwargs
+        self.assertEqual(command[-6:], ["monitor", "--config", f"{root}/ub-agents.yaml", "--port", "4400", "--no-open"])
+        self.assertTrue(options["start_new_session"])
 
 
 if __name__ == "__main__":

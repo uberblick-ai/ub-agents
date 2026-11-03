@@ -236,7 +236,7 @@
       const runningPanel = (runs) =>
         panel("Running", runs.length, runs.length ? "running-panel" : "",
           runs.length
-            ? runs.map((run) => runRow(run, "●", "running", el("div", { class: "cell right running", title: run.renewed ? `renewed ${new Date(run.renewed).toLocaleTimeString()}` : null },
+            ? runs.map((run) => runRow(run, SPINNER[frame], "spinner", el("div", { class: "cell right running", title: run.renewed ? `renewed ${new Date(run.renewed).toLocaleTimeString()}` : null },
                 run.state === "claiming" ? "claiming" : clock(run.started, "for"))))
             : el("div", { class: "muted" }, "Idle · nothing running on any machine"));
 
