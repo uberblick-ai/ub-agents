@@ -201,6 +201,10 @@ rename timeline events, its comments and, for a PR, its head, reviews and review
 comments. An inherited start also reads the parent issue's coordination records. A
 read that fails or returns incomplete history never grants approval: pickup treats
 the item as unapproved and retries on the next poll, and `read` exits nonzero.
+GitHub has reported an item created after its last body edit, with the creation
+revision stamped at that later time. The check then places the creation revision
+just before the earliest other revision, so every other revision still counts as an
+edit; when the creation revision cannot be told apart, the history stays incomplete.
 
 ## Start, suspension and comments
 

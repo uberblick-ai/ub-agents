@@ -10,7 +10,7 @@ from .bots import is_bot, listed_bot
 from .errors import AgentError, GitHubError, LostOwnership
 from .github import is_fork
 from .notices import ACTION_MARKER
-from .records import (lease_by_id,
+from .records import (iso, lease_by_id,
                       positive_int, records, recovers, same_run, seconds)
 from .trust import LauncherTrust
 
@@ -189,6 +189,7 @@ def validate_content(content):
     """Validate identical history completeness for both approval read paths."""
     if not isinstance(content["title"], str) or not isinstance(content["body"], str):
         raise ValueError("invalid content")
+    _order_late_creation(content)
     created = seconds(content["createdAt"])
     edits = content["edits"]
     for edit in edits:
@@ -201,6 +202,21 @@ def validate_content(content):
             raise ValueError("incomplete body history")
     if sum(seconds(e["editedAt"]) == created for e in edits) > 1:
         raise ValueError("cannot distinguish creation from same-second edits")
+
+
+def _order_late_creation(content):
+    """GitHub has reported createdAt after lastEditedAt, stamping the creation revision with that
+    later time. Move creation to just before the earliest other revision, so every other revision
+    still counts as an edit rather than as the original body."""
+    last, created = content["lastEditedAt"], seconds(content["createdAt"])
+    if last is None or created <= seconds(last):
+        return
+    creation = [e for e in content["edits"] if seconds(e["editedAt"]) == created]
+    others = [seconds(e["editedAt"]) for e in content["edits"] if seconds(e["editedAt"]) != created]
+    if len(creation) != 1 or not others:
+        return  # Ambiguous: leave it to the completeness check, which refuses it.
+    moved = iso(min(others) - 1)
+    content["createdAt"] = creation[0]["editedAt"] = moved
 
 
 def _check_input(github, number, trigger_labels, kind="issue", actor=None, launchers=None, *,
