@@ -84,6 +84,10 @@ and, for answering agents, [unstick an item](https://agents.uberblick.ai/docs/gu
 
 ## Try it
 
+A dedicated machine, VM or low-privilege user for the launcher.
+A worktree isolates the checkout, not the machine; see the
+[security model](https://agents.uberblick.ai/docs/security-model.html).
+
 On macOS or Linux, with `git`, `gh` logged in to an account with write access,
 and `claude` or `codex` installed and signed in:
 
