@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ab ab-auto" viewBox="0 0 678 450" width="678" height="450" role="img" aria-label="Sequence: Launcher A, GitHub, Launcher B. Launcher A to GitHub: Post issue lease; reread and win (expires in 30 min). Launcher A to GitHub: Push draft PR checkpoint. Launcher A to GitHub: Renew lease every 10 min. Launcher B to GitHub: Poll: lease expired, no report. Launcher B to GitHub: Post own issue lease; reread and win. Launcher B to GitHub: Start on a new run branch; continue the earlier branch's open draft PR. Launcher B to GitHub: Mark PR ready; report handoff. GitHub to Launcher B: Handoff accepted; PR gets needs-review">
+<style>.ab.ab-auto{--bg:var(--ab-bg,#ffffff);--ink:var(--ab-ink,#17202c);--muted:var(--ab-muted,#5a6575);--line:var(--ab-line,#d3d9e2);--band:var(--ab-band,#e9eef5);--surface:var(--ab-surface,#ffffff);--neutral:var(--ab-neutral,#59616c);--neutral-bg:var(--ab-neutral-bg,#e1e3e6);--agent:var(--ab-agent,#3e6563);--agent-bg:var(--ab-agent-bg,#e7eeed);--system:var(--ab-system,#4f5d76);--system-bg:var(--ab-system-bg,#ebedf3);--rework:var(--ab-rework,#806752);--rework-bg:var(--ab-rework-bg,#f3f0eb);--stop:var(--ab-stop,#815f5a);--stop-bg:var(--ab-stop-bg,#ede6e5);--done:var(--ab-done,#536e5a);--done-bg:var(--ab-done-bg,#e8ede9);}@media (prefers-color-scheme:dark){.ab.ab-auto{--bg:var(--ab-bg,#171c24);--ink:var(--ab-ink,#e5e9ef);--muted:var(--ab-muted,#98a2b0);--line:var(--ab-line,#2c3440);--band:var(--ab-band,#151b23);--surface:var(--ab-surface,#1d232d);--neutral:var(--ab-neutral,#b6bbc3);--neutral-bg:var(--ab-neutral-bg,#303640);--agent:var(--ab-agent,#85aaa5);--agent-bg:var(--ab-agent-bg,#232d2b);--system:var(--ab-system,#98a5bf);--system-bg:var(--ab-system-bg,#262a31);--rework:var(--ab-rework,#b29d87);--rework-bg:var(--ab-rework-bg,#2c2720);--stop:var(--ab-stop,#ac8c88);--stop-bg:var(--ab-stop-bg,#2b2221);--done:var(--ab-done,#95b09c);--done-bg:var(--ab-done-bg,#222a24);}}
+.ab text{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--ink)}
+.ab .m{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ab .s11{font-size:11px}.ab .s12{font-size:12px}.ab .s13{font-size:13px}
+.ab .muted{fill:var(--muted)}.ab .b{font-weight:600}
+.ab .cap{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.08em;fill:var(--muted)}
+.ab .band{fill:var(--band)}.ab .rule{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 5}
+.ab .pill{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.ab .e{fill:none;stroke-width:1.6}.ab .dash{stroke-dasharray:6 5}
+.ab .knockout{fill:none;stroke:var(--bg);stroke-width:5.6}.ab .knockout-band{stroke:var(--band)}
+.ab .arrow{fill:none;stroke:none}
+.ab .t-ink{fill:var(--muted)}.ab .e-ink{stroke:var(--muted)}.ab .k-ink{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-muted{fill:var(--muted)}.ab .e-muted{stroke:var(--muted)}.ab .k-muted{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.ab .t-neutral{fill:var(--neutral)}.ab .e-neutral{stroke:var(--neutral)}.ab .k-neutral{fill:var(--neutral-bg);stroke:var(--neutral);stroke-width:1.5}.ab .t-agent{fill:var(--agent)}.ab .e-agent{stroke:var(--agent)}.ab .k-agent{fill:var(--agent-bg);stroke:var(--agent);stroke-width:1.5}.ab .t-system{fill:var(--system)}.ab .e-system{stroke:var(--system)}.ab .k-system{fill:var(--system-bg);stroke:var(--system);stroke-width:1.5}.ab .t-done{fill:var(--done)}.ab .e-done{stroke:var(--done)}.ab .k-done{fill:var(--done-bg);stroke:var(--done);stroke-width:1.5}.ab .t-rework{fill:var(--rework)}.ab .e-rework{stroke:var(--rework)}.ab .k-rework{fill:var(--rework-bg);stroke:var(--rework);stroke-width:1.5}.ab .t-stop{fill:var(--stop)}.ab .e-stop{stroke:var(--stop)}.ab .k-stop{fill:var(--stop-bg);stroke:var(--stop);stroke-width:1.5}
+.ab .k-stop.panel{stroke-width:1.2;stroke-dasharray:5 4}
+.ab .seq-lane{fill:var(--neutral-bg)}.ab .seq-life{stroke:var(--line);stroke-width:1;stroke-opacity:.5}.ab .seq-response{stroke-width:1.2}.ab .seq-group{fill:var(--neutral-bg)}.ab .seq-kind{fill:var(--ink)}.ab .seq-note{fill:var(--rework-bg)}.ab .seq-note-text{fill:var(--rework)}.ab .seq-divider{stroke:var(--line);stroke-width:1;stroke-dasharray:2 4}.ab .seq-rule{stroke:var(--line);stroke-width:1}</style>
+<defs><marker id="launcher-takeover-seq-agent" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 z" class="t-agent"/></marker>
+<marker id="launcher-takeover-seq-response" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10" class="e e-muted seq-response"/></marker></defs>
+<rect x="240.66666666666666" y="8" width="218.66666666666666" height="434" rx="8" class="seq-lane" fill-opacity="0.15"/>
+<line x1="131" y1="40" x2="131" y2="442" class="seq-life"/>
+<line x1="350" y1="40" x2="350" y2="442" class="seq-life"/>
+<line x1="569" y1="40" x2="569" y2="442" class="seq-life"/>
+<g data-line="5">
+<circle cx="131" cy="20" r="3" class="t-agent"/>
+<text x="131" y="40" text-anchor="middle" class="m s12 b t-agent seq-title">Launcher A</text>
+</g>
+<g data-line="6">
+<circle cx="350" cy="20" r="3" class="t-ink"/>
+<text x="350" y="40" text-anchor="middle" class="m s12 b t-ink seq-title">GitHub</text>
+</g>
+<g data-line="7">
+<circle cx="569" cy="20" r="3" class="t-agent"/>
+<text x="569" y="40" text-anchor="middle" class="m s12 b t-agent seq-title">Launcher B</text>
+</g>
+<g data-line="9" data-step="1">
+<text x="139" y="60" class="m s12 seq-label">Post issue lease; reread and win (expires in 30 min)</text>
+<text x="0" y="72" class="m s11 muted seq-number">01</text>
+<path d="M131,68 L350,68" class="e e-agent" marker-end="url(#launcher-takeover-seq-agent)"/>
+<circle cx="131" cy="68" r="2.5" class="t-agent"/>
+</g>
+<g data-line="10" data-step="2">
+<text x="139" y="92" class="m s12 seq-label">Push draft PR checkpoint</text>
+<text x="0" y="104" class="m s11 muted seq-number">02</text>
+<path d="M131,100 L350,100" class="e e-agent" marker-end="url(#launcher-takeover-seq-agent)"/>
+<circle cx="131" cy="100" r="2.5" class="t-agent"/>
+</g>
+<g data-line="11" data-step="3">
+<text x="139" y="124" class="m s12 seq-label">Renew lease every 10 min</text>
+<text x="0" y="136" class="m s11 muted seq-number">03</text>
+<path d="M131,132 L350,132" class="e e-agent" marker-end="url(#launcher-takeover-seq-agent)"/>
+<circle cx="131" cy="132" r="2.5" class="t-agent"/>
+</g>
+<g data-line="12" data-annotation="note">
+<rect x="72.19999999999999" y="144" width="117.60000000000001" height="30" rx="6" class="seq-note"/>
+<rect x="72.19999999999999" y="149" width="3" height="20" rx="1.5" class="t-rework"/>
+<text x="84.19999999999999" y="160" class="m s12 seq-note-text">Machine stops</text>
+</g>
+<g data-line="13" data-step="4">
+<text x="358" y="196" class="m s12 seq-label">Poll: lease expired, no report</text>
+<text x="0" y="208" class="m s11 muted seq-number">04</text>
+<path d="M569,204 L350,204" class="e e-agent" marker-end="url(#launcher-takeover-seq-agent)"/>
+<circle cx="569" cy="204" r="2.5" class="t-agent"/>
+</g>
+<g data-line="14" data-annotation="note">
+<rect x="350" y="216" width="219" height="66" rx="6" class="seq-note"/>
+<rect x="350" y="221" width="3" height="56" rx="1.5" class="t-rework"/>
+<text x="362" y="232" class="m s12 seq-note-text">Lost run counts as one</text>
+<text x="362" y="250" class="m s12 seq-note-text">failed attempt; retry after</text>
+<text x="362" y="268" class="m s12 seq-note-text">backoff from lease expiry</text>
+</g>
+<g data-line="15" data-step="5">
+<text x="358" y="304" class="m s12 seq-label">Post own issue lease; reread and win</text>
+<text x="0" y="316" class="m s11 muted seq-number">05</text>
+<path d="M569,312 L350,312" class="e e-agent" marker-end="url(#launcher-takeover-seq-agent)"/>
+<circle cx="569" cy="312" r="2.5" class="t-agent"/>
+</g>
+<g data-line="16" data-step="6">
+<text x="358" y="336" class="m s12 seq-label">Start on a new run branch; continue the</text>
+<text x="358" y="354" class="m s12 seq-label">earlier branch's open draft PR</text>
+<text x="0" y="366" class="m s11 muted seq-number">06</text>
+<path d="M569,362 L350,362" class="e e-agent" marker-end="url(#launcher-takeover-seq-agent)"/>
+<circle cx="569" cy="362" r="2.5" class="t-agent"/>
+</g>
+<g data-line="17" data-step="7">
+<text x="358" y="386" class="m s12 seq-label">Mark PR ready; report handoff</text>
+<text x="0" y="398" class="m s11 muted seq-number">07</text>
+<path d="M569,394 L350,394" class="e e-agent" marker-end="url(#launcher-takeover-seq-agent)"/>
+<circle cx="569" cy="394" r="2.5" class="t-agent"/>
+</g>
+<g data-line="18" data-step="8">
+<text x="358" y="418" class="m s12 seq-label">Handoff accepted; PR gets needs-review</text>
+<text x="0" y="430" class="m s11 muted seq-number">08</text>
+<path d="M350,426 L569,426" class="e e-muted dash seq-response" marker-end="url(#launcher-takeover-seq-response)"/>
+</g>
+</svg>

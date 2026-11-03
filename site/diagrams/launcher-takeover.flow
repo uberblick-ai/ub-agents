@@ -1,0 +1,18 @@
+sequence v0
+# Default claim timing; a crash without a report retries after backoff.
+# Static sequence: ablauf 0.3.0 does not support sequence playback.
+
+participant a "Launcher A" tone=agent
+participant github "GitHub"
+participant b "Launcher B" tone=agent
+
+a --> github : Post issue lease; reread and win (expires in 30 min)
+a --> github : Push draft PR checkpoint
+a --> github : Renew lease every 10 min
+note over a: Machine stops
+b --> github : Poll: lease expired, no report
+note over github,b: Lost run counts as one failed attempt; retry after backoff from lease expiry
+b --> github : Post own issue lease; reread and win
+b --> github : Start on a new run branch; continue the earlier branch's open draft PR
+b --> github : Mark PR ready; report handoff
+github -.-> b : Handoff accepted; PR gets needs-review
