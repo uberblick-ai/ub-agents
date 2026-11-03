@@ -9,7 +9,7 @@ box issue-preparer "prepares it, attaches the ready label"
 box implementer "builds the change, opens its PR into the milestone branch"
 box create-branch col=sync row=implementer title="create the branch" "from main, on the milestone's first issue"
 box review-merge col=main title="reviewer + integrator" "merges the PR into the milestone branch, closes the issue"
-box update-branch col=sync row=review-merge title="update the branch" "merges main into the milestone branch"
+box update-branch col=sync row=review-merge title="update the branch" "merges main in, fixes a trivial conflict"
 
 section "The milestone"
 box branch col=main title="Milestone branch" tone=system "one preview of every landed issue"
@@ -25,7 +25,7 @@ panel human col=stop row=branch span=3 tone=stop
   text "tries the milestone preview"
   muted "decides to release the milestone"
   rule
-  muted "resolves a conflict with main"
+  muted "resolves a complex conflict with main"
 
 start --> issue-preparer : needs-preparation
 issue-preparer --> implementer : ready
@@ -36,7 +36,7 @@ create-branch --> implementer from=left.2 to=right.2 label=end : Branch and Prev
 description -.-> branch tone=muted
 review-merge --> update-branch from=right.1 to=left.1 : main has changed
 update-branch --> review-merge from=left.2 to=right.2 label=end : branch up to date
-update-branch --> human tone=stop : conflict
+update-branch --> human tone=stop : complex conflict, with suggestions
 branch -.-> milestone-pr tone=muted
 human --> milestone-pr tone=stop : opens it
 milestone-pr --> production : gates pass, merged by hand
@@ -73,11 +73,19 @@ play "Main moved"
   step review-merge 2.6s actor="Integrator" "Back on the PR: the branch is up to date"
   step branch 3s actor="Integrator" "Adds the PR; the preview runs on current main"
 
-play "Conflict with main"
+play "Trivial conflict"
+  tempo 1.8s
+  step review-merge 2.6s actor="Integrator" "PR reviewed, but main has changed"
+  step update-branch 3s actor="Integrator" "Only the lockfile conflicts: regenerates it, merges main"
+  step review-merge 2.6s actor="Integrator" "Back on the PR: the branch is up to date"
+  step branch 3s actor="Integrator" "Adds the PR; the branch preview runs on current main"
+
+play "Complex conflict"
   tempo 1.8s
   step review-merge 2.6s actor="Integrator" "A reviewed PR is waiting, and main has changed"
-  step update-branch 3s actor="Integrator" "main conflicts with the milestone branch: it stops"
-  step human 3s actor="Maintainer" "Resolves the conflict on the milestone branch by hand"
+  step update-branch 3s actor="Integrator" "main and the branch changed the same logic: it stops"
+  step human 3s actor="Integrator" "Escalates with concrete suggestions for resolving it"
+  step human 3s actor="Maintainer" "Resolves the conflict on the milestone branch"
 
 play "Milestone lands"
   tempo 1.8s

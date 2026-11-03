@@ -202,8 +202,57 @@
     ]
   },
   {
-    "name": "Conflict with main",
-    "slug": "conflict-with-main",
+    "name": "Trivial conflict",
+    "slug": "trivial-conflict",
+    "steps": [
+      {
+        "target": "review-merge",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "PR reviewed, but main has changed",
+        "ms": 2600,
+        "parts": [
+          "node-4"
+        ]
+      },
+      {
+        "target": "update-branch",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Only the lockfile conflicts: regenerates it, merges main",
+        "ms": 3000,
+        "parts": [
+          "node-5",
+          "edge-7"
+        ]
+      },
+      {
+        "target": "review-merge",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Back on the PR: the branch is up to date",
+        "ms": 2600,
+        "parts": [
+          "node-4",
+          "edge-8"
+        ]
+      },
+      {
+        "target": "branch",
+        "kind": "box",
+        "actor": "Integrator",
+        "caption": "Adds the PR; the branch preview runs on current main",
+        "ms": 3000,
+        "parts": [
+          "node-6",
+          "edge-3"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Complex conflict",
+    "slug": "complex-conflict",
     "steps": [
       {
         "target": "review-merge",
@@ -219,7 +268,7 @@
         "target": "update-branch",
         "kind": "box",
         "actor": "Integrator",
-        "caption": "main conflicts with the milestone branch: it stops",
+        "caption": "main and the branch changed the same logic: it stops",
         "ms": 3000,
         "parts": [
           "node-5",
@@ -229,12 +278,22 @@
       {
         "target": "human",
         "kind": "panel",
-        "actor": "Maintainer",
-        "caption": "Resolves the conflict on the milestone branch by hand",
+        "actor": "Integrator",
+        "caption": "Escalates with concrete suggestions for resolving it",
         "ms": 3000,
         "parts": [
           "node-10",
           "edge-9"
+        ]
+      },
+      {
+        "target": "human",
+        "kind": "panel",
+        "actor": "Maintainer",
+        "caption": "Resolves the conflict on the milestone branch",
+        "ms": 3000,
+        "parts": [
+          "node-10"
         ]
       }
     ]
