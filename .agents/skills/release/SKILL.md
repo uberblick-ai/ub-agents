@@ -10,7 +10,7 @@ description: >-
 
 Use the repository's [release procedure](../../../docs/releases.md). Release prep
 is a separate loop issue; this workflow starts after its PR has merged. Work from
-a clean checkout at current `origin/main` with `gh`, Git and Python 3.14 available.
+a clean checkout at current `origin/main` with `gh`, Git and Python 3.15 available.
 Use literal versions, PR numbers and commit SHAs in commands below.
 
 1. Establish go/no-go. Identify the release-prep PR and confirm its `MERGED` state

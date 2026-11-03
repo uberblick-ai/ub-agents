@@ -32,7 +32,7 @@ def package(name="pyyaml", version="6.0.3", digest=DIGEST):
             "url": f"https://files.pythonhosted.org/packages/fixture/{name.replace('-', '_')}-{version}.tar.gz"}
 
 
-def formula(*packages):
+def formula(*packages, python="3.15"):
     return ('class UbAgents < Formula\n'
             '  include Language::Python::Virtualenv\n\n'
             '  desc "Run coding agents"\n'
@@ -41,7 +41,7 @@ def formula(*packages):
             f'  sha256 "{"0" * 64}"\n'
             '  license "MIT"\n'
             '  depends_on "gh"\n'
-            '  depends_on "python@3.14"\n\n' +
+            f'  depends_on "python@{python}"\n\n' +
             '\n'.join(release.resource_block(item) for item in packages) + '\n'
             '  def install\n'
             '    virtualenv_install_with_resources\n'
@@ -53,7 +53,7 @@ def formula(*packages):
 
 
 def report(*packages):
-    return {"version": "1", "environment": {"python_version": "3.14"}, "install": [
+    return {"version": "1", "environment": {"python_version": "3.15"}, "install": [
         {"metadata": {"name": "ub-agents", "version": VERSION},
          "download_info": {"url": URL, "archive_info": {"hashes": {"sha256": DIGEST}}}},
         *[{"metadata": {"name": item["name"], "version": item["version"]},
@@ -72,9 +72,9 @@ class ReleaseTests(unittest.TestCase):
         self.version_file = self.root / "src/ub_agents/__init__.py"
         self.version_file.parent.mkdir(parents=True)
         self.version_file.write_text(f'__version__ = "{VERSION}"\n')
-        self.python = "/fixture/python3.14"
+        self.python = "/fixture/python3.15"
         self.python_command = [self.python, "-c", "import sys; print('.'.join(map(str, sys.version_info[:2])))"]
-        self.respond(self.python_command, "3.14\n")
+        self.respond(self.python_command, "3.15\n")
         lookup = patch.object(release.shutil, "which", return_value=self.python)
         self.addCleanup(lookup.stop)
         self.which = lookup.start()
@@ -129,7 +129,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_preflight_returns_tested_sha_and_verbatim_notes(self):
         self.assertEqual(self.check(), (SHA, NOTES))
-        self.which.assert_called_once_with("python3.14")
+        self.which.assert_called_once_with("python3.15")
         self.assertIn(tuple(self.python_command), [args for args, _ in self.runner.calls])
         self.assert_no_publication()
 
@@ -219,30 +219,30 @@ class ReleaseTests(unittest.TestCase):
         self.which.return_value = None
         for response in (FileNotFoundError("brew not found"), self.result(1, stderr="formula not installed"), ""):
             with self.subTest(response=response):
-                self.respond(["brew", "--prefix", "python@3.14"], response)
-                self.assert_preflight_refusal("formula Python check: python3.14 not found "
-                                              "(python3.14 on PATH or brew python@3.14)")
+                self.respond(["brew", "--prefix", "python@3.15"], response)
+                self.assert_preflight_refusal("formula Python check: python3.15 not found "
+                                              "(python3.15 on PATH or brew python@3.15)")
 
     def test_missing_brew_interpreter_refuses_before_publication(self):
         self.which.return_value = None
-        self.respond(["brew", "--prefix", "python@3.14"], "/fixture/brew/python@3.14\n")
-        self.respond(["/fixture/brew/python@3.14/bin/python3.14", *self.python_command[1:]],
+        self.respond(["brew", "--prefix", "python@3.15"], "/fixture/brew/python@3.15\n")
+        self.respond(["/fixture/brew/python@3.15/bin/python3.15", *self.python_command[1:]],
                      FileNotFoundError("interpreter not found"))
-        self.assert_preflight_refusal("formula Python check: python3.14 not found "
-                                      "(python3.14 on PATH or brew python@3.14)")
+        self.assert_preflight_refusal("formula Python check: python3.15 not found "
+                                      "(python3.15 on PATH or brew python@3.15)")
 
     def test_wrong_formula_python_refuses_before_publication(self):
-        for python in (self.python, "/fixture/brew/python@3.14/bin/python3.14"):
+        for python in (self.python, "/fixture/brew/python@3.15/bin/python3.15"):
             with self.subTest(python=python):
                 self.which.return_value = self.python if python == self.python else None
-                self.respond(["brew", "--prefix", "python@3.14"], "/fixture/brew/python@3.14\n")
-                self.respond([python, *self.python_command[1:]], "3.13\n")
-                self.assert_preflight_refusal("formula Python check: expected Python 3.14, got 3.13")
+                self.respond(["brew", "--prefix", "python@3.15"], "/fixture/brew/python@3.15\n")
+                self.respond([python, *self.python_command[1:]], "3.14\n")
+                self.assert_preflight_refusal("formula Python check: expected Python 3.15, got 3.14")
 
     def test_preflight_finds_formula_python_through_brew(self):
         self.which.return_value = None
-        self.respond(["brew", "--prefix", "python@3.14"], "/fixture/brew/python@3.14\n")
-        self.respond(["/fixture/brew/python@3.14/bin/python3.14", *self.python_command[1:]], "3.14\n")
+        self.respond(["brew", "--prefix", "python@3.15"], "/fixture/brew/python@3.15\n")
+        self.respond(["/fixture/brew/python@3.15/bin/python3.15", *self.python_command[1:]], "3.15\n")
         self.assertEqual(self.check(), (SHA, NOTES))
         self.assert_no_publication()
 
@@ -375,6 +375,21 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(updated[updated.index('  test do'):],
                                  original[original.index('  test do'):].replace(module, 'ub_agents.view.ui'))
 
+    def test_formula_migrates_python_314_and_accepts_python_315(self):
+        for python in ("3.14", "3.15"):
+            with self.subTest(python=python):
+                updated = release.update_formula(formula(python=python), URL, DIGEST, {})
+                self.assertIn('  depends_on "python@3.15"\n', updated)
+                self.assertNotIn('python@3.14', updated)
+
+    def test_formula_rejects_missing_unsupported_or_duplicate_python_dependency(self):
+        line = '  depends_on "python@3.15"\n'
+        for replacement in ('', line.replace('3.15', '3.13'), line.replace('3.15', '3.16'),
+                            line * 2, line + line.replace('3.15', '3.14')):
+            with self.subTest(replacement=replacement), \
+                    self.assertRaisesRegex(release.ReleaseError, 'formula Python check'):
+                release.update_formula(formula().replace(line, replacement), URL, DIGEST, {})
+
     def test_formula_rejects_missing_changed_or_duplicate_view_import_test(self):
         original = formula()
         line = '    system libexec/"bin/python", "-c", "from ub_agents.view_ui import View"\n'
@@ -410,7 +425,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_formula_rejects_unsupported_python_and_layout(self):
         original = formula(package())
-        for content in (original.replace('python@3.14', 'python@3.13'),
+        for content in (original.replace('python@3.15', 'python@3.13'),
                         original.replace('  url ', '  source ', 1),
                         original.replace('  resource "pyyaml" do', '  resource "pyyaml" do # unexpected'),
                         original.replace('  end\n', '  end # unexpected\n', 1)):
@@ -424,7 +439,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_resolution_rejects_wrong_python_version_wheels_and_missing_hash(self):
         mutations = [lambda data: data.update(version="2"),
-                     lambda data: data["environment"].update(python_version="3.13"),
+                     lambda data: data["environment"].update(python_version="3.14"),
                      lambda data: data["install"][0]["metadata"].update(version="0.1.16"),
                      lambda data: data["install"][1]["download_info"].update(url="https://example.com/package.whl"),
                      lambda data: data["install"][1]["download_info"]["archive_info"].update(hashes={})]
@@ -434,14 +449,13 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(data=data), self.assertRaisesRegex(release.ReleaseError, "check"):
                 release.resolved_resources(data, VERSION)
 
-    def publication(self):
+    def publication(self, tap_python="3.15"):
         workspace = self.root / "workspace"
         workspace.mkdir()
         self.workspace = workspace
         packages = [package(), package("textual", "8.2.8")]
         self.packages = packages
-        python = "/fixture/python3.14"
-        self.python = python
+        python = self.python
         resolver = workspace / "resolve-venv"
         archive = workspace / f"ub-agents-{VERSION}.tar.gz"
         self.archive = archive
@@ -451,7 +465,7 @@ class ReleaseTests(unittest.TestCase):
         self.notes_command = ["gh", "release", "create", TAG, "--repo", release.REPOSITORY, "--verify-tag",
                               "--title", f"ub-agents {VERSION}", "--notes-file", workspace / "release-notes.md"]
         self.respond(self.notes_command)
-        self.respond([python, "-c", "import sys; print('.'.join(map(str, sys.version_info[:2])))"], "3.14\n")
+        self.respond([python, "-c", "import sys; print('.'.join(map(str, sys.version_info[:2])))"], "3.15\n")
         self.respond([python, "-m", "venv", resolver])
 
         def resolve(args, **kwargs):
@@ -464,7 +478,7 @@ class ReleaseTests(unittest.TestCase):
 
         def clone(args, **kwargs):
             (tap / "Formula").mkdir(parents=True)
-            (tap / release.FORMULA).write_text(formula(*packages))
+            (tap / release.FORMULA).write_text(formula(*packages, python=tap_python))
             return ""
 
         self.respond(["gh", "repo", "clone", release.TAP, tap, "--", "--quiet"], clone)
@@ -564,6 +578,17 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(len(test_calls), 4)
         self.assertTrue(all(kwargs["cwd"] == self.workspace / "test-project" for _, kwargs in test_calls))
         self.assertFalse(any("merge" in call or "--force" in call or "-d" in call for call in args))
+
+    def test_tap_pr_upgrades_python_dependency_and_tests_with_python_315(self):
+        self.publication(tap_python="3.14")
+        self.publish()
+        formula_text = (self.workspace / "tap" / release.FORMULA).read_text()
+        self.assertIn('  depends_on "python@3.15"\n', formula_text)
+        self.assertNotIn('python@3.14', formula_text)
+        self.assertIn('Python 3.15', self.pr_body)
+        self.assertIn('Formula tests: PASS (Python 3.15', self.comment_body)
+        self.assertIn((self.python, '-m', 'venv', str(self.workspace / 'test-venv')),
+                      [args for args, _ in self.runner.calls])
 
     def test_formula_assertions_allow_surrounding_output(self):
         tool = self.publication()

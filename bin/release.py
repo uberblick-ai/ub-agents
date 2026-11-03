@@ -161,8 +161,8 @@ def resources(formula):
 
 
 def resolved_resources(report, version):
-    if report.get("version") != "1" or report.get("environment", {}).get("python_version") != "3.14":
-        raise ReleaseError("dependency resolution check: expected pip report version 1 from Python 3.14")
+    if report.get("version") != "1" or report.get("environment", {}).get("python_version") != "3.15":
+        raise ReleaseError("dependency resolution check: expected pip report version 1 from Python 3.15")
     found = {}
     project = None
     for item in report["install"]:
@@ -191,8 +191,10 @@ def resource_block(resource):
 
 
 def update_formula(formula, url, digest, resolved):
-    if '  depends_on "python@3.14"' not in formula:
-        raise ReleaseError("formula Python check: expected python@3.14")
+    formula, count = re.subn(r'^  depends_on "python@3\.(?:14|15)"$',
+                             '  depends_on "python@3.15"', formula, flags=re.M)
+    if count != 1:
+        raise ReleaseError("formula Python check: expected one supported Python dependency")
     formula, count = re.subn(
         r'^    system libexec/"bin/python", "-c", "from ub_agents\.view(?:_ui|\.ui) import View"$',
         lambda _: f'    system libexec/"bin/python", "-c", "{VIEW_IMPORT}"', formula, flags=re.M)
@@ -233,22 +235,22 @@ def download(url, destination):
 
 
 def formula_python(run):
-    missing = "formula Python check: python3.14 not found (python3.14 on PATH or brew python@3.14)"
-    python = shutil.which("python3.14")
+    missing = "formula Python check: python3.15 not found (python3.15 on PATH or brew python@3.15)"
+    python = shutil.which("python3.15")
     if python is None:
         try:
-            prefix = command(run, ["brew", "--prefix", "python@3.14"]).stdout.strip()
+            prefix = command(run, ["brew", "--prefix", "python@3.15"]).stdout.strip()
         except (OSError, ReleaseError) as exc:
             raise ReleaseError(missing) from exc
         if not prefix:
             raise ReleaseError(missing)
-        python = str(Path(prefix) / "bin/python3.14")
+        python = str(Path(prefix) / "bin/python3.15")
     try:
         actual = command(run, [python, "-c", "import sys; print('.'.join(map(str, sys.version_info[:2])))"]).stdout.strip()
     except FileNotFoundError as exc:
         raise ReleaseError(missing) from exc
-    if actual != "3.14":
-        raise ReleaseError(f"formula Python check: expected Python 3.14, got {actual}")
+    if actual != "3.15":
+        raise ReleaseError(f"formula Python check: expected Python 3.15, got {actual}")
     return python
 
 
@@ -288,7 +290,7 @@ def test_formula(run, fetch, python, workspace, archive, formula, version):
         if expected_output is not None and expected_output not in output:
             raise ReleaseError(f"formula test {label}: expected output to contain {expected_output!r}, got {output!r}")
         lines.append(f"- `{label}`: PASS" + (f" — `{output}`" if expected_output else ""))
-    return f"Formula tests: PASS (Python 3.14, tag v{version}, exact formula resource versions).\n\n" + '\n'.join(lines) + '\n'
+    return f"Formula tests: PASS (Python 3.15, tag v{version}, exact formula resource versions).\n\n" + '\n'.join(lines) + '\n'
 
 
 class Release:
@@ -346,7 +348,7 @@ class Release:
         self.links.append(f"Tap branch: https://github.com/{TAP}/tree/{branch}")
         body = workspace / "tap-pr.md"
         body.write_text(f"Updates ub-agents to [{version}]({release_url}).\n\n"
-                        "The release task tests the formula with Python 3.14 and the exact resource "
+                        "The release task tests the formula with Python 3.15 and the exact resource "
                         "versions, then posts the result below.\n")
         pr = self.call("gh", "pr", "create", "--repo", TAP, "--head", branch,
                        "--title", f"ub-agents {version}", "--body-file", body)
@@ -356,7 +358,7 @@ class Release:
         try:
             result = test_formula(self.run, self.fetch, python, workspace, archive, formula, version)
         except (ReleaseError, OSError, ValueError, KeyError, TypeError) as exc:
-            result = f"Formula tests: FAIL (Python 3.14, tag {tag}).\n\n{exc}\n"
+            result = f"Formula tests: FAIL (Python 3.15, tag {tag}).\n\n{exc}\n"
             print(result, flush=True)
             body.write_text(result)
             try:
