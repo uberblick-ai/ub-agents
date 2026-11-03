@@ -10,6 +10,7 @@ import tomllib
 from ..config import instruction_text
 from ..errors import AgentError
 from .mcp_probe import probe_stdio
+from .registry import check
 
 
 TOOL_NAME = re.compile(r"mcp__(\w[\w.-]*?)__", re.ASCII)
@@ -187,6 +188,7 @@ class MCPChecks:
             for runtime in agent.runtimes:
                 self.check_runtime(doctor, agent, runtime, expected, offline=offline)
 
+    @check("runtimes", "runtime-mcp-config", "runtime-mcp")
     def check_runtime(self, doctor, agent, runtime, expected, *, offline):
         arguments = agent.runtime_args_for(runtime)
         self.errors = set()

@@ -13,12 +13,12 @@ import sys
 from ..config import instruction_text, load_config
 from ..approvals import Roles, resolve_policy
 from ..errors import AgentError
-from .doctor_mcp import MCPChecks
 from ..execution import parse_process_table, repository_checks
 from ..github import REPOSITORY, GitHub, repository_visibility
 from ..labels import LabelUse, configured_labels, confirm_label_creation
 from ..launcher_lock import running_launcher
 from .mcp_probe import PROBE_TIMEOUT
+from .registry import CHECK_AREAS, areas, check
 from ..records import iso
 from ..refresh import control_checkout_checks
 from ..trust import WRITERS
@@ -29,21 +29,6 @@ PERMISSIONS_URL = "https://agents.uberblick.ai/docs/configuration/permissions.ht
 
 AUTH_PROBES = {"codex": ("codex", "login", "status"),
                "claude": ("claude", "auth", "status")}
-
-
-AREAS = {
-    "machine": ("python", "platform", "git", "gh", "process-inspection"),
-    "configuration": ("config", "instructions", "policy-placeholder", "policy-merging",
-                      "repository-root", "repository-remote", "local-state", "local-state-ignored", "launcher-installation"),
-    "GitHub": ("github-auth", "github-repository", "github-permissions", "github-labels", "github-label",
-               "github-launcher-role", "github-launcher-listed", "github-launcher-account", "github-rate-limit",
-               "github-retrospectives", "approvals", "control-checkout", "control-checkout-branch",
-               "control-checkout-dirty", "control-checkout-origin"),
-    # "commands" is the existing skip check when configuration is unavailable.
-    "runtimes": ("command", "commands", "runtime-permissions", "runtime-executable", "runtime-auth", "runtimes",
-                 "different-runtime-from", "runtime-mcp", "runtime-mcp-config"),
-}
-CHECK_AREAS = {id: area for area, ids in AREAS.items() for id in ids}
 
 
 # Configuration errors can quote YAML. Keep diagnostics on one line and redact
@@ -97,6 +82,8 @@ class Doctor:
                            public(message), public(remedy) if remedy else None, uses, server))
 
     def _record(self, check):
+        if check.id.split(":", 1)[0] not in CHECK_AREAS:
+            raise ValueError(f"Undeclared doctor check {check.id!r}")
         self.checks.append(check)
         if self.progress:
             self.notify("check", check.record())
@@ -129,6 +116,7 @@ class Doctor:
             raise AgentError(f"probe failed (exit {result.returncode})")
         return result.stdout
 
+    @check("machine", "git", "gh")
     def tool(self, name, remedy):
         if self.which(name):
             self.add(name, "ok", f"{name} is on PATH")
@@ -136,6 +124,7 @@ class Doctor:
         self.add(name, "fail", f"{name} is not on PATH", remedy)
         return False
 
+    @check("configuration", "policy-placeholder", "policy-merging")
     def shared_policy(self, text, path):
         placeholders = {"owner": "@org/maintainers", "build": "<project build command>",
                         "test": "<project test command>", "validation": "<project lint or validation command>"}
@@ -198,18 +187,7 @@ class Doctor:
             for id in ("local-state", "local-state-ignored"):
                 self.add(id, "skip", "configuration unavailable")
 
-    def _runtimes(self, config, offline):
-        if config:
-            if offline:
-                self._offline_runtimes(config)
-            else:
-                self.agents(config)
-            MCPChecks(config).run(self, offline=offline)
-        else:
-            for id in ("commands", "runtimes", "different-runtime-from"):
-                self.add(id, "skip", "offline: agent runtimes and commands are not checked"
-                         if offline else "configuration unavailable")
-
+    @check("machine", "python", "platform")
     def _machine(self, offline):
         self.add("python", "ok" if sys.version_info >= (3, 11) else "fail",
                  f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
@@ -229,6 +207,7 @@ class Doctor:
             gh_ready = self.tool("gh", "Install GitHub CLI from https://cli.github.com and put gh on PATH")
         return git_ready, gh_ready
 
+    @check("configuration", "config")
     def _load_configuration(self, path):
         config = None
         try:
@@ -241,6 +220,7 @@ class Doctor:
                      "Fix the configuration error in the selected YAML file")
         return config
 
+    @check("configuration", "instructions")
     def _instructions(self, config):
         if config:
             if config.shared_instructions is not None:
@@ -264,6 +244,7 @@ class Doctor:
         else:
             self.add("instructions", "skip", "configuration unavailable")
 
+    @check("configuration", "repository-root", "repository-remote")
     def _repository(self, config, git_ready):
         if config and git_ready:
             remedies = {"repository-root": "Place the configuration at the consuming Git repository root",
@@ -278,6 +259,7 @@ class Doctor:
             for id in ("repository-root", "repository-remote"):
                 self.add(id, "skip", "configuration unavailable" if not config else "git unavailable")
 
+    @check("configuration", "launcher-installation")
     def _launcher_installation(self, config):
         from ..updates.self_updates import installation
         install, reason = installation()
@@ -316,6 +298,7 @@ class Doctor:
         else:
             self.add("github-rate-limit", "skip", "gh unavailable", required=False)
 
+    @check("machine", "process-inspection")
     def _process_inspection(self):
         try:
             rows = parse_process_table(self.probe(["ps", "-axo", "pid=,pgid=,stat="]))
@@ -326,6 +309,7 @@ class Doctor:
             self.add("process-inspection", "fail", str(exc),
                      "Supervision needs ps; install/allow ps (sandboxes may block process inspection)")
 
+    @check("GitHub", "github-auth")
     def _github_auth(self, github, gh_ready):
         login = None
         if gh_ready:
@@ -342,6 +326,7 @@ class Doctor:
             self.add("github-auth", "skip", "gh unavailable")
         return login
 
+    @check("GitHub", "github-launcher-role", "github-launcher-listed", "github-launcher-account")
     def _launcher_roles(self, config, github, login):
         roles = Roles(github)
         if login:
@@ -373,6 +358,7 @@ class Doctor:
                      "Listed accounts require write or higher and readable collaborator permissions"
                      if role not in WRITERS else None, required=False)
 
+    @check("GitHub", "control-checkout", "control-checkout-branch", "control-checkout-dirty", "control-checkout-origin")
     def _control_checkout(self, config, git_ready, metadata):
         self.waiting("checking the control checkout")
         default = metadata.get("default_branch") if metadata else None
@@ -387,6 +373,7 @@ class Doctor:
             self.add("control-checkout", "skip", "configuration unavailable" if not config else
                      "git unavailable" if not git_ready else "repository default branch unavailable", required=False)
 
+    @check("GitHub", "approvals")
     def _approval_policy(self, config, gh_ready, metadata):
         if config and config.approvals is None and metadata is None:
             self.add("approvals", "skip", "gh unavailable" if not gh_ready else
@@ -401,6 +388,7 @@ class Doctor:
         else:
             self.add("approvals", "skip", "configuration unavailable")
 
+    @check("GitHub", "github-retrospectives")
     def _retrospectives(self, config, github, gh_ready):
         if config:
             for agent in config.agents:
@@ -443,6 +431,20 @@ class Doctor:
             if agent.retrospectives is not None:
                 self.add("github-retrospectives", "skip", "offline: GitHub discussions are not checked", agent=agent)
 
+    @check("runtimes", "commands")
+    def _runtimes(self, config, offline):
+        from .doctor_mcp import MCPChecks
+        if config:
+            if offline:
+                self._offline_runtimes(config)
+            else:
+                self.agents(config)
+            MCPChecks(config).run(self, offline=offline)
+        else:
+            for id in ("commands", "runtimes", "different-runtime-from"):
+                self.add(id, "skip", "offline: agent runtimes and commands are not checked"
+                         if offline else "configuration unavailable")
+
     def _offline_runtimes(self, config):
         reason = "offline: agent runtimes and commands are not checked"
         self.add("runtime-permissions", "skip", reason, required=False)
@@ -471,6 +473,7 @@ class Doctor:
         self.rate_limit(self.github.quota_headers, self.github.rate_limited)
         return True
 
+    @check("GitHub", "github-rate-limit")
     def rate_limit(self, headers, limited):
         try:
             remaining = int(headers["x-ratelimit-remaining"])
@@ -497,6 +500,7 @@ class Doctor:
             reason = "timed out (20s)"
         return f"GitHub {subject} failed ({reason})"
 
+    @check("GitHub", "github-repository", "github-permissions")
     def repository_access(self, config, github):
         try:
             self.waiting("reading repository")
@@ -524,6 +528,7 @@ class Doctor:
                      f"Authenticate with gh auth login and obtain access to {config.repository}")
             self.add("github-permissions", "skip", "repository response unavailable")
 
+    @check("GitHub", "github-labels", "github-label")
     def labels(self, config, github):
         self.missing_labels = []
         try:
@@ -543,6 +548,7 @@ class Doctor:
             if not present:
                 self.missing_labels.append(label)
 
+    @check("runtimes", "runtime-permissions", "command", "different-runtime-from")
     def agents(self, config):
         usable = {}
         without_permissions = [agent.name for agent in config.agents
@@ -580,6 +586,7 @@ class Doctor:
                 else:
                     self.add(check_id, "ok", f"independent execution available after {name}", agent=agent)
 
+    @check("runtimes", "runtime-executable", "runtime-auth", "runtimes")
     def agent_runtimes(self, agent):
         alternatives = []
         for runtime in agent.runtimes:
@@ -613,6 +620,7 @@ class Doctor:
                  None if available else f"Install and authenticate at least one runtime for agent {agent.name}", agent=agent)
         return usable
 
+    @check("configuration", "local-state", "local-state-ignored")
     def local(self, config, git_ready):
         local = config.root / ".ub-agents"
         try:
@@ -641,4 +649,4 @@ def diagnose(path, *, offline=False, **kwargs):
 
 def render(result, json_output=False, verbose=False, *, elapsed=0.0):
     from .doctor_output import render as render_output
-    render_output(result, AREAS, json_output, verbose, elapsed=elapsed)
+    render_output(result, areas(), json_output, verbose, elapsed=elapsed)
