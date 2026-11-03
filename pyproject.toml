@@ -23,7 +23,7 @@ Issues = "https://github.com/uberblick-ai/ub-agents/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ub_agents = ["templates/*.yaml", "templates/*.md"]
+ub_agents = ["templates/*.yaml", "templates/*.md", "monitor/*.html"]
 
 [tool.coverage.run]
 source = ["ub_agents"]
