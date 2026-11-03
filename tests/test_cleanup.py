@@ -15,7 +15,7 @@ from ub_agents.cleanup import Artifact, Cleaner
 from ub_agents.config import CleanupHook
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, CleanupError
-from ub_agents.execution import git, stop_group
+from ub_agents.execution import ScratchDirectory, git, stop_group
 from ub_agents.github import GitHub
 from ub_agents.records import iso, timestamp
 from tests.support import FakeGitHub, config, edit_lease, issue, pr, run_environment
@@ -314,6 +314,18 @@ class CleanupTests(unittest.TestCase):
                 self.github.login = "operator"
                 self.lease.clear()
                 self.lease.update(original_lease)
+
+    def test_leftover_scratch_is_kept_while_its_run_is_live_then_removed(self):
+        scratch = ScratchDirectory(self.root, self.config.repository, self.lease["run"]).prepare()
+        (scratch / "trace").write_text("left behind")
+        self.update(state="running", expires=iso(timestamp() + 60))
+        self.cleaner.clean(True)
+        self.assertTrue(scratch.exists())
+        self.update(state="released")
+        rows = self.cleaner.clean(True)
+        self.assertIn({"kind": "scratch", "name": str(scratch.parent), "action": "removed",
+                       "reason": "No live run or open PR"}, rows)
+        self.assertFalse(scratch.parent.exists())
 
     def test_unreadable_github_keeps_artifacts(self):
         self.github.unreadable = True

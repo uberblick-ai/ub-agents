@@ -58,7 +58,7 @@ Unsafe checkouts and failed fetches or fast-forwards still stop launch.
 
 ## Leftovers from earlier runs
 
-Each launch first clears worktrees and run branches that earlier runs left on this machine, keeping anything still in use. A removed branch with unpushed commits has its SHA in the cleanup log under `.ub-agents/sessions/`; restore it with `git branch <name> <sha>`. To run your own code after each run, see [Cleanup](/docs/configuration/cleanup.html).
+Each launch first clears worktrees, run branches and scratch that earlier runs left on this machine, keeping anything still in use. A removed branch with unpushed commits has its SHA in the cleanup log under `.ub-agents/sessions/`; restore it with `git branch <name> <sha>`. To run your own code after each run, see [Cleanup](/docs/configuration/cleanup.html).
 
 ## Logs
 

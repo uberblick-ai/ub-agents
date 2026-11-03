@@ -48,7 +48,7 @@ Exit zero to let the worktree be removed. Any other exit keeps the worktree and 
 
 ## Leftovers
 
-At startup, [`launch`](/docs/commands/launch.html) clears leftover worktrees, running the hook before removing each, and removes run logs older than 7 days. Decisions go to `.ub-agents/sessions/*.cleanup.log`. See the [cleanup rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#stale-artifact-cleanup).
+At startup, [`launch`](/docs/commands/launch.html) clears leftover worktrees, running the hook before removing each, and leftover run scratch, and removes run logs older than 7 days. Decisions go to `.ub-agents/sessions/*.cleanup.log`. See the [cleanup rules](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#stale-artifact-cleanup).
 
 ## Key reference
 
