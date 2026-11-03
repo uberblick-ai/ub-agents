@@ -15,7 +15,7 @@
     <h2>What is ub-agents?</h2>
     <p>Work out the change with Claude Code or Codex, then file it as an issue. A loop on your own machine prepares it, implements it, has a second agent review it and merges what your policy allows. When a decision needs a person, it stops and asks on the issue. Every step is a comment on GitHub, so there is nothing to host, and launchers on a laptop and a server share one queue.</p>
     <p>It is for engineers and teams of up to a few dozen people with a hacker, hands-on mentality: full control, without a convoluted setup or cloud infrastructure to run.</p>
-    <p>Under the hood, it is a glorified script that polls labels and calls an agent. You could write one in an afternoon. This project is for everything after that afternoon: duplicate claims, interrupted runs, endless review loops, comments from strangers and GitHub failures. Browse <a href="https://github.com/uberblick-ai/ub-agents/issues?q=is%3Aissue%20is%3Aclosed">our closed issues</a> to see what it took.</p>
+    <p>Under the hood, it is a glorified script that polls labels and calls an agent. You could write one in an afternoon. This project is for everything after that afternoon: duplicate claims, interrupted runs, endless review loops, comments from strangers and GitHub failures. Browse <a href="https://github.com/uberblick-ai/ub-agents/issues?q=is%3Aissue%20is%3Aclosed">our closed issues</a> to see what it took. It makes coding-agent work repeatable, inspectable and recoverable: the model is a black box already, and the loop around it shouldn't be another one.</p>
   </section>
 
   <section>
@@ -65,12 +65,17 @@
     <ul>
       <li>A Mac or Linux machine with your agent CLIs signed in: a laptop, or an always-on server for overnight runs.</li>
       <li>A GitHub account for the launcher with write access. We recommend <a href="/docs/best-practices/launcher-account.html">a dedicated account</a>, not an admin.</li>
+      <li>A dedicated machine, VM or low-privilege user for the launcher. A worktree isolates the checkout, not the machine; see the <a href="/docs/security-model.html">security model</a>.</li>
       <li>The checks that gate a merge, such as your CI.</li>
     </ul>
-<pre><code><span class="c"># run in your local checkout</span>
-<span class="p">$ </span>ub-agents init
+<pre><code><span class="c"># in your checkout</span>
+<span class="p">$ </span>ub-agents init                 <span class="c"># opens the setup pull request</span>
+
+<span class="c"># after merging it, in a checkout for the launcher</span>
+<span class="p">$ </span>git clone https://github.com/you/your-project your-project-loop
+<span class="p">$ </span>cd your-project-loop
 <span class="p">$ </span>ub-agents launch</code></pre>
-    <p><code>init</code> opens a setup pull request with the starter roles, instructions and merge policy. Review the <a href="/docs/configuration/permissions.html">permissions</a>, merge it and launch. Your merge policy decides what the loop merges and what waits for a maintainer; the <a href="/docs/faq.html">FAQ</a> covers trust, cost and the rest. To add capacity, start <a href="/docs/guides/add-a-launcher.html">another launcher</a> on any machine. They all share one queue.</p>
+    <p>Review the <a href="/docs/configuration/permissions.html">permissions</a> and merge policy, which decides what the loop merges and what waits for a maintainer. The <a href="/docs/faq.html">FAQ</a> covers trust, cost and the rest. To add capacity, start <a href="/docs/guides/add-a-launcher.html">another launcher</a> on any machine. They all share one queue.</p>
   </section>
 </div>
 {{footer}}

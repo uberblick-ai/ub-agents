@@ -56,7 +56,7 @@ a clean checkout, the prepared version and dated CHANGELOG section, an unused ta
 and a green GitHub Actions `Test` run on the commit. It pushes an annotated tag,
 copies the section without its heading into the GitHub release notes, and opens a
 PR updating the Homebrew tap formula.
-It tests the tag and exact formula resource versions in a fresh Python 3.14
+It tests the tag and exact formula resource versions in a fresh Python 3.15
 virtualenv and posts the result to that PR. A maintainer reviews and merges the tap
 PR, then upgrades Homebrew and verifies the installed version.
 

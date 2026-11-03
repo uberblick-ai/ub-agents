@@ -31,3 +31,17 @@ If you also work in this checkout yourself, clone a separate one for the launche
 ## Start work
 
 Label an issue `needs-preparation`. The agents prepare it, implement it in a pull request, review and merge it, and stop with `needs-human` when they need you. See [How the loop works](/docs/how-the-loop-works.html). In a public repository, only someone with the maintain or admin role can start work.
+
+### A good first issue
+
+Good first issues:
+
+- "Fix the typo in the `--help` text of `export`" (one file, obvious when done).
+- "Add a test for parse_date() with an empty string" (small, checkable by CI).
+
+Wait with:
+
+- "Refactor the storage layer" (several PRs, needs decisions).
+- "Make onboarding better" (no clear way to tell when it is done).
+
+For more guidance, see [Keep issues small](/docs/best-practices/small-issues.html).
