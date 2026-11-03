@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -89,7 +91,7 @@ class SelfUpdateTests(unittest.TestCase):
         self.manager.boundary(self.settings, self.updates)
 
     def test_owned_brew_only_and_doctor_reports_installation_offline(self):
-        source = self.install.cellar / __version__ / "libexec/lib/python3.14/site-packages/ub_agents"
+        source = self.install.cellar / __version__ / "libexec/lib/python3.15/site-packages/ub_agents"
         self.assertEqual(installation(source), (self.install, None))
         self.put_keg(__version__, "other/tap")
         self.assertIn("not from", installation(source)[1])
@@ -125,6 +127,43 @@ class SelfUpdateTests(unittest.TestCase):
         before = len(self.calls)
         self.boundary()
         self.assertEqual(len(self.calls), before)
+
+    def test_python_314_keg_upgrades_and_restarts_with_python_315_layout(self):
+        def runtime(value, python):
+            keg = self.put_keg(value)
+            source = keg / f"libexec/lib/python{python}/site-packages/ub_agents"
+            source.mkdir(parents=True)
+            interpreter = keg / f"libexec/bin/python{python}"
+            interpreter.parent.mkdir()
+            interpreter.symlink_to(Path(sys.executable).resolve())
+            (keg / 'libexec/pyvenv.cfg').write_text(
+                f'home = {Path(sys._base_executable).parent}\ninclude-system-site-packages = false\n')
+            executable = keg / "bin/ub-agents"
+            executable.write_text(f"#!{interpreter}\nimport sys\n"
+                                  f"print('ub-agents {value}' if sys.argv[1] == '--version' else sys.executable)\n")
+            executable.chmod(0o755)
+            return source
+
+        source = runtime(__version__, "3.14")
+        original = self.run_command
+
+        def run(args, *positional, **keywords):
+            if args[-1] == "--version":
+                self.calls.append(args)
+                return subprocess.check_output(args, text=True).strip()
+            return original(args, *positional, **keywords)
+
+        self.manager = SelfUpdates(self.lines.append, self.stop, detect=lambda: installation(source),
+                                   runner=run, clock=lambda: self.clock)
+        self.after_upgrade = lambda: runtime(self.target, "3.15")
+        with self.assertRaises(RestartLauncher) as result:
+            self.boundary()
+        executable = result.exception.executable
+        self.assertEqual(executable, self.install.current())
+        self.assertEqual(subprocess.check_output([executable, '--interpreter'], text=True).strip(),
+                         str(self.install.cellar / self.target / 'libexec/bin/python3.15'))
+        self.assertEqual(installation(self.install.cellar / self.target /
+                                      'libexec/lib/python3.15/site-packages/ub_agents'), (self.install, None))
 
     def test_a_brew_binary_owning_another_prefix_cannot_upgrade(self):
         original = self.manager.runner
