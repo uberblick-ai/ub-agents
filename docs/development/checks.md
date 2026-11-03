@@ -38,7 +38,10 @@ Ubuntu job and in shard 1 on macOS.
 Ruff and mypy run in its `static` job. The required `Test result` check succeeds
 only when that job and the test matrix succeed, and gates merges through the main
 ruleset. The release check requires a green run on the release commit.
-The coverage jobs report coverage and do not gate merges or releases.
+The Ubuntu Python 3.14 test leg measures coverage, and its tests gate merges and
+releases like every other leg. Only coverage reporting (combining data, writing
+the summary, uploading the artifact and publishing the report) does not gate
+merges or releases. The report publishes after the test matrix succeeds.
 
 To run these checks locally before pushing, optionally:
 

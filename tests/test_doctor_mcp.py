@@ -370,8 +370,8 @@ for line in sys.stdin:
                 ("print('private output', flush=True)", "handshake failed"),
                 ("print('{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"message\":\"secret\"}}', flush=True)", "handshake failed")):
             with self.subTest(expected=expected):
-                # Instrumented Python startup can exceed the timeout fixture's deadline.
-                timeout = 0.2 if expected == "timed out" else 2
+                # Allow instrumented Python to start on busy runners; these scripts exit themselves.
+                timeout = 0.2 if expected == "timed out" else 10
                 self.assertEqual(self.probe(script, timeout=timeout), (None, expected))
 
     def test_cleanup_includes_child_holding_stdout_after_parent_exit(self):
