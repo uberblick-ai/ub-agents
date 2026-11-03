@@ -26,15 +26,16 @@ def arguments(commands):
 
 @command("doctor", arguments)
 def doctor_run(args):
-    from ..doctor.doctor import AREAS, Doctor, render
+    from ..doctor.doctor import Doctor, render
     from ..doctor.doctor_progress import DoctorProgress
+    from ..doctor.registry import areas
     started = monotonic()
     doctor = Doctor()
     if args.json:
         result = doctor.run(args.config, offline=args.offline)
         render(result, json_output=True, elapsed=monotonic() - started)
     else:
-        with DoctorProgress(AREAS, verbose=args.verbose) as progress:
+        with DoctorProgress(areas(), verbose=args.verbose) as progress:
             result = doctor.run(args.config, offline=args.offline, progress=progress)
             progress.finish(result, monotonic() - started)
             if not args.offline and doctor.create_missing_labels():

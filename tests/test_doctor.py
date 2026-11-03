@@ -15,8 +15,9 @@ from unittest.mock import patch
 from ub_agents.cli import main
 from ub_agents.config import load_config
 from ub_agents.coordination import Coordinator
-from ub_agents.doctor.doctor import AREAS, CHECK_AREAS, Doctor, diagnose, render
+from ub_agents.doctor.doctor import Doctor, diagnose, render
 from ub_agents.doctor.doctor_progress import DoctorProgress
+from ub_agents.doctor.registry import CHECK_AREAS, areas, check
 from ub_agents.errors import AgentError
 from ub_agents.execution import repository_checks
 from ub_agents.github import GitHub
@@ -128,7 +129,7 @@ agents:
                 output = FlushedOutput()
                 doctor = Doctor(runner=self.runner, which=self.which, github=self.github)
                 events, completed = [], []
-                with DoctorProgress(AREAS, stream=output) as renderer:
+                with DoctorProgress(areas(), stream=output) as renderer:
                     def progress(event, area, value):
                         events.append((event, area))
                         if event == 'check':
@@ -149,7 +150,7 @@ agents:
                     renderer.finish(result, 1.0)
                 self.assertEqual(events[0], ('header', None))
                 boundaries = [(event, area) for event, area in events if event.startswith('area-')]
-                self.assertEqual(boundaries, [(event, area) for area in AREAS
+                self.assertEqual(boundaries, [(event, area) for area in areas()
                                              for event in ('area-start', 'area-end')])
                 self.assertEqual(completed, ['Machine', 'Configuration', 'GitHub', 'Runtimes'])
                 self.assertEqual(result, self.diagnose(offline=offline))
@@ -160,6 +161,7 @@ agents:
                     self.assertIn('Use a dedicated launcher account', output.getvalue())
 
     def test_area_map_and_probe_order(self):
+        self.assertEqual(list(areas()), ['machine', 'configuration', 'GitHub', 'runtimes'])
         self.assertEqual(CHECK_AREAS['process-inspection'], 'machine')
         for id in ('local-state', 'local-state-ignored'):
             self.assertEqual(CHECK_AREAS[id], 'configuration')
@@ -168,17 +170,26 @@ agents:
             self.assertEqual(CHECK_AREAS[id], 'GitHub')
         for offline in (False, True):
             result = self.diagnose(offline=offline)
-            areas = [CHECK_AREAS[check['id'].split(':')[0]] for check in result['checks']]
-            self.assertEqual(areas, sorted(areas, key=list(AREAS).index))
+            check_areas = [CHECK_AREAS[check['id'].split(':')[0]] for check in result['checks']]
+            self.assertEqual(check_areas, sorted(check_areas, key=list(areas()).index))
         commands = [command for command, _ in self.runner.calls]
         self.assertEqual(commands[0], ('ps', '-axo', 'pid=,pgid=,stat='))
         self.assertLess(commands.index(('git', '-C', str(self.root), 'check-ignore', '-q', '.ub-agents/')),
                         commands.index(('codex', 'login', 'status')))
 
+    def test_duplicate_declarations_and_undeclared_emissions_are_rejected(self):
+        for area in ('machine', 'configuration'):
+            with self.subTest(area=area), self.assertRaisesRegex(ValueError, "already declared"):
+                check(area, 'python')(lambda: None)
+        doctor = Doctor()
+        doctor.add('undeclared:worker', 'skip', 'configuration unavailable')
+        with self.assertRaisesRegex(ValueError, "Undeclared doctor check 'undeclared:worker'"):
+            doctor.result()
+
     def test_verbose_streams_each_check_between_area_heading_and_summary(self):
         output = FlushedOutput()
         doctor = Doctor(runner=self.runner, which=self.which, github=self.github)
-        with DoctorProgress(AREAS, verbose=True, stream=output) as renderer:
+        with DoctorProgress(areas(), verbose=True, stream=output) as renderer:
             def progress(event, area, value):
                 renderer(event, area, value)
                 if event == 'check':
@@ -225,7 +236,7 @@ agents:
                 output = FlushedOutput()
                 output.isatty = lambda: True
                 with patch.dict(os.environ, {'CI': ''}):
-                    renderer = DoctorProgress(AREAS, stream=output)
+                    renderer = DoctorProgress(areas(), stream=output)
                 def runner(command, **kwargs):
                     if command == ['codex', 'login', 'status']:
                         self.assertIn('codex auth for worker', output.getvalue())
@@ -239,7 +250,7 @@ agents:
     def test_terminal_spinner_clears_before_finished_lines_and_on_success(self):
         output = FlushedOutput()
         output.isatty = lambda: True
-        with patch.dict(os.environ, {'CI': ''}), DoctorProgress(AREAS, stream=output) as renderer:
+        with patch.dict(os.environ, {'CI': ''}), DoctorProgress(areas(), stream=output) as renderer:
             doctor = Doctor(runner=self.runner, which=self.which, github=self.github)
             result = doctor.run(self.path, progress=renderer)
             renderer.finish(result, 0)
@@ -280,7 +291,6 @@ agents:
             code, output = self.cli(True)
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(output), result)
-            from ub_agents.doctor.doctor import CHECK_AREAS
             self.assertEqual(CHECK_AREAS["runtime-mcp"], "runtimes")
             self.assertEqual(self.one(self.diagnose(offline=True), "runtime-mcp")["status"], "skip")
 
