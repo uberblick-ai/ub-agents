@@ -117,13 +117,18 @@ def run(root, receiver, life, errors, writer=write_snapshot):  # noqa: C901, PLR
 
     threading.Thread(target=watch_parent, daemon=True).start()
     latest = None
+    # A large snapshot arrives over many turns. Write each complete snapshot
+    # once, and repeat the latest only as a heartbeat, so a backlog drains fast.
+    fresh = False
+    written = 0.0
     buffer = bytearray()
     expected = None
     receiver.setblocking(False)
     directory = Path(root) / ".ub-agents" / "sessions"
     try:
         while True:
-            select.select([receiver, life], [], [], HEARTBEAT_SECONDS if latest else 0.1)
+            wait = max(0.0, written + HEARTBEAT_SECONDS - time.monotonic()) if latest else 0.1
+            select.select([receiver, life], [], [], wait)
             # Capture EOF before draining. If EOF arrives during a write, take
             # another turn to receive the launcher's final queued snapshot.
             finishing = ended.is_set()
@@ -148,9 +153,10 @@ def run(root, receiver, life, errors, writer=write_snapshot):  # noqa: C901, PLR
                     del buffer[:expected]
                     expected = None
                     if candidate.get("version") == VERSION:
-                        latest = candidate
-            if latest:
+                        latest, fresh = candidate, True
+            if latest and (fresh or time.monotonic() - written >= HEARTBEAT_SECONDS):
                 writer(directory, latest)
+                fresh, written = False, time.monotonic()
             if finishing:
                 return
     except Exception as exc:

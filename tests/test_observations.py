@@ -23,7 +23,7 @@ from ub_agents.execution import group_members
 from ub_agents.loop import Loop, _GracefulStop
 from ub_agents.notices import ACTION_MARKER, Notices
 from ub_agents.observations import (MAX_BYTES, MAX_OUTCOMES, MAX_PLANS,
-                                   MAX_TEXT, RETAINED_SESSIONS, STALE_SECONDS,
+                                   MAX_TEXT, RETAINED_SESSIONS, STALE_SECONDS, VERSION,
                                    Observations, Publisher)
 from ub_agents.observation_worker import prune, stale, write_snapshot
 from ub_agents.records import iso, records, timestamp
@@ -1223,6 +1223,20 @@ class PublisherTests(unittest.TestCase):
         publisher.diagnostics.join(timeout=5)
         self.assertFalse(publisher.diagnostics.is_alive())
         self.assertEqual(self.lines, [])
+
+    def test_worker_writes_each_snapshot_once_while_a_large_one_arrives(self):
+        # Rewriting the previous snapshot on every partial receive made exit
+        # wait for a backlog of history files.
+        publisher = self.publisher(observation_writer_command(
+            "    with open(Path(root)/'writes','a') as f: f.write('w')"))
+        writes = self.root / "writes"
+        publisher.submit(json.dumps({"version": VERSION}).encode())
+        self.wait_for(writes.exists)
+        publisher.submit(json.dumps({"version": VERSION, "padding": "x" * 1_000_000}).encode())
+        self.wait_for(lambda: len(writes.read_text()) >= 2)
+        publisher.close()
+        publisher.process.wait(timeout=5)
+        self.assertEqual(writes.read_text(), "ww")
 
     def test_heartbeat_keeps_idle_session_fresh(self):
         # The real helper with a short heartbeat, so the test need not wait 5 seconds.
