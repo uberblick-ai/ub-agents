@@ -272,11 +272,11 @@ def reread(*args):
     if mode in {'q-paused', 'term-paused'}:
         raise UnsupportedConfiguration('Unknown configuration keys: future-key')
     return cfg
-with patch('ub_agents.cli.load_config', return_value=cfg), patch('ub_agents.loop.load_config', side_effect=reread), \\
+with patch('ub_agents.cli._runtime.load_config', return_value=cfg), patch('ub_agents.loop.load_config', side_effect=reread), \\
      patch('ub_agents.loop.git', return_value='a' * 40), \\
-     patch('ub_agents.cli.GitHub', return_value=github), patch('ub_agents.cli.Loop', side_effect=create), \\
-     patch.object(Loop, 'launch', launch), patch('ub_agents.cli.launch_checks', side_effect=check_setup), \\
-     patch('ub_agents.cli.repository_checks', return_value=[]), patch('ub_agents.loop.refresh_checkout'), \\
+     patch('ub_agents.cli._runtime.GitHub', return_value=github), patch('ub_agents.cli._runtime.Loop', side_effect=create), \\
+     patch.object(Loop, 'launch', launch), patch('ub_agents.cli.launch.launch_checks', side_effect=check_setup), \\
+     patch('ub_agents.cli.launch.repository_checks', return_value=[]), patch('ub_agents.loop.refresh_checkout'), \\
      patch('ub_agents.assignment_run.supervise', side_effect=run), \\
      patch('ub_agents.launch_ui.ui_command', side_effect=lambda: escape_ack_command(ui_command())):
     result = main(['--config', str(root / 'ub-agents.yaml'), 'launch', *sys.argv[4:]])

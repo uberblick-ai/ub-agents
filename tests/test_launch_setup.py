@@ -31,14 +31,14 @@ class LaunchSetupTests(unittest.TestCase):
         self.publisher = MemoryPublisher()
         self.view = Mock()
         self.updates = Mock(banner=None)
-        self.enterContext(patch("ub_agents.cli.load_config", return_value=config(self.root)))
-        self.enterContext(patch("ub_agents.cli.GitHub", return_value=self.github))
-        self.enterContext(patch("ub_agents.cli.repository_checks", return_value=[]))
+        self.enterContext(patch("ub_agents.cli._runtime.load_config", return_value=config(self.root)))
+        self.enterContext(patch("ub_agents.cli._runtime.GitHub", return_value=self.github))
+        self.enterContext(patch("ub_agents.cli.launch.repository_checks", return_value=[]))
         self.enterContext(patch("ub_agents.observations.Publisher", return_value=self.publisher))
-        self.checks = self.enterContext(patch("ub_agents.cli.launch_checks"))
+        self.checks = self.enterContext(patch("ub_agents.cli.launch.launch_checks"))
         self.open_view = self.enterContext(patch("ub_agents.launch_ui.open_view", return_value=self.view))
         self.update_factory = self.enterContext(patch("ub_agents.updates.Updates", return_value=self.updates))
-        self.sweep = self.enterContext(patch("ub_agents.cli.StartupCleanup"))
+        self.sweep = self.enterContext(patch("ub_agents.cli.launch.StartupCleanup"))
 
         def create(*args, **kwargs):
             self.loop = Loop(*args, **kwargs)
@@ -48,7 +48,7 @@ class LaunchSetupTests(unittest.TestCase):
             self.loop.stop_event.set()
             return True
 
-        self.enterContext(patch("ub_agents.cli.Loop", side_effect=create))
+        self.enterContext(patch("ub_agents.cli._runtime.Loop", side_effect=create))
         self.poll = self.enterContext(patch.object(Loop, "tick", side_effect=poll))
         self.item_poll = self.enterContext(patch.object(Loop, "tick_item", side_effect=poll))
         self.stdout, self.stderr = io.StringIO(), io.StringIO()

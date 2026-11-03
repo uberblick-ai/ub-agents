@@ -752,8 +752,8 @@ class TerminalTests(unittest.TestCase):
             with self.subTest(stdin=stdin_tty, stdout=stdout_tty, ci=ci), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / 'workflow.yaml'
                 github = SetupGitHub()
-                with patch('ub_agents.cli.sys.stdin.isatty', return_value=stdin_tty), \
-                        patch('ub_agents.cli.GitHub', return_value=github), \
+                with patch('ub_agents.cli.init.sys.stdin.isatty', return_value=stdin_tty), \
+                        patch('ub_agents.cli._runtime.GitHub', return_value=github), \
                         patch('ub_agents.init.prompts.InlinePrompter.run', side_effect=AssertionError('prompt')), \
                         patch('subprocess.run', side_effect=AssertionError('probe')), \
                         patch('builtins.input', side_effect=AssertionError('prompt')), \
@@ -777,7 +777,7 @@ from tests.support import SetupGitHub
 from ub_agents.cli import main
 from ub_agents.init.flow import Flow
 github = SetupGitHub()
-with patch('ub_agents.cli.GitHub', lambda repo: github), \\
+with patch('ub_agents.cli._runtime.GitHub', lambda repo, runner: github), \\
         patch.object(Flow, 'check', lambda self: setattr(self, 'github', github)), \\
         patch.object(Flow, 'choose_labels', lambda self, plan: []):
     sys.exit(main(['--config', sys.argv[1], 'init', '--repository', 'org/project']))

@@ -6,7 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.cli import main, status_rows
+from ub_agents.cli import main
+from ub_agents.cli.status import status_rows
 from ub_agents.errors import AgentError, CleanupError, RetryableExecutionError
 from ub_agents.loop import Loop
 from ub_agents.settlement import Settlement
@@ -74,9 +75,9 @@ class FailureCountTests(unittest.TestCase):
         with patch('ub_agents.assignment_run.supervise', side_effect=AssertionError('must not execute')):
             self.assertFalse(self.loop.tick())
         self.assertEqual(status_rows(self.loop)[0]['attempts'], 3)
-        with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
-                patch('ub_agents.cli.GitHub', return_value=self.github), \
-                patch('ub_agents.cli.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
+        with patch('ub_agents.cli._runtime.load_config', return_value=self.loop.config), \
+                patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
+                patch('ub_agents.cli.status.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
             self.assertEqual(main(['retry', '--number', '1', '--agent', self.agent.name,
                                    '--reason', 'Transient failure resolved']), 0)
         self.loop = self.restart()
@@ -366,9 +367,9 @@ class FailureCountTests(unittest.TestCase):
         with patch('ub_agents.assignment_run.supervise') as supervise:
             self.assertFalse(self.loop.tick())
         supervise.assert_not_called()
-        with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
-                patch('ub_agents.cli.GitHub', return_value=self.github), \
-                patch('ub_agents.cli.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
+        with patch('ub_agents.cli._runtime.load_config', return_value=self.loop.config), \
+                patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
+                patch('ub_agents.cli.status.timestamp', return_value=self.now), redirect_stdout(io.StringIO()):
             self.assertEqual(main(['retry', '1', '--agent', self.agent.name,
                                    '--reason', 'Resume after cancellation']), 0)
         self.loop = self.restart()

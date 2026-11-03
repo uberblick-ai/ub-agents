@@ -41,11 +41,11 @@ class SignalTests(unittest.TestCase):
             self.loop.interrupt_event = kwargs["interrupt_event"]
             return self.loop
 
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.launch_checks"), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
-                patch("ub_agents.cli.repository_checks", return_value=[]), \
-                patch("ub_agents.cli.Loop", side_effect=loop), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli.launch.launch_checks"), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
+                patch("ub_agents.cli._runtime.Loop", side_effect=loop), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             return main(["--config", str(self.root / "ub-agents.yaml"), "launch"])
 

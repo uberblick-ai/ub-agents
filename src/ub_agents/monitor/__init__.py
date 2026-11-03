@@ -14,7 +14,7 @@ from .snapshot import MonitorSource
 START_SECONDS = 15
 
 
-def monitor_run(config, github, coordinator, port, open_page=True):
+def serve(config, github, coordinator, port, open_page=True):
     url = f"http://127.0.0.1:{port}/"
     try:
         server = create(MonitorSource(config, github, coordinator, timestamp), port)

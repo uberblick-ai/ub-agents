@@ -6,7 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.cli import main, status_rows
+from ub_agents.cli import main
+from ub_agents.cli.status import status_rows
 from ub_agents.config import Priority, Queue
 from ub_agents.errors import AgentError
 from ub_agents.github import Dependency
@@ -45,8 +46,8 @@ class StrictMilestoneGateTests(unittest.TestCase):
         return execute.call_args.args[0].item.number if execute.called else None
 
     def status(self, *args):
-        with patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), redirect_stdout(io.StringIO()) as output:
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(["status", *args]), 0)
         return output.getvalue()
 

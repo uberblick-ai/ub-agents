@@ -120,8 +120,8 @@ class HelpTests(unittest.TestCase):
             stack.callback(os.chdir, previous)
             # Help must not read project secrets, reach GitHub/network, create
             # artifacts or execute operations, even with an explicit config path.
-            for target in ("ub_agents.cli.resolve_config_path", "ub_agents.cli.load_config",
-                           "ub_agents.cli.launch_output", "ub_agents.cli.GitHub",
+            for target in ("ub_agents.cli.resolve_config_path", "ub_agents.cli._runtime.load_config",
+                           "ub_agents.cli.launch.launch_output", "ub_agents.cli._runtime.GitHub",
                            "ub_agents.cli.run", "subprocess.run", "subprocess.Popen",
                            "socket.create_connection", "pathlib.Path.open", "builtins.open"):
                 stack.enter_context(patch(target, side_effect=AssertionError(f"Help touched {target}")))

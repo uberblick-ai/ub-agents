@@ -26,7 +26,7 @@ def quota(remaining=999, reset=4600, limit=5000):
 class IdlePollingTests(unittest.TestCase):
     def setUp(self):
         isolate_observations(self)
-        self.enterContext(patch("ub_agents.cli.launch_checks"))
+        self.enterContext(patch("ub_agents.cli.launch.launch_checks"))
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
@@ -426,9 +426,9 @@ class IdlePollingTests(unittest.TestCase):
                     self.assertGreater(delay, 60)
                     signal.raise_signal(sig)
 
-                with patch("ub_agents.cli.load_config", return_value=self.config), \
-                        patch("ub_agents.cli.GitHub", return_value=self.github), \
-                        patch("ub_agents.cli.repository_checks", return_value=[]), \
+                with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                        patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
+                        patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                         patch.object(StartupCleanup, "start", start), \
                         patch.object(self.github, "actor", return_value="operator"), \
                         patch.object(Loop, "_discovery_tick", side_effect=tick) as ticks, \

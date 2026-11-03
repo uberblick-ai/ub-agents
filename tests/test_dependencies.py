@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.cli import main, status_rows
+from ub_agents.cli import main
+from ub_agents.cli.status import status_rows
 from ub_agents.config import Priority, Queue
 from ub_agents.errors import AgentError
 from ub_agents.github import Dependency
@@ -285,9 +286,9 @@ class DependencyTests(unittest.TestCase):
         self.loop = self.make_loop(milestones="order")
         rows = status_rows(self.loop)
         self.assertEqual((rows[0]["milestone"], rows[0]["milestone_inherited_from"]), (10, 21))
-        with patch("ub_agents.cli.Loop", return_value=self.loop), \
-                patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github):
+        with patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
+                patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github):
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(["status", "--json"]), 0)
             self.assertEqual(json.loads(output.getvalue())["assignments"], rows)
@@ -345,9 +346,9 @@ class DependencyTests(unittest.TestCase):
         self.add(issue(21, ("priority:urgent",)), pr(2, ("needs-changes",), body="Closes #21"))
         rows = status_rows(self.loop)
         self.assertEqual(rows[0]["priority_from_issue"], 21)
-        with patch("ub_agents.cli.Loop", return_value=self.loop), \
-                patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
+        with patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
+                patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
                 redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(["status"]), 0)
         self.assertIn("priority:urgent (from closed issue #21)", output.getvalue())
@@ -394,9 +395,9 @@ class DependencyTests(unittest.TestCase):
                 self.loop.tick()
             with self.assertRaisesRegex(AgentError, "Dependency read failed"):
                 self.loop.coordinator.claim(plan)
-            with patch("ub_agents.cli.Loop", return_value=self.loop), \
-                    patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                    patch("ub_agents.cli.GitHub", return_value=self.github), \
+            with patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
+                    patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                    patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
                     redirect_stderr(io.StringIO()) as errors:
                 self.assertEqual(main(["status"]), 1)
             self.assertIn("Dependency read failed", errors.getvalue())
@@ -410,9 +411,9 @@ class DependencyTests(unittest.TestCase):
         self.assertEqual(rows[0]["priority"], "priority:urgent")
         self.assertEqual(rows[0]["priority_inherited_from"], 21)
         self.assertEqual(rows[0]["open_blockers"], ["#31", "#32"])
-        with patch("ub_agents.cli.Loop", return_value=self.loop), \
-                patch("ub_agents.cli.load_config", return_value=self.loop.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github):
+        with patch("ub_agents.cli._runtime.Loop", return_value=self.loop), \
+                patch("ub_agents.cli._runtime.load_config", return_value=self.loop.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github):
             with redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(["status", "--json"]), 0)
             self.assertEqual(json.loads(output.getvalue())["assignments"], rows)

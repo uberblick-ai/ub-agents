@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import Priority, Queue
-from ub_agents.cli import status_rows
+from ub_agents.cli.status import status_rows
 from ub_agents.discovery import Discovery
 from ub_agents.errors import GitHubError
 from ub_agents.github import GitHub

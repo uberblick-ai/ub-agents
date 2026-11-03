@@ -42,8 +42,8 @@ class ReadInputTests(unittest.TestCase):
         return read_item(self.github, number, read_policy(self.config))
 
     def cli(self, number="1", *arguments):
-        with patch("ub_agents.cli.load_config", return_value=self.config), \
-                patch("ub_agents.cli.GitHub", return_value=self.github), \
+        with patch("ub_agents.cli._runtime.load_config", return_value=self.config), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github), \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             try:
                 code = main(["read", number, *arguments])
@@ -425,8 +425,8 @@ class ReadInputTests(unittest.TestCase):
     def test_supervised_read_uses_pinned_policy_and_ignores_worktree_config(self):
         env = run_environment(replace(self.config, approvals="off"), self.config.agents[0],
                               {"run": "run", "assignment": 1, "id": 2})
-        with patch.dict(os.environ, env), patch("ub_agents.cli.load_config", side_effect=AssertionError("worktree config")), \
-                patch("ub_agents.cli.GitHub", return_value=self.github) as github, \
+        with patch.dict(os.environ, env), patch("ub_agents.cli._runtime.load_config", side_effect=AssertionError("worktree config")), \
+                patch("ub_agents.cli._runtime.GitHub", return_value=self.github) as github, \
                 redirect_stdout(io.StringIO()) as stdout:
             self.assertEqual(main(["read", "1", "--config", str(self.root / "changed.yaml")]), 0)
         self.assertEqual(json.loads(stdout.getvalue())["body"], "Acceptance criteria")

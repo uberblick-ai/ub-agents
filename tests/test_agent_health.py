@@ -10,7 +10,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from ub_agents.agent_health import run_check
-from ub_agents.cli import main, status_rows
+from ub_agents.cli import main
+from ub_agents.cli.status import status_rows
 from ub_agents.config import Runtime
 from ub_agents.errors import GitHubError
 from ub_agents.execution import group_members
@@ -303,8 +304,8 @@ class HealthGateTests(unittest.TestCase):
         for scoped in ([], ['1']):
             with self.subTest(scoped=scoped):
                 stdout = io.StringIO()
-                with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
-                        patch('ub_agents.cli.GitHub', return_value=self.github), redirect_stdout(stdout):
+                with patch('ub_agents.cli._runtime.load_config', return_value=self.loop.config), \
+                        patch('ub_agents.cli._runtime.GitHub', return_value=self.github), redirect_stdout(stdout):
                     self.assertEqual(main(['status', *scoped, '--json']), 0)
                     rows = json.loads(stdout.getvalue())['assignments']
                     self.assertEqual(len(rows), 1 if scoped else 2)
@@ -323,11 +324,11 @@ class HealthGateTests(unittest.TestCase):
         for scoped in ([], ['1']):
             with self.subTest(scoped=scoped):
                 stdout = io.StringIO()
-                with patch('ub_agents.cli.load_config', return_value=self.loop.config), \
-                        patch('ub_agents.cli.GitHub', return_value=self.github), \
-                        patch('ub_agents.cli.repository_checks', return_value=[]), \
+                with patch('ub_agents.cli._runtime.load_config', return_value=self.loop.config), \
+                        patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
+                        patch('ub_agents.cli.launch.repository_checks', return_value=[]), \
                         patch('ub_agents.cleanup.Cleaner.inventory', return_value=[]), \
-                        patch('ub_agents.cli.launch_checks'), redirect_stdout(stdout):
+                        patch('ub_agents.cli.launch.launch_checks'), redirect_stdout(stdout):
                     self.assertEqual(main(['--config', str(path), 'launch', *scoped, '--once', '--no-ui']),
                                      1 if scoped else 0)
                 self.assertEqual(stdout.getvalue().splitlines()[0],

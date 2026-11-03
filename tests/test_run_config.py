@@ -28,8 +28,8 @@ class RunConfigTests(unittest.TestCase):
     def assert_refused(self, env=None, commands=None):
         for command in self.commands if commands is None else commands:
             with self.subTest(command=command), patch.dict(os.environ, self.env if env is None else env, clear=True), \
-                    patch("ub_agents.cli.GitHub") as github, \
-                    patch("ub_agents.cli.load_config", side_effect=AssertionError("local config")), \
+                    patch("ub_agents.cli._runtime.GitHub") as github, \
+                    patch("ub_agents.cli._runtime.load_config", side_effect=AssertionError("local config")), \
                     redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
                 self.assertEqual(main(command), 1)
                 self.assertEqual(stdout.getvalue(), "")
