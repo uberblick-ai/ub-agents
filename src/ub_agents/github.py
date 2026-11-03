@@ -1,4 +1,4 @@
-"""Authenticated, unindexed GitHub reads through gh. Errors never mean no work."""
+"""Authenticated GitHub requests over HTTPS or gh. Errors never mean no work."""
 
 from dataclasses import dataclass, replace
 import json
@@ -9,6 +9,7 @@ import subprocess
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError, GitHubError
+from .github_http import REQUEST_TIMEOUT_SECONDS, Transport, token
 from .records import iso, positive_int, seconds, timestamp
 
 REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
@@ -131,7 +132,6 @@ def response_parts(output):
 RATE_LIMIT_MARGIN_SECONDS = 5
 RATE_LIMIT_FALLBACK_SECONDS = 60
 RATE_LIMIT_MAX_SECONDS = 3600
-REQUEST_TIMEOUT_SECONDS = 20
 
 
 def is_rate_limit(status, headers, detail):
@@ -307,8 +307,10 @@ def candidate_check(row, field, sha):
 
 
 class GitHub:
-    def __init__(self, repository, runner=None):
+    def __init__(self, repository, runner=None, *, before_request=None):
         self.runner = runner
+        self.before_request = before_request
+        self._http = Transport()
         self.repository = repository
         self.prefix = f"repos/{repository}"
         self.quota_headers = {}
@@ -400,6 +402,21 @@ class GitHub:
             self.resource_quotas[resource] = headers
 
     def _response(self, command, endpoint, method, data, cached):
+        if self.before_request is not None:
+            self.before_request()
+        # Injected runners retain the gh command/--include protocol used by
+        # setup, doctor and recording fakes, without reading a real credential.
+        credential = token.get() if self.runner is None else None
+        status, headers, payload, result = self._exchange(command, endpoint, method, data, cached, credential)
+        if status == 401 and self.runner is None:
+            refreshed = token.refresh(credential)
+            if refreshed is not None and refreshed != credential:
+                status, headers, payload, result = self._exchange(command, endpoint, method, data, cached, refreshed)
+        return self._checked_response(endpoint, method, status, headers, payload, result)
+
+    def _exchange(self, command, endpoint, method, data, cached, credential):
+        if self.before_request is not None:
+            self.before_request()
         if cached is not None:
             command = command + ["-H", f"If-None-Match: {cached[0]}"]
         rest = urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}
@@ -408,6 +425,19 @@ class GitHub:
             self.rest_requests += 1
         else:
             self.graphql_calls += 1
+        if credential is not None:
+            status, headers, payload, detail = self._http.send(endpoint, method, data, cached, credential)
+            result = subprocess.CompletedProcess([], int(status >= 400 or bool(detail)), payload, detail)
+        else:
+            result = self._gh_response(command, endpoint, method, data)
+            try:
+                status, headers, payload = response_parts(result.stdout)
+            except ValueError as exc:
+                raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+        self._record_response_quota(status, headers, result, rest)
+        return status, headers, payload, result
+
+    def _gh_response(self, command, endpoint, method, data):
         try:
             result = (self.runner or subprocess.run)(
                 command, input=json.dumps(data) if data is not None else None,
@@ -424,18 +454,21 @@ class GitHub:
         # gh shares the terminal's foreground group and can exit first on Ctrl-C.
         if result.returncode in (-signal.SIGINT, 128 + signal.SIGINT):
             raise KeyboardInterrupt
-        try:
-            status, headers, payload = response_parts(result.stdout)
-        except ValueError as exc:
-            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
-        self._record_response_quota(status, headers, result, rest)
+        return result
+
+    def _checked_response(self, endpoint, method, status, headers, payload, result):
         # gh exits 1 for a 304 and writes "gh: HTTP 304" to stderr. The
         # server's freshness confirmation takes precedence over that exit code.
         if status == 304:
             return status, headers, payload
+        if status is not None and 300 <= status < 400:
+            raise GitHubError(method, endpoint, f"Unexpected GitHub redirect (HTTP {status}); "
+                              "check the repository configuration and requested resource")
         self.rate_limited |= is_rate_limit(status, headers, result.stderr + payload)
         if result.returncode or (status is not None and status >= 400):
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
+            if status == 401:
+                detail = f"Authentication failed (HTTP 401); check gh auth status: {detail}"
             limited = is_rate_limit(status, headers, detail + " " + payload)
             retryable, reset_at = failure_retry(status, headers, detail + " " + payload if limited else detail)
             if status is None and result.returncode == 4:

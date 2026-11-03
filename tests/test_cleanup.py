@@ -11,14 +11,14 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
-from ub_agents.cleanup import Cleaner
+from ub_agents.cleanup import Artifact, Cleaner
 from ub_agents.config import CleanupHook
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import AgentError, CleanupError
 from ub_agents.execution import git, stop_group
 from ub_agents.github import GitHub
 from ub_agents.records import iso, timestamp
-from tests.support import FakeGitHub, config, edit_lease, issue, pr
+from tests.support import FakeGitHub, config, edit_lease, issue, pr, run_environment
 
 
 class CleanupTests(unittest.TestCase):
@@ -49,7 +49,11 @@ class CleanupTests(unittest.TestCase):
         git(path, "-c", "user.name=Test", "-c", "user.email=test@example.com",
             "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
 
-    def test_cleanup_scans_repository_comments_without_startup_window(self):
+    def run_record(self):
+        environment = run_environment(self.config, self.config.agents[0], self.lease)
+        return Path(environment["UB_AGENTS_RUN_CONFIG"])
+
+    def test_fallback_scans_repository_comments_without_startup_window(self):
         github = GitHub("org/project")
         cleaner = Cleaner(self.config, github, "operator", output=lambda *_: None)
         with patch.object(github, "request", return_value=[]) as request:
@@ -58,6 +62,138 @@ class CleanupTests(unittest.TestCase):
                  if urlsplit(c.args[0]).path.endswith("/issues/comments")]
         self.assertTrue(scans)
         self.assertNotIn("since", scans[0])
+
+    def test_named_artifacts_read_only_their_items_and_head_pr_histories(self):
+        self.run_record()
+        ref = f"refs/ub-agents/runs/{self.lease['run']}/head"
+        git(self.root, "update-ref", ref, self.head)
+        self.github.items[2] = replace(pr(head=self.head), branch=self.branch, state="closed")
+        self.github.items[3] = issue(3)
+        self.github.create_comment(3, "unrelated history")
+        with patch.object(self.github, "repository_comments", side_effect=AssertionError("full scan")), \
+                patch.object(self.github, "comments", wraps=self.github.comments) as comments:
+            rows = self.cleaner.clean(True)
+        self.assertEqual({row["kind"] for row in rows}, {"worktree", "branch", "ref"})
+        self.assertTrue(all(row["action"] == "removed" for row in rows))
+        self.assertEqual({call.args[0] for call in comments.call_args_list}, {1, 2})
+        self.assert_removed()
+        self.assertEqual(git(self.root, "for-each-ref", ref), "")
+
+    def test_named_artifacts_keep_live_and_unconfirmed_runs_without_full_scan(self):
+        self.run_record()
+        ref = f"refs/ub-agents/runs/{self.lease['run']}/head"
+        git(self.root, "update-ref", ref, self.head)
+        with patch.object(self.github, "repository_comments", side_effect=AssertionError("full scan")):
+            for kind, name in (("worktree", str(self.path)), ("branch", self.branch), ("ref", ref)):
+                if kind == "branch":
+                    git(self.root, "worktree", "remove", str(self.path))
+                with patch.object(self.cleaner, "inventory", return_value=[Artifact(kind, name, self.lease["run"])]):
+                    for mode in ("live", "unconfirmed", "ended"):
+                        with self.subTest(kind=kind, mode=mode):
+                            self.update(state="released" if mode != "live" else "running",
+                                        expires=iso(timestamp() + 60),
+                                        cleanup="unconfirmed" if mode == "unconfirmed" else None)
+                            row = self.cleaner.clean()[0]
+                            self.assertEqual(row["action"], "would remove" if mode == "ended" else "kept")
+                            if mode != "ended":
+                                self.assertIn("lease is live" if mode == "live" else "cleanup is unconfirmed",
+                                              row["reason"])
+
+    def test_missing_or_unreadable_local_assignment_uses_full_scan(self):
+        ref = f"refs/ub-agents/runs/{self.lease['run']}/head"
+        git(self.root, "update-ref", ref, self.head)
+        for kind, name in (("worktree", str(self.path)), ("ref", ref)):
+            if kind == "ref":
+                git(self.root, "worktree", "remove", str(self.path))
+            artifact = Artifact(kind, name, self.lease["run"])
+            for mode in ("missing", "malformed", "unreadable", "directory", "redirected", "non-object", "invalid-assignment"):
+                with self.subTest(kind=kind, mode=mode):
+                    path = self.run_record()
+                    if mode == "missing":
+                        path.unlink()
+                    elif mode == "malformed":
+                        path.write_text("{")
+                    elif mode == "unreadable":
+                        path.write_bytes(b"\xff")
+                    elif mode == "directory":
+                        path.unlink()
+                        path.mkdir()
+                    elif mode == "redirected":
+                        path.unlink()
+                        path.symlink_to(self.root / "missing-record")
+                    elif mode == "non-object":
+                        path.write_text("[]")
+                    else:
+                        context = json.loads(path.read_text()) | {"assignment": True}
+                        path.write_text(json.dumps(context))
+                    with patch.object(self.cleaner, "inventory", return_value=[artifact]), \
+                            patch.object(self.github, "repository_comments", wraps=self.github.repository_comments) as scan:
+                        self.update(state="running", expires=iso(timestamp() + 60))
+                        self.assertIn("lease is live", self.cleaner.clean()[0]["reason"])
+                        self.update(state="released")
+                        self.assertEqual(self.cleaner.clean()[0]["action"], "would remove")
+                    self.assertEqual(scan.call_count, 2)
+                    if path.is_symlink():
+                        path.unlink()
+                    elif path.is_dir():
+                        path.rmdir()
+
+    def test_misleading_named_item_without_run_lease_falls_back_for_every_artifact(self):
+        from ub_agents.records import body, payload
+        self.github.items[3] = issue(3)
+        self.github.create_comment(3, body(payload(self.lease) | {"assignment": 3, "run": "another-run"}))
+        path = self.run_record()
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"assignment": 3}))
+        self.branch = f"ub-agents/worker/3/{self.lease['run']}"
+        git(self.path, "branch", "-m", self.branch)
+        ref = f"refs/ub-agents/runs/{self.lease['run']}/head"
+        git(self.root, "update-ref", ref, self.head)
+        for kind, name in (("worktree", str(self.path)), ("branch", self.branch), ("ref", ref)):
+            if kind == "branch":
+                git(self.root, "worktree", "remove", str(self.path))
+            artifact = Artifact(kind, name, self.lease["run"])
+            with self.subTest(kind=kind), patch.object(self.cleaner, "inventory", return_value=[artifact]), \
+                    patch.object(self.github, "repository_comments", wraps=self.github.repository_comments) as scan:
+                self.update(state="running", expires=iso(timestamp() + 60))
+                self.assertIn("lease is live", self.cleaner.clean()[0]["reason"])
+                self.update(state="released")
+                self.assertEqual(self.cleaner.clean()[0]["action"], "would remove")
+                self.assertEqual(scan.call_count, 2)
+
+    def test_named_branch_keeps_pr_owners_without_full_scan(self):
+        from ub_agents.records import body, payload
+        git(self.root, "worktree", "remove", str(self.path))
+        continued = payload(self.lease) | {"assignment": 2, "assignment_sha": self.head,
+                                         "run": "continued", "expires": iso(timestamp() + 60)}
+        with patch.object(self.github, "repository_comments", side_effect=AssertionError("full scan")):
+            for mode, reason in (("live", "lease is live"), ("unconfirmed", "cleanup is unconfirmed"),
+                                 ("open-pr", "open PR")):
+                with self.subTest(mode=mode):
+                    self.github.items[2] = replace(pr(head=self.head), branch=self.branch,
+                                                  state="open" if mode == "open-pr" else "closed")
+                    self.github.store[2] = []
+                    self.github.create_comment(2, body(continued | {
+                        "state": "running" if mode == "live" else "released",
+                        "cleanup": "unconfirmed" if mode == "unconfirmed" else None}))
+                    row = self.actions(True)["branch"]
+                    self.assertEqual(row["action"], "kept")
+                    self.assertIn(reason, row["reason"])
+
+    def test_failed_named_item_or_head_pr_history_read_keeps_affected_artifact(self):
+        self.run_record()
+        self.github.items[2] = replace(pr(head=self.head), branch=self.branch, state="closed")
+        read = self.github.comments
+        for number in (1, 2):
+            def fail(target):
+                if target == number:
+                    raise AgentError("Item history unavailable")
+                return read(target)
+            with self.subTest(number=number), patch.object(self.github, "comments", side_effect=fail), \
+                    patch.object(self.github, "repository_comments", side_effect=AssertionError("full scan")):
+                rows = self.actions()
+            self.assertEqual(rows["branch"]["action"], "kept")
+            self.assertIn("Item history unavailable", rows["branch"]["reason"])
+            self.assertEqual(rows["worktree"]["action"], "kept" if number == 1 else "would remove")
 
     def test_sweep_removes_run_owned_fork_ref_after_worktree_and_orphaned_ref(self):
         ref = f"refs/ub-agents/runs/{self.lease['run']}/head"
@@ -229,7 +365,9 @@ class CleanupTests(unittest.TestCase):
                 self.assertTrue(all("lease is live" in row["reason"] for row in self.cleaner.clean(True)))
 
     def test_pr_lookup_and_coordination_scan_failures_keep_each_artifact(self):
+        original = deepcopy(self.github.store)
         for target in ("prs_for_branch", "repository_comments", "comments"):
+            self.github.store = {} if target == "repository_comments" else deepcopy(original)
             with self.subTest(target=target), patch.object(self.github, target, side_effect=AgentError("GitHub read failed")):
                 rows = self.cleaner.clean(True)
                 self.assertEqual(len(rows), 2)

@@ -18,6 +18,10 @@ from tests.support import DiscoveryCostRunner, FakeGitHub, RecordingRunner, agen
 
 
 class GitHubTests(unittest.TestCase):
+    def setUp(self):
+        # These tests script gh responses; HTTP has its own fake-connection suite.
+        self.enterContext(patch('ub_agents.github.token.get', return_value=None))
+
     def test_teams_lists_maintaining_teams_as_handles(self):
         github = GitHub('org/project')
         teams = [{'slug': 'core', 'permission': 'maintain'}, {'slug': 'docs', 'permission': 'push'},

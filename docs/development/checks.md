@@ -31,7 +31,7 @@ paths live in `observation_data`; shared log bounds live in `log_limits`.
 ## CI
 
 GitHub Actions runs the `Test` workflow (`.github/workflows/test.yml`) on every PR
-and after each merge to main. It covers Linux and macOS with Python 3.11 and 3.14.
+and after each merge to main. It covers Linux and macOS with Python 3.11, 3.14 and 3.15.
 Ruff and mypy run in its `static` job. The required `Test result` check succeeds
 only when that job and the test matrix succeed, and gates merges through the main
 ruleset. The release check requires a green run on the release commit.

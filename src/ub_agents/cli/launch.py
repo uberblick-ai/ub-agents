@@ -1,14 +1,13 @@
 """Run the queue and own launcher startup, resources and error reporting."""
 
 import os
-from pathlib import Path
 import signal
 import sys
 
-from ..config import LOCAL_CONFIG
 from ..errors import (AgentError, CheckoutRefreshError, CleanupError, GitHubError, InstructionError)
 from ..execution import repository_checks
 from ..help import CommentHelpFormatter
+# Preserve the lightweight init.setup import boundary used by startup copies.
 from ..init.setup import runtime_guidance
 from ..labels import configured_labels
 from ..launch_log import launch_output

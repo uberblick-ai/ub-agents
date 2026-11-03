@@ -1,8 +1,8 @@
 """Prerequisite diagnostics and confirmed label setup. Probe output stays private."""
 
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from importlib.resources import files
-import json
 import os
 from pathlib import Path
 import re
@@ -17,7 +17,7 @@ from .doctor_mcp import MCPChecks
 from .execution import parse_process_table, repository_checks
 from .github import REPOSITORY, GitHub, repository_visibility
 from .labels import LabelUse, configured_labels, confirm_label_creation
-from .launcher_lock import launcher_summary, running_launcher
+from .launcher_lock import running_launcher
 from .mcp_probe import PROBE_TIMEOUT
 from .records import iso
 from .refresh import control_checkout_checks
@@ -32,14 +32,13 @@ AUTH_PROBES = {"codex": ("codex", "login", "status"),
 
 
 AREAS = {
-    "machine": ("python", "platform", "git", "gh", "process-inspection", "local-state", "local-state-ignored"),
+    "machine": ("python", "platform", "git", "gh", "process-inspection"),
     "configuration": ("config", "instructions", "policy-placeholder", "policy-merging",
-                      "repository-root", "repository-remote", "approvals",
-                      "control-checkout", "control-checkout-branch", "control-checkout-dirty", "control-checkout-origin",
-                      "launcher-installation"),
+                      "repository-root", "repository-remote", "local-state", "local-state-ignored", "launcher-installation"),
     "GitHub": ("github-auth", "github-repository", "github-permissions", "github-labels", "github-label",
                "github-launcher-role", "github-launcher-listed", "github-launcher-account", "github-rate-limit",
-               "github-retrospectives"),
+               "github-retrospectives", "approvals", "control-checkout", "control-checkout-branch",
+               "control-checkout-dirty", "control-checkout-origin"),
     # "commands" is the existing skip check when configuration is unavailable.
     "runtimes": ("command", "commands", "runtime-permissions", "runtime-executable", "runtime-auth", "runtimes",
                  "different-runtime-from", "runtime-mcp", "runtime-mcp-config"),
@@ -66,6 +65,13 @@ class Check:
     uses: list[LabelUse] | None = None
     server: str | None = None
 
+    def record(self):
+        value = asdict(self)
+        for key in ("uses", "server"):
+            if value[key] is None:
+                del value[key]
+        return value
+
 
 class Doctor:
     def __init__(self, runner=None, which=None, github=None, access=None):
@@ -78,15 +84,38 @@ class Doctor:
         self.missing_labels = []
         self.approvals = None
         self.launcher = None
+        self.progress = None
+        self.area = None
 
     def add(self, id, status, message, remedy=None, *, required=True, agent=None, runtime=None, uses=None, server=None):
         # Scope repeated checks with stable configuration identities.
         scope = [id] + ([agent.name] if agent else []) + ([runtime.name] if runtime else [])
         if server is not None:
             scope.append(server)
-        self.checks.append(Check(":".join(scope), status, required,
-                                 agent.name if agent else None, runtime.name if runtime else None,
-                                 public(message), public(remedy) if remedy else None, uses, server))
+        self._record(Check(":".join(scope), status, required,
+                           agent.name if agent else None, runtime.name if runtime else None,
+                           public(message), public(remedy) if remedy else None, uses, server))
+
+    def _record(self, check):
+        self.checks.append(check)
+        if self.progress:
+            self.notify("check", check.record())
+
+    def notify(self, event, value=None):
+        """Send header, area-start, step, check and area-end events, when requested."""
+        if self.progress:
+            self.progress(event, self.area, value)
+
+    def waiting(self, label):
+        self.notify("step", label)
+
+    @contextmanager
+    def checking(self, area):
+        self.area = area
+        start = len(self.checks)
+        self.notify("area-start")
+        yield
+        self.notify("area-end", [check.record() for check in self.checks[start:]])
 
     def probe(self, command, cwd=None):
         try:
@@ -131,30 +160,55 @@ class Doctor:
                      f"Tailor {path} to the repository's required CI check, maintainer merge rules and review focus",
                      required=False)
 
-    def run(self, path, *, offline=False):
+    def run(self, path, *, offline=False, progress=None):
         self.launcher = running_launcher(Path(path).resolve().parent)
-        git_ready, gh_ready = self._machine(offline)
+        # The header needs only local metadata. Replay these checks when their
+        # area starts so verbose output still follows the diagnostic order.
         config = self._load_configuration(path)
-        self._instructions(config)
-        self._repository(config, git_ready)
         self.config = config
         self._launcher_installation(config)
-        if offline:
-            self.offline(config)
-        else:
-            self._online(config, git_ready, gh_ready)
+        initial, self.checks = self.checks, []
+        self.progress = progress
+        try:
+            self.notify("header", {**self.result(), "checks": [check.record() for check in initial]})
+            with self.checking("machine"):
+                git_ready, gh_ready = self._machine(offline)
+                self._process_inspection()
+            with self.checking("configuration"):
+                for check in initial:
+                    self._record(check)
+                self._configuration(config, git_ready)
+            with self.checking("GitHub"):
+                if offline:
+                    self.offline(config)
+                else:
+                    self._online(config, git_ready, gh_ready)
+            with self.checking("runtimes"):
+                self._runtimes(config, offline)
+            return self.result()
+        finally:
+            self.progress = self.area = None
+
+    def _configuration(self, config, git_ready):
+        self._instructions(config)
+        self._repository(config, git_ready)
         if config:
-            if not offline:
-                self.agents(config)
-            MCPChecks(config).run(self, offline=offline)
             self.local(config, git_ready)
         else:
-            for id in ("commands", "runtimes", "different-runtime-from", "local-state", "local-state-ignored"):
+            for id in ("local-state", "local-state-ignored"):
+                self.add(id, "skip", "configuration unavailable")
+
+    def _runtimes(self, config, offline):
+        if config:
+            if offline:
+                self._offline_runtimes(config)
+            else:
+                self.agents(config)
+            MCPChecks(config).run(self, offline=offline)
+        else:
+            for id in ("commands", "runtimes", "different-runtime-from"):
                 self.add(id, "skip", "offline: agent runtimes and commands are not checked"
-                         if offline and id in {"commands", "runtimes", "different-runtime-from"} else
-                         "configuration unavailable")
-        self._process_inspection()
-        return self.result()
+                         if offline else "configuration unavailable")
 
     def _machine(self, offline):
         self.add("python", "ok" if sys.version_info >= (3, 11) else "fail",
@@ -276,6 +330,7 @@ class Doctor:
         login = None
         if gh_ready:
             try:
+                self.waiting("reading authenticated account")
                 login = github.actor()
                 if not isinstance(login, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", login):
                     raise AgentError("no login")
@@ -291,6 +346,7 @@ class Doctor:
         roles = Roles(github)
         if login:
             try:
+                self.waiting(f"reading repository role for {login}")
                 role = roles({"login": login})
             except AgentError:
                 role = None
@@ -307,6 +363,7 @@ class Doctor:
                          "Use a listed launcher account or add this account to launchers", required=False)
         for account in config.launchers or ():
             try:
+                self.waiting(f"reading repository role for {account}")
                 role = roles({"login": account})
             except AgentError:
                 role = None
@@ -317,6 +374,7 @@ class Doctor:
                      if role not in WRITERS else None, required=False)
 
     def _control_checkout(self, config, git_ready, metadata):
+        self.waiting("checking the control checkout")
         default = metadata.get("default_branch") if metadata else None
         if config and git_ready and isinstance(default, str) and default:
             for id, error in control_checkout_checks(config, default, self._read_git):
@@ -353,6 +411,7 @@ class Doctor:
                     self.add("github-retrospectives", "skip", f"Discussion #{number}: gh unavailable", agent=agent)
                     continue
                 try:
+                    self.waiting(f"reading discussion {number} for {agent.name}")
                     github.discussion(number)
                     self.add("github-retrospectives", "ok",
                              f"{agent.name}: discussion #{number} exists in {config.repository}", agent=agent)
@@ -363,7 +422,7 @@ class Doctor:
                              "Set retrospectives to an existing discussion number in the configured repository "
                              "and ensure the token can read it", agent=agent)
 
-    def offline(self, config):  # noqa: C901
+    def offline(self, config):
         reason = "offline: GitHub access is not checked"
         for id in ("github-auth", "github-repository", "github-permissions", "github-labels",
                    "github-launcher-role", "github-launcher-listed", "github-rate-limit"):
@@ -380,11 +439,14 @@ class Doctor:
             self.add(f"github-launcher-account:{account}", "skip", reason, required=False)
         self.add("approvals", "ok", f"Approvals: {config.approvals} (config)" if config.approvals is not None else
                  "Approvals: from repository visibility (public: on; private/internal: off); offline: visibility not resolved")
-        reason = "offline: agent runtimes and commands are not checked"
-        self.add("runtime-permissions", "skip", reason, required=False)
         for agent in config.agents:
             if agent.retrospectives is not None:
                 self.add("github-retrospectives", "skip", "offline: GitHub discussions are not checked", agent=agent)
+
+    def _offline_runtimes(self, config):
+        reason = "offline: agent runtimes and commands are not checked"
+        self.add("runtime-permissions", "skip", reason, required=False)
+        for agent in config.agents:
             if agent.command:
                 self.add("command", "skip", reason, agent=agent)
             else:
@@ -396,16 +458,8 @@ class Doctor:
                 self.add("different-runtime-from", "skip", reason, agent=agent)
 
     def result(self):
-        checks = []
-        for check in self.checks:
-            value = asdict(check)
-            if check.uses is None:
-                del value["uses"]
-            if check.server is None:
-                del value["server"]
-            checks.append(value)
         return {"version": 2, "ok": not any(c.required and c.status == "fail" for c in self.checks),
-                "checks": checks, "launcher": self.launcher}
+                "checks": [check.record() for check in self.checks], "launcher": self.launcher}
 
     def create_missing_labels(self):
         if not confirm_label_creation(self.config, self.github, self.missing_labels):
@@ -445,6 +499,7 @@ class Doctor:
 
     def repository_access(self, config, github):
         try:
+            self.waiting("reading repository")
             raw = github.request(f"repos/{config.repository}")
             name = raw.get("full_name")
             if not isinstance(name, str) or not re.fullmatch(REPOSITORY, name):
@@ -472,6 +527,7 @@ class Doctor:
     def labels(self, config, github):
         self.missing_labels = []
         try:
+            self.waiting("reading labels")
             existing = {name.casefold() for name in github.labels()}
         except (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
             self.add("github-labels", "fail", self.github_failure("labels", exc),
@@ -531,6 +587,7 @@ class Doctor:
             auth_error = None
             if installed:
                 try:
+                    self.waiting(f"{runtime.cli} auth for {agent.name}")
                     self.probe(AUTH_PROBES[runtime.cli])
                 except AgentError as exc:
                     auth_error = str(exc)
@@ -581,60 +638,7 @@ def diagnose(path, *, offline=False, **kwargs):
     return Doctor(**kwargs).run(path, offline=offline)
 
 
-def render_check(check):
-    scope = "/".join(value for value in (check["agent"], check["runtime"]) if value)
-    print(f"{check['status']} {check['id']} {scope or '-'} {check['message']}")
-    if check["status"] in {"warn", "fail"}:
-        print(f"  remedy: {check['remedy']}")
 
-
-def render_area(area, checks):
-    passed = 0
-    labels = set()
-    skipped = 0
-    for check in checks:
-        if check["status"] in {"warn", "fail"}:
-            render_check(check)
-        elif check["status"] == "skip":
-            skipped += 1
-        elif check["id"].startswith("github-label:"):
-            labels.add(check["id"].casefold())
-        else:
-            passed += 1
-    summary = []
-    if passed:
-        summary.append(f"{passed} check{'s' if passed != 1 else ''} passed")
-    if labels:
-        summary.append(f"{len(labels)} label{'s' if len(labels) != 1 else ''} present")
-    if skipped:
-        summary.append(f"{skipped} skipped")
-    if summary:
-        status = "ok" if passed or labels else "skip"
-        print(f"{status} {area}: {', '.join(summary)}")
-
-
-def render(result, json_output=False, verbose=False):
-    if json_output:
-        print(json.dumps(result, indent=2))
-        return
-    print(launcher_summary(result.get("launcher")))
-    if verbose:
-        for check in result["checks"]:
-            render_check(check)
-    else:
-        groups = {area: [] for area in AREAS}
-        for check in result["checks"]:
-            if check["id"] == "launcher-installation":
-                render_check(check)
-            else:
-                groups[CHECK_AREAS[check["id"].split(":", 1)[0]]].append(check)
-        for area, checks in groups.items():
-            render_area(area, checks)
-    render_counts(result)
-
-
-def render_counts(result):
-    failures = sum(c["required"] and c["status"] == "fail" for c in result["checks"])
-    warnings = sum(c["status"] == "warn" for c in result["checks"])
-    print(f"{failures} required failure{'s' if failures != 1 else ''}, "
-          f"{warnings} warning{'s' if warnings != 1 else ''}")
+def render(result, json_output=False, verbose=False, *, elapsed=0.0):
+    from .doctor_output import render as render_output
+    render_output(result, AREAS, json_output, verbose, elapsed=elapsed)

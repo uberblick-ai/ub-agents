@@ -60,17 +60,32 @@ with [account capacity](https://agents.uberblick.ai/docs/best-practices/account-
 
 ## Quota and failure handling
 
-Use headers from real requests via `gh api --include`; never probe
-`GET /rate_limit`. Track remaining, limit and reset separately for `core` and
-`graphql`.
+The launcher sends REST and GraphQL requests to `api.github.com` over keep-alive
+HTTPS using standard-library `http.client`. It reads the existing token with
+`gh auth token --hostname github.com` once per process, without another login or
+prompt. After HTTP 401 it rereads the token and retries once only if the token
+changed; otherwise authentication fails. If the token lookup fails or prints
+nothing, requests use `gh api --include`. Setup and doctor keep using `gh`, as do
+non-request commands such as `gh pr merge`.
+
+Each thread has its own connection. A transport failure discards that connection;
+the next request reconnects, without automatically replaying the failed request.
+Planning and startup cleanup check cancellation before every request, including
+refetches and authentication retries. Requests have a **20-second** timeout;
+Ctrl-C interrupts them. Tokens stay in process memory and request authentication
+headers, never diagnostics, agent environments or launcher files.
+
+Use headers from real requests with either transport; never probe `GET /rate_limit`.
+Track remaining, limit and reset separately for `core` and `graphql`.
 
 | Condition | Required behavior |
 | --- | --- |
 | Any resource below 20% remaining | Double the idle/observation gap until the earliest applicable reset; never shorten the ordinary gap or exceed its one-hour cap. Ignore expired/incomplete headers. |
 | Rate-limited 403/429 | Recognize zero remaining, `Retry-After`, or GitHub's primary/secondary rate-limit message. Primary: reset plus **5 seconds**. Secondary: `Retry-After`. Missing wait metadata: one minute. Cap each wait at one hour, then retry. |
-| Retryable continuous-launch failure | A failed gh call without an HTTP status (regardless of its text), request timeouts, truncated/empty JSON reported by gh, and HTTP 5xx: back off from **5 seconds** to **60 seconds**, doubling, without a retry limit. A completed poll resets the delay. |
+| Redirects | Any HTTP 3xx returned to the adapter other than 304 stops with a redirect error; check the repository configuration and requested resource. HTTPS requests do not follow redirects or replay redirected writes; the `gh api` fallback retains gh's redirect handling. |
+| Retryable continuous-launch failure | A failed request without an HTTP status (regardless of its text), request timeouts, truncated transport responses, truncated/empty JSON reported by gh, and HTTP 5xx: back off from **5 seconds** to **60 seconds**, doubling, without a retry limit. A completed poll resets the delay. |
 | Configuration or instruction errors after refresh | Continuous launch pauses all claims, including recoveries, and refreshes and validates on every poll or `r`; valid files resume claims. See [configuration pauses](https://agents.uberblick.ai/docs/guides/running-launchers.html#when-things-go-wrong). Startup validation, `launch --once` and `launch N` still fail. |
-| Other errors | gh authentication required (exit 4), a gh binary that cannot run, non-rate-limited HTTP 4xx and other malformed responses stop immediately. `launch --once` and `status` fail on their first request error. |
+| Other errors | Authentication failure (HTTP 401 after token refresh or gh exit 4), a gh binary that cannot run for fallback requests, non-rate-limited HTTP 4xx and other malformed responses stop immediately. `launch --once` and `status` fail on their first request error. |
 
 Only reads wait and retry. A rate-limited write is not replayed automatically.
 Rate-limit waits charge no poll failures or item attempts and make no writes. They
@@ -87,11 +102,15 @@ attempt or item backoff. Failures after a claim follow
 ## Accounting and diagnostics
 
 Pass records distinguish claiming, empty and observation passes. They report wall
-time, attempted `gh` calls, quota-counted REST responses, HTTP 304 responses,
+time, attempted GitHub requests, quota-counted REST responses, HTTP 304 responses,
 GraphQL invocations (not points) and distinct candidates reached, counting pages,
 failures and refetches. Successful claim checks through release belong to the run;
 unsuccessful claims remain discovery. Consecutive records with the same kind, counts
 and candidates print once.
+
+The `gh calls` display and `gh_calls` field retain their names and count every
+attempted request with either transport, including the one retry after a token
+change. Token lookups themselves are not API requests and do not enter the counts.
 
 The run's `released` event records `github_requests` with `gh_calls`,
 `quota_requests`, `not_modified_responses` and `graphql_calls`. These cover the

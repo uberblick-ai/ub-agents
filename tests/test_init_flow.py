@@ -777,7 +777,7 @@ from tests.support import SetupGitHub
 from ub_agents.cli import main
 from ub_agents.init.flow import Flow
 github = SetupGitHub()
-with patch('ub_agents.cli._runtime.GitHub', lambda repo: github), \\
+with patch('ub_agents.cli._runtime.GitHub', lambda repo, runner: github), \\
         patch.object(Flow, 'check', lambda self: setattr(self, 'github', github)), \\
         patch.object(Flow, 'choose_labels', lambda self, plan: []):
     sys.exit(main(['--config', sys.argv[1], 'init', '--repository', 'org/project']))

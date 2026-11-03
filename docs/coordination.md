@@ -43,7 +43,7 @@ NAME` starts a fresh set of rounds.
 | Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
 | Stop label detected before the agent process exits | Unchanged | No outcome or label changes; parked by the stop label until resumed with `retry` |
 | Closed issue or closed or merged PR detected before the agent process exits | Unchanged | No outcome or label changes; the closed item needs no further action |
-| Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves or an operator uses `retry`; issues need `retry` |
+| Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves, another run's accepted outcome hands off the PR, or an operator uses `retry`; issues need `retry` |
 | Transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
 | Invalid or rejected success report, unconfirmed cleanup, or unclassified failure | +1 | Blocked; PR head changes or `retry` can resume, except unconfirmed cleanup needs operator action |
@@ -63,9 +63,12 @@ discovery can tell human pauses and interrupts from failures.
 A blocked PR becomes eligible again when its head differs from the blocked run's
 outcome `candidate_sha`, or from its lease's `assignment_sha` when there is no
 outcome. Commits the run pushed before reporting blocked do not clear its block; a
-later push by anyone does. This check writes nothing and resets no attempts or
-backoff, and every other gate still applies. Blocked issues and unchanged PR heads
-need `ub-agents retry`.
+later push by anyone does. An accepted outcome of another run that hands off the PR
+after the block also clears it at an unchanged head, such as an implementer marking
+a draft ready. The comparison uses the reports' `created` times; accepting an older
+handoff later does not clear a newer block. This check writes nothing and resets no
+attempts or backoff, and every other gate still applies. Blocked issues, and PRs with
+neither a new head nor a later handoff, need `ub-agents retry`.
 
 ## Selection order
 
@@ -760,15 +763,26 @@ Every `ub-agents launch`, including `--agent`, `NUMBER` and `--once`, sweeps lef
 once in the background after its startup checks. There is no periodic sweep. It looks
 at worktrees under this checkout's `.ub-agents/worktrees/`, local branches named
 `ub-agents/<agent>/<number>/<run>` or the older `ub-agent/...`, and fork PR head refs
-left by interrupted runs. It removes each one unless:
+left by interrupted runs.
+
+The sweep finds a branch's item from its name and its head PRs from GitHub. For a
+worktree or fork head ref, it finds the run's assignment in
+`.ub-agents/runs/<run>/run.json`. It rereads those items' histories as the authority.
+If the local record is missing or unreadable, or the named item's history has no
+lease for the artifact's run, it falls back to the full repository comment scan
+and rereads referring items. Local records only guide discovery; they never
+authorize removal.
+
+It removes each artifact unless:
 
 1. its run has a live claim on this host;
 2. the branch heads an open PR, or is checked out in a worktree the sweep keeps; or
 3. the run's processes may still be running, for example after unconfirmed cleanup.
 
 Claims on other hosts, missing claims, ended runs, uncommitted changes and locked
-worktrees do not prevent removal. If the coordination scan or PR lookup fails, the
-affected artifacts stay. Other tools' worktrees and remote branches are never touched.
+worktrees do not prevent removal. If an item history read, fallback coordination
+scan or PR lookup fails, the affected artifacts stay. Other tools' worktrees and
+remote branches are never touched.
 A crashed run's claim stays live until it expires, so a quick restart keeps its
 worktree until a later launch.
 

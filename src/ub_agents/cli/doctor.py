@@ -1,5 +1,7 @@
 """Check prerequisites through the registered doctor command."""
 
+from time import monotonic
+
 from ..help import CommentHelpFormatter
 from ._registry import command
 
@@ -24,15 +26,18 @@ def arguments(commands):
 
 @command("doctor", arguments)
 def doctor_run(args):
-    from ..doctor import Doctor, render, render_check, render_counts
+    from ..doctor import AREAS, Doctor, render
+    from ..doctor_progress import DoctorProgress
+    started = monotonic()
     doctor = Doctor()
-    result = doctor.run(args.config, offline=args.offline)
-    render(result, json_output=args.json, verbose=args.verbose)
-    if not args.offline and not args.json and doctor.create_missing_labels():
-        previous = result["checks"]
-        result = doctor.result()
-        for check in result["checks"]:
-            if check["status"] in {"fail", "warn"} and check not in previous:
-                render_check(check)
-        render_counts(result)
+    if args.json:
+        result = doctor.run(args.config, offline=args.offline)
+        render(result, json_output=True, elapsed=monotonic() - started)
+    else:
+        with DoctorProgress(AREAS, verbose=args.verbose) as progress:
+            result = doctor.run(args.config, offline=args.offline, progress=progress)
+            progress.finish(result, monotonic() - started)
+            if not args.offline and doctor.create_missing_labels():
+                result = doctor.result()
+                progress.rechecked_github(result, monotonic() - started)
     return 0 if result["ok"] else 1

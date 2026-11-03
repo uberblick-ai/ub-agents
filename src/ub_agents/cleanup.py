@@ -13,7 +13,7 @@ from .coordination import Coordinator
 from .errors import AgentError, CleanupError, RecordError
 from .execution import fetched_head, git, group_members
 from .hooks import confirm_hook_groups_stopped, diagnostic, run_hook
-from .records import lease_branch, records, seconds
+from .records import lease_branch, positive_int, records, seconds
 from .run_config import process_group, run_directory
 from .worktree_setup import confirm_worktree_setup_stopped
 
@@ -134,10 +134,42 @@ class Cleaner:
         if members:
             raise AgentError("Expired run's process group is still present")
 
+    def artifact_item(self, artifact):
+        if artifact.kind == "branch":
+            match = BRANCH.fullmatch(artifact.name)
+            return int(match[2]) if match else None
+        path = run_directory(self.root, artifact.run) / "run.json"
+        try:
+            if Path(artifact.run).name != artifact.run or artifact.run in {".", ".."} or path.resolve() != path:
+                return None
+            context = json.loads(path.read_text(encoding="utf-8"))
+            if (isinstance(context, dict) and context.get("run") == artifact.run
+                    and context.get("repository") == self.config.repository
+                    and positive_int(context.get("assignment"))):
+                return context["assignment"]
+        except (OSError, ValueError, RuntimeError):
+            pass
+        return None
+
+    def artifact_history(self, artifact, head_numbers, on_branch):
+        number = self.artifact_item(artifact)
+        if number is not None:
+            history = self.history(number)
+            if any(r["kind"] == "lease" and r["run"] == artifact.run for r in history):
+                return history + [r for head in sorted(head_numbers - {number}) for r in self.history(head)]
+
+        # A missing or misleading local hint must not hide a protective lease.
+        # Discovery is not authority: reread even threads already read above.
+        index, invalid = self.coordinator.repository_history()
+        numbers = invalid | head_numbers | {r["assignment"] for r in index if r["kind"] == "lease"
+                                            and (r["run"] == artifact.run or on_branch(r))}
+        if number is not None:
+            numbers.add(number)
+        return [r for number in sorted(numbers) for r in self.history(number)]
+
     def run_state(self, artifact, branch=None, *, check_diagnostics=True):
         if self.control is not None:
             self.control.check(artifact)
-        index, invalid = self.coordinator.repository_history()
         heads = self.github.prs_for_branch(artifact.name, state="all") if artifact.kind == "branch" else []
         head_numbers = {pr.number for pr in heads}
 
@@ -149,11 +181,7 @@ class Cleaner:
                 return lease.get("assignment") in head_numbers
             return lease_branch(lease, self.github) == artifact.name
 
-        # Discovery is not authority. Reread referring assignments, including
-        # malformed threads that may also contain a valid, protective lease.
-        numbers = invalid | {r["assignment"] for r in index if r["kind"] == "lease"
-                             and (r["run"] == artifact.run or on_branch(r))}
-        history = [r for number in sorted(numbers) for r in self.history(number)]
+        history = self.artifact_history(artifact, head_numbers, on_branch)
         own = [r for r in history if r["kind"] == "lease" and r["run"] == artifact.run]
         leases = [r for r in history if r["kind"] == "lease" and (r["run"] == artifact.run or on_branch(r))]
         runs = {artifact.run} | {r["run"] for r in leases}
