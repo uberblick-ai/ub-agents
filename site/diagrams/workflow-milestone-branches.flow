@@ -63,7 +63,7 @@ play "Next issue"
   step issue-preparer 2.4s actor="Issue preparer" "Prepares the issue and attaches the ready label"
   step implementer 2.6s actor="Implementer" "Creates a PR against the existing milestone branch"
   step review-merge 2.6s actor="Integrator" "PR reviewed; main is unchanged"
-  step branch 2.6s actor="Integrator" "Adds the PR; the preview now shows both changes"
+  step branch 2.6s actor="Integrator" "Adds the PR; the branch preview now shows both changes"
 
 play "Main moved"
   tempo 1.8s

@@ -132,7 +132,7 @@
         "target": "branch",
         "kind": "box",
         "actor": "Integrator",
-        "caption": "Adds the PR; the preview now shows both changes",
+        "caption": "Adds the PR; the branch preview now shows both changes",
         "ms": 2600,
         "parts": [
           "node-6",
