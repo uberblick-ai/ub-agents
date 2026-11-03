@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from ub_agents.cli import main
 from ub_agents.errors import AgentError, CheckoutRefreshError
 from ub_agents.execution import git
-from ub_agents.launch_log import launch_output
+from ub_agents.logs.launch_log import launch_output
 from ub_agents.launcher_lock import launcher_lock, running_launcher
 from ub_agents.observations import Observations
 from ub_agents.records import attempts, timestamp

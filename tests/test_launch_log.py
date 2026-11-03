@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.launch_log import LOG_CAP_BYTES, launch_output
+from ub_agents.logs.launch_log import LOG_CAP_BYTES, launch_output
 
 
 class LaunchLogTests(unittest.TestCase):

@@ -181,7 +181,7 @@ class HelpTests(unittest.TestCase):
                 self.assertLessEqual(len(line), 80)
 
     def test_doctor_help_matches_requested_layout_without_probes_or_prompts(self):
-        with patch("ub_agents.doctor.Doctor", side_effect=AssertionError("Help ran doctor")), \
+        with patch("ub_agents.doctor.doctor.Doctor", side_effect=AssertionError("Help ran doctor")), \
                 patch("builtins.input", side_effect=AssertionError("Help prompted")):
             for argv in (["doctor", "-h"], ["doctor", "--help"], ["help", "doctor"],
                          ["--config", "missing.yaml", "doctor", "--help"],

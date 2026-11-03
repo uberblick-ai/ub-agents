@@ -50,8 +50,8 @@ agents:
         # Resolve like load_config does: macOS temporary paths live under /private/var.
         self.root = Path(self.temp.name).resolve()
         self.path = self.root / "ub-agents.yaml"
-        self.enterContext(patch("ub_agents.doctor.subprocess.run", RecordingRunner(self.root)))
-        self.enterContext(patch("ub_agents.doctor.shutil.which", return_value="/tools/git"))
+        self.enterContext(patch("ub_agents.doctor.doctor.subprocess.run", RecordingRunner(self.root)))
+        self.enterContext(patch("ub_agents.doctor.doctor.shutil.which", return_value="/tools/git"))
 
     def load(self, content):
         self.path.write_text(content)

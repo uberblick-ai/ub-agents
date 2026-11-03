@@ -11,10 +11,10 @@ import subprocess
 import tempfile
 import time
 
-from .execution import stop_group
+from ..execution import stop_group
 from .runtime_installations import claude_updates_disabled, installation, updater
-from .state import lock, user_state_directory
-from .uberblick import workspace_binding
+from ..state import lock, user_state_directory
+from ..uberblick import workspace_binding
 
 COOLDOWN_SECONDS = 24 * 60 * 60
 

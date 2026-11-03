@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 from ub_agents.config import Runtime, load_config
 from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership
 from ub_agents.execution import Workspace, command_for, fork_head_ref, git, group_members, supervise
-from ub_agents.log_times import GROWTH, HEADER, read_times
+from ub_agents.logs.log_times import GROWTH, HEADER, read_times
 from tests.support import agent, config, issue, pr, FakeGitHub
 
 
@@ -158,7 +158,7 @@ agents:
                 append(b"second\n")
         with patch("ub_agents.execution.subprocess.Popen", side_effect=start), \
                 patch("ub_agents.execution.stop_group", side_effect=lambda _process: append(b"last\n")), \
-                patch("ub_agents.log_times.time.time_ns", side_effect=[10**9, 2 * 10**9, 3 * 10**9]), \
+                patch("ub_agents.logs.log_times.time.time_ns", side_effect=[10**9, 2 * 10**9, 3 * 10**9]), \
                 patch.object(event, "wait", side_effect=wait):
             self.assertEqual(supervise(["test"], self.root, {}, self.root / "run", 3, event), 0)
         self.assertEqual(path.read_bytes(), b"first\xff\n" * 10000 + b"second\nlast\n")

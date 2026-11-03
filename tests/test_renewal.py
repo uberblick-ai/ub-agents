@@ -12,7 +12,7 @@ from ub_agents.config import CleanupHook, LEASE_RENEW_SECONDS, LEASE_SECONDS, lo
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import ExecutionStopped, GitHubError, LostOwnership
 from ub_agents.execution import ScratchDirectory, Workspace, group_members, supervise
-from ub_agents.launch_log import launch_output
+from ub_agents.logs.launch_log import launch_output
 from ub_agents.loop import Loop
 from ub_agents.settlement import Settlement
 from ub_agents.notices import ACTION_MARKER

@@ -5,7 +5,7 @@ import json
 import re
 
 from .errors import AgentError, RecordError
-from .run_usage import usage_suffix
+from .usage.run_usage import usage_suffix
 
 MARKER = "<!-- ub-agents:v4 -->"
 # All coordination markers are excluded from assignment and approval input;

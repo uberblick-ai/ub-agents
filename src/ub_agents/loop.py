@@ -33,9 +33,9 @@ from .records import iso, latest_leases, lease_by_id, lease_summary, seconds, ti
 from .status import refusal_reason
 from .refresh import refresh_checkout, refresh_instructions
 from .renewal import LeaseRenewal
-from .request_stats import DiscoveryPass, PassOutput, request_counts, request_delta
-from .runtime_updates import RuntimeMaintenance
-from .runtime_usage import RuntimeUsage
+from .usage.request_stats import DiscoveryPass, PassOutput, request_counts, request_delta
+from .updates.runtime_updates import RuntimeMaintenance
+from .usage.runtime_usage import RuntimeUsage
 from .settlement import Settlement
 from .uberblick import workspace_binding
 from .trust import LauncherTrust
@@ -112,7 +112,7 @@ class Loop:
         self._github_waiting = False
         self._github_reservation = None
         self.maintenance = RuntimeMaintenance(output=output, stop_event=self.stop_event)
-        from .self_updates import SelfUpdates
+        from .updates.self_updates import SelfUpdates
         self.self_updates = SelfUpdates(output=output, stop_event=self.stop_event)
         self.coordinator.runtime_available = self.maintenance.available
         self.queue_planner = QueuePlanner(
@@ -324,7 +324,7 @@ class Loop:
             self._last_update = banner
             self.observe("update", banner)
         if banner and banner['text'] not in self._update_texts:
-            from .updates import release_age
+            from .updates.updates import release_age
             age = release_age(banner.get('released_at'))
             self.output(banner['text'] + (f'  {age}' if age else ''))
             self._update_texts.add(banner['text'])

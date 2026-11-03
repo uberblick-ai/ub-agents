@@ -7,12 +7,12 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import Runtime
-from ub_agents.context_usage import collect_context, context_fields
+from ub_agents.usage.context_usage import collect_context, context_fields
 from ub_agents.denials import collect_denials
 from ub_agents.errors import ExecutionStopped, LostOwnership, RetryableExecutionError
 from ub_agents.loop import Loop
 from ub_agents.records import MARKER, attempts, body, payload, records, seconds
-from ub_agents.usage_output import collect_usage
+from ub_agents.usage.usage_output import collect_usage
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
 

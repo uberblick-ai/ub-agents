@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import yaml
 
 from ..config import LOCAL_CONFIG, preview_config
-from ..doctor import public
+from ..doctor.doctor import public
 from ..errors import AgentError
 from .boards import Boards
 from .edit import RULE, UnsafeEdit, additions, permission_paths

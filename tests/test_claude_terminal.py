@@ -8,7 +8,7 @@ from tests.terminal import Terminal
 from tests.test_claude_logs import encoded, image_result
 from tests.test_log_reader import record, result, tool
 from tests.test_view_data import fixture
-from ub_agents.log_format import MAX_RECORD
+from ub_agents.logs.log_format import MAX_RECORD
 
 
 class ClaudeTerminalTests(unittest.TestCase):

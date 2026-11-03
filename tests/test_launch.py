@@ -1354,8 +1354,8 @@ class TargetedLaunchTests(unittest.TestCase):
         self.config = config(self.root, worker)
         self.use_milestone_gate()
         pause = {"reason": "usage limit reached", "ends_at": "2026-10-04T00:00:00Z"}
-        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", return_value=True), \
-                patch("ub_agents.runtime_usage.RuntimeUsage.paused", return_value=pause):
+        with patch("ub_agents.updates.runtime_updates.RuntimeMaintenance.available", return_value=True), \
+                patch("ub_agents.usage.runtime_usage.RuntimeUsage.paused", return_value=pause):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
         self.assert_output(stdout, "#11 worker: waiting — Waiting for codex: usage limit reached; "
@@ -1368,7 +1368,7 @@ class TargetedLaunchTests(unittest.TestCase):
         worker = agent(self.root, command=(), runtimes=(Runtime("codex", "model", "high"),))
         self.config = config(self.root, worker)
         self.use_milestone_gate()
-        with patch("ub_agents.runtime_updates.RuntimeMaintenance.available", side_effect=lambda cli: cli == "gh"):
+        with patch("ub_agents.updates.runtime_updates.RuntimeMaintenance.available", side_effect=lambda cli: cli == "gh"):
             code, stdout, _, run = self.launch("11")
         self.assertEqual(code, 1)
         self.assert_output(stdout, "#11 worker: blocked — No eligible runtime executable is installed, "

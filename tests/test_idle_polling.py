@@ -13,7 +13,7 @@ from ub_agents.cli import main
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.polling import DiscoveryBudget, idle_interval
-from ub_agents.request_stats import PassOutput
+from ub_agents.usage.request_stats import PassOutput
 from ub_agents.startup_cleanup import StartupCleanup
 from tests.support import RecordingRunner, config, isolate_observations
 

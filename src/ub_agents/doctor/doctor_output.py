@@ -9,8 +9,8 @@ import sys
 from rich.console import Console
 from rich.text import Text
 
-from . import __version__
-from .launcher_lock import configuration_pause_summary
+from .. import __version__
+from ..launcher_lock import configuration_pause_summary
 
 
 SYMBOLS = {"ok": ("✓", "green"), "warn": ("!", "yellow"),

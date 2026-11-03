@@ -12,7 +12,7 @@ import time
 import uuid
 
 from .errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
-from .log_times import LogTimes
+from .logs.log_times import LogTimes
 from .report_command import launcher_report_command
 from .state import user_state_directory
 

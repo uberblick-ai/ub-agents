@@ -10,7 +10,7 @@ from ..help import CommentHelpFormatter
 # Preserve the lightweight init.setup import boundary used by startup copies.
 from ..init.setup import runtime_guidance
 from ..labels import configured_labels
-from ..launch_log import launch_output
+from ..logs.launch_log import launch_output
 from ..launcher_lock import launcher_lock
 from ..loop import POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS, _GracefulStop
 from ..refresh import control_checkout_checks
@@ -137,7 +137,7 @@ def _open_launch_view(args, config, loop, stop, session):
 
 
 def _start_updates(config, loop):
-    from ..updates import Updates
+    from ..updates.updates import Updates
     loop.updates = Updates(config.root)
     if loop.updates is not None:
         loop.updates.start()

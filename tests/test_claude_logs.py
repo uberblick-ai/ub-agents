@@ -7,8 +7,8 @@ import tempfile
 import unittest
 
 from tests.test_log_reader import NOW, record, result, tool
-from ub_agents.log_format import ClaudeFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
-from ub_agents.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET
+from ub_agents.logs.log_format import ClaudeFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
+from ub_agents.logs.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET
 from ub_agents.view.logs import PAGE_BYTES, ViewReader
 
 

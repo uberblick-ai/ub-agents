@@ -197,7 +197,7 @@ def isolate_runtime_state(test):
     executable.chmod(0o755)
     import shutil
     from types import SimpleNamespace
-    lookup = patch("ub_agents.runtime_installations.shutil",
+    lookup = patch("ub_agents.updates.runtime_installations.shutil",
                    SimpleNamespace(which=lambda cli: str(executable) if cli == "gh" else shutil.which(cli)))
     test.addCleanup(lookup.stop)
     lookup.start()
@@ -240,7 +240,7 @@ def isolate_observations(test):
     mock.start()
     # Advisory requests have their own suite; synthetic CLI roots do not need
     # a release-checking worker.
-    updates = patch("ub_agents.updates.Updates", return_value=None)
+    updates = patch("ub_agents.updates.updates.Updates", return_value=None)
     test.addCleanup(updates.stop)
     updates.start()
 
