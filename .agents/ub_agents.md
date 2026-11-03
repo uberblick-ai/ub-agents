@@ -33,6 +33,8 @@ Leave the merge to `@uberblick-ai/maintainers` when the PR:
 it, before the issue preparer's edits. Check the issue's edit history to see who
 wrote each version. An edit added to the scope by the preparer, or requested only
 by a preparer-written acceptance criterion, still leaves the merge to a maintainer.
+If the integrator cannot establish the maintainer-written version, leave the merge
+to a maintainer.
 
 ## Human decisions
 
