@@ -110,3 +110,6 @@ limits:
 
 poll-seconds: 30
 stop-labels: [needs-human]
+# CI comments, such as the coverage report, count as feedback without a
+# maintainer clearing them, so they don't mark maintainer-started PRs outside-input.
+trusted-bots: [github-actions]
