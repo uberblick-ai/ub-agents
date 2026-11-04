@@ -11,7 +11,6 @@ import yaml
 from ..config import LOCAL_CONFIG, preview_config, load_config
 from ..errors import AgentError
 from ..labels import Label, LabelUse, configured_labels
-from .checks import project_checks
 
 ROLES = ("issue-preparer", "issue-reviewer", "implementer", "reviewer", "integrator")
 
@@ -113,6 +112,8 @@ class Plan:
 
 
 def make_plan(path, repository, choices):  # noqa: C901
+    from .checks import project_checks
+
     path = Path(path).absolute()
     if path.is_symlink():
         raise AgentError(f"Starter files already exist; nothing overwritten: {path}")
