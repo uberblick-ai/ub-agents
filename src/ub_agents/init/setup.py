@@ -112,6 +112,8 @@ class Plan:
 
 
 def make_plan(path, repository, choices):  # noqa: C901
+    from .checks import project_checks
+
     path = Path(path).absolute()
     if path.is_symlink():
         raise AgentError(f"Starter files already exist; nothing overwritten: {path}")
@@ -155,9 +157,7 @@ def make_plan(path, repository, choices):  # noqa: C901
         targets[root / ".agents" / f"{role}.md"] = templates.joinpath(f"{role}.md").read_text()
     guidance = runtime_guidance(root, cli, fallback=True)
     checks = (f"Project checks are documented in `{guidance.relative_to(root)}`." if guidance else
-              "Replace these placeholders with the project's required commands before launch:\n\n"
-              "- Build: `<project build command>`\n- Tests: `<project test command>`\n"
-              "- Other checks: `<project lint or validation command>`")
+              project_checks(root))
     policy = templates.joinpath("ub_agents.md").read_text().replace("{checks}", checks)
     if choices.owner:
         policy = policy.replace("; replace this handle with the\nproject's person or team", "").replace(

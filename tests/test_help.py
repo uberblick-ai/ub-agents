@@ -67,8 +67,8 @@ Check machine, GitHub and runtime prerequisites. Check MCP configuration for
 each agent/runtime/server and probe loaded stdio servers. MCP problems are
 optional warnings. Use --offline for local validation without GitHub or agent
 runtimes. Create missing workflow labels only after a confirmed interactive
-prompt. Show warnings and failures with a summary per area by default; required
-failures exit nonzero.
+prompt. Show hints, warnings and failures with a summary per area by default;
+required failures exit nonzero.
 
 options:
   --offline              # validate locally without GitHub or agent runtimes
