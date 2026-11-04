@@ -34,10 +34,12 @@ reason, for example `#400 implementer: declined — Head moved before claim`.
 To stop one active agent from GitHub, add a configured stop label such as
 `needs-human` to its issue or PR, close the issue or PR, or merge the PR. Closing or
 merging stops execution even when no stop labels are configured. The launcher
-terminates execution at the next lease renewal check (10 minutes by default),
-discards any early report and leaves the labels unchanged. No failed attempt is
-charged. A label removed or an item reopened before the check has no effect.
-A closed item needs no further action. Resume a stopped open item with
+terminates execution at the next lease renewal check (10 minutes by default).
+A stop label discards any early report. Closure settles a report stored before the
+process stopped through the normal validation and transitions. Without a report,
+closure leaves labels unchanged and charges no failed attempt.
+A label removed or an item reopened before the check has no effect.
+Resume a stopped open item with
 `ub-agents retry NUMBER --agent ROLE --reason "Ready to resume"`. See
 [stop labels](/docs/configuration/stop-labels.html).
 

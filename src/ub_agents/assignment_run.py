@@ -101,21 +101,15 @@ class AssignmentRun:
                 self.usage_output = UsageOutput(plan.runtime.cli, self.run_dir, loop.usage, env)
             try:
                 agent_deadline = loop.coordinator.clock() + plan.agent.timeout_seconds
-                code = supervise(command, cwd, env, self.run_dir,
-                                 plan.agent.timeout_seconds, loop.interrupt_event,
-                                 loop.prompt_for(plan, lease, context, instructions,
-                                                 shared_instructions=shared_instructions) if plan.runtime else None,
-                                 expires=lambda: loop.coordinator.execution_deadline(lease), process_started=self.process_started,
-                                 process_exited=lambda: loop.coordinator.execution_finished(lease),
-                                 observe_output=self.observe_output if self.usage_output or loop.updates else None,
-                                 pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()))
+                code = self.supervise_execution(plan, command, cwd, env,
+                                                loop.prompt_for(plan, lease, context, instructions,
+                                                                shared_instructions=shared_instructions)
+                                                if plan.runtime else None)
             finally:
-                loop.coordinator.execution_finished(lease)
                 cli = plan.runtime.cli if plan.runtime else None
                 diagnostics = (collect_denials(cli, self.run_dir / "process.log")
                                | collect_usage(cli, self.run_dir / "process.log")
                                | collect_context(cli, self.run_dir / "process.log", env))
-            loop.coordinator.execution_deadline(lease)
             if self.usage_output:
                 self.usage_output.poll(final=True)
             loop.observe("process", "exited", "Supervision confirmed execution has ended")
@@ -232,6 +226,33 @@ class AssignmentRun:
         if self.interrupted or loop.interrupt_event.is_set():
             raise KeyboardInterrupt
         return True
+
+    def supervise_execution(self, plan, command, cwd, env, prompt):
+        loop, lease = self.loop, self.lease
+        reservation = self.reservation
+        try:
+            code = supervise(command, cwd, env, self.run_dir,
+                             plan.agent.timeout_seconds, loop.interrupt_event, prompt,
+                             expires=lambda: loop.coordinator.execution_deadline(lease), process_started=self.process_started,
+                             process_exited=lambda: loop.coordinator.execution_finished(lease),
+                             observe_output=self.observe_output if self.usage_output or loop.updates else None,
+                             pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()))
+            loop.coordinator.execution_deadline(lease)
+            return code
+        except ExecutionStopped as exc:
+            if not exc.item_closed:
+                raise
+            # Supervision has ended the process group. Preserve any report through
+            # cleanup and interrupted reads, just as during normal completion.
+            self.completing = True
+            self.outcome = loop.coordinator.outcome(lease)
+            if self.outcome is None:
+                self.completing = False
+                raise
+            self.diagnostic("execution-stopped", reason=str(exc))
+            return None
+        finally:
+            loop.coordinator.execution_finished(lease)
 
     def diagnostic(self, event, **details):
         self.loop._diagnostic(self.run_dir, event, **details)
