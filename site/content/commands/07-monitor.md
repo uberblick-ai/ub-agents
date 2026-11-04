@@ -18,6 +18,9 @@ closes: the command waits until the page answers, prints the process id, and
 `kill PID` stops it; its output goes to `.ub-agents/monitor.log` in the checkout.
 Running it again while it runs just opens the page.
 
+Closing or reloading the page while a reply is pending is quiet. Other server
+errors still print in the terminal or background log.
+
 ## What the page shows
 
 - **Needs human**: open items with a [stop label](/docs/configuration/stop-labels.html),
