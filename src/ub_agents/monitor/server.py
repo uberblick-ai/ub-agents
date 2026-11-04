@@ -78,13 +78,17 @@ def handler(snapshots, page):
             return self.reply(404, b"", "text/plain")
 
         def reply(self, status, content, kind):
-            self.send_response(status)
-            for name, value in HEADERS.items():
-                self.send_header(name, value)
-            self.send_header("Content-Type", kind)
-            self.send_header("Content-Length", str(len(content)))
-            self.end_headers()
-            self.wfile.write(content)
+            try:
+                self.send_response(status)
+                for name, value in HEADERS.items():
+                    self.send_header(name, value)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # The viewer can leave while a snapshot is still being read.
+                self.close_connection = True
 
         def log_message(self, format, *args):
             pass

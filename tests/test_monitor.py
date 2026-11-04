@@ -1,13 +1,15 @@
 """The browser monitor shows every launcher's trusted runs and serves only this machine."""
 
+from contextlib import redirect_stderr, redirect_stdout
+from io import BytesIO, StringIO
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ub_agents.coordination import Coordinator
 from ub_agents.monitor import monitor_background
-from ub_agents.monitor.server import allowed
+from ub_agents.monitor.server import allowed, create
 from ub_agents.monitor.snapshot import MonitorSource
 from ub_agents.records import body, iso, timestamp
 from tests.support import FakeGitHub, agent, config, issue
@@ -19,6 +21,13 @@ def lease(number, run, **changes):
             "runtime": "direct", "triggers": [], "actor": "operator", "created": iso(now - 60),
             "expires": iso(now + 600), "state": "running", "attempt": 1, "started": True,
             "attempt_effect": "pending", "host": "server"} | changes
+
+
+def snapshot_request(port):
+    request = Mock()
+    request.makefile.return_value = BytesIO(
+        f"GET /snapshot.json HTTP/1.0\r\nHost: localhost:{port}\r\n\r\n".encode())
+    return request
 
 
 class MonitorTests(unittest.TestCase):
@@ -67,6 +76,44 @@ class MonitorTests(unittest.TestCase):
         self.assertFalse(allowed("rebound.example:4377", 4377, "/snapshot.json", None, None))
         self.assertFalse(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "cross-site", "cors"))
         self.assertFalse(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "cross-site", "navigate"))
+
+    def test_server_silently_finishes_replies_to_disconnected_viewers(self):
+        for error in (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            for written in (0, 1):
+                with self.subTest(error=error, written=written):
+                    source = Mock()
+                    source.snapshot.return_value = {}
+                    stdout, stderr = StringIO(), StringIO()
+                    with create(source, port=0) as server:
+                        request = snapshot_request(server.server_address[1])
+                        request.sendall.side_effect = [None] * written + [error("viewer left")]
+                        with redirect_stdout(stdout), redirect_stderr(stderr):
+                            server.process_request_thread(request, ("127.0.0.1", 12345))
+                    source.snapshot.assert_called_once_with()
+                    self.assertEqual(request.sendall.call_count, written + 1)
+                    request.close.assert_called_once_with()
+                    self.assertEqual((stdout.getvalue(), stderr.getvalue()), ("", ""))
+
+    def test_server_reports_other_request_errors_normally(self):
+        for error, stage in ((OSError("unexpected header failure"), "headers"),
+                             (RuntimeError("unexpected reply failure"), "body"),
+                             (ConnectionResetError("upstream disconnected"), "snapshot")):
+            with self.subTest(error=error, stage=stage):
+                source = Mock()
+                source.snapshot.return_value = {}
+                if stage == "snapshot":
+                    source.snapshot.side_effect = error
+                stdout, stderr = StringIO(), StringIO()
+                with create(source, port=0) as server:
+                    request = snapshot_request(server.server_address[1])
+                    request.sendall.side_effect = [None] * (stage == "body") + [error]
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        server.process_request_thread(request, ("127.0.0.1", 12345))
+                request.close.assert_called_once_with()
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertIn("Exception occurred during processing of request", stderr.getvalue())
+                self.assertIn("Traceback (most recent call last):", stderr.getvalue())
+                self.assertIn(f"{type(error).__name__}: {error}", stderr.getvalue())
 
     def test_background_monitor_runs_in_its_own_session_until_it_answers(self):
         with tempfile.TemporaryDirectory() as root, \
