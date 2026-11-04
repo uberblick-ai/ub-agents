@@ -598,15 +598,15 @@ class Coordinator:
             if lease["id"] not in self._stop_labels:
                 return
             stops = set(self._stop_labels[lease["id"]]).intersection(item.labels)
-            if item.state != "open":
+            if stops:
+                reason = f"Stop label {sorted(stops)[0]} added"
+            elif item.state != "open":
                 kind = "Pull request" if item.kind == "pr" else "Issue"
                 state = "merged" if item.kind == "pr" and item.merged else "closed"
                 reason = f"{kind} {state}"
-            elif stops:
-                reason = f"Stop label {sorted(stops)[0]} added"
             else:
                 return
-            self._execution_stops.setdefault(lease["id"], (reason, item.state != "open"))
+            self._execution_stops.setdefault(lease["id"], (reason, item.state != "open" and not stops))
 
     def execution_deadline(self, lease):
         """Check cancellation while keeping ownership available for cleanup and release."""

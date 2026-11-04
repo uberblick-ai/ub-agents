@@ -287,9 +287,12 @@ class ContextUsageLoopTests(unittest.TestCase):
         self.assertNotIn("context", lease)
 
     def test_stopped_execution_keeps_available_context_on_early_outcome_only(self):
-        _, _, (lease, outcome) = self.run_agent("claude", failure=ExecutionStopped("Item closed", item_closed=True))
-        self.assertEqual(outcome["context"], EXPECTED)
-        self.assertEqual(outcome["usage"], {"tokens": 1000})
-        self.assertFalse(outcome["accepted"])
-        self.assertEqual(lease["result"], "blocked")
-        self.assertNotIn("context", lease)
+        for item_closed in (False, True):
+            with self.subTest(item_closed=item_closed):
+                _, _, (lease, outcome) = self.run_agent(
+                    "claude", failure=ExecutionStopped("Execution stopped", item_closed=item_closed))
+                self.assertEqual(outcome["context"], EXPECTED)
+                self.assertEqual(outcome["usage"], {"tokens": 1000})
+                self.assertEqual(outcome["accepted"], item_closed)
+                self.assertEqual(lease["result"], "success" if item_closed else "blocked")
+                self.assertNotIn("context", lease)

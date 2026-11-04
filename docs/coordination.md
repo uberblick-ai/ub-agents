@@ -193,10 +193,11 @@ run exhausts `max-attempts` and parks. When a transition parks a handoff PR, the
 notice goes on that PR. [Approval gates](approvals.md#with-approvals-on) post their
 own notice, once per gate.
 
-A run cancelled because its issue closed or its PR closed or merged posts no action
-notice. The lease records that no action is needed before cleanup, so later passes
-and restarted launchers do not recreate the notice. Superseded records are still
-minimized. Unconfirmed process cleanup still requires action and gets a notice.
+A run cancelled without a stored report because its issue closed or its PR closed
+or merged posts no action notice. The lease records that no action is needed before
+cleanup, so later passes and restarted launchers do not recreate the notice.
+Superseded records are still minimized. Unconfirmed process cleanup still requires
+action and gets a notice.
 
 A notice leads with the agent's asks, or with the summary's first sentence (one
 line, at most 300 characters) and numbered options. Resume steps follow. The full
@@ -235,14 +236,23 @@ GitHub failures prevent renewal until expiry, continuous launch stops the owned
 process and returns to polling without further writes for that lease.
 
 From claim until the agent process exits, each renewal also rereads the assignment's
-labels and state, even when no stop labels are configured. A configured stop label,
-a closed issue or a closed or merged PR cancels execution, discards any early report
-and releases the run without an outcome or a failed attempt. The launcher preserves
-the item's labels and cleans up its worktree and scratch as after a timeout. The
-lease summary and launcher output name the stop label or say the item was closed or
-merged. A label removed or an item reopened before the check does not cancel the run.
-Outcome application after process exit uses the normal transition checks; renewal
-no longer cancels execution during completion or recovery.
+labels and state, even when no stop labels are configured. A configured stop label
+cancels execution, discards any early report and releases the run as `blocked`
+without an outcome or a failed attempt. The launcher preserves the item's labels;
+the lease summary and launcher output name the stop label.
+
+A closed issue or a closed or merged PR also cancels execution. A report stored
+before the agent process stops is settled as after a normal exit, through the
+usual validation and transition checks. Rejected reports follow the normal exit
+rules too. An interruption before release leaves the stored report recoverable.
+Without a stored report, the run is released as `blocked`, with no action notice or
+failed attempt; its labels stay unchanged and its summary names closure or merger.
+A stop label takes precedence over closure and still discards the report.
+
+Both stops clean up the worktree and scratch as after a timeout. A label removed
+or an item reopened before the check does not cancel the run. Outcome application
+after process exit uses the normal transition checks; renewal no longer cancels
+execution during completion or recovery.
 
 Each GitHub request is bounded to 20 seconds and each Git operation to 120 seconds.
 `agent-timeout-minutes` bounds only execution; worktree preparation comes first, and

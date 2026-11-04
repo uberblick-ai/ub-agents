@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.config import CleanupHook, LEASE_RENEW_SECONDS, LEASE_SECONDS, load_config
+from ub_agents.assignment_run import AssignmentRun
 from ub_agents.coordination import Coordinator
 from ub_agents.errors import ExecutionStopped, GitHubError, LostOwnership
 from ub_agents.execution import ScratchDirectory, Workspace, group_members, supervise
@@ -76,14 +77,17 @@ class RenewalTests(unittest.TestCase):
             return self.finish()
         self.execute(run)
 
-    def test_execution_stop_terminates_process_and_discards_an_early_report(self):
+    def test_execution_stop_without_report_or_with_stop_label_blocks_without_failure(self):
         changes = ((issue, {"labels": frozenset({"needs-human", "unrelated"})}, "Stop label needs-human"),
                    (pr, {"labels": frozenset({"needs-human", "unrelated"})}, "Stop label needs-human"),
+                   (pr, {"state": "closed", "merged": True,
+                         "labels": frozenset({"needs-human", "unrelated"})}, "Stop label needs-human"),
                    (issue, {"state": "closed"}, "Issue closed"),
                    (pr, {"state": "closed"}, "Pull request closed"),
                    (pr, {"state": "closed", "merged": True}, "Pull request merged"))
         for (factory, change, reason), early_report in ((case, early) for case in changes
-                                                       for early in (None, "success", "blocked")):
+                                                       for early in ((None, "success", "blocked")
+                                                                     if "labels" in case[1] else (None,))):
             with self.subTest(kind=factory.__name__, change=change, early_report=early_report):
                 self.setUp()
                 self.github.items[1] = factory(1)
@@ -93,7 +97,7 @@ class RenewalTests(unittest.TestCase):
                 self.co.notices.on_action = lambda number, comment: actions.append(comment) if comment else None
                 self.loop.config = replace(self.loop.config, agents=(replace(
                     self.role, command=(sys.executable, "-c", "import time; time.sleep(30)")),))
-                if "state" in change:
+                if "labels" not in change:
                     self.loop.config = replace(self.loop.config, stop_labels=())
                 labels = change.get("labels", self.github.items[1].labels)
 
@@ -128,7 +132,7 @@ class RenewalTests(unittest.TestCase):
                     if early_report == "success":
                         self.assertFalse(history[1]["transition"]["started"])
                 notices = [c for c in self.github.comments(1) if c["body"].startswith(ACTION_MARKER)]
-                if "state" in change:
+                if "labels" not in change:
                     self.assertEqual(notices, [])
                     self.assertEqual(actions, [])
                     restarted = Loop(self.loop.config, self.github, "operator", output=lambda *_: None)
@@ -174,6 +178,120 @@ class RenewalTests(unittest.TestCase):
         self.assertEqual((lease["result"], lease["attempt_effect"]), ("blocked", "unchanged"))
         self.assertFalse(self.worktree.exists())
         self.assertFalse(ScratchDirectory(self.root, self.loop.config.repository, lease["run"]).path.parent.exists())
+
+    def test_closed_item_settles_report_stored_before_process_stops(self):
+        for factory, merged in ((issue, False), (pr, False), (pr, True)):
+            for report_after_poll in (False, True):
+                with self.subTest(kind=factory.__name__, merged=merged, report_after_poll=report_after_poll):
+                    self.setUp()
+                    self.github.items[1] = factory(1)
+                    self.loop.config = replace(self.loop.config, stop_labels=(), agents=(replace(
+                        self.role, command=(sys.executable, "-c", "import time; time.sleep(30)"),
+                        outcomes={"merged": {"add": ("completed",), "remove": ()}}),))
+
+                    def run(*args, **kwargs):
+                        lease = self.loop._renewal.lease
+
+                        def report():
+                            self.co.report(lease, "success", "Work completed", outcome="merged")
+
+                        if not report_after_poll:
+                            report()
+
+                        def close(final=False):
+                            if not final:
+                                self.github.change(1, state="closed", merged=merged)
+                                self.advance()
+                                if report_after_poll:
+                                    report()
+
+                        return supervise(*args, **(kwargs | {"observe_output": close}))
+
+                    self.execute(run)
+                    lease, outcome = self.co.history(1)
+                    self.assertEqual((lease["result"], lease["attempt_effect"]), ("success", "reset"))
+                    self.assertFalse(lease.get("unreported"))
+                    self.assertEqual(outcome["outcome"], "merged")
+                    self.assertTrue(outcome["transition_complete"])
+                    self.assertIn("completed", self.github.items[1].labels)
+                    self.assertFalse(any(c["body"].startswith(ACTION_MARKER) for c in self.github.comments(1)))
+                    directory = self.root / ".ub-agents/runs" / lease["run"]
+                    self.assertEqual(group_members(int((directory / "pid").read_text())), [])
+                    self.assertFalse(ScratchDirectory(self.root, self.loop.config.repository, lease["run"]).path.parent.exists())
+
+    def report_then_close(self, *args, **kwargs):
+        lease = self.loop._renewal.lease
+        self.co.report(lease, "success", "Work completed", outcome="done")
+        self.github.change(1, state="closed", merged=self.github.items[1].kind == "pr")
+        self.advance()
+        kwargs["expires"]()
+
+    def test_closed_item_rejects_report_through_normal_validation(self):
+        self.github.items[1] = pr(1)
+        validate = Settlement.validate_success
+
+        def changed_head(settlement, plan, outcome):
+            self.github.change(1, head="b" * 40)
+            return validate(settlement, plan, outcome)
+
+        with patch("ub_agents.assignment_run.supervise", side_effect=self.report_then_close), \
+                patch.object(Settlement, "validate_success", changed_head):
+            self.assertTrue(self.loop.tick())
+        lease, outcome = self.co.history(1)
+        self.assertEqual((lease["state"], lease["result"], lease["attempt_effect"]),
+                         ("released", "blocked", "failure"))
+        self.assertFalse(lease.get("unreported"))
+        self.assertFalse(outcome["accepted"])
+        self.assertIn("candidate SHA", outcome["rejected"])
+        self.assertFalse(outcome["transition"]["started"])
+        self.assertTrue(any(c["body"].startswith(ACTION_MARKER) for c in self.github.comments(1)))
+
+    def test_closed_item_settles_failure_report_as_after_normal_exit(self):
+        for status, effect in (("blocked", "unchanged"), ("retry", "failure")):
+            with self.subTest(status=status):
+                self.setUp()
+
+                def run(*args, **kwargs):
+                    lease = self.loop._renewal.lease
+                    self.co.report(lease, status, "Reported failure", action="Maintainer: resolve the failure.")
+                    self.github.change(1, state="closed")
+                    self.advance()
+                    kwargs["expires"]()
+
+                with patch("ub_agents.assignment_run.supervise", side_effect=run):
+                    self.assertTrue(self.loop.tick())
+                lease, outcome = self.co.history(1)
+                self.assertEqual((lease["result"], lease["summary"], lease["attempt_effect"]),
+                                 (status, "Reported failure", effect))
+                self.assertFalse(lease.get("unreported"))
+                self.assertNotIn("rejected", outcome)
+
+    def test_closed_item_report_survives_interruption_before_release(self):
+        for operation in ("outcome", "cleanup_workspace", "release"):
+            with self.subTest(operation=operation):
+                self.setUp()
+                self.github.items[1] = pr(1)
+                target = AssignmentRun if operation == "cleanup_workspace" else self.co
+                original = getattr(target, operation)
+
+                def interrupt(*args, **kwargs):
+                    if operation == "outcome" and not self.co._execution_stops:
+                        return original(*args, **kwargs)
+                    raise KeyboardInterrupt
+
+                with patch("ub_agents.assignment_run.supervise", side_effect=self.report_then_close):
+                    with patch.object(target, operation, side_effect=interrupt), self.assertRaises(KeyboardInterrupt):
+                        self.loop.tick()
+                lease, outcome = self.co.history(1)
+                self.assertEqual(lease["state"], "running")
+                self.assertNotIn("result", lease)
+                self.assertNotIn("unreported", lease)
+                self.now = seconds(lease["expires"])
+                with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("recovery starts no agent")):
+                    self.assertTrue(self.loop.tick())
+                history = self.co.history(1)
+                self.assertTrue(history[1]["accepted"])
+                self.assertEqual((history[2]["mode"], history[2]["result"]), ("recovery", "success"))
 
     def test_label_removed_before_renewal_does_not_stop_execution(self):
         def run(*args, **kwargs):
