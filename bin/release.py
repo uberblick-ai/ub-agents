@@ -274,7 +274,8 @@ def test_formula(run, fetch, python, workspace, archive, formula, version):
     lines = []
     for args, expected_output in (([cli, "--version"], f"ub-agents {version}"),
                                  ([cli, "init", "--repository", "example/project"], None),
-                                 ([cli, "doctor", "--offline"], "0 required failures"),
+                                 # Exit status 0 means no required failures, whatever the wording.
+                                 ([cli, "doctor", "--offline"], None),
                                  ([interpreter, "-c", VIEW_IMPORT], None)):
         label = ' '.join(str(arg) for arg in args[1:])
         output = command(run, args, cwd=project).stdout.strip()

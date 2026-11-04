@@ -23,6 +23,8 @@ run = 'sh "{{config_root}}/bin/ci.sh" "${usage_commit:-HEAD}"'
 
 [tasks.release]
 description = "Maintainers: publish a prepared release and open its Homebrew tap PR"
+# The preflight and formula test need python3.15 even without a global mise default.
+tools = { python = "3.15" }
 usage = 'arg "<version>" help="Prepared version X.Y.Z"'
 run = 'python3 "{{config_root}}/bin/release.py" "${usage_version?}"'
 
