@@ -60,6 +60,7 @@ class MonitorTests(unittest.TestCase):
         self.assertTrue(allowed("localhost:4377", 4377, "/", "cross-site", "navigate"))
         self.assertFalse(allowed("rebound.example:4377", 4377, "/snapshot.json", None, None))
         self.assertFalse(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "cross-site", "cors"))
+        self.assertFalse(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "cross-site", "navigate"))
 
     def test_server_ignores_a_viewer_that_left_before_the_reply(self):
         class ClosedTab:
@@ -70,7 +71,6 @@ class MonitorTests(unittest.TestCase):
                 raise BrokenPipeError
 
         handler(None, b"page")(ClosedTab(), ("127.0.0.1", 50000), SimpleNamespace(server_address=("127.0.0.1", 4377)))
-        self.assertFalse(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "cross-site", "navigate"))
 
     def test_background_monitor_runs_in_its_own_session_until_it_answers(self):
         with tempfile.TemporaryDirectory() as root, \
