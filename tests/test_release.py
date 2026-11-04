@@ -500,8 +500,7 @@ class ReleaseTests(unittest.TestCase):
         self.respond(["git", "init"])
         self.respond(["git", "remote", "add", "origin", "https://github.com/example/project.git"])
         self.respond([cli, "init", "--repository", "example/project"], "Created configuration.\n")
-        self.respond([cli, "doctor", "--offline"], "0 required failures, 0 warnings\n"
-                     "Approvals: from repository visibility (public: on; private/internal: off)\n")
+        self.respond([cli, "doctor", "--offline"], "4 warnings, no failures. Launch will start.\n")
         self.respond([interpreter, "-c", "from ub_agents.view.ui import View"])
         self.downloads = []
 
@@ -571,13 +570,10 @@ class ReleaseTests(unittest.TestCase):
         tool = self.publication()
         cli = self.workspace / "test-venv/bin/ub-agents"
         self.respond([cli, "--version"], f"Version:\nub-agents {VERSION}\nAdditional output.\n")
-        self.respond([cli, "doctor", "--offline"], "Checking configuration.\n0 required failures, 0 warnings\n"
-                     "Approvals: from repository visibility (public: on; private/internal: off)\n")
         output = self.publish()
         self.assertEqual(tool.completed, list(release.STEPS))
         self.assertIn("Formula tests: PASS", self.comment_body)
         self.assertIn("Additional output.", output)
-        self.assertIn("Approvals:", output)
 
     def test_release_creation_failure_reports_completed_and_remaining_steps(self):
         tool = self.publication()
@@ -592,8 +588,9 @@ class ReleaseTests(unittest.TestCase):
 
     def test_formula_failure_prints_and_posts_failure_without_merging(self):
         tool = self.publication()
-        self.respond([self.workspace / "test-venv/bin/ub-agents", "doctor", "--offline"], "wrong configuration\n")
-        with self.assertRaisesRegex(release.ReleaseError, "formula test doctor --offline") as raised:
+        self.respond([self.workspace / "test-venv/bin/ub-agents", "doctor", "--offline"],
+                     self.result(1, "wrong configuration\n"))
+        with self.assertRaisesRegex(release.ReleaseError, "doctor --offline failed \\(1\\)") as raised:
             self.publish()
         self.assertIn("Formula tests: FAIL", self.comment_body)
         self.assertIn("wrong configuration", self.comment_body)
