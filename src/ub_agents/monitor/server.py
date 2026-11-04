@@ -60,36 +60,48 @@ class Snapshots:
             return self.value
 
 
-def handler(snapshots, page):
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            parts = urlsplit(self.path)
-            if not allowed(self.headers.get("Host"), self.server.server_address[1], parts.path,
-                           self.headers.get("Sec-Fetch-Site"), self.headers.get("Sec-Fetch-Mode")):
-                return self.reply(403, b"", "text/plain")
-            if parts.path == "/":
-                return self.reply(200, page, "text/html; charset=utf-8")
-            if parts.path == "/snapshot.json":
-                try:
-                    data = snapshots.get(fresh="fresh" in parse_qs(parts.query))
-                    return self.reply(200, json.dumps(data).encode(), "application/json")
-                except AgentError as exc:
-                    return self.reply(502, json.dumps({"error": str(exc)}).encode(), "application/json")
-            return self.reply(404, b"", "text/plain")
+class Handler(BaseHTTPRequestHandler):
+    snapshots: Snapshots
+    page: bytes
 
-        def reply(self, status, content, kind):
-            self.send_response(status)
-            for name, value in HEADERS.items():
-                self.send_header(name, value)
-            self.send_header("Content-Type", kind)
-            self.send_header("Content-Length", str(len(content)))
-            self.end_headers()
-            self.wfile.write(content)
-
-        def log_message(self, format, *args):
+    def handle(self):
+        # A viewer that closes or reloads the tab during a GitHub read
+        # leaves nobody to answer; that is not worth a traceback.
+        try:
+            super().handle()
+        except ConnectionError:
             pass
 
-    return Handler
+    def do_GET(self):
+        parts = urlsplit(self.path)
+        if not allowed(self.headers.get("Host"), self.server.server_address[1], parts.path,
+                       self.headers.get("Sec-Fetch-Site"), self.headers.get("Sec-Fetch-Mode")):
+            return self.reply(403, b"", "text/plain")
+        if parts.path == "/":
+            return self.reply(200, self.page, "text/html; charset=utf-8")
+        if parts.path == "/snapshot.json":
+            try:
+                data = self.snapshots.get(fresh="fresh" in parse_qs(parts.query))
+                return self.reply(200, json.dumps(data).encode(), "application/json")
+            except AgentError as exc:
+                return self.reply(502, json.dumps({"error": str(exc)}).encode(), "application/json")
+        return self.reply(404, b"", "text/plain")
+
+    def reply(self, status, content, kind):
+        self.send_response(status)
+        for name, value in HEADERS.items():
+            self.send_header(name, value)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def log_message(self, format, *args):
+        pass
+
+
+def handler(snapshots, page):
+    return type("MonitorHandler", (Handler,), {"snapshots": snapshots, "page": page})
 
 
 def page():
