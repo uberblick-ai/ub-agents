@@ -60,6 +60,7 @@ class MonitorSource:
             "repository": self.config.repository,
             "folder": str(self.config.root),
             "stop_labels": list(self.config.stop_labels),
+            "stop_outcomes": self.stop_outcomes(),
             "generated_at": iso(now),
             "notices": notices,
             "needs_human": labelled + [{"item": self.item(lease), "labels": ["blocked"], "labelled": False,
@@ -73,6 +74,12 @@ class MonitorSource:
                              key=lambda run: run["ended"], reverse=True),
             "rates": self.rates(),
         }
+
+    def stop_outcomes(self):
+        """The configured outcomes that hand an item to a person through a stop label."""
+        stops = set(self.config.stop_labels)
+        return sorted({name for agent in self.config.agents for name, changes in agent.outcomes.items()
+                       if stops.intersection(changes.get("add", ()))})
 
     def labelled(self, open_items, notices):
         """Open items with a stop label, each with the ask of its latest outcome."""

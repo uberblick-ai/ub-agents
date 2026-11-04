@@ -46,8 +46,10 @@ answer "not modified".
 Click **notify: off** to switch on browser notifications. The page sends one test
 notification and, for 20 seconds, says where to look if none appeared (on macOS:
 System Settings › Notifications › your browser, and Focus). **notify when** sets what
-notifies: an item gets a stop label (the default), a run reports blocked, starts,
-ends or expires. Stop labels and blocked reports stay on screen until dismissed;
+notifies: an item gets a stop label (the default), a run reports blocked or one
+of the outcomes your config sends to a stop label (such as `maintainer-merge`),
+or a run starts, ends or expires. Stop labels, blocked reports and those outcomes
+stay on screen until dismissed;
 clicking a notification opens the item. Nothing notifies for what was already
 there when the page opened. With notifications on, a hidden tab keeps polling.
 

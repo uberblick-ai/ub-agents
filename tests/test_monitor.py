@@ -10,7 +10,7 @@ from ub_agents.monitor import monitor_background
 from ub_agents.monitor.server import allowed
 from ub_agents.monitor.snapshot import MonitorSource
 from ub_agents.records import body, iso, timestamp
-from tests.support import FakeGitHub, config, issue
+from tests.support import FakeGitHub, agent, config, issue
 
 
 def lease(number, run, **changes):
@@ -52,6 +52,14 @@ class MonitorTests(unittest.TestCase):
             github.change(3, state=state)
             waiting.append([entry["item"]["number"] for entry in source.snapshot()["needs_human"]])
         self.assertEqual(waiting, [[3], [], [3]])
+
+    def test_snapshot_offers_each_configured_outcome_that_stops_for_a_person(self):
+        integrator = agent(Path("/checkout"), name="integrator", outcomes={
+            "merged": {}, "maintainer-merge": {"add": ("needs-human",)}, "changes-requested": {"add": ("needs-changes",)}})
+        github = FakeGitHub()
+        source = MonitorSource(config(Path("/checkout"), integrator), github, Coordinator(github, None), timestamp)
+
+        self.assertEqual(source.snapshot()["stop_outcomes"], ["maintainer-merge"])
 
     def test_server_answers_only_this_machine_and_its_own_page(self):
         self.assertTrue(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "same-origin", "cors"))
