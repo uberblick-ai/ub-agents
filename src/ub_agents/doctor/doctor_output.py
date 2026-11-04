@@ -14,7 +14,7 @@ from ..launcher_lock import configuration_pause_summary
 
 
 SYMBOLS = {"ok": ("✓", "green"), "warn": ("!", "yellow"),
-           "fail": ("✗", "red"), "skip": ("–", "dim")}
+           "fail": ("✗", "red"), "skip": ("–", "dim"), "hint": ("i", "cyan")}
 
 
 def installation_summary(check):
@@ -69,7 +69,7 @@ def render_check(console, check, verbose):
     console.print(line)
     if verbose:
         console.print(f"        id: {check['id']}", style="dim")
-    if check["status"] in {"warn", "fail"} and check["remedy"]:
+    if check["status"] in {"warn", "fail", "hint"} and check["remedy"]:
         console.print(f"        → {check['remedy']}", style="dim")
 
 
@@ -92,7 +92,7 @@ def area_summary(checks):
     counts = Counter(check["status"] for check in checks)
     if counts["skip"] == len(checks):
         return "skip", skipped_summary(checks)
-    status = next(value for value in ("fail", "warn", "ok") if counts[value])
+    status = next(value for value in ("fail", "warn", "ok", "hint") if counts[value])
     labels = {check["id"].casefold() for check in checks
               if check["status"] == "ok" and check["id"].startswith("github-label:")}
     summary = []
@@ -100,7 +100,7 @@ def area_summary(checks):
         summary.append(f"{counts['ok'] - len(labels)} passed")
     if labels:
         summary.append(f"{len(labels)} label{'s' if len(labels) != 1 else ''}")
-    for value, noun in (("fail", "failure"), ("warn", "warning"), ("skip", "skipped")):
+    for value, noun in (("fail", "failure"), ("warn", "warning"), ("hint", "hint"), ("skip", "skipped")):
         if counts[value]:
             summary.append(f"{counts[value]} {noun}" + ("s" if counts[value] != 1 and value != "skip" else ""))
     return status, ", ".join(summary)
@@ -143,7 +143,7 @@ def render_area(console, area, checks, width, verbose=False, *, details=True):
     if not details:
         return
     for check in checks:
-        if verbose or check["status"] in {"warn", "fail"}:
+        if verbose or check["status"] in {"warn", "fail", "hint"}:
             render_check(console, check, verbose)
 
 

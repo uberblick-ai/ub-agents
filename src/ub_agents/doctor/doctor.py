@@ -125,14 +125,21 @@ class Doctor:
         self.add(name, "fail", f"{name} is not on PATH", remedy)
         return False
 
-    @check("configuration", "policy-placeholder", "policy-merging")
+    @check("configuration", "policy-placeholder", "policy-starter")
     def shared_policy(self, text, path):
-        placeholders = {"owner": "@org/maintainers", "build": "<project build command>",
-                        "test": "<project test command>", "validation": "<project lint or validation command>"}
-        for name, placeholder in placeholders.items():
-            if placeholder in text:
-                self.add(f"policy-placeholder:{name}", "warn", f"{path} still contains {placeholder}",
-                         f"Replace {placeholder} in {path} with the repository's own guidance", required=False)
+        path = path.resolve().relative_to(self.config.root)
+        if "@org/maintainers" in text:
+            self.add("policy-placeholder:owner", "warn", f"{path} still contains @org/maintainers",
+                     f"Replace @org/maintainers in {path} with the repository's person or team", required=False)
+        commands = [name for name, placeholder in (("build", "<project build command>"),
+                    ("test", "<project test command>"), ("lint", "<project lint or validation command>"))
+                    if placeholder in text]
+        remaining = []
+        remedies = []
+        if commands:
+            names = " and ".join(commands) if len(commands) < 3 else ", ".join(commands[:-1]) + " and " + commands[-1]
+            remaining.append(names + (" command" if len(commands) == 1 else " commands"))
+            remedies.append("Replace the command placeholders with the repository's own required commands")
 
         def merging(content):
             section = re.search(r"^## Merging[ \t]*\r?\n(.*?)(?=^#{1,2} |\Z)", content, re.MULTILINE | re.DOTALL)
@@ -146,8 +153,12 @@ class Doctor:
 
         starter = files("ub_agents").joinpath("templates/ub_agents.md").read_text(encoding="utf-8")
         if merging(text) == merging(starter):
-            self.add("policy-merging", "warn", f"{path} still has the starter Merging section",
-                     f"Tailor {path} to the repository's required CI check, maintainer merge rules and review focus",
+            remaining.append("the Merging section")
+            remedies.append("Merge the Tailor loop policy PR or edit the Merging section yourself "
+                            "to set the repository's required CI check and maintainer merge rules")
+        if remaining:
+            self.add("policy-starter", "hint", f"tailor {path}: " + ", and ".join(remaining),
+                     "Starter policy needs the repository's own checks and merge rules. " + ". ".join(remedies),
                      required=False)
 
     def run(self, path, *, offline=False, progress=None):
