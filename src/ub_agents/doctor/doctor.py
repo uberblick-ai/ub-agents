@@ -127,7 +127,7 @@ class Doctor:
 
     @check("configuration", "policy-placeholder", "policy-starter")
     def shared_policy(self, text, path):
-        path = path.relative_to(self.config.root)
+        path = path.resolve().relative_to(self.config.root)
         if "@org/maintainers" in text:
             self.add("policy-placeholder:owner", "warn", f"{path} still contains @org/maintainers",
                      f"Replace @org/maintainers in {path} with the repository's person or team", required=False)

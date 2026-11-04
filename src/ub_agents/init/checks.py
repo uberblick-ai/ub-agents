@@ -7,13 +7,18 @@ import tomllib
 from ..errors import AgentError
 
 
+def make_targets(text):
+    rules = re.findall(r"^ *([^\s#:=]+(?:[ \t]+[^\s#:=]+)*)[ \t]*:{1,2}(?![:=])(.*)", text, re.MULTILINE)
+    assignment = r"^[ \t]*(?:(?:export|override|private)[ \t]+)*[^\s:=]+[ \t]*(?::{0,3}|[?+!])="
+    return {name for group, rest in rules if not re.match(assignment, rest) for name in group.split()}
+
+
 def task_names(path):
     try:
-        text = path.read_text(encoding="utf-8")
         if path.name == "Makefile":
-            targets = re.findall(r"^ *([^\s#:=]+(?:[ \t]+[^\s#:=]+)*)[ \t]*:(?![:]?=)",
-                                 text, re.MULTILINE)
-            return {name for group in targets for name in group.split()}
+            # Make syntax and the supported names are ASCII; comments need not be UTF-8.
+            return make_targets(path.read_text(encoding="utf-8", errors="surrogateescape"))
+        text = path.read_text(encoding="utf-8-sig" if path.name == "package.json" else "utf-8")
         data = tomllib.loads(text) if path.suffix == ".toml" else json.loads(text)
         tasks = data.get("tasks" if path.suffix == ".toml" else "scripts", {}) if isinstance(data, dict) else {}
         if not isinstance(tasks, dict):

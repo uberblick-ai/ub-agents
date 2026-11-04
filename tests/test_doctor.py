@@ -1237,6 +1237,23 @@ launchers: [operator]
         self.assertTrue(any(c['required'] and c['status'] == 'fail' and
                             'shared-instructions is unreadable' in c['message'] for c in result['checks']))
 
+    def test_shared_policy_accepts_an_absolute_path_through_a_symlinked_prefix(self):
+        (self.root / 'policy.md').write_text('@org/maintainers <project build command>')
+        with tempfile.TemporaryDirectory() as directory:
+            alias = Path(directory) / 'link'
+            alias.symlink_to(self.root, target_is_directory=True)
+            shared = alias / 'policy.md'
+            self.path.write_text(self.path.read_text() + f'shared-instructions: {shared}\n')
+            self.assertEqual(load_config(self.path).shared_instructions, shared)
+            for offline in (False, True):
+                with self.subTest(offline=offline):
+                    result = self.diagnose(offline=offline)
+                    self.assertTrue(result['ok'])
+                    self.assertEqual(self.one(result, 'policy-starter')['message'],
+                                     'tailor policy.md: build command')
+                    self.assertEqual(self.one(result, 'policy-placeholder')['message'],
+                                     'policy.md still contains @org/maintainers')
+
     def test_shared_policy_groups_commands_into_a_hint_and_warns_separately_for_owner(self):
         policy = self.root / 'policy.md'
         self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')

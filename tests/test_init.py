@@ -192,6 +192,33 @@ class InitTests(unittest.TestCase):
                     for command in ('mise run build', 'npm run test', 'make lint'):
                         self.assertIn(f'`{command}`', policy)
 
+    def test_init_reads_bom_json_and_makefiles_with_non_utf8_comments(self):
+        for name, content, command in (
+                ('package.json', b'\xef\xbb\xbf{"scripts":{"build":"compile"}}', 'npm run build'),
+                ('Makefile', b'# caf\xe9\nbuild:\n\tcompile\n', 'make build')):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'ub-agents.yaml'
+                (self.path.parent / name).write_bytes(content)
+                code, _, error, _ = self.init()
+                self.assertEqual((code, error), (0, ''))
+                policy = (self.path.parent / '.agents/ub_agents.md').read_text()
+                self.assertIn(f'- Build: `{command}`', policy)
+                self.assertIn('<project test command>', policy)
+                self.assertIn('<project lint or validation command>', policy)
+
+    def test_init_ignores_make_target_specific_variables_unless_a_rule_defines_the_target(self):
+        assignments = 'build: FLAGS = -g\ntest: CFLAGS += -g\nlint:: private FLAGS := -g\n'
+        for defined in (False, True):
+            with self.subTest(defined=defined), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'ub-agents.yaml'
+                (self.path.parent / 'Makefile').write_text(assignments + ('build test lint:\n' if defined else ''))
+                self.assertEqual(self.init()[0], 0)
+                policy = (self.path.parent / '.agents/ub_agents.md').read_text()
+                for label, name, placeholder in (('Build', 'build', '<project build command>'),
+                        ('Tests', 'test', '<project test command>'),
+                        ('Other checks', 'lint', '<project lint or validation command>')):
+                    self.assertIn(f'- {label}: `make {name}`' if defined else placeholder, policy)
+
     def test_init_does_not_guess_tool_defaults_or_parse_tasks_when_guidance_exists(self):
         self.path.parent.mkdir()
         (self.path.parent / 'pyproject.toml').write_text('[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
@@ -209,10 +236,13 @@ class InitTests(unittest.TestCase):
                           (self.path.parent / '.agents/ub_agents.md').read_text())
 
     def test_invalid_check_source_stops_init_without_writing_starter_files(self):
-        for name, content in (('package.json', '{'), ('mise.toml', '[tasks')):
+        for name, content in (('package.json', '{'), ('mise.toml', '[tasks'), ('package.json', None)):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 self.path = Path(directory) / 'ub-agents.yaml'
-                (self.path.parent / name).write_text(content)
+                if content is None:
+                    (self.path.parent / name).mkdir()
+                else:
+                    (self.path.parent / name).write_text(content)
                 code, _, error, _ = self.init()
                 self.assertEqual(code, 1)
                 self.assertIn(f'Cannot read project checks from {self.path.parent.resolve() / name}', error)

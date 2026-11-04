@@ -40,6 +40,8 @@ The files go to a setup PR on your default branch, and init offers to create the
 
 With `AGENTS.md` or `CLAUDE.md`, the policy points to that file for project checks. Otherwise init fills build, test and lint commands from tasks defined in `mise.toml`, scripts in `package.json` or targets in `Makefile`, in that order for each command. It uses `mise run`, `npm run` or `make`; `check` also counts as a lint task, after `lint`. Missing commands keep placeholders. Init reads these definitions without running them and never guesses defaults such as `pytest`. Review the generated commands before launch.
 
+Detection accepts `package.json` with a UTF-8 BOM and Makefiles with non-UTF-8 comments. A target-specific variable assignment alone does not define a Makefile target. If a source cannot be read or its JSON or TOML is invalid, init names the file and stops before writing starter files; fix the file and run init again.
+
 If starter files already exist, init stops and changes nothing. It never touches `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
 
 ## Next steps
