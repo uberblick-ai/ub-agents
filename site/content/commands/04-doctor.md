@@ -41,7 +41,7 @@ uberblick-ai/ub-agents · ub-agents from source (updates need the Homebrew tap) 
 3 warnings, no failures. Launch will start. (9.8s)
 ```
 
-`✓` means passed, `!` warnings, `✗` failures and `–` skipped. When an entire area
+`✓` means passed, `!` warnings, `✗` failures, `i` hints and `–` skipped. When an entire area
 was skipped for one reason, that reason appears once, such as `offline` or
 `skipped, needs gh`. With `--verbose`, a plain area heading appears when the area
 starts, each check streams beneath it with its id, and the summary closes the area.
@@ -84,7 +84,7 @@ fixes, then prints a new verdict. A missing stop label or
 [`outside-input`](/docs/configuration/approvals.html#outside-input-label) label is
 only a warning.
 
-Doctor also warns about starter placeholders left in your shared policy, such as `@org/maintainers` or `<project test command>`, and a `## Merging` section still identical to the starter.
+After [init](/docs/commands/init.html), Configuration shows one `policy-starter` hint naming only the command placeholders and starter Merging section still to tailor. Its remedy explains how to use your repository's own commands and merge the **Tailor loop policy** PR or edit the Merging section yourself. The hint appears in default output, adds no warnings to the verdict and has status `hint` in `--json`. An untailored starter policy alone exits 0 with `ok: true`. The owner placeholder `@org/maintainers` stays a separate warning.
 
 ## MCP servers
 

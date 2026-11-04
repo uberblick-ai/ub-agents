@@ -38,6 +38,8 @@ The files go to a setup PR on your default branch, and init offers to create the
 
 **Tailor loop policy** files an issue labeled `ready` after the setup PR. The loop's first job is to read your repository and propose its required CI check, extra maintainer merge rules and a few review focus points, each backed by file evidence. A maintainer merges that policy PR. When init can't file the issue, it prints the `gh issue create` command instead.
 
+With `AGENTS.md` or `CLAUDE.md`, the policy points to that file for project checks. Otherwise init fills build, test and lint commands from tasks defined in `mise.toml`, scripts in `package.json` or targets in `Makefile`, in that order for each command. It uses `mise run`, `npm run` or `make`; `check` also counts as a lint task, after `lint`. Missing commands keep placeholders. Init reads these definitions without running them and never guesses defaults such as `pytest`. Review the generated commands before launch.
+
 If starter files already exist, init stops and changes nothing. It never touches `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
 
 ## Next steps
@@ -46,7 +48,7 @@ If starter files already exist, init stops and changes nothing. It never touches
 - Review `.agents/ub_agents.md` against [what belongs in the shared policy](/docs/best-practices/instructions-as-code.html#what-goes-in-the-shared-policy). {{discuss shared-policy}}
 - If your project has its own check commands, such as `mise run ci`, add them to Claude's `--allowedTools` in `ub-agents.yaml`, for example `"Bash(mise run ci)"`.
 - Merge the setup PR and pull your default branch.
-- Run [`ub-agents doctor --offline`](/docs/commands/doctor.html) to find starter placeholders you haven't replaced.
+- Run [`ub-agents doctor --offline`](/docs/commands/doctor.html) for one hint about commands and merging rules still to tailor. The hint adds no warnings; an unset owner stays a separate warning.
 - Run [`ub-agents launch`](/docs/commands/launch.html) from a clean checkout of your default branch. If you also work in this checkout yourself, clone a separate one for the launcher.
 
 ## Add the optional steps later on

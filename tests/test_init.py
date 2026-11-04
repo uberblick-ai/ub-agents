@@ -145,6 +145,118 @@ class InitTests(unittest.TestCase):
                     for name in ('AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md'):
                         self.assertFalse((self.path.parent / name).exists())
 
+    def test_init_detects_explicit_check_commands_from_each_source_and_keeps_missing_placeholders(self):
+        sources = (
+            ('mise.toml', '[tasks]\nbuild = "compile"\n', 'test = {run = "test-runner"}\nlint = ["validate"]\n',
+             'mise run'),
+            ('package.json', '{"scripts":{"build":"compile"', ',"test":"test-runner","lint":"validate"',
+             'npm run'),
+            ('Makefile', 'build:\n\tcompile\n', 'test lint:\n\tvalidate\n', 'make'),
+        )
+        for filename, partial, rest, runner in sources:
+            for complete in (False, True):
+                with self.subTest(filename=filename, complete=complete), tempfile.TemporaryDirectory() as directory:
+                    self.path = Path(directory) / 'ub-agents.yaml'
+                    content = partial + (rest if complete else '') + ('}}' if filename == 'package.json' else '')
+                    (self.path.parent / filename).write_text(content)
+                    self.assertEqual(self.init()[0], 0)
+                    policy = (self.path.parent / '.agents/ub_agents.md').read_text()
+                    self.assertIn(f'- Build: `{runner} build`', policy)
+                    self.assertIn(f'- Tests: `{runner} test`' if complete else '<project test command>', policy)
+                    self.assertIn(f'- Other checks: `{runner} lint`' if complete
+                                  else '<project lint or validation command>', policy)
+                    self.assertNotIn('<project build command>', policy)
+
+    def test_init_uses_check_as_lint_and_combines_sources_in_documented_order(self):
+        sources = (
+            {'mise.toml': '[tasks]\ncheck = "validate"\n'},
+            {'package.json': '{"scripts":{"check":"validate"}}'},
+            {'Makefile': '.PHONY: build\nbuild := compile\ncheck:\n\tvalidate\n'},
+            {'mise.toml': '[tasks]\nbuild = "compile"\n',
+             'package.json': '{"scripts":{"build":"other","test":"test-runner"}}',
+             'Makefile': 'test:\n\tother\nlint:\n\tvalidate\n'},
+        )
+        for files in sources:
+            with self.subTest(files=files), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'ub-agents.yaml'
+                for name, content in files.items():
+                    (self.path.parent / name).write_text(content)
+                self.assertEqual(self.init()[0], 0)
+                policy = (self.path.parent / '.agents/ub_agents.md').read_text()
+                if len(files) == 1:
+                    runner = {'mise.toml': 'mise run', 'package.json': 'npm run', 'Makefile': 'make'}[next(iter(files))]
+                    self.assertIn(f'- Other checks: `{runner} check`', policy)
+                    self.assertIn('<project build command>', policy)
+                    self.assertIn('<project test command>', policy)
+                else:
+                    for command in ('mise run build', 'npm run test', 'make lint'):
+                        self.assertIn(f'`{command}`', policy)
+
+    def test_init_does_not_guess_tool_defaults_or_parse_tasks_when_guidance_exists(self):
+        self.path.parent.mkdir()
+        (self.path.parent / 'pyproject.toml').write_text('[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
+        (self.path.parent / 'package.json').write_text('{"scripts":{"test":null,"lint":false}}')
+        self.assertEqual(self.init()[0], 0)
+        policy = (self.path.parent / '.agents/ub_agents.md').read_text()
+        for placeholder in ('<project build command>', '<project test command>', '<project lint or validation command>'):
+            self.assertIn(placeholder, policy)
+        with tempfile.TemporaryDirectory() as directory:
+            self.path = Path(directory) / 'ub-agents.yaml'
+            (self.path.parent / 'AGENTS.md').write_text('Run the documented checks.')
+            (self.path.parent / 'package.json').write_text('malformed')
+            self.assertEqual(self.init()[0], 0)
+            self.assertIn('Project checks are documented in `AGENTS.md`.',
+                          (self.path.parent / '.agents/ub_agents.md').read_text())
+
+    def test_invalid_check_source_stops_init_without_writing_starter_files(self):
+        for name, content in (('package.json', '{'), ('mise.toml', '[tasks')):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'ub-agents.yaml'
+                (self.path.parent / name).write_text(content)
+                code, _, error, _ = self.init()
+                self.assertEqual(code, 1)
+                self.assertIn(f'Cannot read project checks from {self.path.parent / name}', error)
+                self.assertFalse(self.path.exists())
+                self.assertFalse((self.path.parent / '.agents').exists())
+
+    def test_fresh_init_offline_doctor_has_one_starter_hint_without_warnings_and_successful_json(self):
+        for found in (False, True):
+            with self.subTest(found=found), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'ub-agents.yaml'
+                if found:
+                    (self.path.parent / 'package.json').write_text(
+                        '{"scripts":{"build":"compile","test":"test-runner","lint":"validate"}}')
+                self.assertEqual(self.init()[0], 0)
+                for json_output in (False, True):
+                    with patch('ub_agents.doctor.doctor.subprocess.run', RecordingRunner(self.path.parent.resolve())), \
+                            patch('ub_agents.doctor.doctor.shutil.which', return_value='/tools/git'), \
+                            redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
+                        code = main(['--config', str(self.path), 'doctor', '--offline']
+                                    + (['--json'] if json_output else []))
+                    self.assertEqual((code, stderr.getvalue()), (0, ''))
+                    message = 'tailor .agents/ub_agents.md: ' + (
+                        'the Merging section' if found else 'build, test and lint commands, and the Merging section')
+                    output = stdout.getvalue()
+                    if json_output:
+                        result = json.loads(output)
+                        self.assertTrue(result['ok'])
+                        hints = [check for check in result['checks'] if check['id'] == 'policy-starter']
+                        self.assertEqual(len(hints), 1)
+                        self.assertEqual((hints[0]['status'], hints[0]['required']), ('hint', False))
+                        self.assertEqual(hints[0]['message'], message)
+                        self.assertFalse(any(check['status'] in ('warn', 'fail') for check in result['checks']))
+                    else:
+                        self.assertIn(message, output)
+                        self.assertIn('Configuration', output)
+                        self.assertIn('1 hint', output)
+                        self.assertIn('Merge the Tailor loop policy PR or edit the Merging section yourself', output)
+                        self.assertEqual('Replace the command placeholders' in output, not found)
+                        self.assertNotIn('warning', output)
+                        self.assertIn('All ', output)
+                        self.assertIn('checks passed', output)
+                    self.assertNotIn('policy-placeholder', output)
+                    self.assertNotIn('policy-merging', output)
+
     def test_init_preserves_ignore_entries_and_adds_only_missing_local_entries(self):
         for existing in ('', '.ub-agents/\n', 'ub-agents.local.yaml\n',
                          '.ub-agents/\nub-agents.local.yaml\n', 'unrelated-without-newline'):

@@ -114,7 +114,7 @@ agents:
             if check["id"].startswith("github-label:"):
                 expected.add("uses")
             self.assertEqual(set(check), expected)
-            self.assertIn(check["status"], {"ok", "warn", "fail", "skip"})
+            self.assertIn(check["status"], {"ok", "warn", "fail", "skip", "hint"})
             self.assertIsInstance(check["required"], bool)
         self.assertIn("All 26 checks passed in 0.0s.", self.capture(result))
         self.assertEqual(self.cli()[0], 0)
@@ -1237,7 +1237,7 @@ launchers: [operator]
         self.assertTrue(any(c['required'] and c['status'] == 'fail' and
                             'shared-instructions is unreadable' in c['message'] for c in result['checks']))
 
-    def test_shared_policy_warns_once_per_placeholder_online_and_offline_without_failing(self):
+    def test_shared_policy_groups_commands_into_a_hint_and_warns_separately_for_owner(self):
         policy = self.root / 'policy.md'
         self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
         placeholders = ('@org/maintainers', '<project build command>', '<project test command>',
@@ -1248,17 +1248,34 @@ launchers: [operator]
                 result = self.diagnose(offline=offline)
                 self.assertTrue(result['ok'])
                 checks = self.checks(result, 'policy-placeholder')
-                self.assertEqual(len(checks), 4)
-                self.assertEqual(len({c['id'] for c in checks}), 4)
-                for placeholder in placeholders:
-                    check, = [c for c in checks if placeholder in c['message']]
-                    self.assertEqual((check['status'], check['required']), ('warn', False))
-                    self.assertIn('policy.md', check['message'])
+                self.assertEqual(len(checks), 1)
+                self.assertEqual(checks[0]['id'], 'policy-placeholder:owner')
+                self.assertEqual((checks[0]['status'], checks[0]['required']), ('warn', False))
+                hint = self.one(result, 'policy-starter')
+                self.assertEqual((hint['status'], hint['required']), ('hint', False))
+                self.assertEqual(hint['message'], 'tailor policy.md: build, test and lint commands')
+                self.assertNotIn('Merging', hint['remedy'])
                 output = self.capture(result)
                 self.assertIn('configuration', output.lower())
-                self.assertIn('4 warnings', output)
+                self.assertIn('1 warning', output)
+                self.assertNotIn('2 warnings', output)
 
-    def test_starter_merging_warns_with_any_init_owner_and_ignores_line_wrapping(self):
+    def test_starter_hint_names_only_remaining_commands_in_default_and_verbose_output(self):
+        self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
+        for text, remaining in (('<project build command>', 'build command'),
+                                ('<project test command> <project lint or validation command>', 'test and lint commands')):
+            with self.subTest(text=text):
+                (self.root / 'policy.md').write_text(text)
+                result = self.diagnose(offline=True)
+                hint = self.one(result, 'policy-starter')
+                self.assertEqual(hint['message'], f'tailor policy.md: {remaining}')
+                for verbose in (False, True):
+                    output = self.capture(result, verbose=verbose)
+                    self.assertEqual(output.count(hint['message']), 1)
+                    self.assertIn(hint['remedy'], output)
+                    self.assertNotIn('warning', output)
+
+    def test_starter_merging_hints_with_any_init_owner_and_ignores_line_wrapping(self):
         policy = self.root / 'policy.md'
         self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
         starter = files('ub_agents').joinpath('templates/ub_agents.md').read_text()
@@ -1272,19 +1289,19 @@ launchers: [operator]
                     policy.write_text(content)
                     result = self.diagnose(offline=offline)
                     self.assertTrue(result['ok'])
-                    check = self.one(result, 'policy-merging')
-                    self.assertEqual((check['status'], check['required']), ('warn', False))
-                    self.assertIn('starter Merging section', check['message'])
+                    check = self.one(result, 'policy-starter')
+                    self.assertEqual((check['status'], check['required']), ('hint', False))
+                    self.assertEqual(check['message'], 'tailor policy.md: the Merging section')
                     self.assertEqual(len(self.checks(result, 'policy-placeholder')), int(owner == '@org/maintainers'))
 
-    def test_public_starter_merging_rule_still_warns_after_reflow(self):
+    def test_public_starter_merging_rule_still_hints_after_reflow(self):
         policy = self.root / 'policy.md'
         self.path.write_text(self.path.read_text() + 'shared-instructions: policy.md\n')
         starter = files('ub_agents').joinpath('templates/ub_agents.md').read_text()
         policy.write_text(starter.replace('- changes setup, CI or release tooling;',
             '- changes setup, CI or release tooling;\n'
             '- is labelled `outside-input`\n  (built from outside text);'))
-        self.assertEqual(self.one(self.diagnose(offline=True), 'policy-merging')['status'], 'warn')
+        self.assertEqual(self.one(self.diagnose(offline=True), 'policy-starter')['status'], 'hint')
 
     def test_customized_or_absent_merging_section_has_no_starter_warning(self):
         policy = self.root / 'policy.md'
@@ -1297,7 +1314,7 @@ launchers: [operator]
                 policy.write_text(text)
                 result = self.diagnose(offline=True)
                 self.assertTrue(result['ok'])
-                self.assertEqual(self.checks(result, 'policy-merging'), [])
+                self.assertEqual(self.checks(result, 'policy-starter'), [])
                 self.assertEqual(self.checks(result, 'policy-placeholder'), [])
 
     def test_starter_checks_apply_only_to_the_configured_shared_file(self):
@@ -1305,7 +1322,7 @@ launchers: [operator]
         result = self.diagnose(offline=True)
         self.assertTrue(result['ok'])
         self.assertEqual(self.checks(result, 'policy-placeholder'), [])
-        self.assertEqual(self.checks(result, 'policy-merging'), [])
+        self.assertEqual(self.checks(result, 'policy-starter'), [])
 
     def test_repository_root_remote_and_github_mismatches(self):
         config = load_config(self.path)
