@@ -215,7 +215,7 @@ class InitTests(unittest.TestCase):
                 (self.path.parent / name).write_text(content)
                 code, _, error, _ = self.init()
                 self.assertEqual(code, 1)
-                self.assertIn(f'Cannot read project checks from {self.path.parent / name}', error)
+                self.assertIn(f'Cannot read project checks from {self.path.parent.resolve() / name}', error)
                 self.assertFalse(self.path.exists())
                 self.assertFalse((self.path.parent / '.agents').exists())
 
