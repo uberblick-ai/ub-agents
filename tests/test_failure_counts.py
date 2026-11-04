@@ -411,7 +411,8 @@ class FailureCountTests(unittest.TestCase):
         for ending, count, state in (('interrupt', 0, 'ready'), ('stop', 0, 'blocked'),
                                      ('closed', 0, 'blocked'), ('timeout', 1, 'ready'),
                                      ('unsafe', 1, 'blocked')):
-            for reported in (None, 'success', 'blocked'):
+            # Stored closure reports follow completion recovery, covered by renewal tests.
+            for reported in ((None,) if ending == 'closed' else (None, 'success', 'blocked')):
                 with self.subTest(ending=ending, reported=reported):
                     self.setUp()
                     def execute(*args, **kwargs):
