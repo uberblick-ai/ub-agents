@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/cli/read.py: 71%</title>
+    <title>Coverage for src/ub_agents/cli/read.py: 100%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>cli<span class="sep">/</span>read.py</b>:
-            <span class="pc_cov">71%</span>
+            <span class="pc_cov">100%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">17 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">12<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">5<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">17<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">0<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_6ac896d45f1ef32d_report_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-05 01:22 +0000
+            created at 2026-11-05 06:37 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -104,16 +104,16 @@
     <p class="pln"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="key">def</span> <span class="nam">needs_config</span><span class="op">(</span><span class="nam">args</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t">    <span class="com"># Supervised reads use the launcher&#x27;s pinned input policy.</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t">    <span class="key">return</span> <span class="str">&quot;UB_AGENTS_RUN&quot;</span> <span class="key">not</span> <span class="key">in</span> <span class="nam">os</span><span class="op">.</span><span class="nam">environ</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t">    <span class="key">return</span> <span class="str">&quot;UB_AGENTS_RUN&quot;</span> <span class="key">not</span> <span class="key">in</span> <span class="nam">os</span><span class="op">.</span><span class="nam">environ</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t28" href="#t28">28</a></span><span class="t"><span class="op">@</span><span class="nam">command</span><span class="op">(</span><span class="str">&quot;read&quot;</span><span class="op">,</span> <span class="nam">arguments</span><span class="op">,</span> <span class="nam">number</span><span class="op">=</span><span class="str">&quot;required&quot;</span><span class="op">,</span> <span class="nam">config_required</span><span class="op">=</span><span class="nam">needs_config</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t29" href="#t29">29</a></span><span class="t"><span class="key">def</span> <span class="nam">read_run</span><span class="op">(</span><span class="nam">args</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t30" href="#t30">30</a></span><span class="t">    <span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">read_input</span> <span class="key">import</span> <span class="nam">read_item</span><span class="op">,</span> <span class="nam">read_policy</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t31" href="#t31">31</a></span><span class="t">    <span class="nam">policy</span> <span class="op">=</span> <span class="op">(</span><span class="nam">supervised_run</span><span class="op">(</span><span class="op">)</span> <span class="key">if</span> <span class="str">&quot;UB_AGENTS_RUN&quot;</span> <span class="key">in</span> <span class="nam">os</span><span class="op">.</span><span class="nam">environ</span> <span class="key">else</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t32" href="#t32">32</a></span><span class="t">              <span class="nam">read_policy</span><span class="op">(</span><span class="nam">_runtime</span><span class="op">.</span><span class="nam">load_config</span><span class="op">(</span><span class="nam">args</span><span class="op">.</span><span class="nam">config</span><span class="op">)</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t33" href="#t33">33</a></span><span class="t">    <span class="nam">print</span><span class="op">(</span><span class="nam">json</span><span class="op">.</span><span class="nam">dumps</span><span class="op">(</span><span class="nam">read_item</span><span class="op">(</span><span class="nam">_runtime</span><span class="op">.</span><span class="nam">GitHub</span><span class="op">(</span><span class="nam">policy</span><span class="op">[</span><span class="str">&quot;repository&quot;</span><span class="op">]</span><span class="op">)</span><span class="op">,</span> <span class="nam">args</span><span class="op">.</span><span class="nam">number</span><span class="op">,</span> <span class="nam">policy</span><span class="op">)</span><span class="op">,</span> <span class="nam">indent</span><span class="op">=</span><span class="num">2</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t34" href="#t34">34</a></span><span class="t">    <span class="key">return</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t30" href="#t30">30</a></span><span class="t">    <span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">read_input</span> <span class="key">import</span> <span class="nam">read_item</span><span class="op">,</span> <span class="nam">read_policy</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t31" href="#t31">31</a></span><span class="t">    <span class="nam">policy</span> <span class="op">=</span> <span class="op">(</span><span class="nam">supervised_run</span><span class="op">(</span><span class="op">)</span> <span class="key">if</span> <span class="str">&quot;UB_AGENTS_RUN&quot;</span> <span class="key">in</span> <span class="nam">os</span><span class="op">.</span><span class="nam">environ</span> <span class="key">else</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t32" href="#t32">32</a></span><span class="t">              <span class="nam">read_policy</span><span class="op">(</span><span class="nam">_runtime</span><span class="op">.</span><span class="nam">load_config</span><span class="op">(</span><span class="nam">args</span><span class="op">.</span><span class="nam">config</span><span class="op">)</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t33" href="#t33">33</a></span><span class="t">    <span class="nam">print</span><span class="op">(</span><span class="nam">json</span><span class="op">.</span><span class="nam">dumps</span><span class="op">(</span><span class="nam">read_item</span><span class="op">(</span><span class="nam">_runtime</span><span class="op">.</span><span class="nam">GitHub</span><span class="op">(</span><span class="nam">policy</span><span class="op">[</span><span class="str">&quot;repository&quot;</span><span class="op">]</span><span class="op">)</span><span class="op">,</span> <span class="nam">args</span><span class="op">.</span><span class="nam">number</span><span class="op">,</span> <span class="nam">policy</span><span class="op">)</span><span class="op">,</span> <span class="nam">indent</span><span class="op">=</span><span class="num">2</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t34" href="#t34">34</a></span><span class="t">    <span class="key">return</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -123,7 +123,7 @@
             <a class="nav" href="z_6ac896d45f1ef32d_report_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-05 01:22 +0000
+            created at 2026-11-05 06:37 +0000
         </p>
     </div>
 </footer>

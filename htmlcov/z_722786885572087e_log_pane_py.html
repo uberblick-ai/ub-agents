@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/view/log_pane.py: 93%</title>
+    <title>Coverage for src/ub_agents/view/log_pane.py: 98%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view<span class="sep">/</span>log_pane.py</b>:
-            <span class="pc_cov">93%</span>
+            <span class="pc_cov">98%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">169 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">158<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">11<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">166<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">3<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_722786885572087e_logs_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-05 01:22 +0000
+            created at 2026-11-05 06:37 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -222,7 +222,7 @@
     <p class="pln"><span class="n"><a id="t140" href="#t140">140</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t141" href="#t141">141</a></span><span class="t">    <span class="key">def</span> <span class="nam">restore</span><span class="op">(</span><span class="nam">self</span><span class="op">,</span> <span class="nam">reading</span><span class="op">,</span> <span class="nam">anchor</span><span class="op">,</span> <span class="nam">target</span><span class="op">,</span> <span class="nam">was_following</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t142" href="#t142">142</a></span><span class="t">        <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span> <span class="key">is</span> <span class="key">not</span> <span class="nam">reading</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t143" href="#t143">143</a></span><span class="t">            <span class="key">return</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t143" href="#t143">143</a></span><span class="t">            <span class="key">return</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t144" href="#t144">144</a></span><span class="t">        <span class="key">if</span> <span class="nam">reading</span> <span class="key">and</span> <span class="nam">was_following</span> <span class="key">and</span> <span class="key">not</span> <span class="nam">reading</span><span class="op">.</span><span class="nam">follow</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t145" href="#t145">145</a></span><span class="t">            <span class="com"># A later pause or scroll owns the position, even while its anchor</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t146" href="#t146">146</a></span><span class="t">            <span class="com"># save is pending in the app&#x27;s or pane&#x27;s after-refresh queue.</span>&nbsp;</span><span class="r"></span></p>
@@ -279,18 +279,18 @@
     <p class="run"><span class="n"><a id="t197" href="#t197">197</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span><span class="op">.</span><span class="nam">anchor</span> <span class="op">=</span> <span class="nam">self</span><span class="op">.</span><span class="nam">anchor</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t198" href="#t198">198</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t199" href="#t199">199</a></span><span class="t">    <span class="key">def</span> <span class="nam">on_mouse_scroll_up</span><span class="op">(</span><span class="nam">self</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t200" href="#t200">200</a></span><span class="t">        <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span> <span class="key">and</span> <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span><span class="op">.</span><span class="nam">follow</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t201" href="#t201">201</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">app</span><span class="op">.</span><span class="nam">action_follow</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t202" href="#t202">202</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">call_after_refresh</span><span class="op">(</span><span class="nam">self</span><span class="op">.</span><span class="nam">save_anchor</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t200" href="#t200">200</a></span><span class="t">        <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span> <span class="key">and</span> <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span><span class="op">.</span><span class="nam">follow</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t201" href="#t201">201</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">app</span><span class="op">.</span><span class="nam">action_follow</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t202" href="#t202">202</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">call_after_refresh</span><span class="op">(</span><span class="nam">self</span><span class="op">.</span><span class="nam">save_anchor</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t203" href="#t203">203</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t204" href="#t204">204</a></span><span class="t">    <span class="key">def</span> <span class="nam">on_mouse_scroll_down</span><span class="op">(</span><span class="nam">self</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t205" href="#t205">205</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">call_after_refresh</span><span class="op">(</span><span class="nam">self</span><span class="op">.</span><span class="nam">save_anchor</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t206" href="#t206">206</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t207" href="#t207">207</a></span><span class="t">    <span class="key">def</span> <span class="nam">action_scroll_up</span><span class="op">(</span><span class="nam">self</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t208" href="#t208">208</a></span><span class="t">        <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span> <span class="key">and</span> <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span><span class="op">.</span><span class="nam">follow</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t209" href="#t209">209</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">app</span><span class="op">.</span><span class="nam">action_follow</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t210" href="#t210">210</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">scroll_up</span><span class="op">(</span><span class="nam">animate</span><span class="op">=</span><span class="key">False</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t211" href="#t211">211</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">call_after_refresh</span><span class="op">(</span><span class="nam">self</span><span class="op">.</span><span class="nam">save_anchor</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t208" href="#t208">208</a></span><span class="t">        <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span> <span class="key">and</span> <span class="nam">self</span><span class="op">.</span><span class="nam">reading</span><span class="op">.</span><span class="nam">follow</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t209" href="#t209">209</a></span><span class="t">            <span class="nam">self</span><span class="op">.</span><span class="nam">app</span><span class="op">.</span><span class="nam">action_follow</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t210" href="#t210">210</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">scroll_up</span><span class="op">(</span><span class="nam">animate</span><span class="op">=</span><span class="key">False</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t211" href="#t211">211</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">call_after_refresh</span><span class="op">(</span><span class="nam">self</span><span class="op">.</span><span class="nam">save_anchor</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t212" href="#t212">212</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t213" href="#t213">213</a></span><span class="t">    <span class="key">def</span> <span class="nam">action_scroll_down</span><span class="op">(</span><span class="nam">self</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t214" href="#t214">214</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">scroll_down</span><span class="op">(</span><span class="nam">animate</span><span class="op">=</span><span class="key">False</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -304,7 +304,7 @@
             <a class="nav" href="z_722786885572087e_logs_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-05 01:22 +0000
+            created at 2026-11-05 06:37 +0000
         </p>
     </div>
 </footer>

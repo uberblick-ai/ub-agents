@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/observation_data.py: 90%</title>
+    <title>Coverage for src/ub_agents/observation_data.py: 100%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>observation_data.py</b>:
-            <span class="pc_cov">90%</span>
+            <span class="pc_cov">100%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">89 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">80<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">9<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">89<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">0<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_5a8b66d9765f9a8f_observation_worker_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-05 01:22 +0000
+            created at 2026-11-05 06:37 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -194,19 +194,19 @@
     <p class="run"><span class="n"><a id="t112" href="#t112">112</a></span><span class="t">    <span class="key">for</span> <span class="nam">row</span> <span class="key">in</span> <span class="nam">ordered</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t113" href="#t113">113</a></span><span class="t">        <span class="key">if</span> <span class="nam">row</span><span class="op">.</span><span class="nam">group</span> <span class="op">==</span> <span class="str">&#x27;Eligible&#x27;</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t114" href="#t114">114</a></span><span class="t">            <span class="key">if</span> <span class="nam">row</span><span class="op">.</span><span class="nam">item</span> <span class="key">in</span> <span class="nam">eligible</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t115" href="#t115">115</a></span><span class="t">                <span class="nam">index</span> <span class="op">=</span> <span class="nam">eligible</span><span class="op">[</span><span class="nam">row</span><span class="op">.</span><span class="nam">item</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t116" href="#t116">116</a></span><span class="t">                <span class="nam">first</span> <span class="op">=</span> <span class="nam">grouped</span><span class="op">[</span><span class="nam">index</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t117" href="#t117">117</a></span><span class="t">                <span class="nam">grouped</span><span class="op">[</span><span class="nam">index</span><span class="op">]</span> <span class="op">=</span> <span class="nam">replace</span><span class="op">(</span><span class="nam">first</span><span class="op">,</span> <span class="nam">eligible_plans</span><span class="op">=</span><span class="op">(</span><span class="op">*</span><span class="nam">first</span><span class="op">.</span><span class="nam">eligible_plans</span><span class="op">,</span> <span class="nam">row</span><span class="op">.</span><span class="nam">data</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t118" href="#t118">118</a></span><span class="t">                <span class="key">continue</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t115" href="#t115">115</a></span><span class="t">                <span class="nam">index</span> <span class="op">=</span> <span class="nam">eligible</span><span class="op">[</span><span class="nam">row</span><span class="op">.</span><span class="nam">item</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t116" href="#t116">116</a></span><span class="t">                <span class="nam">first</span> <span class="op">=</span> <span class="nam">grouped</span><span class="op">[</span><span class="nam">index</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t117" href="#t117">117</a></span><span class="t">                <span class="nam">grouped</span><span class="op">[</span><span class="nam">index</span><span class="op">]</span> <span class="op">=</span> <span class="nam">replace</span><span class="op">(</span><span class="nam">first</span><span class="op">,</span> <span class="nam">eligible_plans</span><span class="op">=</span><span class="op">(</span><span class="op">*</span><span class="nam">first</span><span class="op">.</span><span class="nam">eligible_plans</span><span class="op">,</span> <span class="nam">row</span><span class="op">.</span><span class="nam">data</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t118" href="#t118">118</a></span><span class="t">                <span class="key">continue</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t119" href="#t119">119</a></span><span class="t">            <span class="nam">eligible</span><span class="op">[</span><span class="nam">row</span><span class="op">.</span><span class="nam">item</span><span class="op">]</span> <span class="op">=</span> <span class="nam">len</span><span class="op">(</span><span class="nam">grouped</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t120" href="#t120">120</a></span><span class="t">            <span class="nam">row</span> <span class="op">=</span> <span class="nam">replace</span><span class="op">(</span><span class="nam">row</span><span class="op">,</span> <span class="nam">key</span><span class="op">=</span><span class="fst">f&#x27;</span><span class="fst">plan:</span><span class="op">{</span><span class="nam">row</span><span class="op">.</span><span class="nam">item</span><span class="op">}</span><span class="fst">&#x27;</span><span class="op">,</span> <span class="nam">eligible_plans</span><span class="op">=</span><span class="op">(</span><span class="nam">row</span><span class="op">.</span><span class="nam">data</span><span class="op">,</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t121" href="#t121">121</a></span><span class="t">        <span class="key">elif</span> <span class="nam">row</span><span class="op">.</span><span class="nam">group</span> <span class="op">==</span> <span class="str">&#x27;Needs attention&#x27;</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t122" href="#t122">122</a></span><span class="t">            <span class="key">if</span> <span class="nam">row</span><span class="op">.</span><span class="nam">item</span> <span class="key">in</span> <span class="nam">attention</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t123" href="#t123">123</a></span><span class="t">                <span class="nam">index</span> <span class="op">=</span> <span class="nam">attention</span><span class="op">[</span><span class="nam">row</span><span class="op">.</span><span class="nam">item</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t124" href="#t124">124</a></span><span class="t">                <span class="nam">first</span> <span class="op">=</span> <span class="nam">grouped</span><span class="op">[</span><span class="nam">index</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t125" href="#t125">125</a></span><span class="t">                <span class="key">if</span> <span class="nam">row</span> <span class="key">not</span> <span class="key">in</span> <span class="nam">first</span><span class="op">.</span><span class="nam">attention_rows</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t126" href="#t126">126</a></span><span class="t">                    <span class="nam">grouped</span><span class="op">[</span><span class="nam">index</span><span class="op">]</span> <span class="op">=</span> <span class="nam">replace</span><span class="op">(</span><span class="nam">first</span><span class="op">,</span> <span class="nam">attention_rows</span><span class="op">=</span><span class="op">(</span><span class="op">*</span><span class="nam">first</span><span class="op">.</span><span class="nam">attention_rows</span><span class="op">,</span> <span class="nam">row</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t127" href="#t127">127</a></span><span class="t">                <span class="key">continue</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t123" href="#t123">123</a></span><span class="t">                <span class="nam">index</span> <span class="op">=</span> <span class="nam">attention</span><span class="op">[</span><span class="nam">row</span><span class="op">.</span><span class="nam">item</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t124" href="#t124">124</a></span><span class="t">                <span class="nam">first</span> <span class="op">=</span> <span class="nam">grouped</span><span class="op">[</span><span class="nam">index</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t125" href="#t125">125</a></span><span class="t">                <span class="key">if</span> <span class="nam">row</span> <span class="key">not</span> <span class="key">in</span> <span class="nam">first</span><span class="op">.</span><span class="nam">attention_rows</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t126" href="#t126">126</a></span><span class="t">                    <span class="nam">grouped</span><span class="op">[</span><span class="nam">index</span><span class="op">]</span> <span class="op">=</span> <span class="nam">replace</span><span class="op">(</span><span class="nam">first</span><span class="op">,</span> <span class="nam">attention_rows</span><span class="op">=</span><span class="op">(</span><span class="op">*</span><span class="nam">first</span><span class="op">.</span><span class="nam">attention_rows</span><span class="op">,</span> <span class="nam">row</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t127" href="#t127">127</a></span><span class="t">                <span class="key">continue</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t128" href="#t128">128</a></span><span class="t">            <span class="nam">attention</span><span class="op">[</span><span class="nam">row</span><span class="op">.</span><span class="nam">item</span><span class="op">]</span> <span class="op">=</span> <span class="nam">len</span><span class="op">(</span><span class="nam">grouped</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t129" href="#t129">129</a></span><span class="t">            <span class="nam">row</span> <span class="op">=</span> <span class="nam">replace</span><span class="op">(</span><span class="nam">row</span><span class="op">,</span> <span class="nam">key</span><span class="op">=</span><span class="fst">f&#x27;</span><span class="fst">plan:</span><span class="op">{</span><span class="nam">row</span><span class="op">.</span><span class="nam">item</span><span class="op">}</span><span class="fst">:attention</span><span class="fst">&#x27;</span><span class="op">,</span> <span class="nam">attention_rows</span><span class="op">=</span><span class="op">(</span><span class="nam">row</span><span class="op">,</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t130" href="#t130">130</a></span><span class="t">        <span class="nam">grouped</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="nam">row</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -225,7 +225,7 @@
             <a class="nav" href="z_5a8b66d9765f9a8f_observation_worker_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-05 01:22 +0000
+            created at 2026-11-05 06:37 +0000
         </p>
     </div>
 </footer>

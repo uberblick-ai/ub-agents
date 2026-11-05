@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/ub_agents/view/main.py: 85%</title>
+    <title>Coverage for src/ub_agents/view/main.py: 91%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>src<span class="sep">/</span>ub_agents<span class="sep">/</span>view<span class="sep">/</span>main.py</b>:
-            <span class="pc_cov">85%</span>
+            <span class="pc_cov">91%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">136 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">116<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">20<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">124<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">12<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_722786885572087e_markdown_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-05 01:22 +0000
+            created at 2026-11-05 06:37 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -98,7 +98,7 @@
     <p class="pln"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="key">def</span> <span class="nam">attach</span><span class="op">(</span><span class="nam">root</span><span class="op">,</span> <span class="nam">session_id</span><span class="op">,</span> <span class="nam">base_version</span><span class="op">,</span> <span class="nam">wait</span><span class="op">=</span><span class="num">2</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t">    <span class="key">if</span> <span class="nam">base_version</span> <span class="op">!=</span> <span class="nam">__version__</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t">        <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span><span class="fst">f&#x27;</span><span class="fst">UI/base version mismatch: UI </span><span class="op">{</span><span class="nam">__version__</span><span class="op">}</span><span class="fst">, launcher </span><span class="op">{</span><span class="nam">base_version</span><span class="op">}</span><span class="fst">&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t">        <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span><span class="fst">f&#x27;</span><span class="fst">UI/base version mismatch: UI </span><span class="op">{</span><span class="nam">__version__</span><span class="op">}</span><span class="fst">, launcher </span><span class="op">{</span><span class="nam">base_version</span><span class="op">}</span><span class="fst">&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t">    <span class="nam">path</span><span class="op">,</span> <span class="nam">_</span> <span class="op">=</span> <span class="nam">choose_session</span><span class="op">(</span><span class="nam">root</span><span class="op">,</span> <span class="nam">session_id</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t">    <span class="nam">deadline</span> <span class="op">=</span> <span class="nam">time</span><span class="op">.</span><span class="nam">monotonic</span><span class="op">(</span><span class="op">)</span> <span class="op">+</span> <span class="nam">wait</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t">    <span class="key">while</span> <span class="key">not</span> <span class="nam">path</span><span class="op">.</span><span class="nam">exists</span><span class="op">(</span><span class="op">)</span> <span class="key">and</span> <span class="nam">time</span><span class="op">.</span><span class="nam">monotonic</span><span class="op">(</span><span class="op">)</span> <span class="op">&lt;</span> <span class="nam">deadline</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -107,7 +107,7 @@
     <p class="run"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t">    <span class="key">if</span> <span class="nam">session</span><span class="op">.</span><span class="nam">error</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t">        <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span><span class="fst">f&#x27;</span><span class="fst">session </span><span class="op">{</span><span class="nam">session_id</span><span class="op">}</span><span class="fst"> unavailable: </span><span class="op">{</span><span class="nam">session</span><span class="op">.</span><span class="nam">error</span><span class="op">}</span><span class="fst">&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t">    <span class="key">if</span> <span class="nam">session</span><span class="op">.</span><span class="nam">data</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&#x27;session&#x27;</span><span class="op">)</span> <span class="op">!=</span> <span class="nam">session_id</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t28" href="#t28">28</a></span><span class="t">        <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span><span class="str">&#x27;session identity mismatch&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t28" href="#t28">28</a></span><span class="t">        <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span><span class="str">&#x27;session identity mismatch&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t29" href="#t29">29</a></span><span class="t">    <span class="key">if</span> <span class="nam">session</span><span class="op">.</span><span class="nam">data</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&#x27;base_version&#x27;</span><span class="op">)</span> <span class="op">!=</span> <span class="nam">base_version</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t30" href="#t30">30</a></span><span class="t">        <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span><span class="str">&#x27;session UI/base version mismatch&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t31" href="#t31">31</a></span><span class="t">    <span class="key">if</span> <span class="nam">session</span><span class="op">.</span><span class="nam">state</span><span class="op">(</span><span class="op">)</span> <span class="key">not</span> <span class="key">in</span> <span class="op">{</span><span class="str">&#x27;live&#x27;</span><span class="op">,</span> <span class="str">&#x27;idle&#x27;</span><span class="op">}</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -138,8 +138,8 @@
     <p class="run"><span class="n"><a id="t56" href="#t56">56</a></span><span class="t">                <span class="key">if</span> <span class="nam">select</span><span class="op">.</span><span class="nam">select</span><span class="op">(</span><span class="op">[</span><span class="nam">self</span><span class="op">.</span><span class="nam">channel</span><span class="op">]</span><span class="op">,</span> <span class="op">[</span><span class="op">]</span><span class="op">,</span> <span class="op">[</span><span class="op">]</span><span class="op">,</span> <span class="num">0.1</span><span class="op">)</span><span class="op">[</span><span class="num">0</span><span class="op">]</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t57" href="#t57">57</a></span><span class="t">                    <span class="nam">data</span> <span class="op">=</span> <span class="nam">self</span><span class="op">.</span><span class="nam">channel</span><span class="op">.</span><span class="nam">recv</span><span class="op">(</span><span class="num">1024</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t58" href="#t58">58</a></span><span class="t">                    <span class="key">if</span> <span class="key">not</span> <span class="nam">data</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t59" href="#t59">59</a></span><span class="t">                        <span class="nam">self</span><span class="op">.</span><span class="nam">exit_app</span><span class="op">(</span><span class="nam">app</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t60" href="#t60">60</a></span><span class="t">                        <span class="key">return</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t59" href="#t59">59</a></span><span class="t">                        <span class="nam">self</span><span class="op">.</span><span class="nam">exit_app</span><span class="op">(</span><span class="nam">app</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t60" href="#t60">60</a></span><span class="t">                        <span class="key">return</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t61" href="#t61">61</a></span><span class="t">                    <span class="nam">pending</span> <span class="op">+=</span> <span class="nam">data</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t62" href="#t62">62</a></span><span class="t">                    <span class="key">while</span> <span class="str">b&#x27;\n&#x27;</span> <span class="key">in</span> <span class="nam">pending</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t63" href="#t63">63</a></span><span class="t">                        <span class="nam">message</span><span class="op">,</span> <span class="nam">pending</span> <span class="op">=</span> <span class="nam">pending</span><span class="op">.</span><span class="nam">split</span><span class="op">(</span><span class="str">b&#x27;\n&#x27;</span><span class="op">,</span> <span class="num">1</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -177,7 +177,7 @@
     <p class="run"><span class="n"><a id="t95" href="#t95">95</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">send</span><span class="op">(</span><span class="str">&#x27;poll&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t96" href="#t96">96</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t97" href="#t97">97</a></span><span class="t">    <span class="key">def</span> <span class="nam">awake</span><span class="op">(</span><span class="nam">self</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t98" href="#t98">98</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">send</span><span class="op">(</span><span class="str">&#x27;awake&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t98" href="#t98">98</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">send</span><span class="op">(</span><span class="str">&#x27;awake&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t99" href="#t99">99</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t100" href="#t100">100</a></span><span class="t">    <span class="key">def</span> <span class="nam">close</span><span class="op">(</span><span class="nam">self</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t101" href="#t101">101</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">stopping</span><span class="op">.</span><span class="nam">set</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -213,9 +213,9 @@
     <p class="pln"><span class="n"><a id="t131" href="#t131">131</a></span><span class="t">        <span class="key">else</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t132" href="#t132">132</a></span><span class="t">            <span class="nam">path</span><span class="op">,</span> <span class="nam">listing</span> <span class="op">=</span> <span class="nam">choose_session</span><span class="op">(</span><span class="nam">root</span><span class="op">,</span> <span class="nam">args</span><span class="op">.</span><span class="nam">session</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t133" href="#t133">133</a></span><span class="t">            <span class="key">if</span> <span class="nam">path</span> <span class="key">is</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t134" href="#t134">134</a></span><span class="t">                <span class="nam">print</span><span class="op">(</span><span class="str">&#x27;Specify --session ID. Available local sessions:&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t135" href="#t135">135</a></span><span class="t">                <span class="nam">print</span><span class="op">(</span><span class="str">&#x27;\n&#x27;</span><span class="op">.</span><span class="nam">join</span><span class="op">(</span><span class="nam">listing</span><span class="op">)</span> <span class="key">if</span> <span class="nam">listing</span> <span class="key">else</span> <span class="str">&#x27;(none)&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t136" href="#t136">136</a></span><span class="t">                <span class="key">return</span> <span class="num">0</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t134" href="#t134">134</a></span><span class="t">                <span class="nam">print</span><span class="op">(</span><span class="str">&#x27;Specify --session ID. Available local sessions:&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t135" href="#t135">135</a></span><span class="t">                <span class="nam">print</span><span class="op">(</span><span class="str">&#x27;\n&#x27;</span><span class="op">.</span><span class="nam">join</span><span class="op">(</span><span class="nam">listing</span><span class="op">)</span> <span class="key">if</span> <span class="nam">listing</span> <span class="key">else</span> <span class="str">&#x27;(none)&#x27;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t136" href="#t136">136</a></span><span class="t">                <span class="key">return</span> <span class="num">0</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t137" href="#t137">137</a></span><span class="t">        <span class="key">from</span> <span class="op">.</span><span class="nam">ui</span> <span class="key">import</span> <span class="nam">View</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t138" href="#t138">138</a></span><span class="t">        <span class="nam">app</span> <span class="op">=</span> <span class="nam">View</span><span class="op">(</span><span class="nam">root</span><span class="op">,</span> <span class="nam">path</span><span class="op">,</span> <span class="nam">launcher</span><span class="op">=</span><span class="nam">connection</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t139" href="#t139">139</a></span><span class="t">        <span class="key">if</span> <span class="nam">connection</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -253,7 +253,7 @@
             <a class="nav" href="z_722786885572087e_markdown_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-05 01:22 +0000
+            created at 2026-11-05 06:37 +0000
         </p>
     </div>
 </footer>
