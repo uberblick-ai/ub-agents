@@ -1,4 +1,5 @@
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -281,6 +282,27 @@ class ParallelTests(unittest.TestCase):
         self.assertIn('TIMEOUT: tests.parallel_fixtures.Results.test_late_result', result.stderr)
         self.assertIn('Ran 1 tests', result.stderr)
         self.assertIn('FAILED (errors=1)', result.stderr)
+
+    @unittest.skipUnless(importlib.util.find_spec('coverage'), 'coverage is only installed in the coverage CI job')
+    def test_coverage_retains_code_executed_in_workers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # Isolate nested measurement from a surrounding coverage run.
+            environment = {key: value for key, value in os.environ.items() if not key.startswith('COVERAGE_')}
+            environment['COVERAGE_FILE'] = str(root / '.coverage')
+
+            def coverage(*arguments):
+                result = subprocess.run([sys.executable, '-m', 'coverage', *arguments], cwd=ROOT,
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            coverage('run', '-m', 'tests', '-j', '2', 'tests.test_github_http.GitHubHTTPTests')
+            coverage('combine')
+            report = root / 'coverage.json'
+            coverage('json', '-o', str(report))
+            data = json.loads(report.read_text())['files']['src/ub_agents/github_http.py']
+            # Importing the module during discovery cannot cover this operation.
+            self.assertGreater(data['functions']['Transport.send']['summary']['covered_lines'], 0)
 
     def test_failed_import_and_worker_crash_fail_the_run(self):
         result = self.run_runner('tests.runner_missing_fixture')

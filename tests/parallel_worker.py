@@ -57,6 +57,12 @@ def worker_main(event_fd, command_fd):
             # Python joins non-daemon threads before atexit. Acknowledging here
             # covers interpreter shutdown too. Keep the worker alive until the
             # parent cleans its tree so detached children retain their ancestry.
+            # SIGKILL bypasses coverage's earlier-registered exit handler.
+            coverage = sys.modules.get('coverage')
+            if coverage is not None:
+                current = coverage.Coverage.current()
+                if current is not None:
+                    current.save()
             emit('stopped')
             while True:
                 commands.get()
