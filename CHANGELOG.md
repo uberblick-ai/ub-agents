@@ -8,11 +8,9 @@ notes are copied from that section.
 
 <!-- ub-agents:launcher-upgrade=independent -->
 
-**Upgrading:** The next launch removes leftover scratch from ended runs; keep files that need retention outside run scratch. Doctor JSON consumers must accept status `hint` and the `policy-starter` check replacing the command-placeholder and starter-Merging checks (#853, #863).
-
 ### Added
 
-- `init` fills starter build, test and lint commands from mise tasks, npm scripts and Makefile targets (#855, #863).
+- `init` fills the starter policy's build, test and lint commands from the project's `package.json` scripts, `Makefile` targets or mise tasks named `build`, `test` and `lint` or `check`, keeping a placeholder where none exists (#855, #863).
 - The monitor can notify on `maintainer-merge` and every other configured outcome that stops for a person (#857, #859).
 
 ### Changed
