@@ -418,10 +418,8 @@
         for (const node of document.querySelectorAll("[data-since]")) node.textContent = FORMATS[node.dataset.format](now - time(node.dataset.since));
         const next = Math.max(0, Math.ceil((state.lastPoll + POLL_SECONDS * 1000 - now) / 1000));
         document.getElementById("poll-spinner").hidden = !state.loading;
-        document.getElementById("freshness").textContent = [
-          state.data ? `updated ${duration(now - time(state.data.generated_at))} ago` : null,
-          state.loading ? "reading GitHub…" : document.hidden && !notifyOn() ? "paused while hidden" : `next poll ${next}s`,
-        ].filter(Boolean).join(" · ");
+        document.getElementById("freshness").textContent =
+          state.loading ? "reading GitHub…" : document.hidden && !notifyOn() ? "paused while hidden" : `next poll ${next}s`;
         const rates = state.data?.rates ?? {};
         const percent = rates.core ? Math.round((100 * rates.core.remaining) / rates.core.limit) : 0;
         const count = (r) => `${r.remaining.toLocaleString("en")} of ${r.limit.toLocaleString("en")}`;
