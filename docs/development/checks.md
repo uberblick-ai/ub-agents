@@ -43,6 +43,11 @@ releases like every other leg. Only coverage reporting (combining data, writing
 the summary, uploading the artifact and publishing the report) does not gate
 merges or releases. The report publishes after the test matrix succeeds.
 
+Coverage follows subprocesses and combines their data. Test workers save their
+active coverage before acknowledging shutdown, because the runner then kills
+their process trees to reap detached children. The coverage CI leg also checks
+that code executed inside workers reaches the combined report.
+
 To run these checks locally before pushing, optionally:
 
 ```sh
