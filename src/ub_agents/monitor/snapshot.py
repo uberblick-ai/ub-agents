@@ -7,6 +7,7 @@ on, so GitHub sees all of them. This module never writes to GitHub.
 from ..errors import RecordError
 from ..notices import ACTION_MARKER
 from ..records import MARKER, iso, lease_summary, live_leases, record_version, records, seconds
+from .eligible import EligiblePlanning
 
 WINDOW_SECONDS = 24 * 60 * 60
 CLAIMED = {"claiming", "running"}
@@ -38,6 +39,7 @@ class MonitorSource:
         self.coordinator = coordinator
         self.clock = clock
         self.titles = {}
+        self.planning = EligiblePlanning(config, github, coordinator, clock)
 
     def snapshot(self):
         now = self.clock()
@@ -56,6 +58,7 @@ class MonitorSource:
         blocked = [lease for lease in leases if lease.get("result") == "blocked"
                    and lease["assignment"] in open_items and lease["assignment"] not in stopped
                    and not later_on_item(history, lease)]
+        eligible = self.planning.snapshot()
         return {
             "repository": self.config.repository,
             "folder": str(self.config.root),
@@ -67,6 +70,8 @@ class MonitorSource:
                                         "ask": ask(self.outcome(history, lease), lease), "notice": None}
                                        for lease in blocked],
             "running": [self.run(lease, renewed) for lease in live_leases(history, now)],
+            "eligible": eligible,
+            "eligible_error": self.planning.error,
             "expired": [self.run(lease, renewed) for lease in leases if lease["state"] in CLAIMED
                         and seconds(lease["expires"]) <= now and not later_on_item(history, lease)],
             "recent": sorted((self.ended(history, lease, renewed) for lease in leases
@@ -148,4 +153,5 @@ class MonitorSource:
             except (KeyError, TypeError, ValueError):
                 continue
         return result | {"counted": getattr(self.github, "quota_requests", 0),
+                         "graphql_calls": getattr(self.github, "graphql_calls", 0),
                          "not_modified": getattr(self.github, "not_modified_responses", 0)}

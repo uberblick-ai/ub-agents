@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass, replace
 from hashlib import sha256
+import json
+import os
 from pathlib import Path
+import stat
 
 from .attention import stamp
 from .logs.log_format import inert, shorten
@@ -10,6 +13,21 @@ from .run_config import run_directory
 
 WORK_GROUPS = ('Running', 'Needs attention', 'Eligible', 'Recent activity')
 ELIGIBLE_LIMIT = 10
+SNAPSHOT_BYTES = 64 * 1024
+
+
+def read_json(path, limit=SNAPSHOT_BYTES):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError('Not a regular file')
+        data = stream.read() if limit is None else stream.read(limit + 1)
+    if limit is not None and len(data) > limit:
+        raise ValueError(f'File exceeds {limit} bytes')
+    value = json.loads(data)
+    if not isinstance(value, dict):
+        raise ValueError('Expected a JSON object')
+    return value
 
 
 def text(value, default='unavailable'):
@@ -74,7 +92,7 @@ def omitted_plan(row):
     return row.get('state') == 'owned' or plan_group(row) is None
 
 
-def work_rows(data, root):  # noqa: C901
+def work_rows(data, root, *, plan_limit=100):  # noqa: C901
     result = []
     assignment = mapping(data.get('assignment'))
     if assignment:
@@ -85,7 +103,7 @@ def work_rows(data, root):  # noqa: C901
                               runtime_type(assignment.get('runtime')), run / 'process.log' if run else None,
                               run / 'context.json' if run else None))
     latest = mapping(data.get('latest_pass'))
-    for row in rows(latest.get('rows'), 100):
+    for row in rows(latest.get('rows'), plan_limit):
         if omitted_plan(row):
             continue
         if assignment and (row.get('item'), row.get('agent')) == (assignment.get('item'), assignment.get('agent')):
