@@ -107,7 +107,8 @@ also keeps Eligible's plan until the five-minute interval ends. An unchanged pol
 that also replanned used 2 counted REST calls and 0 GraphQL calls after
 warm-up; the initial read used 6 counted REST calls and 1 GraphQL call. Costs vary
 with the repository and its configuration. Hover Eligible's heading for its
-interval and last planning time. If Eligible planning fails, its last result stays
+interval and last planning time, or a repository line when watching several
+checkouts. If Eligible planning fails, its last result stays
 under a **Couldn't refresh** banner while the other panels and their notifications
 keep updating. Before the first successful plan, Eligible says **Planning unavailable**.
 The next poll retries planning. If another read fails, the page keeps its last result
