@@ -19,7 +19,7 @@
 | src/ub\_agents/cli/\_runtime.py                  |       29 |        0 |    100% |           |
 | src/ub\_agents/cli/doctor.py                     |       26 |        0 |    100% |           |
 | src/ub\_agents/cli/init.py                       |       27 |        0 |    100% |           |
-| src/ub\_agents/cli/launch.py                     |      201 |        8 |     96% |136, 212, 216-218, 245-248 |
+| src/ub\_agents/cli/launch.py                     |      202 |        8 |     96% |136, 212, 216-218, 245-248 |
 | src/ub\_agents/cli/monitor.py                    |       41 |        3 |     93% |     13-15 |
 | src/ub\_agents/cli/read.py                       |       17 |        0 |    100% |           |
 | src/ub\_agents/cli/report.py                     |       40 |        1 |     98% |        37 |
@@ -40,11 +40,12 @@
 | src/ub\_agents/doctor/mcp\_probe.py              |       95 |       14 |     85% |34, 37-38, 44, 53, 61, 65, 80-81, 95, 104, 110, 114-115 |
 | src/ub\_agents/doctor/registry.py                |       17 |        0 |    100% |           |
 | src/ub\_agents/eligibility.py                    |       35 |        0 |    100% |           |
-| src/ub\_agents/errors.py                         |       28 |        0 |    100% |           |
+| src/ub\_agents/errors.py                         |       29 |        0 |    100% |           |
 | src/ub\_agents/events.py                         |      112 |        1 |     99% |        59 |
 | src/ub\_agents/execution.py                      |      293 |        8 |     97% |42, 151, 183, 300, 303-304, 317, 335 |
 | src/ub\_agents/finalization.py                   |       48 |        0 |    100% |           |
-| src/ub\_agents/github.py                         |      796 |       42 |     95% |46, 100, 270, 311, 386, 547, 578, 596, 653, 657, 685, 706, 757, 764, 770, 781, 790, 828, 837, 843, 874, 877-878, 881, 910, 945, 947-948, 996, 1003, 1009-1012, 1058, 1065-1066, 1068, 1091, 1098, 1100-1101 |
+| src/ub\_agents/github.py                         |      824 |       42 |     95% |47, 101, 271, 312, 388, 578, 609, 627, 684, 688, 716, 737, 788, 795, 801, 812, 821, 859, 868, 874, 905, 908-909, 912, 941, 976, 978-979, 1027, 1034, 1040-1043, 1089, 1096-1097, 1099, 1122, 1129, 1131-1132 |
+| src/ub\_agents/github\_auth.py                   |       26 |        0 |    100% |           |
 | src/ub\_agents/github\_http.py                   |      115 |        5 |     96% |77, 91-92, 157-158 |
 | src/ub\_agents/help.py                           |      136 |        0 |    100% |           |
 | src/ub\_agents/helper\_command.py                |       10 |       10 |      0% |      3-15 |
@@ -73,7 +74,7 @@
 | src/ub\_agents/logs/log\_limits.py               |        3 |        0 |    100% |           |
 | src/ub\_agents/logs/log\_reader.py               |      212 |        3 |     99% |92-93, 142 |
 | src/ub\_agents/logs/log\_times.py                |      115 |        4 |     97% |35, 50-51, 123 |
-| src/ub\_agents/loop.py                           |      911 |       34 |     96% |259, 289, 349, 359, 368, 435-437, 565, 571, 582, 652, 731, 764, 787-788, 795, 807, 844, 851, 860, 913-914, 931, 966-969, 976, 1011-1012, 1020, 1039, 1095 |
+| src/ub\_agents/loop.py                           |      923 |       34 |     96% |259, 289, 349, 359, 368, 435-437, 565, 571, 582, 652, 731, 764, 787-788, 795, 807, 844, 851, 860, 913-914, 931, 966-969, 976, 1011-1012, 1020, 1039, 1121 |
 | src/ub\_agents/merging.py                        |      135 |        7 |     95% |54, 72, 74, 130, 154, 160, 165 |
 | src/ub\_agents/monitor/\_\_init\_\_.py           |       52 |       24 |     54% |23-44, 61, 65, 67 |
 | src/ub\_agents/monitor/eligible.py               |       44 |        0 |    100% |           |
@@ -101,11 +102,11 @@
 | src/ub\_agents/run\_branches.py                  |        5 |        0 |    100% |           |
 | src/ub\_agents/run\_config.py                    |       67 |        3 |     96% |82, 97, 101 |
 | src/ub\_agents/run\_history.py                   |       37 |        0 |    100% |           |
-| src/ub\_agents/run\_planning.py                  |      186 |        9 |     95% |94, 101-107, 209, 223 |
+| src/ub\_agents/run\_planning.py                  |      197 |       10 |     95% |94, 101-107, 193, 228, 242 |
 | src/ub\_agents/run\_prompt.py                    |       38 |        0 |    100% |           |
 | src/ub\_agents/settlement.py                     |      131 |        5 |     96% |69, 97, 117, 122, 135 |
 | src/ub\_agents/signals.py                        |       46 |        2 |     96% |     26-27 |
-| src/ub\_agents/startup\_cleanup.py               |       64 |        1 |     98% |        18 |
+| src/ub\_agents/startup\_cleanup.py               |       66 |        1 |     98% |        18 |
 | src/ub\_agents/state.py                          |       24 |        0 |    100% |           |
 | src/ub\_agents/status.py                         |       51 |        0 |    100% |           |
 | src/ub\_agents/trust.py                          |       49 |        1 |     98% |        27 |
@@ -143,7 +144,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18348** |  **691** | **96%** |           |
+| **TOTAL**                                        | **18429** |  **692** | **96%** |           |
 
 
 ## Setup coverage badge

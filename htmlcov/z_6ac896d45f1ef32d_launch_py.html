@@ -54,8 +54,8 @@
             </div>
         </aside>
         <h2>
-            <span class="text">201 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">193<span class="text"> run</span></button>
+            <span class="text">202 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">194<span class="text"> run</span></button>
             <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">8<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_6ac896d45f1ef32d_monitor_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-06 09:27 +0000
+            created at 2026-11-06 10:55 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -336,20 +336,21 @@
     <p class="run"><span class="n"><a id="t254" href="#t254">254</a></span><span class="t">            <span class="nam">loop</span><span class="op">.</span><span class="nam">enable_poll_now</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t255" href="#t255">255</a></span><span class="t">        <span class="nam">check_launch_setup</span><span class="op">(</span><span class="nam">config</span><span class="op">,</span> <span class="nam">github</span><span class="op">,</span> <span class="nam">loop</span><span class="op">,</span> <span class="nam">once</span><span class="op">=</span><span class="nam">args</span><span class="op">.</span><span class="nam">once</span> <span class="key">or</span> <span class="nam">args</span><span class="op">.</span><span class="nam">number</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t256" href="#t256">256</a></span><span class="t">                           <span class="nam">interrupt</span><span class="op">=</span><span class="nam">stop_now</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t257" href="#t257">257</a></span><span class="t">        <span class="nam">_start_updates</span><span class="op">(</span><span class="nam">config</span><span class="op">,</span> <span class="nam">loop</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t258" href="#t258">258</a></span><span class="t">        <span class="nam">loop</span><span class="op">.</span><span class="nam">before_claim</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t259" href="#t259">259</a></span><span class="t">        <span class="nam">cleanup</span> <span class="op">=</span> <span class="nam">StartupCleanup</span><span class="op">(</span><span class="nam">config</span><span class="op">,</span> <span class="nam">github</span><span class="op">,</span> <span class="nam">loop</span><span class="op">.</span><span class="nam">coordinator</span><span class="op">.</span><span class="nam">actor</span><span class="op">,</span> <span class="nam">stop</span><span class="op">,</span> <span class="nam">session</span><span class="op">=</span><span class="nam">session</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t260" href="#t260">260</a></span><span class="t">        <span class="nam">loop</span><span class="op">.</span><span class="nam">coordinator</span><span class="op">.</span><span class="nam">cleanup_control</span> <span class="op">=</span> <span class="nam">cleanup</span><span class="op">.</span><span class="nam">control</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t261" href="#t261">261</a></span><span class="t">        <span class="nam">cleanup</span><span class="op">.</span><span class="nam">start</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t262" href="#t262">262</a></span><span class="t">        <span class="nam">loop</span><span class="op">.</span><span class="nam">before_claim</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t263" href="#t263">263</a></span><span class="t">        <span class="key">return</span> <span class="nam">_launch_queue</span><span class="op">(</span><span class="nam">args</span><span class="op">,</span> <span class="nam">loop</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t264" href="#t264">264</a></span><span class="t">    <span class="key">except</span> <span class="nam">_GracefulStop</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t265" href="#t265">265</a></span><span class="t">        <span class="key">return</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t266" href="#t266">266</a></span><span class="t">    <span class="key">finally</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t267" href="#t267">267</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t268" href="#t268">268</a></span><span class="t">            <span class="nam">_close_launch_resources</span><span class="op">(</span><span class="nam">cleanup</span><span class="op">,</span> <span class="nam">loop</span><span class="op">,</span> <span class="nam">view</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t269" href="#t269">269</a></span><span class="t">        <span class="key">finally</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t270" href="#t270">270</a></span><span class="t">            <span class="nam">_finish_launch</span><span class="op">(</span><span class="nam">handlers</span><span class="op">,</span> <span class="nam">relay</span><span class="op">,</span> <span class="nam">loop</span><span class="op">,</span> <span class="nam">publisher</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t257" href="#t257">257</a></span><span class="t">        <span class="nam">loop</span><span class="op">.</span><span class="nam">continuous_retries</span><span class="op">(</span><span class="key">not</span> <span class="nam">args</span><span class="op">.</span><span class="nam">once</span> <span class="key">and</span> <span class="nam">args</span><span class="op">.</span><span class="nam">number</span> <span class="key">is</span> <span class="key">None</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t258" href="#t258">258</a></span><span class="t">        <span class="nam">_start_updates</span><span class="op">(</span><span class="nam">config</span><span class="op">,</span> <span class="nam">loop</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t259" href="#t259">259</a></span><span class="t">        <span class="nam">loop</span><span class="op">.</span><span class="nam">before_claim</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t260" href="#t260">260</a></span><span class="t">        <span class="nam">cleanup</span> <span class="op">=</span> <span class="nam">StartupCleanup</span><span class="op">(</span><span class="nam">config</span><span class="op">,</span> <span class="nam">github</span><span class="op">,</span> <span class="nam">loop</span><span class="op">.</span><span class="nam">coordinator</span><span class="op">.</span><span class="nam">actor</span><span class="op">,</span> <span class="nam">stop</span><span class="op">,</span> <span class="nam">session</span><span class="op">=</span><span class="nam">session</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t261" href="#t261">261</a></span><span class="t">        <span class="nam">loop</span><span class="op">.</span><span class="nam">coordinator</span><span class="op">.</span><span class="nam">cleanup_control</span> <span class="op">=</span> <span class="nam">cleanup</span><span class="op">.</span><span class="nam">control</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t262" href="#t262">262</a></span><span class="t">        <span class="nam">cleanup</span><span class="op">.</span><span class="nam">start</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t263" href="#t263">263</a></span><span class="t">        <span class="nam">loop</span><span class="op">.</span><span class="nam">before_claim</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t264" href="#t264">264</a></span><span class="t">        <span class="key">return</span> <span class="nam">_launch_queue</span><span class="op">(</span><span class="nam">args</span><span class="op">,</span> <span class="nam">loop</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t265" href="#t265">265</a></span><span class="t">    <span class="key">except</span> <span class="nam">_GracefulStop</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t266" href="#t266">266</a></span><span class="t">        <span class="key">return</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t267" href="#t267">267</a></span><span class="t">    <span class="key">finally</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t268" href="#t268">268</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t269" href="#t269">269</a></span><span class="t">            <span class="nam">_close_launch_resources</span><span class="op">(</span><span class="nam">cleanup</span><span class="op">,</span> <span class="nam">loop</span><span class="op">,</span> <span class="nam">view</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t270" href="#t270">270</a></span><span class="t">        <span class="key">finally</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t271" href="#t271">271</a></span><span class="t">            <span class="nam">_finish_launch</span><span class="op">(</span><span class="nam">handlers</span><span class="op">,</span> <span class="nam">relay</span><span class="op">,</span> <span class="nam">loop</span><span class="op">,</span> <span class="nam">publisher</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -359,7 +360,7 @@
             <a class="nav" href="z_6ac896d45f1ef32d_monitor_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-06 09:27 +0000
+            created at 2026-11-06 10:55 +0000
         </p>
     </div>
 </footer>
