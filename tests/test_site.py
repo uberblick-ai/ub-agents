@@ -183,6 +183,40 @@ class SiteTests(unittest.TestCase):
             for asset in ('workflows.js', 'ablauf-playback.js'):
                 self.assertEqual((out / 'assets' / asset).read_bytes(),
                                  (build.ROOT / 'static/assets' / asset).read_bytes())
+            for page in out.rglob('*.html'):
+                for href in Links(page.read_text()).hrefs:
+                    with self.subTest(page=str(page.relative_to(out)), href=href):
+                        self.assertFalse(not urlsplit(href).scheme and urlsplit(href).path.endswith('.html'),
+                                         'internal links use the extensionless URLs Cloudflare Pages serves')
+            home = (out / 'index.html').read_text()
+            self.assertIn('<title>ub-agents · A coding loop for GitHub</title>', home)
+            self.assertIn(f'<meta property="og:image" content="{build.SITE}/og.png">', home)
+            data = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', home).group(1))
+            self.assertEqual({item['name'] for item in data['@graph']}, {'ub-agents'})
+            self.assertIn(build.REPO, data['@graph'][1]['sameAs'])
+            self.assertTrue((out / 'og.png').exists())
+            self.assertNotIn('og:url', (out / '404.html').read_text())
+
+            # Every docs and workflow page links to a Markdown copy for agents, and llms.txt lists them all.
+            llms = (out / 'llms.txt').read_text()
+            self.assertEqual((out / 'index.md').read_text(), llms)
+            self.assertIn('Content-Type: text/markdown', (out / '_headers').read_text())
+            for page in [out / 'index.html', *(out / 'docs').rglob('*.html'), *(out / 'workflows').glob('*/**/index.html')]:
+                with self.subTest(page=str(page.relative_to(out))):
+                    href = re.search(r'<link rel="alternate" type="text/markdown" href="([^"]+)">', page.read_text()).group(1)
+                    copy = (out / urljoin(str(page.relative_to(out)), href))
+                    text = copy.read_text()
+                    self.assertNotIn('{{', text)
+                    self.assertNotRegex(text, r'\]\(/')
+                    if copy.name != 'index.md' or copy.parent != out:
+                        self.assertIn(f'{build.SITE}/{copy.relative_to(out)}', llms)
+
+    def test_extensionless_links_match_the_served_urls(self):
+        self.assertEqual(build.extensionless(
+            '<a href="./index.html"><a href="index.html"><a href="../index.html#a"><a href="docs/commands/index.html">'
+            '<a href="../faq.html#q"><a href="/docs/installation.html"><a href="https://x.dev/a.html"><a href="#b">'),
+            '<a href="./"><a href="./"><a href="../#a"><a href="docs/commands/">'
+            '<a href="../faq#q"><a href="/docs/installation"><a href="https://x.dev/a.html"><a href="#b">')
 
     def test_flow_is_a_standalone_block_and_code_examples_stay_literal(self):
         with tempfile.TemporaryDirectory() as directory:
