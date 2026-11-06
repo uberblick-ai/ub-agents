@@ -1,5 +1,6 @@
 from contextlib import ExitStack, redirect_stderr
 from dataclasses import replace
+from datetime import datetime
 import io
 import signal
 import threading
@@ -19,6 +20,7 @@ from ub_agents.loop import Loop, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
 from ub_agents.records import attempts, iso, timestamp
 from ub_agents.signals import SignalEvent
 from tests.support import stub_refresh, PollGitHub, RecordingRunner, agent, config, issue, pr
+from tests.test_etags import SequenceRunner, response
 
 
 class PollingTests(unittest.TestCase):
@@ -148,6 +150,78 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(delays, [5, 10, self.config.poll_seconds, 5])
         self.assertEqual(self.lines.count("No open issue or PR has a trigger label (ready, needs-changes); "
                                           "add one to start; next poll in 1s (0 requests last poll)"), 1)
+
+    def test_continuous_401_polls_back_off_indefinitely_and_any_success_resets(self):
+        replies = SequenceRunner(*[response(401)] * 28, response(payload={}), *[response(401)] * 4)
+        github = GitHub('org/project', replies)
+        self.loop.github.github = github
+        delays = []
+
+        def wait(delay):
+            delays.append(delay)
+            if len(delays) == 8:
+                self.loop.stop_event.set()
+
+        def tick():
+            if len(delays) == 7:
+                clock.now.return_value = datetime(2026, 11, 6, 22, 3)
+                github.request('successful-request')
+            github.request('failing-request', 'POST')
+
+        with patch('ub_agents.github_auth.datetime') as clock, \
+                patch('ub_agents.github.sleep'), redirect_stderr(io.StringIO()), \
+                patch.object(self.loop, 'tick', side_effect=tick), \
+                patch.object(self.loop.stop_event, 'wait', side_effect=wait), \
+                self.assertRaises(KeyboardInterrupt):
+            clock.now.return_value = datetime(2026, 11, 6, 21, 14)
+            self.loop.launch()
+        self.assertEqual(delays, [60, 120, 240, 480, 900, 900, 900, 60])
+        skipped = [line for line in self.lines if line.startswith('Skipped')]
+        self.assertEqual(skipped, [
+            f'Skipped GitHub poll: GitHub rejects the token (HTTP 401) since '
+            f'{"22:03" if index == 7 else "21:14"}; retrying in {delay // 60}m. Check gh auth status.'
+            for index, delay in enumerate(delays)])
+
+    def test_401_and_transport_poll_backoffs_are_independent(self):
+        replies = SequenceRunner(*[response(401)] * 4, response(500),
+                                 *[response(401)] * 4, response(500), *[response(401)] * 4)
+        github = GitHub('org/project', replies)
+        self.loop.github.github = github
+        delays = []
+
+        def wait(delay):
+            delays.append(delay)
+            if len(delays) == 5:
+                self.loop.stop_event.set()
+
+        with patch('ub_agents.github.sleep'), redirect_stderr(io.StringIO()), \
+                patch.object(self.loop, 'tick', side_effect=lambda: github.request('resource')), \
+                patch.object(self.loop.stop_event, 'wait', side_effect=wait), \
+                self.assertRaises(KeyboardInterrupt):
+            self.loop.launch()
+        self.assertEqual(delays, [60, 5, 120, 10, 240])
+
+    def test_401_setup_once_and_numbered_launch_keep_stopping(self):
+        cases = [(False, ['launch']), (False, ['launch', '--once']), (False, ['launch', '1']),
+                 (True, ['launch', '--once']), (True, ['launch', '1'])]
+        for setup_passed, argv in cases:
+            with self.subTest(setup_passed=setup_passed, argv=argv):
+                github = GitHub('org/project', SequenceRunner(response(401)))
+                self.loop.github.github = github
+                with patch('ub_agents.cli._runtime.load_config', return_value=self.config), \
+                        patch('ub_agents.cli._runtime.GitHub', return_value=github), \
+                        patch('ub_agents.cli._runtime.Coordinator', return_value=self.loop.coordinator), \
+                        patch('ub_agents.cli._runtime.Loop', return_value=self.loop), \
+                        patch('ub_agents.cli.launch.repository_checks', return_value=[]), \
+                        patch('ub_agents.cli.launch.launch_checks',
+                              side_effect=None if setup_passed else lambda *_: github.actor()), \
+                        patch.object(self.loop, 'tick', side_effect=lambda: github.actor()), \
+                        patch.object(self.loop, 'tick_item', side_effect=lambda *_: github.actor()), \
+                        patch.object(self.loop.stop_event, 'wait') as waits, redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(['--config', str(self.root / 'ub-agents.yaml'), *argv]), 1)
+                self.assertEqual(github.gh_calls, 1)
+                self.assertFalse(github.auth_retry.enabled)
+                waits.assert_not_called()
 
     def test_completed_work_poll_resets_failure_count(self):
         failure = self.http_error()

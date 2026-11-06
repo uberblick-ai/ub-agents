@@ -199,6 +199,83 @@ class GitHubHTTPTests(unittest.TestCase):
         self.token.__init__()
         self.run.reset_mock()
 
+    def test_continuous_401_replays_reads_and_writes_after_wait(self):
+        cases = [('resource', method) for method in ('GET', 'POST', 'PATCH', 'PUT', 'DELETE')]
+        cases.append(('graphql', 'POST'))
+        for endpoint, method in cases:
+            with self.subTest(endpoint=endpoint, method=method):
+                self.setUp_tokens()
+                self.sleep.reset_mock()
+                connection = self.connection(Reply(401), Reply(payload={'ok': True}))
+                github = GitHub('org/project')
+                github.auth_retry.enabled = True
+                with redirect_stderr(io.StringIO()):
+                    self.assertEqual(github.request(endpoint, method, {'body': 'write'}), {'ok': True})
+                self.sleep.assert_called_once_with(1)
+                self.assertEqual(len(connection.calls), 2)
+                self.assertEqual(connection.calls[0], connection.calls[1])
+                self.assertEqual(self.run.call_count, 2)
+                self.assertFalse(github.auth_retry.failing)
+
+    def test_continuous_401_exhausts_four_attempts_and_uses_new_login_on_next_request(self):
+        self.run.side_effect = [subprocess.CompletedProcess([], 0, value, '') for value in
+                                ['old-credential'] * 4 + ['new-credential']]
+        connection = self.connection(*[Reply(401)] * 4, Reply(payload={'login': 'operator'}))
+        github = GitHub('org/project')
+        github.auth_retry.enabled = True
+        with redirect_stderr(io.StringIO()), self.assertRaises(GitHubError) as raised:
+            github.actor()
+        self.assertTrue(raised.exception.retryable)
+        self.assertEqual(raised.exception.status, 401)
+        self.assertEqual(self.sleep.call_args_list, [call(1), call(2), call(4)])
+        self.assertEqual((github.gh_calls, github.quota_requests), (4, 4))
+        self.assertTrue(github.auth_retry.failing)
+        self.assertEqual(github.actor(), 'operator')
+        self.assertEqual([c[2]['headers']['Authorization'] for c in connection.calls],
+                         ['Bearer old-credential'] * 4 + ['Bearer new-credential'])
+        self.assertFalse(github.auth_retry.failing)
+
+    def test_continuous_401_rereads_token_on_each_in_place_attempt(self):
+        self.run.side_effect = [subprocess.CompletedProcess([], 0, value, '') for value in
+                                ('old-credential', 'old-credential', 'new-credential')]
+        connection = self.connection(Reply(401), Reply(401), Reply())
+        github = GitHub('org/project')
+        github.auth_retry.enabled = True
+        with redirect_stderr(io.StringIO()):
+            github.request('resource', 'POST')
+        self.assertEqual([c[2]['headers']['Authorization'] for c in connection.calls],
+                         ['Bearer old-credential', 'Bearer old-credential', 'Bearer new-credential'])
+        self.assertEqual(self.sleep.call_args_list, [call(1), call(2)])
+
+    def test_continuous_gh_fallback_retries_http_401_but_exit_four_without_status_stops(self):
+        for method in ('GET', 'POST'):
+            with self.subTest(method=method):
+                self.setUp_tokens()
+                self.sleep.reset_mock()
+                replies = SequenceRunner(response(401), response(payload={'ok': True}))
+
+                def run(command, **kwargs):
+                    if command[1:3] == ['auth', 'token']:
+                        return subprocess.CompletedProcess([], 1, '', '')
+                    return replies(command, **kwargs)
+
+                self.run.side_effect = run
+                github = GitHub('org/project')
+                github.auth_retry.enabled = True
+                with redirect_stderr(io.StringIO()):
+                    self.assertEqual(github.request('resource', method), {'ok': True})
+                self.sleep.assert_called_once_with(1)
+                self.assertEqual(len(replies.calls), 2)
+                self.assertEqual(self.run.call_count, 4)
+        self.sleep.reset_mock()
+        github = GitHub('org/project', SequenceRunner(subprocess.CompletedProcess([], 4, '', 'not logged in')))
+        github.auth_retry.enabled = True
+        with self.assertRaises(GitHubError) as raised:
+            github.request('resource')
+        self.assertFalse(raised.exception.retryable)
+        self.assertIsNone(raised.exception.status)
+        self.sleep.assert_not_called()
+
     def test_failed_or_empty_token_lookup_uses_unchanged_gh_protocol_and_caches_failure(self):
         for lookup in (subprocess.CompletedProcess([], 1, '', 'secret auth diagnostic'),
                        subprocess.CompletedProcess([], 0, ' \n', ''), OSError('cannot run'),
@@ -462,10 +539,14 @@ class GitHubHTTPTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             cfg = config(Path(directory))
             github = GitHub('org/project')
-            planning = RunPlanning(Loop(cfg, github, 'operator'), 0)
+            loop = Loop(cfg, github, 'operator')
+            loop.continuous_retries(True)
+            planning = RunPlanning(loop, 0)
             cleanup = StartupCleanup(cfg, github, 'operator', threading.Event())
             planned = planning.planner.github.github.github
             clients = [github, planned, cleanup.github]
+            self.assertTrue(all(client.auth_retry is github.auth_retry for client in clients))
+            self.assertTrue(all(client.auth_retry.enabled for client in clients))
 
             def read_twice(client):
                 client.request('user')
@@ -485,8 +566,8 @@ class GitHubHTTPTests(unittest.TestCase):
                 self.assertEqual(client.gh_calls, 2)
 
     def test_cancellation_prevents_401_retry_and_304_refetch(self):
-        for status in (401, 304):
-            with self.subTest(status=status):
+        for status, continuous in ((401, False), (304, False), (401, True)):
+            with self.subTest(status=status, continuous=continuous):
                 self.setUp_tokens()
                 self.run.side_effect = [subprocess.CompletedProcess([], 0, 'old', ''),
                                         subprocess.CompletedProcess([], 0, 'new', '')]
@@ -500,12 +581,13 @@ class GitHubHTTPTests(unittest.TestCase):
                         raise _Cancelled
 
                 github = GitHub('org/project', before_request=checkpoint)
+                github.auth_retry.enabled = continuous
                 with self.assertRaises(_Cancelled):
                     github.request('user')
                 self.assertEqual(len(connection.calls), 1)
                 self.assertEqual(github.gh_calls, 1)
 
-    def coordination_http(self, root):
+    def coordination_http(self, root, reject=None):
         runner = CoordinationRunner(root, True)
         runner.store = FakeGitHub(issue())
         own, connections = [], []
@@ -520,7 +602,8 @@ class GitHubHTTPTests(unittest.TestCase):
                            '-H', 'Accept: application/vnd.github+json', '--include', endpoint]
                 if 'If-None-Match' in sent['headers']:
                     command += ['-H', 'If-None-Match: ' + sent['headers']['If-None-Match']]
-                wire = runner(command, input=sent['body'].decode() if sent['body'] is not None else None)
+                wire = (response(401) if reject is not None and reject(method, endpoint)
+                        else runner(command, input=sent['body'].decode() if sent['body'] is not None else None))
                 status, headers, payload = response_parts(wire.stdout)
                 own.append((endpoint == 'graphql', status))
                 reply = Reply(status, headers=list(headers.items()))
@@ -532,6 +615,43 @@ class GitHubHTTPTests(unittest.TestCase):
 
         self.connect.side_effect = connect
         return runner, GitHub('org/project'), own, connections
+
+    def test_continuous_401_during_renewal_and_finalization_preserves_successful_run(self):
+        stub_refresh(self)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage, failures = [], set()
+
+            def reject(method, endpoint):
+                path = urlsplit(endpoint).path
+                if (stage and method in {'GET', 'PATCH'} and '/comments' in path
+                        and (stage[0], method) not in failures):
+                    failures.add((stage[0], method))
+                    return True
+                return False
+
+            runner, github, own, connections = self.coordination_http(root, reject)
+            role = agent(root, outcomes={'done': {'add': ('needs-review',), 'remove': ()}})
+            loop = Loop(config(root, role), github, 'operator', output=lambda line: None)
+            loop.continuous_retries(True)
+
+            def execute(*args, **kwargs):
+                stage[:] = ['renewal']
+                loop._renewal.next_renewal = 0
+                loop._renewal.tick()
+                loop.coordinator.report(loop.github.lease, 'success', 'Finished', outcome='done')
+                stage[:] = ['finalization']
+                return 0
+
+            with patch('ub_agents.assignment_run.supervise', side_effect=execute), \
+                    redirect_stderr(io.StringIO()):
+                self.assertTrue(loop.tick())
+            lease = records(runner.store.comments(1), 'operator')[0]
+            self.assertEqual(lease['result'], 'success')
+            self.assertIn('needs-review', runner.store.item(1).labels)
+            self.assertEqual(failures, {(stage, method) for stage in ('renewal', 'finalization')
+                                       for method in ('GET', 'PATCH')})
+            self.assertEqual(sum(status == 401 for _, status in own), 4)
 
     def test_finalization_retries_get_and_preserves_lease_if_all_attempts_fail(self):
         stub_refresh(self)

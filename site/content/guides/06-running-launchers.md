@@ -120,13 +120,23 @@ without a limit, printing `Skipped GitHub poll: …; retrying in Ns`. No attempt
 charged and no action is needed. A direct HTTPS REST `GET` that fails before a
 response retries three times, after 1, 2 and 4 seconds, using fresh connections.
 Each retry appears in `launch.log` with the method, endpoint and attempt. Ctrl-C
-interrupts the wait. Writes and the `gh api` fallback keep their existing behavior.
+interrupts the wait.
 `launch --once`, `launch N` and `status` fail if the request still fails after these
 retries; run them again later. `doctor --verbose` shows the remaining quota. See
 [quota and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling).
 
-**Launch stops with "ub-agents does not retry this error."** Authentication failures,
-redirects returned by GitHub and other HTTP 4xx errors are not retried. Fix the cause,
+After setup passes, continuous launch also retries HTTP 401 responses, including
+writes and the `gh api` fallback, after 1, 2 and 4 seconds. If all attempts fail,
+it skips the poll and waits 1 minute, doubling to 15 minutes without giving up.
+The log names the local time of the first 401 and suggests `gh auth status`.
+Check that command if failures persist; after `gh auth login`, the next attempt
+uses the new token without a restart. Any successful GitHub request resets this
+backoff and its start time.
+
+**Launch stops with "ub-agents does not retry this error."** HTTP 401 during setup,
+in `launch --once` or in `launch N` still stops after checking for a changed token.
+A `gh` authentication failure without an HTTP status, redirects returned by GitHub
+and other HTTP 4xx errors also stop. Fix the cause,
 for example with `gh auth login` or by correcting your repository configuration,
 and restart. The restarted launcher recovers any claim
 it left open.
