@@ -23,6 +23,11 @@ errors still print in the terminal or background log.
 
 ## What the page shows
 
+The browser tab shows a robot icon and your repository's short name. The title
+includes the needs-human count when any items need a person, otherwise the running
+count when any runs are active. Until the first snapshot arrives, the title is
+`ub-agents`.
+
 - **Needs human**: open items with a [stop label](/docs/configuration/stop-labels.html),
   and runs that reported blocked and weren't retried since. Each shows the actions
   and options of its latest outcome, with links to the Action needed comment and the
