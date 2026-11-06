@@ -44,7 +44,7 @@
 | src/ub\_agents/events.py                         |      112 |        1 |     99% |        59 |
 | src/ub\_agents/execution.py                      |      293 |        8 |     97% |42, 151, 183, 300, 303-304, 317, 335 |
 | src/ub\_agents/finalization.py                   |       48 |        0 |    100% |           |
-| src/ub\_agents/github.py                         |      824 |       42 |     95% |47, 101, 271, 312, 388, 578, 609, 627, 684, 688, 716, 737, 788, 795, 801, 812, 821, 859, 868, 874, 905, 908-909, 912, 941, 976, 978-979, 1027, 1034, 1040-1043, 1089, 1096-1097, 1099, 1122, 1129, 1131-1132 |
+| src/ub\_agents/github.py                         |      836 |       42 |     95% |47, 101, 281, 322, 398, 593, 624, 642, 699, 703, 731, 752, 803, 810, 816, 827, 836, 874, 883, 889, 920, 923-924, 927, 956, 991, 993-994, 1042, 1049, 1055-1058, 1104, 1111-1112, 1114, 1137, 1144, 1146-1147 |
 | src/ub\_agents/github\_auth.py                   |       26 |        0 |    100% |           |
 | src/ub\_agents/github\_http.py                   |      115 |        5 |     96% |77, 91-92, 157-158 |
 | src/ub\_agents/help.py                           |      136 |        0 |    100% |           |
@@ -84,7 +84,7 @@
 | src/ub\_agents/notices.py                        |      236 |        2 |     99% |  151, 238 |
 | src/ub\_agents/observation\_data.py              |      105 |        1 |     99% |        29 |
 | src/ub\_agents/observation\_worker.py            |      145 |       13 |     91% |24, 36-37, 49, 58-59, 62-63, 68, 72-73, 97, 116 |
-| src/ub\_agents/observations.py                   |      568 |       13 |     98% |84, 102, 108-109, 133, 137-139, 321, 379, 406, 540, 698 |
+| src/ub\_agents/observations.py                   |      568 |       10 |     98% |84, 102, 108-109, 133, 321, 379, 406, 540, 698 |
 | src/ub\_agents/own\_merge.py                     |       24 |        1 |     96% |        15 |
 | src/ub\_agents/pass\_messages.py                 |       54 |        0 |    100% |           |
 | src/ub\_agents/poll\_now.py                      |       68 |        1 |     99% |        29 |
@@ -144,7 +144,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18429** |  **692** | **96%** |           |
+| **TOTAL**                                        | **18441** |  **689** | **96%** |           |
 
 
 ## Setup coverage badge
