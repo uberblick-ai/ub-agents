@@ -110,6 +110,24 @@ backend, studio
   outcome record. **discuss with Claude** opens a Claude Code session in the Claude
   app, in this checkout, with "help me unblock #N using the ub-agents-unblock skill"
   filled in; the app asks you to confirm the folder before you send it.
+  Click **dismiss** to move a row out of **Open**, its counts, the tab title count
+  and stop notifications. When the shown repositories have dismissed rows, a dropdown
+  on the panel's lower border offers **Open (N)** and **Dismissed (N)**. Choose
+  **Dismissed** to see those rows, with a heading of **Needs human · N dismissed**;
+  click **restore** to return one to **Open** quietly. The repository choice in the
+  header filters both lists and their counts. With no open rows, **Open** shows the
+  all-clear once every shown repository has been read, and the tab title uses
+  running work or repository names. The dropdown stays until nothing shown is dismissed.
+  Your browser remembers dismissals and the Open/Dismissed choice in local storage,
+  alongside the repository and machine choices. Dismiss and restore send no request
+  and change nothing on GitHub or in a colleague's monitor.
+  A dismissal covers one stop: the repository and item number, its latest outcome
+  or blocked run record, its Action needed notice and its stop labels. A new record,
+  notice or set of stop labels makes it open again. Once every watched repository
+  has been read at least once, dismissals for stops no longer in Needs human are
+  removed across all watched repositories, whichever is selected. Failed reads
+  keep the last rows and their dismissals. With no dismissed rows in the chosen
+  repositories, the dropdown hides and the panel shows **Open**.
 - **Running**: every live run, with its agent, machine and how long it has run.
   The dropdown in the top-right border shows all machines by default. Choose a
   machine to show only its runs; the heading counts the runs shown. The choice
@@ -183,6 +201,11 @@ Kept choices and the machine filter remain valid when you add checkouts.
 A stop-labelled item notifies only for the choice matching its latest outcome,
 or for **another way** if no stop outcome explains it. Blocked reports on items
 without stop labels use the blocked choice.
+A dismissed stop does not notify. A different record, notice or set of stop labels
+on the same item is a new stop and notifies according to your choices. Restoring
+the same stop adds it back to the panel and tab counts without notifying, including
+on the next poll. These rules apply across every watched repository, whichever
+repository or Needs human list you choose to view.
 
 Ticking or clearing the parent selects or clears every child. A partial tick means
 some children are selected. By default, all these stop choices are selected;
