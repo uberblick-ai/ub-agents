@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from urllib.parse import unquote
 
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator, Plan
@@ -38,6 +39,33 @@ def snapshot_request(port):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_page_has_the_robot_favicon_as_an_inline_svg(self):
+        html = page().decode()
+        self.assertIn('<link rel="icon" href="data:image/svg+xml,', html)
+        svg = unquote(html.split('href="data:image/svg+xml,', 1)[1].split('"', 1)[0])
+        self.assertEqual(svg, (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+            '<style>.tile{fill:#1d1b24}@media (prefers-color-scheme:dark){.tile{fill:#2c2937}}</style>'
+            '<rect class="tile" width="64" height="64" rx="14"/>'
+            '<path d="M32 8V17" stroke="#fff" stroke-width="5"/>'
+            '<circle cx="32" cy="8" r="4.5" fill="#bc7509"/>'
+            '<path d="M8 27V37M56 27V37" stroke="#fff" stroke-width="5" stroke-linecap="round"/>'
+            '<rect x="12" y="16" width="40" height="30" rx="8" fill="#fff"/>'
+            '<rect class="tile" x="17" y="23" width="30" height="16" rx="6"/>'
+            '<circle cx="25" cy="31" r="4" fill="#bc7509"/>'
+            '<circle cx="39" cy="31" r="4" fill="#bc7509"/>'
+            '<rect x="9" y="52" width="46" height="5" rx="1" fill="#bc7509"/>'
+            '</svg>'
+        ))
+
+    def test_page_titles_snapshots_with_the_repository_short_name(self):
+        html = page().decode()
+        self.assertIn('<title>ub-agents</title>', html)
+        self.assertIn('const repository = data.repository.split("/").pop();', html)
+        self.assertIn('document.title = data.needs_human.length ? '
+                      '`(${data.needs_human.length}) needs human · ${repository}`', html)
+        self.assertIn(': data.running.length ? `${data.running.length} running · ${repository}` : repository;', html)
+
     def test_snapshot_identifies_the_serving_host_and_preserves_record_hosts(self):
         github = FakeGitHub(issue(1), issue(2), issue(3))
         github.create_comment(1, body(lease(1, 'local', host='laptop')))
