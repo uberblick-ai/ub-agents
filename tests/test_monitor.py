@@ -38,6 +38,41 @@ def snapshot_request(port):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_snapshot_identifies_the_serving_host_and_preserves_record_hosts(self):
+        github = FakeGitHub(issue(1), issue(2), issue(3))
+        github.create_comment(1, body(lease(1, 'local', host='laptop')))
+        github.create_comment(2, body(lease(2, 'remote', host='loop-server')))
+        github.create_comment(3, body(lease(3, 'ended', host='laptop', state='released',
+                                           result='success', attempt_effect='unchanged')))
+        writes = list(github.writes)
+        source = MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), timestamp)
+
+        with patch('ub_agents.monitor.snapshot.socket.gethostname', return_value='laptop'):
+            snapshot = source.snapshot()
+
+        self.assertEqual(snapshot['local_host'], 'laptop')
+        self.assertEqual([run['host'] for run in snapshot['running']], ['laptop', 'loop-server'])
+        self.assertEqual([run['host'] for run in snapshot['recent']], ['laptop'])
+        self.assertEqual(github.writes, writes)
+
+    def test_page_has_a_remembered_machine_dropdown_scoped_to_running(self):
+        html = page().decode()
+        self.assertIn('class: "machine-picker muted"', html)
+        self.assertIn('"aria-label": "Running machine"', html)
+        self.assertIn('All Machines (${hosts.length})', html)
+        self.assertIn('stored(MACHINE_KEY, null)', html)
+        self.assertIn('store(MACHINE_KEY, state.machine)', html)
+        self.assertIn('[...data.running, ...data.recent]', html)
+        self.assertIn('if (state.machine) others.add(state.machine)', html)
+        self.assertIn('[data.local_host, ...[...others].sort()]', html)
+        self.assertIn('host === state.data?.local_host ? "this machine"', html)
+        self.assertIn('runs.filter((run) => run.host === state.machine)', html)
+        self.assertIn('panel("Running", shown.length', html)
+        self.assertIn('state.machine === null ? "any machine" : machine(state.machine)', html)
+        self.assertIn('needsPanel(data.needs_human, data.stop_labels)', html)
+        self.assertIn('recentPanel(data.recent)', html)
+        self.assertIn('started: new Set(data.running.map((r) => r.id))', html)
+
     def test_planner_uses_the_local_runtime_pause_and_recovers_after_it_ends(self):
         root, now = Path('/checkout'), [timestamp()]
         worker = agent(root, command=(), runtimes=(Runtime('claude', 'model', 'high'),))

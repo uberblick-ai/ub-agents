@@ -30,6 +30,12 @@ errors still print in the terminal or background log.
   app, in this checkout, with "help me unblock #N using the ub-agents-unblock skill"
   filled in; the app asks you to confirm the folder before you send it.
 - **Running**: every live run, with its agent, machine and how long it has run.
+  The dropdown in the top-right border shows all machines by default. Choose a
+  machine to show only its runs; the heading counts the runs shown. The choice
+  survives a reload. Options include this machine, machines with live runs or
+  activity in the last 24 hours, and your selected machine even after its runs
+  age out. All Machines counts those machines, including this machine. The filter
+  affects only Running; other panels and notifications still cover every machine.
 - **Eligible**: the next 20 items a launcher on this checkout would claim, in the
   terminal view's order. Five rows fit at once; scroll inside the panel to see the
   rest. The heading counts all eligible items and says how many are shown when
@@ -46,6 +52,7 @@ errors still print in the terminal or background log.
 
 Records count only from accounts that the launcher trusts: write access or higher,
 and listed in [`launchers`](/docs/configuration/launchers.html) when that is set.
+The host serving the monitor reads **this machine** in every panel and run detail.
 
 ## Polling and notifications
 

@@ -4,6 +4,8 @@ Every launcher records its runs as coordination comments on the item it works
 on, so GitHub sees all of them. This module never writes to GitHub.
 """
 
+import socket
+
 from ..errors import RecordError
 from ..notices import ACTION_MARKER
 from ..records import MARKER, iso, lease_summary, live_leases, record_version, records, seconds
@@ -62,6 +64,7 @@ class MonitorSource:
         return {
             "repository": self.config.repository,
             "folder": str(self.config.root),
+            "local_host": socket.gethostname(),
             "stop_labels": list(self.config.stop_labels),
             "stop_outcomes": self.stop_outcomes(),
             "generated_at": iso(now),

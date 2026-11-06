@@ -53,7 +53,7 @@
         color: var(--foreground);
         font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
-      a, button { color: inherit; font: inherit; }
+      a, button, select { color: inherit; font: inherit; }
       main { max-width: 1280px; margin: 0 auto; padding: 24px 24px 72px; }
       .muted { color: var(--muted); }
       .running { color: var(--running); }
@@ -83,6 +83,26 @@
       }
       .panel.attention-panel { border-color: var(--attention); }
       .panel.running-panel { border-color: var(--running); }
+      .machine-picker {
+        position: absolute;
+        top: -0.8em;
+        right: 12px;
+        max-width: calc(100% - 22ch);
+        padding: 0 6px;
+        background: var(--background);
+      }
+      .machine-picker select {
+        appearance: none;
+        max-width: 100%;
+        padding: 0 2ch 0 0;
+        border: 0;
+        background: var(--background);
+        color: var(--muted);
+        text-decoration: underline;
+        text-overflow: ellipsis;
+        cursor: pointer;
+      }
+      .machine-picker > span { position: absolute; right: 6px; pointer-events: none; }
       .row {
         display: grid;
         grid-template-columns: 2ch minmax(0, 1fr) 16ch 22ch 12ch;
@@ -171,6 +191,7 @@
       const POLL_SECONDS = 30;
       const NOTIFY_KEY = "ub-agents-monitor.notify";
       const EVENTS_KEY = "ub-agents-monitor.notify-events";
+      const MACHINE_KEY = "ub-agents-monitor.machine";
       // A stop label or a blocked report stays on screen until it's dismissed.
       const EVENTS = [
         { id: "label", urgent: true },
@@ -191,7 +212,15 @@
       const TEST_HINT_MS = 20_000;
       const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
-      const state = { data: null, error: null, loading: false, lastPoll: 0, seen: null, open: new Set(), choosing: false, testSentAt: 0 };
+      const stored = (key, fallback) => {
+        try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+      };
+      const store = (key, value) => {
+        try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* kept for this tab */ }
+      };
+      const keptMachine = stored(MACHINE_KEY, null);
+      const state = { data: null, error: null, loading: false, lastPoll: 0, seen: null, open: new Set(), choosing: false, testSentAt: 0,
+        machine: typeof keptMachine === "string" && keptMachine ? keptMachine : null };
       const time = (stamp) => new Date(stamp).getTime();
 
       /* ── Drawing ── Text from GitHub is only ever set as text, never parsed as markup. */
@@ -218,7 +247,7 @@
       const FORMATS = { ago: (ms) => `${duration(ms)} ago`, for: duration };
       // Times the per-second tick rewrites in place, so open rows and focus survive.
       const clock = (stamp, format) => el("span", { "data-since": stamp, "data-format": format }, FORMATS[format](Date.now() - time(stamp)));
-      const machine = (host) => host || "unknown machine";
+      const machine = (host) => host && host === state.data?.local_host ? "this machine" : host || "unknown machine";
       const ref = (item) => `${item.kind === "pr" ? "PR " : ""}#${item.number}`;
       const itemLink = (item) => el("div", { class: "cell item" }, link(item.url, [el("span", { class: "ref" }, ref(item)), item.title || ""]));
       const panel = (title, count, classes, children) =>
@@ -259,12 +288,34 @@
           last,
           el("div", { class: "sub" }, `attempt ${run.attempt} · ${run.runtime} · by ${run.actor}`));
 
-      const runningPanel = (runs) =>
-        panel("Running", runs.length, runs.length ? "running-panel" : "",
-          runs.length
-            ? runs.map((run) => runRow(run, SPINNER[frame], "spinner", el("div", { class: "cell right running", title: run.renewed ? `renewed ${new Date(run.renewed).toLocaleTimeString()}` : null },
+      const machinePicker = () => {
+        const { data } = state;
+        const others = new Set([...data.running, ...data.recent].map((run) => run.host).filter(Boolean));
+        if (state.machine) others.add(state.machine);
+        others.delete(data.local_host);
+        const hosts = [data.local_host, ...[...others].sort()];
+        return el("div", { class: "machine-picker muted" },
+          el("select", { "aria-label": "Running machine", onchange: (event) => {
+            state.machine = event.target.value || null;
+            store(MACHINE_KEY, state.machine);
+            render();
+            document.querySelector('.machine-picker select').focus();
+          } },
+            el("option", { value: "", selected: state.machine === null }, `All Machines (${hosts.length})`),
+            hosts.map((host) => el("option", { value: host, selected: state.machine === host }, machine(host)))),
+          el("span", { "aria-hidden": "true" }, "▾"));
+      };
+
+      const runningPanel = (runs) => {
+        const shown = state.machine === null ? runs : runs.filter((run) => run.host === state.machine);
+        const result = panel("Running", shown.length, shown.length ? "running-panel" : "",
+          shown.length
+            ? shown.map((run) => runRow(run, SPINNER[frame], "spinner", el("div", { class: "cell right running", title: run.renewed ? `renewed ${new Date(run.renewed).toLocaleTimeString()}` : null },
                 run.state === "claiming" ? "claiming" : clock(run.started, "for"))))
-            : el("div", { class: "muted" }, "Idle · nothing running on any machine"));
+            : el("div", { class: "muted" }, `Idle · nothing running on ${state.machine === null ? "any machine" : machine(state.machine)}`));
+        result.append(machinePicker());
+        return result;
+      };
 
       const eligibleState = (row) => {
         const pauses = Object.entries(row.pauses).filter(([, end]) => time(end) > Date.now());
@@ -355,12 +406,6 @@
       };
 
       /* ── Notifications ── */
-      const stored = (key, fallback) => {
-        try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
-      };
-      const store = (key, value) => {
-        try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* kept for this tab */ }
-      };
       const chosen = () => stored(EVENTS_KEY, ["label"]).filter((id) => events().some((e) => e.id === id));
       const eventText = (event) => event.text ?? `an item gets the ${(state.data?.stop_labels ?? ["needs-human"]).join(" or ")} label`;
       const permission = () => ("Notification" in window ? Notification.permission : "denied");
