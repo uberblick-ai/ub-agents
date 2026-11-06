@@ -20,7 +20,7 @@
 | src/ub\_agents/cli/doctor.py                     |       26 |        0 |    100% |           |
 | src/ub\_agents/cli/init.py                       |       27 |        0 |    100% |           |
 | src/ub\_agents/cli/launch.py                     |      202 |        8 |     96% |136, 212, 216-218, 245-248 |
-| src/ub\_agents/cli/monitor.py                    |       41 |        3 |     93% |     13-15 |
+| src/ub\_agents/cli/monitor.py                    |       62 |        1 |     98% |        18 |
 | src/ub\_agents/cli/read.py                       |       17 |        0 |    100% |           |
 | src/ub\_agents/cli/report.py                     |       40 |        1 |     98% |        37 |
 | src/ub\_agents/cli/retrospective.py              |       17 |        0 |    100% |           |
@@ -142,9 +142,9 @@
 | src/ub\_agents/view/unblock.py                   |      155 |        2 |     99% |   80, 187 |
 | src/ub\_agents/view/widgets.py                   |       89 |        0 |    100% |           |
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
-| src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
+| src/ub\_agents/view/worker.py                    |      118 |       18 |     85% |60-61, 97, 112, 117-118, 130-134, 137, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18441** |  **689** | **96%** |           |
+| **TOTAL**                                        | **18462** |  **688** | **96%** |           |
 
 
 ## Setup coverage badge
