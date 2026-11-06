@@ -174,7 +174,8 @@ def is_graphql_query(data):
     document = data.get("query") if isinstance(data, dict) else None
     if not isinstance(document, str):
         return False
-    operation = re.match(r"(?:[\s,\ufeff]|#[^\r\n]*)*(?:query\b(?:\s+([_A-Za-z][_0-9A-Za-z]*))?|\{)", document)
+    prefix = re.sub(r"#[^\r\n]*", "", document)
+    operation = re.match(r"[\s,\ufeff]*(?:query\b(?:\s+([_A-Za-z][_0-9A-Za-z]*))?|\{)", prefix)
     # An operation name must select this query, never a later mutation.
     return operation is not None and (data.get("operationName") is None or data["operationName"] == operation[1])
 

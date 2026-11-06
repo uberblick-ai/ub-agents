@@ -241,6 +241,13 @@ class GitHubHTTPTests(unittest.TestCase):
         self.assertEqual(len(connection.calls), 1)
         self.sleep.assert_not_called()
 
+    def test_graphql_comment_only_document_is_not_replayed(self):
+        connection = self.connection(OSError('connection failed'))
+        with self.assertRaises(GitHubError):
+            GitHub('org/project').request('graphql', 'POST', {'query': '#' * 1000})
+        self.assertEqual(len(connection.calls), 1)
+        self.sleep.assert_not_called()
+
     def test_get_failure_in_gh_fallback_is_not_replayed(self):
         self.run.side_effect = [subprocess.CompletedProcess([], 1, '', ''),
                                 subprocess.TimeoutExpired('gh', 20)]
