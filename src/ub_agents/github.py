@@ -7,7 +7,7 @@ import re
 import signal
 import subprocess
 import sys
-from time import sleep
+from time import monotonic, sleep
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError, GitHubError
@@ -317,6 +317,7 @@ class GitHub:
         self.prefix = f"repos/{repository}"
         self.quota_headers = {}
         self.resource_quotas = {}
+        self.resource_quota_times = {}
         # All attempted REST calls, including revalidations and transport failures.
         self.rest_requests = 0
         self.gh_calls = 0
@@ -402,6 +403,7 @@ class GitHub:
         resource = headers.get("x-ratelimit-resource")
         if resource in {"core", "graphql"}:
             self.resource_quotas[resource] = headers
+            self.resource_quota_times[resource] = monotonic()
 
     def _response(self, command, endpoint, method, data, cached):
         if self.before_request is not None:

@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
   The ub-agents monitor: what needs a person, what runs now, what's next and what ended in
-  the last 24 hours, on every machine that runs a launcher for the repository.
+  the last 24 hours, on every machine that runs a launcher for the repositories.
   `ub-agents monitor` serves it on 127.0.0.1 and computes /snapshot.json with
   the launcher's own record rules; this page only draws it and notifies.
 -->
@@ -202,7 +202,7 @@
       // Each cause of a stop can notify on its own; the parent selects them all.
       const stopEvents = (data = state.data) => [
         { id: "blocked", text: "a run reports blocked", urgent: true },
-        ...(data?.stop_outcomes ?? []).map(({ name, agents }) => ({ id: `outcome:${name}`, text: `a run reports ${name} (${agents.join(", ")})`, urgent: true })),
+        ...(data?.stop_outcomes ?? []).map(({ name, agents, repositories }) => ({ id: `outcome:${name}`, text: `a run reports ${name} (${agents.join(", ")}${repositories ? ` · ${repositories.join(", ")} only` : ""})`, urgent: true })),
         { id: "label", text: `${(data?.stop_labels ?? ["needs-human"]).join(" or ")} is added another way (by hand, or a round or attempt limit)`, urgent: true },
       ];
       const events = () => [...stopEvents(), ...EVENTS];
@@ -218,9 +218,50 @@
         try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* kept for this tab */ }
       };
       const keptMachine = stored(MACHINE_KEY, null);
-      const state = { data: null, error: null, loading: false, lastPoll: 0, seen: null, open: new Set(), choosing: false, testSentAt: 0,
+      const state = { data: null, error: null, loading: false, lastPoll: 0, seen: null, seenRepositories: new Set(), open: new Set(), choosing: false, testSentAt: 0,
         machine: typeof keptMachine === "string" && keptMachine ? keptMachine : null };
       const time = (stamp) => new Date(stamp).getTime();
+
+      const combinedOutcomes = (repositories) => {
+        const outcomes = new Map();
+        for (const repository of repositories) for (const { name, agents } of repository.stop_outcomes ?? []) {
+          if (!outcomes.has(name)) outcomes.set(name, { name, agents: new Set(), repositories: [] });
+          const outcome = outcomes.get(name);
+          agents.forEach((agent) => outcome.agents.add(agent));
+          outcome.repositories.push(repository.name);
+        }
+        return [...outcomes.values()].sort((a, b) => a.name.localeCompare(b.name)).map((outcome) => ({
+          ...outcome, agents: [...outcome.agents].sort(),
+          repositories: outcome.repositories.length === repositories.length ? null : outcome.repositories,
+        }));
+      };
+      const combine = (snapshot) => {
+        const short = (repository) => repository.split("/").pop();
+        const repositories = snapshot.repositories.map((source) => ({ ...source,
+          name: snapshot.repositories.filter((other) => short(other.repository).toLowerCase() === short(source.repository).toLowerCase()).length > 1 ? source.repository : short(source.repository),
+        }));
+        const rows = (key) => repositories.flatMap((source) => (source[key] ?? []).map((row) => ({ ...row,
+          stop_outcomes: source.stop_outcomes ?? [],
+          item: { ...row.item, repository: source.repository, repository_name: source.name, folder: source.folder },
+        })));
+        return { ...snapshot, repositories, multiple: repositories.length > 1,
+          repository: repositories[0].repository, folder: repositories[0].folder,
+          stop_labels: [...new Set(repositories.flatMap((source) => source.stop_labels ?? []))],
+          stop_outcomes: combinedOutcomes(repositories),
+          needs_human: rows("needs_human"),
+          running: rows("running").sort((a, b) => time(a.started) - time(b.started)),
+          expired: rows("expired").sort((a, b) => time(a.expires) - time(b.expires)),
+          recent: rows("recent").sort((a, b) => time(b.ended) - time(a.ended)),
+          eligible: repositories[0].eligible,
+        };
+      };
+      const titleOf = (data) => {
+        const rows = data.needs_human.length ? data.needs_human : data.running;
+        const names = data.repositories.filter((source) => !rows.length || rows.some((row) => row.item.repository === source.repository)).map((source) => source.name);
+        const repositories = names.length > 2 ? `${names[0]} +${names.length - 1}` : names.join(", ");
+        return data.needs_human.length ? `(${rows.length}) needs human · ${repositories}`
+          : data.running.length ? `${rows.length} running · ${repositories}` : repositories;
+      };
 
       /* ── Drawing ── Text from GitHub is only ever set as text, never parsed as markup. */
       const el = (tag, props = {}, ...children) => {
@@ -248,15 +289,15 @@
       const clock = (stamp, format) => el("span", { "data-since": stamp, "data-format": format }, FORMATS[format](Date.now() - time(stamp)));
       const machine = (host) => host && host === state.data?.local_host ? "this machine" : host || "unknown machine";
       const ref = (item) => `${item.kind === "pr" ? "PR " : ""}#${item.number}`;
-      const itemLink = (item) => el("div", { class: "cell item" }, link(item.url, [el("span", { class: "ref" }, ref(item)), item.title || ""]));
+      const itemLink = (item, showRepository = state.data?.multiple) => el("div", { class: "cell item" }, link(item.url, [showRepository ? `${item.repository_name} ` : "", el("span", { class: "ref" }, ref(item)), item.title || ""]));
       const panel = (title, count, classes, children) =>
         el("section", { class: `panel ${classes}` }, el("h2", {}, title, el("span", { class: "muted" }, ` · ${count}`)), children);
 
       // Opens a Claude Code session in the Claude app, in this checkout, with the
       // prompt filled in: the app asks to confirm the folder, and the viewer sends it.
-      const discussUrl = (number) => {
-        const params = new URLSearchParams({ q: `help me unblock #${number} using the ub-agents-unblock skill` });
-        if (state.data?.folder) params.set("folder", state.data.folder);
+      const discussUrl = (item) => {
+        const params = new URLSearchParams({ q: `help me unblock #${item.number} using the ub-agents-unblock skill` });
+        if (item.folder) params.set("folder", item.folder);
         return `claude://code/new?${params.toString().replace(/\+/g, "%20")}`;
       };
 
@@ -273,7 +314,7 @@
                     : ask?.summary ? el("div", { class: "block" }, ask.summary) : null,
                   ask?.options.length ? [el("div", { class: "block" }, "Options, recommended first:"), el("ol", { class: "block" }, ask.options.map((o) => el("li", {}, o)))] : null,
                   el("div", { class: "block" },
-                    el("a", { class: "discuss", href: discussUrl(item.number), title: "Opens a Claude Code session in this checkout with the unblock prompt filled in" }, "discuss with Claude"),
+                    el("a", { class: "discuss", href: discussUrl(item), title: "Opens a Claude Code session in this checkout with the unblock prompt filled in" }, "discuss with Claude"),
                     notice ? [link(notice, "action needed"), " · "] : null,
                     ask ? link(ask.url, "outcome record") : link(item.url, "open the item"))))
             : el("div", { class: "muted" }, el("span", { class: "success" }, "✓ "), `Nothing waits for a person · stop labels: ${stopLabels.join(", ")}`));
@@ -332,21 +373,32 @@
         const remaining = [[days, "d"], [hours, "h"], [minutes, "m"]].filter(([n]) => n).map(([n, unit]) => `${n}${unit}`).join(" ");
         return `${pauses.map(([cli]) => cli).join(", ")} paused ${remaining}`;
       };
+      const eligibleRows = (eligible) => eligible.rows.map((row) => el("div", { class: "row" },
+        el("span", { class: row.glyph === "●" ? "success" : "muted" }, row.glyph),
+        itemLink(row.item, false),
+        el("div", { class: "cell right muted" }, eligibleState(row)),
+        el("div", { class: "sub cell" },
+          row.agents.map((agent) => `${agent.name}${agent.failures ? ` · ${agent.failures}/${agent.max_attempts} failures` : ""}`).join(", "),
+          row.priority ? [" · ", el("span", { class: `priority-${row.priority}` }, row.priority)] : null)));
       const eligiblePanel = (eligible) => {
         if (!eligible) return panel("Eligible", "unavailable", "eligible", el("div", { class: "muted" }, "Planning unavailable"));
         const count = `${eligible.count}${eligible.count > eligible.rows.length ? ` · showing ${eligible.rows.length}` : ""}`;
         const result = panel("Eligible", count, "eligible", eligible.rows.length
           ? el("div", { class: "eligible-rows", id: "eligible-rows", tabindex: "0", "aria-label": "Eligible items" },
-              eligible.rows.map((row) => el("div", { class: "row" },
-                el("span", { class: row.glyph === "●" ? "success" : "muted" }, row.glyph),
-                itemLink(row.item),
-                el("div", { class: "cell right muted" }, eligibleState(row)),
-                el("div", { class: "sub cell" },
-                  row.agents.map((agent) => `${agent.name}${agent.failures ? ` · ${agent.failures}/${agent.max_attempts} failures` : ""}`).join(", "),
-                  row.priority ? [" · ", el("span", { class: `priority-${row.priority}` }, row.priority)] : null))))
+              eligibleRows(eligible))
           : el("div", { class: "muted" }, "Nothing eligible"));
         result.querySelector("h2").title = `Planned every ${eligible.interval_seconds / 60} minutes; last planned ${new Date(eligible.generated_at).toLocaleTimeString()}.`;
         return result;
+      };
+      const eligibleGroups = (repositories) => {
+        const groups = repositories.filter((source) => !source.eligible || source.eligible.count);
+        const count = repositories.reduce((sum, source) => sum + (source.eligible?.count ?? 0), 0);
+        const shown = groups.reduce((sum, source) => sum + (source.eligible?.rows.length ?? 0), 0);
+        return panel("Eligible", `${count}${count > shown ? ` · showing ${shown}` : ""}`, "eligible", groups.length
+          ? el("div", { class: "eligible-rows", id: "eligible-rows", tabindex: "0", "aria-label": "Eligible items" },
+              groups.map((source) => [el("div", { class: "muted", title: source.eligible ? `Planned every ${source.eligible.interval_seconds / 60} minutes; last planned ${new Date(source.eligible.generated_at).toLocaleTimeString()}.` : "" }, source.name),
+                source.eligible ? eligibleRows(source.eligible) : el("div", { class: "muted" }, "Planning unavailable")]))
+          : el("div", { class: "muted" }, "Nothing eligible"));
       };
 
       const expiredPanel = (runs) =>
@@ -364,7 +416,7 @@
         return panel("Recent activity", `${runs.length} runs · $${cost.toFixed(2)} · last 24 h`, "",
           runs.length
             ? runs.map((run) =>
-                el("details", { open: state.open.has(run.id), ontoggle: (e) => (e.target.open ? state.open.add(run.id) : state.open.delete(run.id)) },
+                el("details", { open: state.open.has(runKey(run)), ontoggle: (e) => (e.target.open ? state.open.add(runKey(run)) : state.open.delete(runKey(run))) },
                   el("summary", { class: "row" },
                     el("span", { class: tone(run) }, { success: "✓", blocked: "⏸", retry: "×" }[run.status] ?? "·"),
                     itemLink(run.item),
@@ -386,18 +438,19 @@
           return tick();
         }
         app.className = "";
-        document.getElementById("repository").textContent = `· ${data.repository}`;
-        const repository = data.repository.split("/").pop();
-        document.title = data.needs_human.length ? `(${data.needs_human.length}) needs human · ${repository}`
-          : data.running.length ? `${data.running.length} running · ${repository}` : repository;
+        document.getElementById("repository").textContent = `· ${data.multiple ? data.repositories.map((source) => source.name).join(", ") : data.repository}`;
+        document.title = titleOf(data);
         const eligibleScroll = document.getElementById("eligible-rows")?.scrollTop ?? 0;
         app.replaceChildren(
           state.error ? el("div", { class: "banner" }, `Couldn't refresh: ${state.error}. Showing the last result.`) : "",
-          data.eligible_error ? el("div", { class: "banner" }, `Couldn't refresh: Eligible: ${data.eligible_error}. ${data.eligible ? "Showing the last Eligible result. " : ""}Other panels are current.`) : "",
-          ...data.notices.map((notice) => el("div", { class: "banner" }, notice)),
+          ...data.repositories.flatMap((source) => [
+            source.error ? el("div", { class: "banner" }, `${data.multiple ? `${source.name}: ` : ""}Couldn't refresh: ${source.error}. ${source.generated_at ? (data.multiple ? "Showing its last result; other repositories are current." : "Showing the last result.") : "No successful read yet."}`) : "",
+            source.eligible_error ? el("div", { class: "banner" }, `${data.multiple ? `${source.name}: ` : ""}Couldn't refresh: Eligible: ${source.eligible_error}. ${source.eligible ? "Showing the last Eligible result. " : ""}Other panels are current.`) : "",
+            ...(source.notices ?? []).map((notice) => el("div", { class: "banner" }, `${data.multiple ? `${source.name}: ` : ""}${notice}`)),
+          ]),
           needsPanel(data.needs_human, data.stop_labels),
           runningPanel(data.running),
-          eligiblePanel(data.eligible),
+          data.multiple ? eligibleGroups(data.repositories) : eligiblePanel(data.eligible),
           expiredPanel(data.expired) ?? "",
           recentPanel(data.recent));
         if (document.getElementById("eligible-rows")) document.getElementById("eligible-rows").scrollTop = eligibleScroll;
@@ -415,31 +468,34 @@
       // baseline: nothing notifies on load.
       const stopEvent = (entry, data) => {
         if (!entry.labelled) return "blocked";
-        return data.stop_outcomes.some(({ name }) => name === entry.ask?.outcome) ? `outcome:${entry.ask.outcome}` : "label";
+        return entry.stop_outcomes.some(({ name }) => name === entry.ask?.outcome) ? `outcome:${entry.ask.outcome}` : "label";
       };
-      const stopKey = (entry, event) => event === "label" ? entry.item.number : `${entry.item.number}:${entry.ask?.url}`;
+      const stopKey = (entry, event) => `${entry.item.repository}:${entry.item.number}${event === "label" ? "" : `:${entry.ask?.url}`}`;
+      const runKey = (run) => `${run.item.repository}:${run.id}`;
       const keysOf = (data) => ({
         ...Object.fromEntries(stopEvents(data).map(({ id }) => [id,
           new Set(data.needs_human.filter((e) => stopEvent(e, data) === id).map((e) => stopKey(e, id)))])),
-        started: new Set(data.running.map((r) => r.id)),
-        ended: new Set(data.recent.map((r) => r.id)),
-        expired: new Set(data.expired.map((r) => r.id)),
+        started: new Set(data.running.map(runKey)),
+        ended: new Set(data.recent.map(runKey)),
+        expired: new Set(data.expired.map(runKey)),
       });
       const changesOf = (data) => {
         const keys = keysOf(data);
         const before = state.seen;
+        const known = state.seenRepositories;
+        state.seenRepositories = new Set([...known, ...data.repositories.filter((source) => source.generated_at).map((source) => source.repository)]);
         state.seen = keys;
         if (!before) return [];
         // An event the previous poll didn't know, after a config change, starts its own baseline.
-        const fresh = (event, key) => Boolean(before[event]) && !before[event].has(key);
-        const change = (event, item, title, body) => ({ event, item, title: `${title} · ${ref(item)} ${item.title}`, body });
+        const fresh = (event, key) => known.has(key.split(":")[0]) && Boolean(before[event]) && !before[event].has(key);
+        const change = (event, item, title, body) => ({ event, item, title: `${title} · ${item.repository_name} ${ref(item)} ${item.title}`, body });
         const ask = (entry) => entry.ask?.actions[0] || entry.ask?.summary || "The loop stopped on it until a person answers.";
         return [
           ...data.needs_human.filter((e) => fresh(stopEvent(e, data), stopKey(e, stopEvent(e, data))))
             .map((e) => change(stopEvent(e, data), e.item, stopEvent(e, data).startsWith("outcome:") ? e.ask.outcome : e.labels.join(", "), ask(e))),
-          ...data.expired.filter((r) => fresh("expired", r.id)).map((r) => change("expired", r.item, "expired", `${r.agent} on ${machine(r.host)} stopped renewing its run.`)),
-          ...data.recent.filter((r) => fresh("ended", r.id)).map((r) => change("ended", r.item, r.result, [r.agent, r.summary].filter(Boolean).join(" · "))),
-          ...data.running.filter((r) => fresh("started", r.id)).map((r) => change("started", r.item, "started", `${r.agent} on ${machine(r.host)}`)),
+          ...data.expired.filter((r) => fresh("expired", runKey(r))).map((r) => change("expired", r.item, "expired", `${r.agent} on ${machine(r.host)} stopped renewing its run.`)),
+          ...data.recent.filter((r) => fresh("ended", runKey(r))).map((r) => change("ended", r.item, r.result, [r.agent, r.summary].filter(Boolean).join(" · "))),
+          ...data.running.filter((r) => fresh("started", runKey(r))).map((r) => change("started", r.item, "started", `${r.agent} on ${machine(r.host)}`)),
         ];
       };
 
@@ -562,8 +618,9 @@
         tick();
         try {
           const response = await fetch(`snapshot.json${fresh ? "?fresh=1" : ""}`, { cache: "no-store" });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+          const snapshot = await response.json();
+          if (!response.ok) throw new Error(snapshot.error ?? `HTTP ${response.status}`);
+          const data = combine(snapshot);
           notify(changesOf(data));
           state.data = data;
           state.error = null;

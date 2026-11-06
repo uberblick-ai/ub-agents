@@ -6,18 +6,20 @@ from io import BytesIO, StringIO
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import unquote
 
 from ub_agents.config import Priority, Queue, Runtime
+from ub_agents.cli import main
 from ub_agents.coordination import Coordinator, Plan
 from ub_agents.errors import AgentError
 from ub_agents.loop import Loop
-from ub_agents.monitor import monitor_background
+from ub_agents.monitor import monitor_background, monitor_sources
 from ub_agents.monitor.eligible import EligiblePlanning, PLAN_SECONDS
 from ub_agents.monitor.local import runtime_pauses
-from ub_agents.monitor.server import Snapshots, allowed, create, page
+from ub_agents.monitor.server import Repositories, Snapshots, allowed, create, page
 from ub_agents.monitor.snapshot import MonitorSource
 from ub_agents.records import body, iso, timestamp
 from tests.support import FakeGitHub, PollGitHub, agent, config, issue, pr
@@ -39,6 +41,158 @@ def snapshot_request(port):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_cli_loads_each_checkout_and_its_local_overrides_before_serving(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            first, second = root / 'backend', root / 'studio'
+            first.mkdir()
+            second.mkdir()
+            content = ('repository: org/backend\nagents:\n  worker:\n    command: [echo]\n'
+                       '    trigger: ready\n    outcomes: {done: {}}\n')
+            (first / 'ub-agents.yaml').write_text(content)
+            (second / 'ub-agents.yaml').write_text(content.replace('org/backend', 'org/studio'))
+            (second / 'ub-agents.local.yaml').write_text('stop-labels: [pause]\n')
+            with patch('ub_agents.monitor.monitor_sources') as sources, \
+                    patch('ub_agents.monitor.serve') as serve:
+                serve.return_value = 0
+                self.assertEqual(main(['monitor', str(first), str(second / 'ub-agents.yaml'), '--no-open']), 0)
+            configs = sources.call_args.args[0]
+            self.assertEqual([cfg.repository for cfg in configs], ['org/backend', 'org/studio'])
+            self.assertEqual([cfg.root for cfg in configs], [first, second])
+            self.assertEqual(configs[1].stop_labels, ('pause',))
+            serve.assert_called_once_with(sources.return_value, 4377, open_page=False)
+
+    def test_cli_without_checkouts_uses_the_current_config_and_background_passes_all_paths(self):
+        with patch('ub_agents.cli.monitor.load_config', return_value=config(Path('/checkout'))), \
+                patch('ub_agents.monitor.monitor_sources') as sources, \
+                patch('ub_agents.monitor.serve', return_value=0), \
+                patch('ub_agents.monitor.monitor_background', return_value=0) as background:
+            self.assertEqual(main(['monitor']), 0)
+            self.assertEqual(sources.call_args.args[0][0].repository, 'org/project')
+            self.assertEqual(main(['monitor', '--config', 'ub-agents.yaml', '--background', '--no-open']), 0)
+            background.assert_called_once_with([Path('ub-agents.yaml').resolve()], Path('/checkout'), 4377,
+                                               open_page=False)
+        with patch('ub_agents.cli.monitor.load_config', side_effect=[config(Path('/a')),
+                replace(config(Path('/b')), repository='org/second')]), \
+                patch('ub_agents.monitor.monitor_background', return_value=0) as background:
+            self.assertEqual(main(['monitor', 'a.yaml', 'b.yaml', '--background', '--no-open']), 0)
+            self.assertEqual(background.call_args.args[0], [Path('a.yaml').resolve(), Path('b.yaml').resolve()])
+
+    def test_cli_rejects_mixed_config_duplicates_and_bad_checkouts_before_starting(self):
+        cases = [(['A', '--config', 'custom.yaml'], None, ('--config', 'A')),
+                 (['A', 'B'], [config(Path('/a')), config(Path('/b'))], ('A', 'B', 'org/project')),
+                 (['A', 'B'], [config(Path('/a')), AgentError('invalid YAML')], ('B', 'invalid YAML'))]
+        for arguments, loaded, messages in cases:
+            with self.subTest(arguments=arguments), \
+                    patch('ub_agents.cli.monitor.load_config', side_effect=loaded), \
+                    patch('ub_agents.monitor.monitor_sources') as sources, \
+                    patch('ub_agents.monitor.monitor_background') as background, \
+                    redirect_stderr(StringIO()) as error:
+                self.assertEqual(main(['monitor', *arguments]), 1)
+                for message in messages:
+                    self.assertIn(message, error.getvalue())
+                sources.assert_not_called()
+                background.assert_not_called()
+
+    def test_repositories_read_in_parallel_reuse_independently_and_isolate_failures(self):
+        gate = threading.Barrier(2)
+        githubs = [FakeGitHub(issue(1)), FakeGitHub(issue(2))]
+        sources = [MonitorSource(replace(config(Path(f'/checkout/{n}')), repository=f'org/repo{n}'),
+                                 github, Coordinator(github, None), timestamp)
+                   for n, github in enumerate(githubs)]
+        snapshots = Repositories(sources)
+        def together(source):
+            gate.wait(timeout=5)
+            return MonitorSource.snapshot(source)
+        with patch.object(sources[0], 'snapshot', side_effect=lambda: together(sources[0])) as first, \
+                patch.object(sources[1], 'snapshot', side_effect=lambda: together(sources[1])) as second:
+            result = snapshots.get()
+            self.assertEqual([entry['repository'] for entry in result['repositories']], ['org/repo0', 'org/repo1'])
+            snapshots.get()
+            first.assert_called_once_with()
+            second.assert_called_once_with()
+        githubs[1].create_comment(2, body(lease(2, 'new')))
+        with patch.object(sources[0], 'snapshot', side_effect=AgentError('repo0 unavailable')):
+            failed = snapshots.get(fresh=True)
+        old, current = failed['repositories']
+        self.assertEqual(old, result['repositories'][0] | {'error': 'repo0 unavailable'})
+        self.assertIsNone(current['error'])
+        self.assertEqual([run['item']['number'] for run in current['running']], [2])
+        self.assertIsNone(snapshots.get(fresh=True)['repositories'][0]['error'])
+        # Reusing the first repository does not prevent the second from reading again.
+        snapshots.snapshots[1].read_at = None
+        with patch.object(sources[0], 'snapshot') as first, patch.object(sources[1], 'snapshot', wraps=sources[1].snapshot) as second:
+            snapshots.get()
+            first.assert_not_called()
+            second.assert_called_once_with()
+
+    def test_initial_failure_has_only_identity_and_error_and_still_serves_json(self):
+        github = FakeGitHub()
+        source = MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), timestamp)
+        with patch.object(source, 'snapshot', side_effect=RuntimeError('read failed')):
+            with create(Repositories([source]), port=0) as server:
+                request = snapshot_request(server.server_address[1])
+                server.process_request_thread(request, ('127.0.0.1', 12345))
+        response = b''.join(call.args[0] for call in request.sendall.call_args_list)
+        self.assertIn(b'200 OK', response)
+        data = json.loads(response.split(b'\r\n\r\n', 1)[1])
+        self.assertEqual(set(data), {'generated_at', 'local_host', 'rates', 'repositories'})
+        self.assertEqual(data['repositories'], [{'repository': 'org/project', 'folder': '/checkout', 'error': 'read failed'}])
+
+    def test_source_github_setup_is_deferred_and_retries_after_an_initial_failure(self):
+        github = FakeGitHub(issue(1))
+        github.actor = Mock(side_effect=[AgentError('account unavailable'), 'operator'])
+        with patch('ub_agents.monitor.GitHub', return_value=github):
+            sources = monitor_sources([config(Path('/checkout'))])
+        github.actor.assert_not_called()
+        snapshots = Repositories(sources)
+        self.assertEqual(snapshots.get()['repositories'][0]['error'], 'account unavailable')
+        recovered = snapshots.get(fresh=True)['repositories'][0]
+        self.assertIsNone(recovered['error'])
+        self.assertEqual(recovered['eligible']['count'], 1)
+
+    def test_rates_use_the_latest_headers_per_resource_and_sum_client_counters(self):
+        sources = []
+        for index in (0, 1):
+            github = FakeGitHub()
+            github.resource_quotas = {'core': {'x-ratelimit-remaining': str(4000 + index),
+                'x-ratelimit-limit': '5000', 'x-ratelimit-reset': '8000'},
+                'graphql': {'x-ratelimit-remaining': str(500 + index),
+                'x-ratelimit-limit': '1000', 'x-ratelimit-reset': '9000'}}
+            github.resource_quota_times = {'core': 2 - index, 'graphql': index}
+            github.quota_requests, github.graphql_calls, github.not_modified_responses = 3 + index, 1, 4
+            sources.append(MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), timestamp))
+        rates = Repositories(sources).rates()
+        self.assertEqual(rates, {'core': {'remaining': 4000, 'limit': 5000, 'reset': 8000},
+            'graphql': {'remaining': 501, 'limit': 1000, 'reset': 9000},
+            'counted': 7, 'graphql_calls': 2, 'not_modified': 8})
+
+    def test_page_combines_panels_and_names_repositories_without_changing_storage_keys(self):
+        html = page().decode()
+        for expected in ('snapshot.repositories.map', 'source.repository : short(source.repository)',
+                         'needs_human: rows("needs_human")',
+                         'time(a.started) - time(b.started)', 'time(a.expires) - time(b.expires)',
+                         'time(b.ended) - time(a.ended)',
+                         'data.multiple ? eligibleGroups(data.repositories) : eligiblePanel(data.eligible)',
+                         '!source.eligible || source.eligible.count',
+                         'source.eligible?.rows.length', 'source.eligible ? eligibleRows(source.eligible)',
+                         'item.repository_name', 'params.set("folder", item.folder)',
+                         'Showing its last result; other repositories are current.',
+                         '`${source.name}: `', 'source.notices ?? []', 'source.eligible_error',
+                         'ub-agents-monitor.notify-events-v2', 'ub-agents-monitor.machine'):
+            self.assertIn(expected, html)
+
+    def test_notification_keys_titles_and_outcomes_preserve_repository_identity(self):
+        html = page().decode()
+        for expected in ('`${entry.item.repository}:${entry.item.number}',
+                         '`${run.item.repository}:${run.id}`',
+                         '${title} · ${item.repository_name} ${ref(item)} ${item.title}',
+                         'outcomes.set(name, { name, agents: new Set(), repositories: [] })',
+                         'outcome.repositories.length === repositories.length ? null',
+                         '${repositories.join(", ")} only',
+                         'entry.stop_outcomes.some'):
+            self.assertIn(expected, html)
+
     def test_page_has_the_robot_favicon_as_an_inline_svg(self):
         html = page().decode()
         self.assertIn('<link rel="icon" href="data:image/svg+xml,', html)
@@ -61,10 +215,11 @@ class MonitorTests(unittest.TestCase):
     def test_page_titles_snapshots_with_the_repository_short_name(self):
         html = page().decode()
         self.assertIn('<title>ub-agents</title>', html)
-        self.assertIn('const repository = data.repository.split("/").pop();', html)
-        self.assertIn('document.title = data.needs_human.length ? '
-                      '`(${data.needs_human.length}) needs human · ${repository}`', html)
-        self.assertIn(': data.running.length ? `${data.running.length} running · ${repository}` : repository;', html)
+        self.assertIn('document.title = titleOf(data)', html)
+        self.assertIn('`(${rows.length}) needs human · ${repositories}`', html)
+        self.assertIn('`${rows.length} running · ${repositories}` : repositories', html)
+        self.assertIn('`${names[0]} +${names.length - 1}` : names.join(", ")', html)
+        self.assertIn('row.item.repository === source.repository', html)
 
     def test_snapshot_identifies_the_serving_host_and_preserves_record_hosts(self):
         github = FakeGitHub(issue(1), issue(2), issue(3))
@@ -99,7 +254,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn('state.machine === null ? "any machine" : machine(state.machine)', html)
         self.assertIn('needsPanel(data.needs_human, data.stop_labels)', html)
         self.assertIn('recentPanel(data.recent)', html)
-        self.assertIn('started: new Set(data.running.map((r) => r.id))', html)
+        self.assertIn('started: new Set(data.running.map(runKey))', html)
 
     def test_planner_uses_the_local_runtime_pause_and_recovers_after_it_ends(self):
         root, now = Path('/checkout'), [timestamp()]
@@ -402,13 +557,16 @@ class MonitorTests(unittest.TestCase):
                 self.assertIn(f"{type(error).__name__}: {error}", stderr.getvalue())
 
     def test_background_monitor_runs_in_its_own_session_until_it_answers(self):
-        with tempfile.TemporaryDirectory() as root, \
+        with tempfile.TemporaryDirectory() as folder, \
                 patch("ub_agents.monitor.already_serving", side_effect=[False, False, True]), \
                 patch("ub_agents.monitor.subprocess.Popen") as popen, patch("ub_agents.monitor.sleep"):
+            root = Path(folder).resolve()
             popen.return_value.poll.return_value = None
-            monitor_background(Path(root) / "ub-agents.yaml", Path(root), 4400, open_page=False)
+            monitor_background([Path(root) / "ub-agents.yaml", Path(root) / "other.yaml"],
+                               Path(root), 4400, open_page=False)
         command, options = popen.call_args.args[0], popen.call_args.kwargs
-        self.assertEqual(command[-6:], ["monitor", "--config", f"{root}/ub-agents.yaml", "--port", "4400", "--no-open"])
+        self.assertEqual(command[-6:], ["monitor", f"{root}/ub-agents.yaml", f"{root}/other.yaml", "--port", "4400", "--no-open"])
+        self.assertEqual(options['stdout'].name, f'{root}/.ub-agents/monitor.log')
         self.assertTrue(options["start_new_session"])
 
 
