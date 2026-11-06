@@ -268,7 +268,7 @@
 
       const eligibleState = (row) => {
         const pauses = Object.entries(row.pauses).filter(([, end]) => time(end) > Date.now());
-        if (row.state !== "waiting" || !pauses.length) return row.state;
+        if (row.state !== "waiting" || !pauses.length || pauses.length !== Object.keys(row.pauses).length) return row.state;
         let minutes = Math.max(1, Math.ceil((Math.min(...pauses.map(([, end]) => time(end))) - Date.now()) / 60000));
         let days = Math.floor(minutes / 1440);
         let hours = Math.floor(minutes % 1440 / 60);

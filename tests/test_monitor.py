@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from ub_agents.config import Priority, Queue
+from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator, Plan
 from ub_agents.errors import AgentError
 from ub_agents.loop import Loop
@@ -38,6 +38,27 @@ def snapshot_request(port):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_planner_uses_the_local_runtime_pause_and_recovers_after_it_ends(self):
+        root, now = Path('/checkout'), [timestamp()]
+        worker = agent(root, command=(), runtimes=(Runtime('claude', 'model', 'high'),))
+        github = FakeGitHub(issue(1))
+        source = MonitorSource(config(root, worker), github, Coordinator(github, None), lambda: now[0])
+        with patch('ub_agents.monitor.eligible.runtime_pauses', return_value={'claude': now[0] + 100}):
+            row = source.snapshot()['eligible']['rows'][0]
+        self.assertEqual((row['glyph'], row['state'], list(row['pauses'])), ('◷', 'waiting', ['claude']))
+        now[0] += PLAN_SECONDS
+        row = source.snapshot()['eligible']['rows'][0]
+        self.assertEqual((row['glyph'], row['state'], row['pauses']), ('●', 'next', {}))
+
+    def test_inheriting_a_default_without_a_priority_label_shows_no_word(self):
+        priority = Priority(('priority:high', 'priority:low'), 'priority:high')
+        github = FakeGitHub(issue(1), issue(2, labels=('ready', 'priority:low')))
+        github.dependencies = {1: [2]}
+        source = MonitorSource(config(Path('/checkout'), queue=Queue(priority=priority)),
+                               github, Coordinator(github, None), timestamp)
+        [row] = source.snapshot()['eligible']['rows']
+        self.assertEqual((row['item']['number'], row['priority']), (2, None))
+
     def test_eligible_uses_claim_order_inheritance_and_excludes_unavailable_items(self):
         priority = Priority(('priority:urgent', 'priority:high', 'priority:medium', 'priority:low'), 'priority:medium')
         cfg = config(Path('/checkout'), queue=Queue(milestones='strict-gate', priority=priority))
