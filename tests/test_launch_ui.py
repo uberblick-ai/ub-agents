@@ -32,6 +32,23 @@ class Tty(io.StringIO):
 
 
 class LaunchSelectionTests(unittest.TestCase):
+    def test_view_socket_reset_reaps_child_and_restores_output_without_traceback(self):
+        for closing in (False, True):
+            with self.subTest(closing=closing):
+                output = Mock()
+                process = ViewProcess([], Path('.'), 'own', output)
+                process.channel = Mock()
+                process.channel.recv.side_effect = ConnectionResetError('view closed with unread messages')
+                process.process = Mock()
+                process.process.wait.return_value = 0
+                if closing:
+                    process.closing.set()
+                with patch('ub_agents.launch_ui.select.select', return_value=([process.channel], [], [])):
+                    process.monitor()
+                process.process.wait.assert_called_once_with()
+                output.resume.assert_called_once_with(process.restore, final=closing)
+                self.assertTrue(process.ready.is_set())
+
     def test_stop_messages_use_the_existing_launcher_signal_handlers(self):
         for message, sig in (('drain', signal.SIGTERM), ('interrupt', signal.SIGINT)):
             with self.subTest(message=message):

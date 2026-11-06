@@ -113,7 +113,7 @@ class ViewProcess:
             while True:
                 self.forward_resize()
                 if select.select([self.channel], [], [], 0.05)[0]:
-                    data = self.channel.recv(1024)
+                    data = self._receive()
                     if not data:
                         break
                     pending += data
@@ -145,6 +145,13 @@ class ViewProcess:
                 detail = self.error or f'view exited {code}'
                 print(f'Terminal view closed: {" ".join(detail.split())}; continuing with plain output')
             self.ready.set()
+
+    def _receive(self):
+        try:
+            return self.channel.recv(1024)
+        except ConnectionResetError:
+            # Exiting with unread launcher messages can reset the view's socket.
+            return b''
 
     def forward_resize(self):
         if self.resize_requested:
