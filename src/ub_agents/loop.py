@@ -1067,10 +1067,8 @@ class Loop:
         if not isinstance(exc, GitHubError) or not exc.retryable:
             raise AgentError(f"{detail}; ub-agents does not retry this error. "
                              "Fix the cause and restart ub-agents launch.") from exc
-        if exc.rate_limited:
-            self.wait_rate_limit(exc)
-            return retry_delay
-        self.github.failures.failed(exc)
+        if not exc.rate_limited:
+            self.github.failures.failed(exc)
         remaining = self.github.failures.remaining()
         if exc.status == 401:
             delay, message = self.github.auth_retry.poll_failure()
@@ -1080,7 +1078,8 @@ class Loop:
             retry_delay = min(POLL_RETRY_MAX_SECONDS, retry_delay * 2)
             self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
         delay = min(remaining, self.usage.bound_wait(delay))
-        self.wait(self.stop_event, delay, "poll retry or runtime pause")
+        with self.github.failures.pause() if exc.rate_limited else nullcontext():
+            self.wait(self.stop_event, delay, "poll retry or runtime pause")
         if not self.stop_event.is_set():
             self.github.failures.remaining()
         return retry_delay
