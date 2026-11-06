@@ -4,7 +4,7 @@ from .errors import TransitionPaused, ValidationError
 from .github import links_issue
 from .labels import OUTSIDE_INPUT
 from .own_merge import unfinished_merge
-from .records import backoff, iso, lease_by_id, resolve_transition, same_run, validate_report_action
+from .records import backoff, iso, lease_by_id, resolve_transition, same_run, stop_report, validate_report_action
 from .run_branches import earlier_branches
 from .usage.run_usage import usage_fields
 
@@ -88,7 +88,8 @@ class Settlement:
         self.validate_report(outcome)
         destination = (self.github.item(outcome["handoff"], "pr")
                        if outcome.get("handoff") else current)
-        if outcome.get("handoff") and destination.draft:
+        if (outcome.get("handoff") and destination.draft
+                and not stop_report(outcome["status"], outcome.get("transition"), self.config.stop_labels)):
             raise ValidationError(f"Handoff PR #{destination.number} is still a draft")
         if outcome["candidate_sha"] != destination.head:
             raise ValidationError("Outcome candidate SHA does not match the observed PR head")

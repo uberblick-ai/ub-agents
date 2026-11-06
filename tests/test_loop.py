@@ -280,6 +280,60 @@ class LoopTests(unittest.TestCase):
                 if draft:
                     self.assertIn("PR #2 is still a draft", verdict["summary"])
 
+    def test_stop_handoff_accepts_draft_pr_in_normal_completion(self):
+        for kind, number in (("issue", 1), ("pr", 2)):
+            with self.subTest(kind=kind):
+                worker = agent(self.root, kind=kind, outcomes={"needs-human": {"add": ("needs-human",), "remove": ()}})
+                github = FakeGitHub(issue(), pr(draft=True))
+                loop = Loop(config(self.root, worker), github, "operator", output=lambda *_: None)
+
+                def execute(*args, **kwargs):
+                    loop.coordinator.report(loop.coordinator.history(number)[0], "success", "Scope decision pending.",
+                                            handoff=2, outcome="needs-human", option=["Owner: choose A.", "Owner: choose B."])
+                    return 0
+
+                with patch("ub_agents.assignment_run.supervise", side_effect=execute):
+                    self.assertTrue(loop.tick())
+                history = loop.coordinator.history(number)
+                lease, outcome = history[:2]
+                self.assertEqual((lease["result"], lease["attempt_effect"]), ("success", "reset"))
+                self.assertTrue(outcome["accepted"])
+                self.assertTrue(outcome["transition_complete"])
+                self.assertIn("needs-human", github.item(2).labels)
+                self.assertTrue(github.item(2).draft)
+                self.assertEqual(attempts(history, worker.name, loop.coordinator.clock()), [])
+                copied = next(r for r in loop.coordinator.history(2) if r["kind"] == "outcome")
+                self.assertTrue(copied["accepted"])
+
+    def test_stop_handoff_accepts_draft_pr_in_outcome_only_recovery(self):
+        for kind, number in (("issue", 1), ("pr", 2)):
+            with self.subTest(kind=kind):
+                worker = agent(self.root, kind=kind, outcomes={"needs-human": {"add": ("needs-human",), "remove": ()}})
+                github = FakeGitHub(issue(), pr(draft=True))
+                loop = Loop(config(self.root, worker), github, "operator", output=lambda *_: None)
+                now = 1000
+                loop.coordinator.clock = lambda: now
+                plan = loop.coordinator.plan(github.item(number), worker, ())
+                lease = loop.coordinator.claim(plan)
+                loop.coordinator.update(lease, state="running", started=True)
+                loop.coordinator.report(lease, "success", "Scope decision pending.", handoff=2,
+                                        outcome="needs-human", option=["Owner: choose A.", "Owner: choose B."])
+                now += 61
+                with patch("ub_agents.assignment_run.supervise", side_effect=AssertionError("must not execute")):
+                    self.assertTrue(loop.tick())
+                history = loop.coordinator.history(number)
+                source, outcome, recovery, verdict = history
+                self.assertEqual(source["state"], "running")
+                self.assertTrue(outcome["accepted"])
+                self.assertTrue(outcome["transition_complete"])
+                self.assertEqual((recovery["result"], recovery["attempt_effect"]), ("success", "reset"))
+                self.assertEqual(verdict["status"], "success")
+                self.assertIn("needs-human", github.item(2).labels)
+                self.assertTrue(github.item(2).draft)
+                self.assertEqual(attempts(history, worker.name, now), [])
+                copied = next(r for r in loop.coordinator.history(2) if r["kind"] == "outcome")
+                self.assertTrue(copied["accepted"])
+
     def test_earlier_branches_only_include_started_execution_leases(self):
         plan = self.loop.plans()[0]
         lease = self.loop.coordinator.claim(plan)

@@ -212,6 +212,8 @@ A notice leads with the agent's asks, or with the summary's first sentence (one
 line, at most 300 characters) and numbered options. Resume steps follow. The full
 summary, the candidate's review decision and CI rollup, links and diagnostics are
 collapsed. The [terminal view](https://agents.uberblick.ai/docs/guides/terminal-view.html#unblock) describes the layout.
+When a report is rejected, the notice keeps its asks and full summary alongside
+the rejection reason.
 
 Notices start with a `<!-- ub-agents:action-needed ` marker and are not coordination
 records: they never affect routing authority, verdicts or attempt counts. A later
@@ -310,8 +312,11 @@ Implementers can push draft PR checkpoints during a run; checkpoints are not
 outcomes, and the issue lease stays live throughout. The starter role instructions
 describe the procedure. The launcher enforces only these rules:
 
-- An issue handoff names a PR that is ready for review, not a draft, and whose body
-  links the issue.
+- A successful report naming a handoff PR requires that PR to be ready for review. This
+  applies to both issue and PR assignments. An outcome whose transition adds a
+  configured stop label may name a draft PR, which stays draft; all other
+  validation still applies.
+- An issue handoff names a PR whose body links the issue.
 - The handoff is rejected while another open PR sits on a branch recorded by this
   issue's earlier runs, so a duplicate is blocked for inspection. Assignment context
   lists those branches as `earlier_branches`, so a retried run, which starts on a new

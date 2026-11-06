@@ -663,16 +663,19 @@ class NoticeTests(unittest.TestCase):
         self.assertIn(summary, details)
         self.assertNotIn('action', records(self.github.comments(1))[1])
 
-    def parked_loop(self, handoff=None, action="Maintainer: choose A or B; recommend A.", option=None):
+    def parked_loop(self, handoff=None, action="Maintainer: choose A or B; recommend A.", option=None,
+                    draft=False, change=None):
         worker = agent(self.root, kind="issue" if handoff else "pr",
                        outcomes={"human": {"add": ("needs-human",), "remove": ()}})
-        github = FakeGitHub(issue(), pr(labels=("ready",)))
+        github = FakeGitHub(issue(), pr(labels=("ready",), draft=draft))
         loop = Loop(config(self.root, worker), github, "operator", output=self.output.append)
 
         def run(*args, **kwargs):
             number = 1 if handoff else 2
             loop.coordinator.report(loop.coordinator.history(number)[0], "success",
                                     "Maintainer must merge because docs changed", handoff=handoff, outcome="human", action=action, option=option)
+            if change:
+                github.change(2, **change)
             return 0
         with patch("ub_agents.assignment_run.supervise", side_effect=run):
             self.assertTrue(loop.tick())
@@ -743,7 +746,7 @@ class NoticeTests(unittest.TestCase):
 
     def test_options_handoff_keeps_choices_visible_and_stop_label_resume_folded(self):
         options = ['Maintainer: merge after CI: `mise run ci SHA`', 'Maintainer: request a fix.']
-        loop, github = self.parked_loop(handoff=2, action=None, option=options)
+        loop, github = self.parked_loop(handoff=2, action=None, option=options, draft=True)
         copied = loop.coordinator.history(2)[0]
         self.assertEqual(copied['options'], options)
         self.assertNotIn('action', copied)
@@ -754,11 +757,37 @@ class NoticeTests(unittest.TestCase):
                      '   mise run ci SHA', '2. Maintainer: request a fix.'):
             self.assertIn(text, visible)
             self.assertNotIn(text, details)
+        self.assertIn(copied['summary'], visible)
+        self.assertIn(copied['summary'], details)
         for text in ('Remove the stop label(s) `needs-human`', '`ready`', '`needs-changes`'):
             self.assertIn(text, resume)
             self.assertNotIn(text, visible)
             self.assertNotIn(text, details)
         self.assertNotIn('ub-agents retry', notice)
+        self.assertNotIn('review the blocker details and decide the next step', notice)
+
+    def test_rejected_stop_handoff_keeps_question_and_rejection_in_notice(self):
+        cases = (({'head': 'b' * 40}, 'Outcome candidate SHA does not match the observed PR head'),
+                 ({'body': 'No issue link'}, 'Implementation PR body does not link its original issue'))
+        options = ['Owner: choose A.', 'Owner: choose B.']
+        for change, rejection in cases:
+            with self.subTest(change=change):
+                loop, github = self.parked_loop(handoff=2, option=options, draft=True, change=change)
+                lease, outcome = loop.coordinator.history(1)
+                self.assertEqual(lease['result'], 'blocked')
+                self.assertFalse(outcome['accepted'])
+                self.assertEqual(outcome['rejected'], rejection)
+                self.assertNotIn('needs-human', github.item(2).labels)
+                self.assertTrue(github.item(2).draft)
+                notice = next(c['body'] for c in github.comments(1) if c['body'].startswith(ACTION_MARKER))
+                visible, details = notice.split('<details>', 1)
+                self.assertIn(rejection, visible)
+                self.assertIn(rejection, details)
+                self.assertIn(outcome['summary'], details)
+                self.assertIn('**Maintainer: choose A or B; recommend A.**', visible)
+                self.assertIn('1. Owner: choose A. (recommended)', visible)
+                self.assertIn('2. Owner: choose B.', visible)
+                self.assertNotIn('review the blocker details and decide the next step', notice)
 
     def test_stop_notice_reads_propagate_lost_ownership(self):
         loop, github = self.parked_loop(handoff=2)
