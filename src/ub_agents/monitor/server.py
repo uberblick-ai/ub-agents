@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from concurrent.futures import ThreadPoolExecutor
 from importlib.resources import files
 import json
+import logging
 import socket
 import threading
 from time import monotonic
@@ -78,6 +79,9 @@ class RepositorySnapshot(Snapshots):
                     self.value = self.source.snapshot()
                 except Exception as exc:
                     # One source cannot take the other repositories off the page.
+                    if not isinstance(exc, (AgentError, OSError)):
+                        logging.getLogger(__name__).exception(
+                            "Couldn't refresh monitor repository %s", self.source.config.repository)
                     self.error = str(exc) or type(exc).__name__
                 else:
                     self.error = None

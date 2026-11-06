@@ -301,7 +301,7 @@
         return `claude://code/new?${params.toString().replace(/\+/g, "%20")}`;
       };
 
-      const needsPanel = (entries, stopLabels) =>
+      const needsPanel = (entries, stopLabels, complete) =>
         panel("Needs human", entries.length, entries.length ? "needs attention-panel" : "needs",
           entries.length
             ? entries.map(({ item, labels, ask, notice }) =>
@@ -317,6 +317,7 @@
                     el("a", { class: "discuss", href: discussUrl(item), title: "Opens a Claude Code session in this checkout with the unblock prompt filled in" }, "discuss with Claude"),
                     notice ? [link(notice, "action needed"), " · "] : null,
                     ask ? link(ask.url, "outcome record") : link(item.url, "open the item"))))
+            : !complete ? el("div", { class: "muted" }, "Some repositories have not been read yet.")
             : el("div", { class: "muted" }, el("span", { class: "success" }, "✓ "), `Nothing waits for a person · stop labels: ${stopLabels.join(", ")}`));
 
       const runRow = (run, glyph, tone, last) =>
@@ -448,7 +449,7 @@
             source.eligible_error ? el("div", { class: "banner" }, `${data.multiple ? `${source.name}: ` : ""}Couldn't refresh: Eligible: ${source.eligible_error}. ${source.eligible ? "Showing the last Eligible result. " : ""}Other panels are current.`) : "",
             ...(source.notices ?? []).map((notice) => el("div", { class: "banner" }, `${data.multiple ? `${source.name}: ` : ""}${notice}`)),
           ]),
-          needsPanel(data.needs_human, data.stop_labels),
+          needsPanel(data.needs_human, data.stop_labels, data.repositories.every((source) => source.generated_at)),
           runningPanel(data.running),
           data.multiple ? eligibleGroups(data.repositories) : eligiblePanel(data.eligible),
           expiredPanel(data.expired) ?? "",
@@ -621,6 +622,9 @@
           const snapshot = await response.json();
           if (!response.ok) throw new Error(snapshot.error ?? `HTTP ${response.status}`);
           const data = combine(snapshot);
+          if (!data.repositories.some((source) => source.generated_at)) {
+            throw new Error(data.repositories.map((source) => `${data.multiple ? `${source.name}: ` : ""}${source.error}`).join("; "));
+          }
           notify(changesOf(data));
           state.data = data;
           state.error = null;

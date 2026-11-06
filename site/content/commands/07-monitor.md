@@ -114,11 +114,13 @@ keep updating. Before the first successful plan, Eligible says **Planning unavai
 The next poll retries planning. If another read fails, the page keeps its last result
 under the banner. With several checkouts, each repository reads in parallel with
 its own cache and five-minute Eligible plan. A failed repository keeps its last
-result while the others refresh. Before its first successful read, it shows its
-name and the error. Refresh errors, unreadable records, newer record formats and
-Eligible errors all name their repository. The budget uses the newest account
-quota headers and adds the monitor's call counters across repositories. Each
-repository costs what one monitor costs: quiet repositories mostly answer
+result while the others refresh. Until any repository has been read successfully,
+the page shows only the read errors. When some repositories have been read and
+others have not, their results stay visible, and Needs human withholds its all-clear
+until every repository has been read once. Refresh errors, unreadable records,
+newer record formats and Eligible errors all name their repository. The budget
+uses the newest account quota headers and adds the monitor's call counters across
+repositories. Each repository costs what one monitor costs: quiet repositories mostly answer
 "not modified"; two busy repositories cost about twice one.
 
 Click **notify: off** to switch on browser notifications. The page sends one test

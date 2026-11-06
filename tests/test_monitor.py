@@ -5,6 +5,8 @@ from dataclasses import replace
 from io import BytesIO, StringIO
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -129,7 +131,8 @@ class MonitorTests(unittest.TestCase):
     def test_initial_failure_has_only_identity_and_error_and_still_serves_json(self):
         github = FakeGitHub()
         source = MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), timestamp)
-        with patch.object(source, 'snapshot', side_effect=RuntimeError('read failed')):
+        with patch.object(source, 'snapshot', side_effect=RuntimeError('read failed')), \
+                self.assertLogs('ub_agents.monitor.server', level='ERROR') as logged:
             with create(Repositories([source]), port=0) as server:
                 request = snapshot_request(server.server_address[1])
                 server.process_request_thread(request, ('127.0.0.1', 12345))
@@ -138,6 +141,19 @@ class MonitorTests(unittest.TestCase):
         data = json.loads(response.split(b'\r\n\r\n', 1)[1])
         self.assertEqual(set(data), {'generated_at', 'local_host', 'rates', 'repositories'})
         self.assertEqual(data['repositories'], [{'repository': 'org/project', 'folder': '/checkout', 'error': 'read failed'}])
+        self.assertIn("Couldn't refresh monitor repository org/project", logged.output[0])
+        self.assertIn('Traceback (most recent call last):', logged.output[0])
+        self.assertIn('RuntimeError: read failed', logged.output[0])
+
+    def test_expected_repository_read_errors_are_quiet_and_keep_the_last_result(self):
+        github = FakeGitHub()
+        source = MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), timestamp)
+        snapshots = Repositories([source])
+        previous = snapshots.get()['repositories'][0]
+        for error in (AgentError('login required'), OSError('connection lost')):
+            with self.subTest(error=error), patch.object(source, 'snapshot', side_effect=error), \
+                    self.assertNoLogs('ub_agents.monitor.server'):
+                self.assertEqual(snapshots.get(fresh=True)['repositories'][0], previous | {'error': str(error)})
 
     def test_source_github_setup_is_deferred_and_retries_after_an_initial_failure(self):
         github = FakeGitHub(issue(1))
@@ -166,6 +182,12 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(rates, {'core': {'remaining': 4000, 'limit': 5000, 'reset': 8000},
             'graphql': {'remaining': 501, 'limit': 1000, 'reset': 9000},
             'counted': 7, 'graphql_calls': 2, 'not_modified': 8})
+
+    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to run the browser script')
+    def test_page_read_errors_partial_results_and_recovery(self):
+        result = subprocess.run(['node', str(Path(__file__).with_name('monitor_page.cjs'))],
+                                input=page().decode(), text=True, capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_page_combines_panels_and_names_repositories_without_changing_storage_keys(self):
         html = page().decode()
@@ -252,7 +274,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn('runs.filter((run) => run.host === state.machine)', html)
         self.assertIn('panel("Running", shown.length', html)
         self.assertIn('state.machine === null ? "any machine" : machine(state.machine)', html)
-        self.assertIn('needsPanel(data.needs_human, data.stop_labels)', html)
+        self.assertIn('needsPanel(data.needs_human, data.stop_labels,', html)
         self.assertIn('recentPanel(data.recent)', html)
         self.assertIn('started: new Set(data.running.map(runKey))', html)
 
