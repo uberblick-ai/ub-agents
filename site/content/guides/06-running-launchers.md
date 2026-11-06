@@ -186,9 +186,8 @@ line names the request and a concrete check:
 ub-agents: GitHub rejected a request that ub-agents does not retry. Check the repository in /path/to/project/ub-agents.yaml and `gh auth status`, then restart ub-agents launch. Here is the error: GET repos/acme/app/issues/12: HTTP 404 Not Found
 ```
 
-During continuous-launch setup, HTTP 401 retries with the setup backoff, from
-5 seconds to 60 seconds, within the same 2-hour limit. In `launch --once` or
-`launch N`, it still stops after checking for a changed token.
+HTTP 401 during setup, in `launch --once` or in `launch N` still stops after
+checking for a changed token.
 A `gh` authentication failure without an HTTP status, redirects returned by GitHub
 and other HTTP 4xx errors also stop. Check `gh auth status` and the repository in
 your configuration; sign in with `gh auth login` or correct the repository, then

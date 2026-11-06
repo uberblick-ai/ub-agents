@@ -38,7 +38,8 @@ class GitHubFailures:
             elapsed = 0 if self._since is None else self._now() - self._since
             remaining = max(0, GITHUB_FAILURE_LIMIT_SECONDS - elapsed)
             if not remaining:
-                raise GitHubRetryExhausted(self._last_error) from self._last_error
+                raise GitHubRetryExhausted(self._last_error,
+                                          limit_seconds=GITHUB_FAILURE_LIMIT_SECONDS) from self._last_error
             return remaining
 
     @contextmanager

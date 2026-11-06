@@ -55,8 +55,8 @@ class RecordError(AgentError):
 class GitHubRetryExhausted(AgentError):
     """Continuous launch exhausted its connection-failure budget."""
 
-    def __init__(self, error):
-        super().__init__("Encountered GitHub connection issues, giving up after 2h of retrying")
+    def __init__(self, error, *, limit_seconds):
+        super().__init__(f"Encountered GitHub connection issues, giving up after {limit_seconds / 3600:g}h of retrying")
         self.error = error
 
 

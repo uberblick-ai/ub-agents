@@ -256,7 +256,7 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(clock.return_value, 10800)
 
     def test_401_setup_once_and_numbered_launch_keep_stopping(self):
-        cases = [(False, ['launch', '--once']), (False, ['launch', '1']),
+        cases = [(False, ['launch']), (False, ['launch', '--once']), (False, ['launch', '1']),
                  (True, ['launch', '--once']), (True, ['launch', '1'])]
         for setup_passed, argv in cases:
             with self.subTest(setup_passed=setup_passed, argv=argv):

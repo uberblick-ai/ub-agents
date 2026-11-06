@@ -213,6 +213,18 @@ class LaunchErrorTests(unittest.TestCase):
             self.assertIn(line, log)
         self.assertTrue(log.endswith(message))
 
+    def test_give_up_line_uses_the_failure_budget(self):
+        for limit_seconds in (3600, 10800):
+            with self.subTest(limit_seconds=limit_seconds):
+                github = GitHub("acme/app")
+                error = GitHubError("GET", "user", "Connection reset", retryable=True)
+                with patch("ub_agents.github_failures.GITHUB_FAILURE_LIMIT_SECONDS", limit_seconds), \
+                        patch("ub_agents.github_failures.monotonic", return_value=0) as clock:
+                    github.failures.failed(error)
+                    clock.return_value = limit_seconds
+                    message = self.invoke(github.failures.remaining)
+                self.assertIn(f"giving up after {limit_seconds / 3600:g}h of retrying.", message)
+
     def test_authentication_advice_and_duplicate_status_are_removed(self):
         error = GitHubError("GET", "user", "Authentication failed (HTTP 401); check gh auth status: "
                             "gh: Bad credentials (HTTP 401)\nExtra gh advice", status=401)

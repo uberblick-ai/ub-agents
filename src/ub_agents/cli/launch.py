@@ -71,7 +71,7 @@ def check_launch_setup(config, github, loop, *, interrupt, once=False):
                 launch_checks(config, github)
             except GitHubError as exc:
                 loop.before_claim()
-                if once or not (exc.retryable or exc.status == 401):
+                if once or not exc.retryable:
                     raise
                 if not exc.rate_limited:
                     github.failures.failed(exc)

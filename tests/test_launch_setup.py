@@ -199,11 +199,12 @@ class LaunchSetupTests(unittest.TestCase):
     def test_continuous_failures_exit_one_after_two_hours_in_setup_and_polling(self):
         self.github.auth_retry = AuthenticationRetry()
         for stage in ("setup", "poll"):
-            for status in (None, 503, 401):
+            for status in ((None, 503) if stage == "setup" else (None, 503, 401)):
                 with self.subTest(stage=stage, status=status):
+                    # Poll errors have already been classified by continuous authentication handling.
                     first = GitHubError("GET", "repos/org/project", "First failure", retryable=True, status=status)
                     last = GitHubError("GET", "repos/org/project/issues/12/comments", "Last failure\nextra detail",
-                                       retryable=status != 401, status=status, response_message="Last failure")
+                                       retryable=True, status=status, response_message="Last failure")
                     self.github.failures.succeeded()
                     self.checks.side_effect = [first, last] if stage == "setup" else None
                     self.poll.side_effect = [first, last]
@@ -217,9 +218,6 @@ class LaunchSetupTests(unittest.TestCase):
 
                     with patch("ub_agents.github_failures.monotonic", return_value=0) as clock, \
                             patch.object(Loop, "wait", autospec=True, side_effect=wait):
-                        # Poll errors have already been classified by continuous authentication handling.
-                        if stage == "poll":
-                            last.retryable = True
                         self.assertEqual(main(self.argv), 1)
                     self.assertEqual(delays, [60 if stage == "poll" and status == 401 else 5, 2])
                     self.assertEqual(clock.return_value, 7200)
