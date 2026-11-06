@@ -10,12 +10,21 @@ ub-agents monitor                      # serves on 127.0.0.1:4377 and opens it
 ub-agents monitor --port 4400          # another port
 ub-agents monitor --no-open            # serves without opening a browser
 ub-agents monitor --background         # keeps serving after the command exits
+ub-agents monitor ~/code/backend ~/code/studio
+ub-agents monitor . ../studio --background
 ```
+
+Give any number of checkout folders or paths to their `ub-agents.yaml` files.
+Each checkout applies its own `ub-agents.local.yaml` overrides. With none, the
+monitor reads the current configuration as usual. You cannot combine checkouts
+with `--config`, or give two checkouts that configure the same repository. Every
+configuration must load before the monitor starts; an error names its checkout.
 
 It reads GitHub with your `gh` login, as the launcher does, so there's no token to
 paste. Ctrl-C stops it. With `--background` it keeps serving after the terminal
 closes: the command waits until the page answers, prints the process id, and
-`kill PID` stops it; its output goes to `.ub-agents/monitor.log` in the checkout.
+`kill PID` stops it; its output goes to `.ub-agents/monitor.log` in the first checkout.
+The background process receives absolute paths for every checkout's configuration.
 Running it again while it runs just opens the page.
 
 Closing or reloading the page while a reply is pending is quiet. Other server
@@ -27,6 +36,30 @@ The browser tab shows a robot icon and your repository's short name. The title
 includes the needs-human count when any items need a person, otherwise the running
 count when any runs are active. Until the first snapshot arrives, the title is
 `ub-agents`.
+
+With several checkouts, the header lists their short names. Rows start with their
+repository's short name; matching short names use `owner/name` to distinguish them.
+Needs human keeps each repository's order, with repositories in the order you gave
+them. Running, Expired and Recent activity combine rows by time. **discuss with
+Claude** opens the row's own checkout. The Running machine dropdown includes
+machines from every repository.
+
+Eligible groups items under each repository's name, since launchers claim from
+their own repository's queue. Each group keeps its own claim order, priority
+words, 20-row limit and **next** item. Empty groups disappear; a group with no
+successful plan says **Planning unavailable**. The heading sums the counts and
+says how many rows are shown when any group is cut.
+
+The tab count adds all repositories. Its names identify the repositories needing
+a person, otherwise those with running work, or all repositories when idle.
+More than two names use the first name plus `+N`, for example:
+
+```text
+backend, studio
+(2) needs human · backend, studio
+(1) needs human · studio
+3 running · backend +2
+```
 
 - **Needs human**: open items with a [stop label](/docs/configuration/stop-labels.html),
   and runs that reported blocked and weren't retried since. Each shows the actions
@@ -74,11 +107,21 @@ also keeps Eligible's plan until the five-minute interval ends. An unchanged pol
 that also replanned used 2 counted REST calls and 0 GraphQL calls after
 warm-up; the initial read used 6 counted REST calls and 1 GraphQL call. Costs vary
 with the repository and its configuration. Hover Eligible's heading for its
-interval and last planning time. If Eligible planning fails, its last result stays
+interval and last planning time, or a repository line when watching several
+checkouts. If Eligible planning fails, its last result stays
 under a **Couldn't refresh** banner while the other panels and their notifications
 keep updating. Before the first successful plan, Eligible says **Planning unavailable**.
 The next poll retries planning. If another read fails, the page keeps its last result
-under the banner.
+under the banner. With several checkouts, each repository reads in parallel with
+its own cache and five-minute Eligible plan. A failed repository keeps its last
+result while the others refresh. Until any repository has been read successfully,
+the page shows only the read errors. When some repositories have been read and
+others have not, their results stay visible, and Needs human withholds its all-clear
+until every repository has been read once. Refresh errors, unreadable records,
+newer record formats and Eligible errors all name their repository. The budget
+uses the newest account quota headers and adds the monitor's call counters across
+repositories. Each repository costs what one monitor costs: quiet repositories mostly answer
+"not modified"; two busy repositories cost about twice one.
 
 Click **notify: off** to switch on browser notifications. The page sends one test
 notification and, for 20 seconds, says where to look if none appeared (on macOS:
@@ -86,6 +129,12 @@ System Settings › Notifications › your browser, and Focus). **notify when** 
 stops under **a person is needed**. Its indented choices cover blocked reports,
 each outcome your config sends to a stop label (with its declaring agents), and
 stop labels added another way, such as by hand or a round or attempt limit.
+With several repositories, each outcome name has one checkbox. Its text lists
+all declaring agents and names the repositories when only some declare it, such
+as `a run reports maintainer-merge (integrator · backend only)`. Stop labels combine
+across repositories. Notifications include the repository name, so the same item
+number in two repositories can notify twice. Kept choices and the machine filter
+remain valid when you add checkouts.
 A stop-labelled item notifies only for the choice matching its latest outcome,
 or for **another way** if no stop outcome explains it. Blocked reports on items
 without stop labels use the blocked choice.

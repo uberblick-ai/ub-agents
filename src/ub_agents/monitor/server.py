@@ -7,14 +7,18 @@ nothing, and refuses background requests that other sites make.
 """
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from concurrent.futures import ThreadPoolExecutor
 from importlib.resources import files
 import json
+import logging
+import socket
 import threading
 from time import monotonic
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import urlopen
 
 from ..errors import AgentError
+from ..records import iso, timestamp
 
 # A fixed port keeps the page's origin, so the browser remembers its
 # notification permission between runs.
@@ -60,6 +64,60 @@ class Snapshots:
             return self.value
 
 
+class RepositorySnapshot(Snapshots):
+    """Keep a repository's last successful read when its next read fails."""
+
+    def __init__(self, source):
+        super().__init__(source)
+        self.value = {"repository": source.config.repository, "folder": str(source.config.root)}
+        self.error = None
+
+    def get(self, fresh=False):
+        with self.lock:
+            if fresh or self.read_at is None or self.clock() - self.read_at >= REUSE_SECONDS:
+                try:
+                    self.value = self.source.snapshot()
+                except Exception as exc:
+                    # One source cannot take the other repositories off the page.
+                    if not isinstance(exc, (AgentError, OSError)):
+                        logging.getLogger(__name__).exception(
+                            "Couldn't refresh monitor repository %s", self.source.config.repository)
+                    self.error = str(exc) or type(exc).__name__
+                else:
+                    self.error = None
+                self.read_at = self.clock()
+            return self.value | {"error": self.error}
+
+
+class Repositories:
+    """Read one source per checkout in parallel, with independent reuse windows."""
+
+    def __init__(self, sources):
+        self.snapshots = [RepositorySnapshot(source) for source in sources]
+        self.lock = threading.Lock()
+
+    def get(self, fresh=False):
+        with self.lock:
+            with ThreadPoolExecutor(max_workers=len(self.snapshots)) as workers:
+                repositories = list(workers.map(lambda snapshot: snapshot.get(fresh), self.snapshots))
+            return {"generated_at": iso(timestamp()), "local_host": socket.gethostname(),
+                    "rates": self.rates(), "repositories": repositories}
+
+    def rates(self):
+        rates, newest = {}, {}
+        counters = ("counted", "graphql_calls", "not_modified")
+        for snapshot in self.snapshots:
+            source = snapshot.source
+            for key, value in source.rates().items():
+                if key in counters:
+                    rates[key] = rates.get(key, 0) + value
+                else:
+                    observed = source.github.resource_quota_times.get(key, float('-inf'))
+                    if key not in newest or observed > newest[key]:
+                        rates[key], newest[key] = value, observed
+        return rates
+
+
 def handler(snapshots, page):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -101,7 +159,8 @@ def page():
 
 
 def create(source, port=PORT):
-    return ThreadingHTTPServer(("127.0.0.1", port), handler(Snapshots(source), page()))
+    snapshots = source if isinstance(source, Repositories) else Snapshots(source)
+    return ThreadingHTTPServer(("127.0.0.1", port), handler(snapshots, page()))
 
 
 def already_serving(url):

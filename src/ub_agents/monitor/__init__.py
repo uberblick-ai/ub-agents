@@ -7,17 +7,22 @@ from time import monotonic, sleep
 import webbrowser
 
 from ..errors import AgentError
+from ..github import GitHub
 from ..records import timestamp
-from .server import already_serving, create
+from .server import Repositories, already_serving, create
 from .snapshot import MonitorSource
 
 START_SECONDS = 15
 
 
-def serve(config, github, coordinator, port, open_page=True):
+def monitor_sources(configs):
+    return [MonitorSource(config, GitHub(config.repository), None, timestamp) for config in configs]
+
+
+def serve(sources, port, open_page=True):
     url = f"http://127.0.0.1:{port}/"
     try:
-        server = create(MonitorSource(config, github, coordinator, timestamp), port)
+        server = create(Repositories(sources), port)
     except OSError as exc:
         if exc.errno != errno.EADDRINUSE:
             raise
@@ -39,7 +44,7 @@ def serve(config, github, coordinator, port, open_page=True):
     return 0
 
 
-def monitor_background(config_path, root, port, open_page=True):
+def monitor_background(config_paths, root, port, open_page=True):
     """Start the monitor in its own session, so it outlives this terminal."""
     url = f"http://127.0.0.1:{port}/"
     if not already_serving(url):
@@ -47,7 +52,7 @@ def monitor_background(config_path, root, port, open_page=True):
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("ab") as output:
             process = subprocess.Popen(
-                [sys.executable, "-m", "ub_agents", "monitor", "--config", str(config_path),
+                [sys.executable, "-m", "ub_agents", "monitor", *(str(path.resolve()) for path in config_paths),
                  "--port", str(port), "--no-open"],
                 stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
         deadline = monotonic() + START_SECONDS

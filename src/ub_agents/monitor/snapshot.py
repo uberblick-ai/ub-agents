@@ -6,6 +6,8 @@ on, so GitHub sees all of them. This module never writes to GitHub.
 
 import socket
 
+from ..approvals import pr_author_exclusions
+from ..coordination import Coordinator
 from ..errors import RecordError
 from ..notices import ACTION_MARKER
 from ..records import MARKER, iso, lease_summary, live_leases, record_version, records, seconds
@@ -37,13 +39,26 @@ class MonitorSource:
     def __init__(self, config, github, coordinator, clock):
         self.config = config
         self.github = github
-        self.trust = coordinator.trust
+        self.trust = coordinator.trust if coordinator is not None else None
         self.coordinator = coordinator
         self.clock = clock
         self.titles = {}
-        self.planning = EligiblePlanning(config, github, coordinator, clock)
+        self.planning = EligiblePlanning(config, github, coordinator, clock) if coordinator is not None else None
+
+    def prepare(self):
+        # Defer GitHub setup to the source's read so one failing repository can
+        # show its error without preventing the server or other sources starting.
+        if self.coordinator is None:
+            config, github = self.config, self.github
+            coordinator = Coordinator(
+                github, github.actor(), launchers=config.launchers, trusted_bots=config.trusted_bots,
+                trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors, config.approvals, github))
+            self.coordinator = coordinator
+            self.trust = coordinator.trust
+            self.planning = EligiblePlanning(config, github, coordinator, self.clock)
 
     def snapshot(self):
+        self.prepare()
         now = self.clock()
         comments = self.github.repository_comments(lookback_seconds=WINDOW_SECONDS)
         history, invalid = self.coordinator.repository_history(comments)
