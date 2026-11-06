@@ -731,6 +731,7 @@ class GitHubHTTPTests(unittest.TestCase):
             planned = planning.planner.github.github.github
             clients = [github, planned, cleanup.github]
             self.assertTrue(all(client.auth_retry is github.auth_retry for client in clients))
+            self.assertTrue(all(client.failures is github.failures for client in clients))
             self.assertTrue(all(client.auth_retry.enabled for client in clients))
 
             def read_twice(client):

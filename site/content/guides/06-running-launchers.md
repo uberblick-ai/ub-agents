@@ -138,9 +138,21 @@ See [checkout setup](/docs/configuration/checkout-setup.html).
 counts as a failed attempt. Fix the hook or environment. If the item has used all its
 attempts, run `ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"`.
 
-**GitHub is slow, unreachable or rate limited.** Continuous launch waits and retries
-without a limit, printing `Skipped GitHub poll: …; retrying in Ns`. No attempt is
-charged and no action is needed. Over direct HTTPS, any request, including writes
+**GitHub is slow, unreachable or rate limited.** Continuous launch retries setup
+checks and polls for up to 2 hours without a successful GitHub request, printing
+`Skipped GitHub poll: …; retrying in Ns`. Any successful request, including a 304
+or background observation, resets this clock. Time waiting for a rate-limit reset
+doesn't count. No item attempt is charged. If the limit is reached, launch exits
+with code 1 and a line like this:
+
+```text
+ub-agents: Encountered GitHub connection issues, giving up after 2h of retrying. Check the network and `gh auth status`, then restart ub-agents launch. Here is the error: GET repos/acme/app/issues/12/comments: HTTP 401 Bad credentials
+```
+
+The terminal view keeps this line on its last screen. `launch.log` keeps the full
+last error. Check the network and authentication, then restart launch.
+
+Over direct HTTPS, any request, including writes
 and GraphQL mutations, retries if opening a new connection fails before sending
 starts. This covers DNS, refused or unreachable connections, TLS handshakes and
 connect timeouts. Once sending starts, including on a reused keep-alive connection,
@@ -161,7 +173,7 @@ to `api.github.com` and wait for GitHub to recover before restarting.
 
 After setup passes, continuous launch also retries HTTP 401 responses, including
 writes and the `gh api` fallback, after 1, 2 and 4 seconds. If all attempts fail,
-it skips the poll and waits 1 minute, doubling to 15 minutes without giving up.
+it skips the poll and waits 1 minute, doubling to 15 minutes within the 2-hour limit.
 The log names the local time of the first 401 and suggests `gh auth status`.
 Check that command if failures persist; after `gh auth login`, the next attempt
 uses the new token without a restart. Any successful GitHub request resets this

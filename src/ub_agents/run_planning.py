@@ -2,7 +2,7 @@
 
 import threading
 from copy import deepcopy
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from time import monotonic
 
 from .approvals import pr_author_exclusions
@@ -137,6 +137,7 @@ class RunPlanning:
                     raise _Cancelled
             github = GitHub(github.repository, github.runner, before_request=before_request)
             github.auth_retry = source.auth_retry
+            github.failures = source.failures
             github.resource_quotas = deepcopy(source.resource_quotas)
             github._etag_cache = deepcopy(source._etag_cache)
             github._comment_cache = deepcopy(source._comment_cache)
@@ -177,15 +178,16 @@ class RunPlanning:
 
     def _wait(self, delay, rate_until):
         control = self.loop.poll_now
-        if control is None:
-            return self.stop.wait(delay)
         deadline = self.clock() + delay
         if rate_until is not None:
             limited_delay = min(delay, max(0, rate_until - self.planner.coordinator.clock()))
             if limited_delay:
-                with control.rate_limit(rate_until):
+                with self.loop.github.failures.pause(), (control.rate_limit(rate_until)
+                                                        if control is not None else nullcontext()):
                     if self.stop.wait(limited_delay):
                         return True
+        if control is None:
+            return self.stop.wait(max(0, deadline - self.clock()))
         return control.wait(self.stop, max(0, deadline - self.clock()), on_request=self._requested)
 
     def _failure_delay(self, exc):

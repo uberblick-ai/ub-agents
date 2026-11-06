@@ -213,12 +213,47 @@ class LaunchErrorTests(unittest.TestCase):
             self.assertIn(line, log)
         self.assertTrue(log.endswith(message))
 
+    def test_give_up_line_uses_the_failure_budget(self):
+        for limit_seconds in (3600, 10800):
+            with self.subTest(limit_seconds=limit_seconds):
+                github = GitHub("acme/app")
+                error = GitHubError("GET", "user", "Connection reset", retryable=True)
+                with patch("ub_agents.github_failures.GITHUB_FAILURE_LIMIT_SECONDS", limit_seconds), \
+                        patch("ub_agents.github_failures.monotonic", return_value=0) as clock:
+                    github.failures.failed(error)
+                    clock.return_value = limit_seconds
+                    message = self.invoke(github.failures.remaining)
+                self.assertIn(f"giving up after {limit_seconds / 3600:g}h of retrying.", message)
+
     def test_authentication_advice_and_duplicate_status_are_removed(self):
         error = GitHubError("GET", "user", "Authentication failed (HTTP 401); check gh auth status: "
                             "gh: Bad credentials (HTTP 401)\nExtra gh advice", status=401)
         message = launch_error_message(error, self.root)
         self.assertTrue(message.endswith("GET user: HTTP 401 Bad credentials"), message)
         self.assertEqual(message.count("gh auth status"), 1)
+
+    def test_exhausted_github_retries_keep_one_exit_line_and_full_last_error_in_log(self):
+        stdout = 'HTTP/2 401 Unauthorized\n\n{"message":"Bad credentials"}'
+        stderr = 'gh: Bad credentials (HTTP 401)\nExtra advice\nRepeated failure'
+        github = GitHub("acme/app", runner=Mock(return_value=subprocess.CompletedProcess([], 1, stdout, stderr)))
+
+        def fail():
+            try:
+                github.request("repos/acme/app/issues/12/comments")
+            except GitHubError as exc:
+                github.failures.failed(exc)
+            clock.return_value = 7200
+            github.failures.remaining()
+
+        with patch("ub_agents.github_failures.monotonic", return_value=0) as clock:
+            message = self.invoke(fail)
+        self.assertEqual(message, "ub-agents: Encountered GitHub connection issues, giving up after 2h of retrying. "
+                         "Check the network and `gh auth status`, then restart ub-agents launch. "
+                         "Here is the error: GET repos/acme/app/issues/12/comments: HTTP 401 Bad credentials\n")
+        log = (self.root / ".ub-agents/launch.log").read_text()
+        for line in (stdout + "\n" + stderr).splitlines():
+            self.assertIn(line, log)
+        self.assertTrue(log.endswith(message))
 
     def test_network_failures_drop_the_repeated_request_address(self):
         error = GitHubError("POST", "graphql", 'gh: Post "https://api.github.com/graphql": '

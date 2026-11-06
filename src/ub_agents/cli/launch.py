@@ -3,6 +3,7 @@
 import os
 import signal
 import sys
+from contextlib import nullcontext
 
 from ..errors import AgentError, GitHubError
 from ..execution import repository_checks
@@ -72,9 +73,15 @@ def check_launch_setup(config, github, loop, *, interrupt, once=False):
                 loop.before_claim()
                 if once or not exc.retryable:
                     raise
+                if not exc.rate_limited:
+                    github.failures.failed(exc)
+                remaining = github.failures.remaining()
                 detail = " ".join(str(exc).split())
                 loop.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
-                loop.wait(loop.stop_event, delay, "setup retry")
+                with github.failures.pause() if exc.rate_limited else nullcontext():
+                    loop.wait(loop.stop_event, min(delay, remaining), "setup retry")
+                loop.before_claim()
+                github.failures.remaining()
                 delay = min(POLL_RETRY_MAX_SECONDS, delay * 2)
             else:
                 loop.before_claim()

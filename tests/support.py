@@ -11,6 +11,7 @@ import threading
 
 from ub_agents.config import Agent, Config, Queue, instruction_text
 from ub_agents.github import Dependency, Item, SubIssue, milestone_title_key
+from ub_agents.github_failures import GitHubFailures
 from ub_agents.records import MARKER, body, payload, records
 from ub_agents.settlement import Settlement
 
@@ -325,6 +326,7 @@ class FakeGitHub:
     repository = "org/project"
 
     def __init__(self, *items):
+        self.failures = GitHubFailures()
         self.rest_requests = 0
         self.gh_calls = 0
         self.not_modified_responses = 0
