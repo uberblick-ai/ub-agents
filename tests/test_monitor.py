@@ -304,12 +304,29 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(waiting, [[3], [], [3]])
 
     def test_snapshot_offers_each_configured_outcome_that_stops_for_a_person(self):
-        integrator = agent(Path("/checkout"), name="integrator", outcomes={
+        root = Path("/checkout")
+        integrator = agent(root, name="integrator", outcomes={
             "merged": {}, "maintainer-merge": {"add": ("needs-human",)}, "changes-requested": {"add": ("needs-changes",)}})
+        preparer = agent(root, name="issue-preparer", outcomes={"needs-human": {"add": ("needs-human",)}})
+        reviewer = agent(root, name="reviewer", outcomes={
+            "maintainer-merge": {"add": ("needs-human",)}, "needs-human": {"add": ("needs-changes",)}})
         github = FakeGitHub()
-        source = MonitorSource(config(Path("/checkout"), integrator), github, Coordinator(github, None), timestamp)
+        source = MonitorSource(config(root, reviewer, preparer, integrator), github, Coordinator(github, None), timestamp)
 
-        self.assertEqual(source.snapshot()["stop_outcomes"], ["maintainer-merge"])
+        self.assertEqual(source.snapshot()["stop_outcomes"], [
+            {"name": "maintainer-merge", "agents": ["integrator", "reviewer"]},
+            {"name": "needs-human", "agents": ["issue-preparer"]}])
+
+    def test_page_groups_stop_choices_and_closes_the_picker_outside_its_controls(self):
+        html = page().decode()
+        self.assertIn('"aria-label": "a person is needed"', html)
+        self.assertIn('.stop-events { padding-left: 3ch; }', html)
+        self.assertIn('is added another way (by hand, or a round or attempt limit)', html)
+        self.assertEqual(html.count('" · stays until dismissed"'), 1)
+        self.assertIn('parent.indeterminate = !parent.checked && stops.some', html)
+        self.assertIn('stored(EVENTS_KEY, stopEvents().map((e) => e.id))', html)
+        self.assertIn('event.target.closest("#picker, #notify-when")', html)
+        self.assertIn('event.key === "Escape" && state.choosing', html)
 
     def test_server_answers_only_this_machine_and_its_own_page(self):
         self.assertTrue(allowed("127.0.0.1:4377", 4377, "/snapshot.json", "same-origin", "cors"))

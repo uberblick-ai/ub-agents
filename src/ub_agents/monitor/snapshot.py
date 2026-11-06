@@ -84,10 +84,14 @@ class MonitorSource:
         }
 
     def stop_outcomes(self):
-        """The configured outcomes that hand an item to a person through a stop label."""
+        """The stop outcomes and the agents that declare each one."""
         stops = set(self.config.stop_labels)
-        return sorted({name for agent in self.config.agents for name, changes in agent.outcomes.items()
-                       if stops.intersection(changes.get("add", ()))})
+        outcomes = {}
+        for agent in self.config.agents:
+            for name, changes in agent.outcomes.items():
+                if stops.intersection(changes.get("add", ())):
+                    outcomes.setdefault(name, []).append(agent.name)
+        return [{"name": name, "agents": sorted(agents)} for name, agents in sorted(outcomes.items())]
 
     def labelled(self, open_items, notices):
         """Open items with a stop label, each with the ask of its latest outcome."""
