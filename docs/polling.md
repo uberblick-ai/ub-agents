@@ -63,8 +63,13 @@ with [account capacity](https://agents.uberblick.ai/docs/best-practices/account-
 The launcher sends REST and GraphQL requests to `api.github.com` over keep-alive
 HTTPS using standard-library `http.client`. It reads the existing token with
 `gh auth token --hostname github.com` once per process, without another login or
-prompt. After HTTP 401 it rereads the token and retries once only if the token
-changed; otherwise authentication fails. If the token lookup fails or prints
+prompt. During setup and outside continuous launch, HTTP 401 rereads the token
+and retries once only if the token changed; otherwise authentication fails.
+After setup, continuous launch retries any HTTP 401 up to three times, after
+**1, 2 and 4 seconds**, for any method and either transport. Each attempt rereads
+the token, including the next poll after an exhausted request, so a new
+`gh auth login` takes effect without restarting. A 401 confirms GitHub applied
+nothing, so writes are safe to replay. If the token lookup fails or prints
 nothing, requests use `gh api --include`. Setup and doctor keep using `gh`, as do
 non-request commands such as `gh pr merge`.
 
@@ -72,7 +77,7 @@ Each thread has its own connection. A transport failure discards that connection
 REST `GET` requests that fail before a response retry up to three times on fresh
 connections, after waits of **1, 2 and 4 seconds**. Each retry logs the method,
 endpoint and attempt to `launch.log`. Writes, GraphQL and the `gh api` fallback
-are not replayed here, nor are requests that received any HTTP response.
+are not replayed for transport failures. HTTP 401 has the separate policy above.
 Planning and startup cleanup check cancellation before every request, including
 connection retries, refetches and authentication retries. Requests have a
 **20-second** timeout; Ctrl-C interrupts requests and retry waits.
@@ -88,10 +93,11 @@ Track remaining, limit and reset separately for `core` and `graphql`.
 | Rate-limited 403/429 | Recognize zero remaining, `Retry-After`, or GitHub's primary/secondary rate-limit message. Primary: reset plus **5 seconds**. Secondary: `Retry-After`. Missing wait metadata: one minute. Cap each wait at one hour, then retry. |
 | Redirects | Any HTTP 3xx returned to the adapter other than 304 stops with a redirect error; check the repository configuration and requested resource. HTTPS requests do not follow redirects or replay redirected writes; the `gh api` fallback retains gh's redirect handling. |
 | Retryable continuous-launch failure | A failed request without an HTTP status (regardless of its text), request timeouts, truncated transport responses, truncated/empty JSON reported by gh, and HTTP 5xx: back off from **5 seconds** to **60 seconds**, doubling, without a retry limit. A completed poll resets the delay. |
+| HTTP 401 in continuous launch after setup | After the in-place retries fail, skip the poll and wait **1 minute**, doubling to **15 minutes**, without a give-up limit. This backoff is separate from transport/5xx backoff. Any successful GitHub request, including a 304 or background observation, resets the 401 delay and start time. Log the first 401's local time: `Skipped GitHub poll: GitHub rejects the token (HTTP 401) since 21:14; retrying in 15m. Check gh auth status.` |
 | Configuration or instruction errors after refresh | Continuous launch pauses all claims, including recoveries, and refreshes and validates on every poll or `r`; valid files resume claims. See [configuration pauses](https://agents.uberblick.ai/docs/guides/running-launchers.html#when-things-go-wrong). Startup validation, `launch --once` and `launch N` still fail. |
-| Other errors | Authentication failure (HTTP 401 after token refresh or gh exit 4), a gh binary that cannot run for fallback requests, non-rate-limited HTTP 4xx and other malformed responses stop immediately. `launch --once` and `status` fail on their first request error. |
+| Other errors | HTTP 401 during setup, in `launch --once`, `launch N`, `status`, `doctor` or agent-side commands still stops after the existing token refresh. A gh exit 4 without an HTTP status, a gh binary that cannot run for fallback requests, non-rate-limited HTTP 4xx other than the continuous-launch 401 case, and other malformed responses stop immediately. `launch --once` and `status` fail on their first request error. |
 
-Only reads wait and retry. A rate-limited write is not replayed automatically.
+Only reads wait and retry rate limits. A rate-limited write is not replayed automatically.
 Rate-limit waits charge no poll failures or item attempts and make no writes. They
 count toward the discovery gap. Observation failures never stop the launcher. A
 failed discovery pass makes no GitHub writes and reports the error and the next
@@ -113,8 +119,8 @@ unsuccessful claims remain discovery. Consecutive records with the same kind, co
 and candidates print once.
 
 The `gh calls` display and `gh_calls` field retain their names and count every
-attempted request with either transport, including the one retry after a token
-change and each connection retry. Token lookups themselves are not API requests
+attempted request with either transport, including token refresh retries, HTTP 401
+retries and each connection retry. Token lookups themselves are not API requests
 and do not enter the counts.
 
 The run's `released` event records `github_requests` with `gh_calls`,

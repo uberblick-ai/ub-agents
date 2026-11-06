@@ -11,6 +11,7 @@ from time import monotonic, sleep
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError, GitHubError
+from .github_auth import AuthenticationRetry
 from .github_http import REQUEST_TIMEOUT_SECONDS, Transport, interruptible_request, token
 from .records import iso, positive_int, seconds, timestamp
 
@@ -316,6 +317,7 @@ class GitHub:
     def __init__(self, repository, runner=None, *, before_request=None):
         self.runner = runner
         self.before_request = before_request
+        self.auth_retry = AuthenticationRetry()
         self._http = Transport()
         self.repository = repository
         self.prefix = f"repos/{repository}"
@@ -415,12 +417,34 @@ class GitHub:
         # Injected runners retain the gh command/--include protocol used by
         # setup, doctor and recording fakes, without reading a real credential.
         credential = token.get() if self.runner is None else None
+        if self.auth_retry.enabled:
+            return self._continuous_response(command, endpoint, method, data, cached, credential)
         status, headers, payload, result = self._exchange(command, endpoint, method, data, cached, credential)
         if status == 401 and self.runner is None:
             refreshed = token.refresh(credential)
             if refreshed is not None and refreshed != credential:
                 status, headers, payload, result = self._exchange(command, endpoint, method, data, cached, refreshed)
         return self._checked_response(endpoint, method, status, headers, payload, result)
+
+    def _continuous_response(self, command, endpoint, method, data, cached, credential):
+        if self.auth_retry.failing and self.runner is None:
+            credential = token.refresh(credential)
+        for attempt in range(4):
+            status, headers, payload, result = self._exchange(command, endpoint, method, data, cached, credential)
+            if status != 401:
+                break
+            self.auth_retry.rejected()
+            if attempt == 3:
+                break
+            # An HTTP 401 confirms that GitHub applied nothing, including writes.
+            self._retry_wait(endpoint, method, attempt)
+            if self.before_request is not None:
+                self.before_request()
+            if self.runner is None:
+                credential = token.refresh(credential)
+        response = self._checked_response(endpoint, method, status, headers, payload, result)
+        self.auth_retry.succeeded()
+        return response
 
     def _exchange(self, command, endpoint, method, data, cached, credential):
         if cached is not None:
@@ -458,11 +482,16 @@ class GitHub:
                 # writes could duplicate a request that GitHub already applied.
                 if not (rest and method == "GET" and exc.retryable and attempt < 3):
                     raise
-            delay = 2 ** attempt
-            with interruptible_request():
-                print(token.redact(f"Retrying GitHub {method} {endpoint}: attempt {attempt + 2}/4 in {delay}s"),
-                      file=sys.stderr, flush=True)
-                sleep(delay)
+            self._retry_wait(endpoint, method, attempt)
+
+    def _retry_wait(self, endpoint, method, attempt):
+        if self.before_request is not None:
+            self.before_request()
+        delay = 2 ** attempt
+        with interruptible_request():
+            print(token.redact(f"Retrying GitHub {method} {endpoint}: attempt {attempt + 2}/4 in {delay}s"),
+                  file=sys.stderr, flush=True)
+            sleep(delay)
 
     def _gh_response(self, command, endpoint, method, data):
         try:
@@ -498,10 +527,12 @@ class GitHub:
                 detail = f"Authentication failed (HTTP 401); check gh auth status: {detail}"
             limited = is_rate_limit(status, headers, detail + " " + payload)
             retryable, reset_at = failure_retry(status, headers, detail + " " + payload if limited else detail)
+            if status == 401 and self.auth_retry.enabled:
+                retryable = True
             if status is None and result.returncode == 4:
                 retryable, reset_at = False, None  # gh requires authentication.
             error = GitHubError(method, endpoint, detail, retryable=retryable, reset_at=reset_at,
-                                rate_limited=limited)
+                                rate_limited=limited, status=status)
             error.probe_reason = f"exit {result.returncode}"
             raise error
         return status, headers, payload

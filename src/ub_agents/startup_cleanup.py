@@ -64,7 +64,9 @@ class StartupCleanup:
         # Use the same transport/authentication with private request counters,
         # caches and rate-limit state. Recording fakes share their durable store.
         if isinstance(github, GitHub):
+            auth_retry = github.auth_retry
             github = GitHub(github.repository, github.runner, before_request=self.control.checkpoint)
+            github.auth_retry = auth_retry
         self.config, self.github, self.actor, self.session = config, github, actor, session
         self.thread = threading.Thread(target=sweep, name="startup-cleanup", daemon=True,
                                        args=(config, github, actor),

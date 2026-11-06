@@ -254,6 +254,7 @@ def launch_run(args, config, github, actor, coordinator, loop, stop, interrupt):
             loop.enable_poll_now()
         check_launch_setup(config, github, loop, once=args.once or args.number is not None,
                            interrupt=stop_now)
+        loop.continuous_retries(not args.once and args.number is None)
         _start_updates(config, loop)
         loop.before_claim()
         cleanup = StartupCleanup(config, github, loop.coordinator.actor, stop, session=session)

@@ -23,7 +23,7 @@ from .events import EventHooks
 from .finalization import FinalizationReads
 from .merging import LauncherMerge, MergeNotRecovered
 from .launcher_lock import configuration_pause_summary, publish_configuration_pause
-from .github import RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS
+from .github import GitHub, RATE_LIMIT_FALLBACK_SECONDS, RATE_LIMIT_MAX_SECONDS
 from .polling import DiscoveryBudget, IDLE_MAX_SECONDS, idle_interval, poll_delay
 from .pass_messages import PassMessages
 from .queue_planner import COMMENT_RECOVERY_SECONDS, QueuePlanner
@@ -1053,6 +1053,30 @@ class Loop:
         # until owned execution or recovery has unwound.
         self._poll_complete = True
 
+    def continuous_retries(self, enabled):
+        github = self.github.github
+        if isinstance(github, GitHub):
+            github.auth_retry.enabled = enabled
+            if not enabled:
+                github.auth_retry.succeeded()
+
+    def _retry_poll(self, exc, retry_delay):
+        # Keep each diagnostic on one line, even when gh prints several.
+        detail = " ".join(str(exc).split())
+        if not isinstance(exc, GitHubError) or not exc.retryable:
+            raise AgentError(f"{detail}; ub-agents does not retry this error. "
+                             "Fix the cause and restart ub-agents launch.") from exc
+        if exc.status == 401:
+            delay, message = self.github.auth_retry.poll_failure()
+            self.output(f"Skipped GitHub poll: {message}")
+        else:
+            delay = retry_delay
+            retry_delay = min(POLL_RETRY_MAX_SECONDS, retry_delay * 2)
+            self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
+        delay = self.usage.bound_wait(delay)
+        self.wait(self.stop_event, delay, "poll retry or runtime pause")
+        return retry_delay
+
     def launch(self, once=False, number=None, agent_name=None):
         self._launch_number = number
         self._launch_agent = agent_name
@@ -1065,6 +1089,7 @@ class Loop:
                     worker.close()
                 self._planning_workers.clear()
                 self._continuous = False
+                self.continuous_retries(False)
                 self._poll_updates()
                 self.observe("close")
             finally:
@@ -1077,6 +1102,7 @@ class Loop:
         self.discovery_budget = DiscoveryBudget(clock=lambda: monotonic())
         self._planning_rate_until = None
         self._continuous = not once
+        self.continuous_retries(not once)
         self.github.discovery = not once
         self.observe("configure", self.config, self.coordinator.actor, self.config_path)
         if self._launch_agent is not None and self._launch_number is None:
@@ -1116,18 +1142,7 @@ class Loop:
                     # Execution has stopped and renewal has closed. Ownership
                     # reads fail closed; retain the request's retry policy.
                     exc = exc.__cause__
-                retryable = isinstance(exc, GitHubError) and exc.retryable
-                detail = str(exc)
-                # Keep each diagnostic on one line, even when gh prints several.
-                detail = " ".join(detail.split())
-                if not retryable:
-                    raise AgentError(f"{detail}; ub-agents does not retry this error. "
-                                     "Fix the cause and restart ub-agents launch.") from exc
-                delay = retry_delay
-                retry_delay = min(POLL_RETRY_MAX_SECONDS, retry_delay * 2)
-                self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
-                delay = self.usage.bound_wait(delay)
-                self.wait(self.stop_event, delay, "poll retry or runtime pause")
+                retry_delay = self._retry_poll(exc, retry_delay)
                 continue
             retry_delay = POLL_RETRY_BASE_SECONDS
             if self.interrupt_event.is_set():

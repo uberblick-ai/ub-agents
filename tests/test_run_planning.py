@@ -1,5 +1,7 @@
 from copy import deepcopy
+from contextlib import redirect_stderr
 from dataclasses import replace
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -18,6 +20,7 @@ from ub_agents.polling import DiscoveryBudget
 from ub_agents.records import iso, records, seconds
 from ub_agents.run_planning import ObservationReads, PassEvents, RunPlanning, _Cancelled
 from tests.support import settlement, DiscoveryCostRunner, MemoryPublisher, PollGitHub, agent, config, issue, pr, stub_refresh
+from tests.test_etags import SequenceRunner, response
 
 
 class RunPlanningTests(unittest.TestCase):
@@ -478,6 +481,38 @@ class RunPlanningTests(unittest.TestCase):
                 self.assertEqual([r['item'] for r in passes[0]['rows']], [1, 3])
                 self.assertEqual(self.github.writes, [])
                 self.assertFalse(self.loop.stop_event.is_set())
+
+    def test_observation_401_backoff_resets_on_another_clients_successful_304(self):
+        replies = SequenceRunner(response(payload={}, etag='"healthy"'), *[response(401)] * 8,
+                                 response(304), *[response(401)] * 4)
+        github = GitHub('org/project', replies)
+        github.request('healthy')
+        self.loop.github.github = github
+        self.loop.continuous_retries(True)
+        worker = RunPlanning(self.loop, self.now, clock=lambda: self.now)
+        client = worker.planner.github.github.github
+        waits, passes = [], []
+
+        def wait(delay, rate_until):
+            waits.append(delay)
+            self.now += delay
+            return len(waits) == 4
+
+        def plans():
+            passes.append(self.now)
+            if len(passes) == 3:
+                github.request('healthy')
+            client.request('failing-request')
+            return iter(())
+
+        with patch('ub_agents.github.sleep'), redirect_stderr(io.StringIO()), \
+                patch.object(worker, '_wait', side_effect=wait), \
+                patch.object(worker.planner, 'iter_plans', side_effect=plans):
+            worker._run()
+        self.assertEqual(waits, [30, 60, 120, 60])
+        self.assertEqual(github.not_modified_responses, 1)
+        self.assertEqual(len([line for line in self.lines if line.startswith('Skipped GitHub poll:')]), 3)
+        self.assertFalse(self.loop.stop_event.is_set())
 
     def test_reader_forbids_mutations_and_cancels_between_reads(self):
         stop = threading.Event()

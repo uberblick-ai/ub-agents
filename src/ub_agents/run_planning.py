@@ -136,6 +136,7 @@ class RunPlanning:
                 if self.stop.is_set():
                     raise _Cancelled
             github = GitHub(github.repository, github.runner, before_request=before_request)
+            github.auth_retry = source.auth_retry
             github.resource_quotas = deepcopy(source.resource_quotas)
             github._etag_cache = deepcopy(source._etag_cache)
             github._comment_cache = deepcopy(source._comment_cache)
@@ -187,7 +188,25 @@ class RunPlanning:
                         return True
         return control.wait(self.stop, max(0, deadline - self.clock()), on_request=self._requested)
 
-    def _run(self):  # noqa: C901, PLR0912
+    def _failure_delay(self, exc):
+        if not isinstance(exc, GitHubError):
+            return 0, None
+        if exc.rate_limited:
+            now = self.planner.coordinator.clock()
+            reset = exc.reset_at if exc.reset_at is not None else now + RATE_LIMIT_FALLBACK_SECONDS
+            delay = min(RATE_LIMIT_MAX_SECONDS, max(0, reset - now))
+            until = now + delay
+            with self.lock:
+                if not self.stop.is_set():
+                    self.rate_until = until
+            return delay, until
+        if exc.status == 401 and exc.retryable:
+            delay, message = self.loop.github.auth_retry.poll_failure()
+            self.loop.output(f"Skipped GitHub poll: {message}")
+            return delay, None
+        return 0, None
+
+    def _run(self):  # noqa: C901
         elapsed = self.clock() - self.started
         interval, _ = idle_interval(self.loop.discovery_budget.wait_seconds(),
                                     self.planner.config.poll_seconds,
@@ -212,7 +231,7 @@ class RunPlanning:
             observed_at = self.planner.coordinator.clock()
             events = PassEvents()
             self.planner.observer = events
-            rate_wait = 0
+            failure_wait = 0
             rate_until = None
             try:
                 # Exhaust the ranked queue. No tick, recovery, parking or runtime
@@ -229,14 +248,7 @@ class RunPlanning:
             except KeyboardInterrupt:
                 return
             except Exception as exc:
-                if isinstance(exc, GitHubError) and exc.rate_limited:
-                    now = self.planner.coordinator.clock()
-                    reset = exc.reset_at if exc.reset_at is not None else now + RATE_LIMIT_FALLBACK_SECONDS
-                    rate_wait = min(RATE_LIMIT_MAX_SECONDS, max(0, reset - now))
-                    rate_until = now + rate_wait
-                    with self.lock:
-                        if not self.stop.is_set():
-                            self.rate_until = rate_until
+                failure_wait, rate_until = self._failure_delay(exc)
                 # Observation failure cannot stop or change the owned run.
             finally:
                 with self.lock:
@@ -246,4 +258,4 @@ class RunPlanning:
                                         self.planner.config.poll_seconds,
                                         self.planner.github.resource_quotas,
                                         self.planner.coordinator.clock(), elapsed)
-            interval = max(interval, elapsed + rate_wait)
+            interval = max(interval, elapsed + failure_wait)
