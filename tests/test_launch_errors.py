@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from ub_agents.cli import main
-from ub_agents.cli.launch import launch_error_message
+from ub_agents.cli.launch_errors import launch_error_message, report_launch_stop
 from ub_agents.config import CleanupHook
 from ub_agents.errors import (AgentError, CheckoutRefreshError, CleanupError, ConfigurationError,
                               GitHubError, InstructionError, LostOwnership, RecordError,
@@ -167,7 +167,7 @@ class LaunchErrorTests(unittest.TestCase):
             (GitHubError("GET", "repos/acme/app/issues/12", "gh: Not Found (HTTP 404)"),
              "GitHub rejected a request that ub-agents does not retry", "`gh auth status`"),
             (GitHubError("GET", "repos/acme/app", "Connection reset", retryable=True),
-             "A GitHub request failed", "`gh auth status`"),
+             "A GitHub request failed", "api.github.com"),
             (InstructionError("policy.md is unreadable"), "An instruction file is invalid or unreadable", "ub-agents.yaml"),
             (ConfigurationError("max-attempts must be positive", path=self.path), "ub-agents.yaml is invalid", str(self.path)),
             (RecordError("Malformed comment 123"), "A coordination record is invalid", "ub-agents status"),
@@ -222,8 +222,10 @@ class LaunchErrorTests(unittest.TestCase):
 
     def test_network_failures_drop_the_repeated_request_address(self):
         error = GitHubError("POST", "graphql", 'gh: Post "https://api.github.com/graphql": '
-                            'dial tcp: lookup api.github.com: no such host\nExtra gh text')
+                            'dial tcp: lookup api.github.com: no such host\nExtra gh text', retryable=True)
         message = launch_error_message(error, self.root)
+        self.assertIn("Check access to api.github.com and wait for GitHub to recover", message)
+        self.assertNotIn("gh auth", message)
         self.assertTrue(message.endswith("POST graphql: dial tcp: lookup api.github.com: no such host"), message)
         self.assertEqual(message.count("graphql"), 1)
 
@@ -280,6 +282,26 @@ class LaunchErrorTests(unittest.TestCase):
         log = (self.root / ".ub-agents/launch.log").read_text()
         self.assertIn("full details", log)
         self.assertTrue(log.endswith(message))
+
+    def test_interrupted_restart_keeps_the_normal_stop_and_exit_code(self):
+        restart = RestartLauncher("/new/ub-agents", None, self.root)
+        stderr = io.StringIO()
+        with patch("ub_agents.cli.run", side_effect=restart), \
+                patch("ub_agents.cli.launch.os.execv", side_effect=KeyboardInterrupt), \
+                redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+            self.assertEqual(main(["launch", "--config", str(self.path)]), 130)
+        self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
+        self.assertTrue((self.root / ".ub-agents/launch.log").read_text().endswith(stderr.getvalue()))
+
+    def test_unwritable_log_still_prints_the_error_or_normal_stop(self):
+        with patch("ub_agents.cli.launch_errors.launch_output", side_effect=OSError("log unavailable")):
+            message = self.invoke(Mock(side_effect=ValueError("unexpected value")))
+            self.assertEqual(message, "ub-agents: The launcher stopped unexpectedly. This looks like a bug in ub-agents. "
+                             "Please report it with launch.log. Here is the error: unexpected value\n")
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                report_launch_stop("Stopped; supervised execution terminated", self.root)
+            self.assertEqual(stderr.getvalue(), "Stopped; supervised execution terminated\n")
 
     def test_log_only_diagnostics_do_not_replace_the_terminal_last_line(self):
         terminal = io.StringIO()

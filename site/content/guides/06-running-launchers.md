@@ -84,6 +84,10 @@ an unexpected exception's traceback, goes to `.ub-agents/launch.log` before the
 short line. The terminal shows only the short line. For one stuck issue or PR, see
 [Unstick an item](/docs/guides/stuck-items.html).
 
+When neither the selected configuration nor `.ub-agents` exists, launch prints
+the line without creating files. This keeps the checkout clean for `ub-agents init`.
+A missing configuration is described as missing, with `ub-agents init` as the next step.
+
 **Launch refuses to start because of the control checkout.** It must be clean, on
 the repository's default branch and have no commits missing from `origin`. Commit,
 stash or remove local changes, switch to the default branch, and push or drop local
@@ -150,7 +154,9 @@ reset. HTTP 401 follows the separate policy below.
 Each retry appears in `launch.log` with the method, endpoint and attempt.
 Ctrl-C interrupts the wait.
 `launch --once`, `launch N` and `status` fail if the request still fails after these
-retries; run them again later. `doctor --verbose` shows the remaining quota. See
+retries; run them again later. A retryable launcher error asks you to check access
+to `api.github.com` and wait for GitHub to recover before restarting.
+`doctor --verbose` shows the remaining quota. See
 [quota and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling).
 
 After setup passes, continuous launch also retries HTTP 401 responses, including

@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from ub_agents.cli import main
-from ub_agents.cli.launch import launch_error_message
+from ub_agents.cli.launch_errors import launch_error_message
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.loop import Loop, _GracefulStop
 from tests.support import FakeGitHub, MemoryPublisher, config, isolate_runtime_state

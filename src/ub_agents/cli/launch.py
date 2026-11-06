@@ -17,7 +17,7 @@ from ..refresh import control_checkout_checks
 from ..signals import SignalRelay
 from ..startup_cleanup import StartupCleanup
 from ._registry import command
-from .launch_errors import launch_error_message, report_launch_error, report_launch_stop
+from .launch_errors import report_launch_error, report_launch_stop
 
 
 def arguments(commands):
@@ -196,7 +196,7 @@ def restart_launcher(restart, argv):
 
 @command("launch", arguments, number="optional", config_required=True,
          build=("config", "github", "coordinator", "loop"), identify_actor=False,
-         validate=_validate_launch_agent, resources=launch_resources, error_message=launch_error_message)
+         validate=_validate_launch_agent, resources=launch_resources)
 def launch_run(args, config, github, actor, coordinator, loop, stop, interrupt):
     _prepare_launch(config)
     relay, stop_now, stop_gracefully = _launch_signal_callbacks(loop, stop, interrupt)

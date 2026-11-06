@@ -51,7 +51,8 @@ def _agent_recovery(error, root):
                 f"Fix the instruction paths in {root / DEFAULT_CONFIG} and restore their readable files, then launch again")
     if isinstance(error, ConfigurationError):
         path = error.path or root / DEFAULT_CONFIG
-        return (f"{path.name} is invalid", error.next_step or f"Fix {path}, then launch again")
+        problem = f"{path.name} is invalid" if path.exists() else f"{path.name} is missing"
+        return (problem, error.next_step or f"Fix {path}, then launch again")
     if isinstance(error, RecordError):
         return ("A coordination record is invalid",
                 "Run ub-agents status to find the item, repair its ub-agents record on GitHub, then launch again")
@@ -72,9 +73,11 @@ def _recovery(error, root):
     if isinstance(error, CleanupError):
         return "Cleanup could not finish safely", f"{error.next_step}, then launch again"
     if isinstance(error, GitHubError):
-        problem = ("GitHub rejected a request that ub-agents does not retry" if not error.retryable
-                   else "A GitHub request failed")
-        return (problem, f"Check the repository in {root / DEFAULT_CONFIG} and `gh auth status`, "
+        if error.retryable:
+            return ("A GitHub request failed", "Check access to api.github.com and wait for GitHub to recover, "
+                    "then restart ub-agents launch")
+        return ("GitHub rejected a request that ub-agents does not retry",
+                f"Check the repository in {root / DEFAULT_CONFIG} and `gh auth status`, "
                 "then restart ub-agents launch")
     if isinstance(error, AgentError):
         return _agent_recovery(error, root)
@@ -109,21 +112,25 @@ def launch_error_message(exc, root, *, restart=False):
     return " ".join(f"{problem}. {action.rstrip('.')}. Here is the error: {detail}".split())
 
 
-def report_launch_error(exc, root, *, restart=False):
-    message = f"ub-agents: {launch_error_message(exc, root, restart=restart)}"
+def _report_launch_exit(message, root, *, exc=None, config_path=None):
     try:
-        # Argument preparation and lock acquisition can fail before logging opens.
-        with launch_output(root) as output:
-            output.error(exc)
-            print(message, file=sys.stderr)
+        # Logging before init would leave untracked files that block its clean-checkout check.
+        if (config_path or root / DEFAULT_CONFIG).exists() or (root / ".ub-agents").exists():
+            with launch_output(root) as output:
+                if exc is not None:
+                    output.error(exc)
+                print(message, file=sys.stderr)
+            return
     except OSError:
         # An inaccessible log must still leave the operator an exit line.
-        print(message, file=sys.stderr)
+        pass
+    print(message, file=sys.stderr)
 
 
-def report_launch_stop(message, root):
-    try:
-        with launch_output(root):
-            print(message, file=sys.stderr)
-    except OSError:
-        print(message, file=sys.stderr)
+def report_launch_error(exc, root, *, restart=False, config_path=None):
+    message = f"ub-agents: {launch_error_message(exc, root, restart=restart)}"
+    _report_launch_exit(message, root, exc=exc, config_path=config_path)
+
+
+def report_launch_stop(message, root, *, config_path=None):
+    _report_launch_exit(message, root, config_path=config_path)

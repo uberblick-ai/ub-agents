@@ -120,7 +120,7 @@ def _main(argv=None):
         detail = (f"ub-agents: {exc}" if isinstance(exc, CheckoutSetupInterrupted)
                   else "Stopped; supervised execution terminated")
         if declaration is not None and declaration.name == "launch" and isinstance(args.config, Path):
-            launch.report_launch_stop(detail, args.config.parent)
+            launch.report_launch_stop(detail, args.config.parent, config_path=args.config)
         else:
             print(detail, file=sys.stderr)
         return 130
@@ -129,12 +129,9 @@ def _main(argv=None):
     except Exception as exc:
         if declaration is not None and declaration.name == "launch":
             path = Path(args.config).absolute() if args.config else Path.cwd() / DEFAULT_CONFIG
-            launch.report_launch_error(exc, path.parent)
+            launch.report_launch_error(exc, path.parent, config_path=path)
             return 1
         if not isinstance(exc, (AgentError, OSError)):
             raise
-        detail = str(exc)
-        if declaration is not None and declaration.error_message is not None and isinstance(args.config, Path):
-            detail = declaration.error_message(exc, args.config.parent)
-        print(f"ub-agents: {detail}", file=sys.stderr)
+        print(f"ub-agents: {exc}", file=sys.stderr)
         return 1
