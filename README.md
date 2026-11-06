@@ -79,7 +79,7 @@
 | src/ub\_agents/monitor/eligible.py               |       44 |        0 |    100% |           |
 | src/ub\_agents/monitor/local.py                  |       18 |        2 |     89% |     18-19 |
 | src/ub\_agents/monitor/server.py                 |       70 |        9 |     87% |69, 71, 77-78, 109-113 |
-| src/ub\_agents/monitor/snapshot.py               |       86 |        9 |     90% |54, 102-104, 127, 154-157 |
+| src/ub\_agents/monitor/snapshot.py               |       91 |        9 |     90% |54, 106-108, 131, 158-161 |
 | src/ub\_agents/notices.py                        |      229 |        2 |     99% |  132, 219 |
 | src/ub\_agents/observation\_data.py              |      105 |        1 |     99% |        29 |
 | src/ub\_agents/observation\_worker.py            |      145 |       13 |     91% |24, 36-37, 49, 58-59, 62-63, 68, 72-73, 97, 116 |
@@ -142,7 +142,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18185** |  **687** | **96%** |           |
+| **TOTAL**                                        | **18190** |  **687** | **96%** |           |
 
 
 ## Setup coverage badge
