@@ -36,6 +36,8 @@ ub-agents report --outcome needs-human --summary "Storage policy unclear" \
   --option "Owner: keep storage local." --option "Owner: move storage to the cloud."
 ```
 
+If the outcome adds a stop label, `--handoff PR_NUMBER` may name a draft PR. The launcher puts the stop label and notice on that PR and leaves it draft. Other validation still applies. If the report is rejected, its notice keeps the asks and summary alongside the rejection reason.
+
 ## Say when a person decides
 
 The agent stops only where its instructions tell it to. Name the decisions that belong to a person, and who answers them, in the [shared policy](/docs/configuration/instructions.html#shared-policy):

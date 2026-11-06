@@ -324,8 +324,10 @@ class Notices:
         if lease.get("unreported") or outcome is None:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
                      f"Run: `{lease['run']}`.")
-        actions = reported_actions(outcome) if outcome and not outcome.get("rejected") else []
-        options = outcome.get("options", ()) if outcome and not outcome.get("rejected") else ()
+        actions = reported_actions(outcome) if outcome else []
+        options = outcome.get("options", ()) if outcome else ()
+        if outcome and outcome.get("rejected"):
+            summary = f"{summary}\n\n{outcome['summary']}"
         if rounds:
             labels = ", ".join(f"`{label}`" for label in stops)
             triggers = ", ".join(f"`{label}`" for label in resume_triggers)
