@@ -307,7 +307,9 @@ class LaunchTerminalTests(unittest.TestCase):
             with Terminal(HARNESS, repository, root, 'setup-error') as terminal:
                 terminal.wait_exit(1, timeout=8)
                 self.assertLess(terminal.transcript.rfind(b'\x1b[?1049l'),
-                                terminal.transcript.index(b'ub-agents: Intentional setup error'))
+                                terminal.transcript.index(b'ub-agents: The launcher could not continue.'))
+                self.assertIn(b'Here is the error: Intentional setup error', terminal.transcript)
+                self.assertNotIn(b'Traceback (most recent call last)', terminal.transcript)
                 result = json.loads((root / 'result.json').read_text())
                 self.assertEqual(result, {'exit': 1, 'history': [], 'labels': ['ready']})
                 wait_for_observation_worker(root)

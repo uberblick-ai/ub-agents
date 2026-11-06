@@ -84,7 +84,8 @@ class LauncherLockTests(unittest.TestCase):
                                    "Stop that launcher first", "ub-agents retry"):
                         self.assertIn(detail, refused.stderr)
                     self.assertEqual(refused.stdout, "")
-        self.assertEqual(log.read_bytes(), before)
+        self.assertTrue(log.read_bytes().startswith(before))
+        self.assertIn("Here is the error: Launcher running", log.read_text())
         self.assertIsNone(holder.poll())
 
     def test_every_mode_takes_the_lock_and_releases_on_normal_exit(self):

@@ -126,8 +126,8 @@ class RefreshTests(unittest.TestCase):
         wait.assert_not_called()
         message = stderr.getvalue()
         self.assertRegex(message, condition)
-        self.assertTrue(message.startswith(f"ub-agents: {self.root}: "), message)
-        self.assertTrue(message.endswith(f"; {next_step}\n"), message)
+        self.assertTrue(message.startswith("ub-agents: The control checkout could not be refreshed. "), message)
+        self.assertIn(f"Run git status in {self.root}, then {next_step}. Here is the error: ", message)
         self.assertEqual(len(message.splitlines()), 1)
         self.assertNotIn("Fix the operator checkout", message)
         self.assertNotIn("no assignment attempt was charged", message)
@@ -241,9 +241,9 @@ class RefreshTests(unittest.TestCase):
                     self.assertEqual(main(args + ['launch', '--once']), 1)
                 with patch.object(Path, 'read_text', read):
                     message = self.offline_failure()
-                self.assertEqual(launch_error.getvalue(),
-                                 f"ub-agents: {self.root}: " + message +
-                                 "; restore readable, valid instruction files and launch again\n")
+                self.assertTrue(launch_error.getvalue().startswith("ub-agents: An instruction file is invalid or unreadable. "))
+                self.assertIn(". Here is the error: " + message.splitlines()[0], launch_error.getvalue())
+                self.assertIn(str(self.root / 'ub-agents.yaml'), launch_error.getvalue())
                 self.assertIn('shared-instructions', launch_error.getvalue())
                 execution.assert_not_called()
                 self.assertEqual(self.github.writes, [])
@@ -500,7 +500,10 @@ class RefreshTests(unittest.TestCase):
                         patch('ub_agents.assignment_run.Workspace.prepare') as prepare, \
                         redirect_stderr(io.StringIO()) as launch_error, redirect_stdout(io.StringIO()):
                     self.assertEqual(main(['--config', str(self.loop.config_path), 'launch', '--once', '--no-ui']), 1)
-                self.assertEqual(' '.join(launch_error.getvalue().split()), f'ub-agents: {self.offline_failure()}')
+                path = local if content == 'agents: [' else self.loop.config_path
+                self.assertTrue(launch_error.getvalue().startswith(f'ub-agents: {path.name} is invalid. '))
+                self.assertIn('. Here is the error: Cannot read configuration ' if content == 'agents: [' else
+                              '. Here is the error: ' + self.offline_failure(), launch_error.getvalue())
                 self.assertIn(str(local), launch_error.getvalue())
                 execution.assert_not_called()
                 prepare.assert_not_called()
@@ -585,7 +588,8 @@ class RefreshTests(unittest.TestCase):
                 patch("ub_agents.assignment_run.supervise") as execution, \
                 redirect_stderr(launch_error):
             self.assertEqual(main(args + ["launch", "--once"]), 1)
-        self.assertEqual(launch_error.getvalue(), f'ub-agents: {self.offline_failure()}\n')
+        self.assertTrue(launch_error.getvalue().startswith('ub-agents: ub-agents.yaml is invalid. '))
+        self.assertIn('. Here is the error: ' + self.offline_failure().splitlines()[0], launch_error.getvalue())
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
         self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
@@ -603,8 +607,9 @@ class RefreshTests(unittest.TestCase):
                 patch("ub_agents.assignment_run.supervise") as execution, redirect_stderr(stderr):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)
         message = stderr.getvalue()
-        self.assertTrue(message.startswith(f"ub-agents: {self.root}: worker instructions is unreadable:"), message)
-        self.assertTrue(message.endswith("; restore readable, valid instruction files and launch again\n"), message)
+        self.assertTrue(message.startswith("ub-agents: An instruction file is invalid or unreadable."), message)
+        self.assertIn(". Here is the error: worker instructions is unreadable:", message)
+        self.assertIn(str(self.root / "ub-agents.yaml"), message)
         self.assertEqual(len(message.splitlines()), 1)
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
@@ -754,8 +759,9 @@ class RefreshTests(unittest.TestCase):
 
         with patch("ub_agents.refresh.git", side_effect=fail_fetch):
             message = self.stopped("fetch of origin/main failed", "fix origin access and launch again")
-        self.assertEqual(message, f"ub-agents: {self.root}: fetch of origin/main failed: "
-                         "Git operation failed: authentication denied; fix origin access and launch again\n")
+        self.assertEqual(message, "ub-agents: The control checkout could not be refreshed. "
+                         f"Run git status in {self.root}, then fix origin access and launch again. Here is the error: fetch of origin/main failed: "
+                         "Git operation failed: authentication denied\n")
 
     def test_fast_forward_failure_stops_without_mutation(self):
         self.push_policy()
@@ -774,8 +780,9 @@ class RefreshTests(unittest.TestCase):
 
         with patch("ub_agents.refresh.git", side_effect=fail_merge):
             message = self.stopped("fast-forward to origin/main failed", "resolve the checkout's merge error and launch again")
-        self.assertEqual(message, f"ub-agents: {self.root}: fast-forward to origin/main failed: "
-                         "Git operation failed: synthetic lock; resolve the checkout's merge error and launch again\n")
+        self.assertEqual(message, "ub-agents: The control checkout could not be refreshed. "
+                         f"Run git status in {self.root}, then resolve the checkout's merge error and launch again. Here is the error: fast-forward to origin/main failed: "
+                         "Git operation failed: synthetic lock\n")
 
     def test_fast_forward_refuses_to_overwrite_ignored_local_files(self):
         (self.root / "ignored").write_text("Operator local data")

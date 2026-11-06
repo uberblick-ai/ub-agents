@@ -18,8 +18,7 @@ lookup. ``validate(args, config)`` runs after config loading, before other build
 is a boolean or args predicate; ``missing_config(args)`` can handle an absent file.
 ``legacy_number`` enables retry's hidden --number alias. After argument preparation,
 ``resources(args, stack)`` enters command-owned contexts. ``early_return(args)``
-can then stop dispatch before building objects. ``error_message(exc, root)``
-customizes errors once a config path is available.
+can then stop dispatch before building objects.
 """
 
 from collections.abc import Callable
@@ -43,7 +42,6 @@ class Command:
     validate: Callable | None = None
     early_return: Callable | None = None
     resources: Callable | None = None
-    error_message: Callable | None = None
 
 
 commands: dict[str, Command] = {}

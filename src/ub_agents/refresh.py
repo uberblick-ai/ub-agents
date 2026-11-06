@@ -20,17 +20,21 @@ def control_checkout_checks(config, default, read_git=None):
         branch = read_git(root, "rev-parse", "--abbrev-ref", "HEAD")
         if branch == "HEAD":
             raise AgentError(f"control checkout has detached HEAD; launch runs only from {default}; "
-                             f"switch to {default}")
+                             f"switch to {default}", detail="control checkout has detached HEAD",
+                             next_step=f"Run git switch {default} in {root}, then launch again")
         if branch != default:
             raise AgentError(f"control checkout is on {branch}; launch runs only from {default}; "
-                             f"switch to {default}")
+                             f"switch to {default}", detail=f"control checkout is on {branch}",
+                             next_step=f"Run git switch {default} in {root}, then launch again")
         yield "control-checkout-branch", None
     except AgentError as exc:
         yield "control-checkout-branch", exc
     try:
         if read_git(root, "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"):
             raise AgentError("control checkout is dirty (staged, modified or untracked files); "
-                             "commit or remove those changes before launch")
+                             "commit or remove those changes before launch",
+                             detail="control checkout is dirty (staged, modified or untracked files)",
+                             next_step=f"Commit, stash or remove local changes in {root}, then launch again")
         yield "control-checkout-dirty", None
     except AgentError as exc:
         yield "control-checkout-dirty", exc
@@ -39,13 +43,17 @@ def control_checkout_checks(config, default, read_git=None):
                                          f"HEAD...refs/remotes/origin/{default}").split())
     except AgentError:
         yield "control-checkout-origin", AgentError(
-            f"cannot compare control checkout with origin/{default}; run git fetch origin and retry")
+            f"cannot compare control checkout with origin/{default}; run git fetch origin and retry",
+            detail=f"cannot compare control checkout with origin/{default}",
+            next_step=f"Run git fetch origin in {root}, then launch again")
     else:
         error = None
         if ahead:
             condition = ("control checkout has diverged" if behind else
                          "control checkout has local commits not on origin")
-            error = AgentError(f"{condition}; reconcile {default} with origin/{default} before launch")
+            error = AgentError(f"{condition}; reconcile {default} with origin/{default} before launch",
+                               detail=condition,
+                               next_step=f"Reconcile {default} with origin/{default} in {root}, then launch again")
         yield "control-checkout-origin", error
 
 
@@ -193,7 +201,8 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):  # noqa: C90
     except (AgentError, OSError, UnicodeError) as exc:
         # Git may append several paragraphs of advice; keep the actual error.
         detail = " ".join(str(exc).splitlines()[0].split())
-        raise CheckoutRefreshError(f"{root}: {detail}; {next_step}") from exc
+        raise CheckoutRefreshError(f"{root}: {detail}; {next_step}",
+                                   detail=detail, next_step=f"Run git status in {root}, then {next_step}") from exc
 
 
 def refresh_instructions(config, agent, github, *, on_fetch=None):

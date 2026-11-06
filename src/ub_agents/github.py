@@ -20,6 +20,15 @@ REPOSITORY = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
 APPROVAL_BATCH_SIZE = 50
 
 
+def _response_message(payload):
+    try:
+        body = json.loads(payload)
+    except ValueError:
+        return None
+    message = body.get("message") if isinstance(body, dict) else None
+    return message if isinstance(message, str) else None
+
+
 def milestone_title_key(title):
     """Compare digit runs as numbers, then break ties by exact title."""
     parts = tuple(int(part) if part.isdecimal() else part for part in re.split(r"(\d+)", title))
@@ -467,7 +476,9 @@ class GitHub:
         try:
             status, headers, payload = response_parts(result.stdout)
         except ValueError as exc:
-            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+            error = GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}")
+            error.response_output = result.stdout + "\n" + result.stderr
+            raise error from exc
         self._record_response_quota(status, headers, result, rest)
         return status, headers, payload, result
 
@@ -533,8 +544,10 @@ class GitHub:
         if status == 304:
             return status, headers, payload
         if status is not None and 300 <= status < 400:
-            raise GitHubError(method, endpoint, f"Unexpected GitHub redirect (HTTP {status}); "
-                              "check the repository configuration and requested resource")
+            error = GitHubError(method, endpoint, f"Unexpected GitHub redirect (HTTP {status}); "
+                                "check the repository configuration and requested resource", status=status)
+            error.response_output = result.stdout + "\n" + result.stderr
+            raise error
         self.rate_limited |= is_rate_limit(status, headers, result.stderr + payload)
         if result.returncode or (status is not None and status >= 400):
             detail = result.stderr.strip() or payload.strip() or f"HTTP {status}"
@@ -546,8 +559,11 @@ class GitHub:
                 retryable = True
             if status is None and result.returncode == 4:
                 retryable, reset_at = False, None  # gh requires authentication.
+            response_message = ("GitHub CLI authentication is required" if status is None and result.returncode == 4
+                                else _response_message(payload))
             error = GitHubError(method, endpoint, detail, retryable=retryable, reset_at=reset_at,
-                                rate_limited=limited, status=status)
+                                rate_limited=limited, status=status, response_message=response_message)
+            error.response_output = result.stdout + "\n" + result.stderr
             error.probe_reason = f"exit {result.returncode}"
             raise error
         return status, headers, payload

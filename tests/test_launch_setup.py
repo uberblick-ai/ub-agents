@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from ub_agents.cli import main
+from ub_agents.cli.launch_errors import launch_error_message
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.loop import Loop, _GracefulStop
 from tests.support import FakeGitHub, MemoryPublisher, config, isolate_runtime_state
@@ -145,9 +146,7 @@ class LaunchSetupTests(unittest.TestCase):
                     self.assertEqual(main(self.argv), 1)
                 wait.assert_not_called()
                 self.view.close.assert_called_once()
-                suffix = ("; ub-agents does not retry this error. Fix the cause and restart ub-agents launch."
-                          if isinstance(error, GitHubError) else "")
-                self.assertEqual(self.stderr.getvalue(), f"ub-agents: {error}{suffix}\n")
+                self.assertEqual(self.stderr.getvalue(), f"ub-agents: {launch_error_message(error, self.root)}\n")
                 self.assertTrue(self.publisher.snapshots[-1]["ended"])
                 self.assert_no_work()
 

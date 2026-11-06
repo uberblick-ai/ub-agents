@@ -1,12 +1,26 @@
 class AgentError(Exception):
     """An actionable configuration, coordination, or execution failure."""
 
+    def __init__(self, message="", *, detail=None, next_step=None):
+        super().__init__(message)
+        self.detail = detail or message
+        self.next_step = next_step
+
 
 class InstructionError(AgentError):
     """A configured instruction file is invalid or unreadable."""
 
 
-class UnsupportedConfiguration(AgentError):
+class ConfigurationError(AgentError):
+    """Invalid configuration, with its selected file and optional setup action."""
+
+    def __init__(self, message, *, path=None, next_step=None, detail=None):
+        super().__init__(message, detail=detail)
+        self.path = path
+        self.next_step = next_step
+
+
+class UnsupportedConfiguration(ConfigurationError):
     """A configuration key or value may require a newer launcher."""
 
 
@@ -22,8 +36,11 @@ class GitHubError(AgentError):
     """A named request failure, with conservative poll retry metadata."""
 
     def __init__(self, method, endpoint, detail, *, retryable=False, reset_at=None,
-                 rate_limited=False, status=None, not_sent=False):
+                 rate_limited=False, status=None, not_sent=False, response_message=None):
         super().__init__(f"GitHub {method} {endpoint} failed: {detail}")
+        self.method, self.endpoint, self.detail = method, endpoint, detail
+        self.response_message = response_message
+        self.response_output = ""
         self.retryable = retryable
         self.reset_at = reset_at
         self.rate_limited = rate_limited

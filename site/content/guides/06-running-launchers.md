@@ -73,9 +73,20 @@ installation protection, see [Runtime updates](/docs/configuration/runtime-updat
 
 ## When things go wrong
 
-Most failures end `launch` with one `ub-agents:` line that names the problem and the
-next step. Fix the cause and launch again. For one stuck issue or PR, see
+Every launcher error ends with one short line:
+
+```text
+ub-agents: <What happened>. <What to do>. Here is the error: <one-line error>
+```
+
+Follow the action in that line. The full error, including complete `gh` output or
+an unexpected exception's traceback, goes to `.ub-agents/launch.log` before the
+short line. The terminal shows only the short line. For one stuck issue or PR, see
 [Unstick an item](/docs/guides/stuck-items.html).
+
+When neither the selected configuration nor `.ub-agents` exists, launch prints
+the line without creating files. This keeps the checkout clean for `ub-agents init`.
+A missing configuration is described as missing, with `ub-agents init` as the next step.
 
 **Launch refuses to start because of the control checkout.** It must be clean, on
 the repository's default branch and have no commits missing from `origin`. Commit,
@@ -89,9 +100,21 @@ not block launch.
 
 **Launch stops before a run.** Before each new run, the launcher fetches `origin`,
 fast-forwards the control checkout and rereads the configuration and instructions.
-An unsafe checkout or Git failure stops it. Fix the checkout and restart.
+An unsafe checkout or Git failure stops it, for example:
+
+```text
+ub-agents: The control checkout could not be refreshed. Run git status in /path/to/project, then fix origin access and launch again. Here is the error: fetch of origin/main failed: Git operation failed: authentication denied
+```
+
+Follow the checkout action and restart.
 Startup validation, `launch --once` and `launch N` also stop on invalid configuration
-or unreadable instructions, with the same errors as `ub-agents doctor --offline`.
+or unreadable instructions. The error part gives the cause reported by
+`ub-agents doctor --offline`, for example:
+
+```text
+ub-agents: ub-agents.yaml is invalid. Fix /path/to/project/ub-agents.yaml, then launch again. Here is the error: worker max-attempts must be finite and positive
+```
+
 No attempt is charged. See
 [execution boundaries](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#execution-boundaries).
 
@@ -131,7 +154,9 @@ reset. HTTP 401 follows the separate policy below.
 Each retry appears in `launch.log` with the method, endpoint and attempt.
 Ctrl-C interrupts the wait.
 `launch --once`, `launch N` and `status` fail if the request still fails after these
-retries; run them again later. `doctor --verbose` shows the remaining quota. See
+retries; run them again later. A retryable launcher error asks you to check access
+to `api.github.com` and wait for GitHub to recover before restarting.
+`doctor --verbose` shows the remaining quota. See
 [quota and failure handling](https://github.com/uberblick-ai/ub-agents/blob/main/docs/polling.md#quota-and-failure-handling).
 
 After setup passes, continuous launch also retries HTTP 401 responses, including
@@ -142,13 +167,19 @@ Check that command if failures persist; after `gh auth login`, the next attempt
 uses the new token without a restart. Any successful GitHub request resets this
 backoff and its start time.
 
-**Launch stops with "ub-agents does not retry this error."** HTTP 401 during setup,
-in `launch --once` or in `launch N` still stops after checking for a changed token.
+**Launch stops with "GitHub rejected a request that ub-agents does not retry."** The
+line names the request and a concrete check:
+
+```text
+ub-agents: GitHub rejected a request that ub-agents does not retry. Check the repository in /path/to/project/ub-agents.yaml and `gh auth status`, then restart ub-agents launch. Here is the error: GET repos/acme/app/issues/12: HTTP 404 Not Found
+```
+
+HTTP 401 during setup, in `launch --once` or in `launch N` still stops after
+checking for a changed token.
 A `gh` authentication failure without an HTTP status, redirects returned by GitHub
-and other HTTP 4xx errors also stop. Fix the cause,
-for example with `gh auth login` or by correcting your repository configuration,
-and restart. The restarted launcher recovers any claim
-it left open.
+and other HTTP 4xx errors also stop. Check `gh auth status` and the repository in
+your configuration; sign in with `gh auth login` or correct the repository, then
+restart. The restarted launcher recovers any claim it left open.
 
 **A runtime reached its usage limit.** The launcher pauses that CLI until the limit
 resets, and other CLIs keep working. No attempt is charged. Restart the launcher to
@@ -171,6 +202,17 @@ agent. See [recovery](https://github.com/uberblick-ai/ub-agents/blob/main/docs/c
 **Cleanup cannot confirm the run's processes stopped.** Launch stops and keeps the
 run's worktree and branch. Make `ps` usable, or confirm that the named process group
 has exited, then restart.
+
+```text
+ub-agents: Cleanup could not finish safely. Confirm process group 321 has exited, then launch again. Here is the error: Process group 321 survived termination
+```
+
+**Launch stops unexpectedly or cannot restart after an update.** An unexpected
+exception exits 1 with `The launcher stopped unexpectedly. This looks like a bug
+in ub-agents. Please report it with launch.log. Here is the error: …`. Include
+`.ub-agents/launch.log` in your bug report. A failed automatic restart says
+`The automatic launcher restart failed. Run ub-agents launch again by hand. Here
+is the error: …`. Start it with `ub-agents launch`.
 
 **The cleanup hook fails.** The worktree and branch stay, and the run's outcome stands.
 Fix the hook; the next launch retries it before removing the worktree. See

@@ -216,7 +216,7 @@ class Workspace:
             git(self.root, "worktree", "remove", "--force", str(self.private))
         except AgentError as exc:
             raise CleanupError(f"Cannot remove owned private worktree {self.private}: {exc}",
-                               next_step="resolve the worktree removal error") from exc
+                               next_step=f"remove {self.private} by hand") from exc
         self.created = False
         self.cleanup_head_ref()
         # Remove remotely recoverable branches; preserve unpublished commits.
@@ -229,7 +229,7 @@ class Workspace:
             git(self.root, "update-ref", "-d", self.head_ref, self.head_tip)
         except AgentError as exc:
             raise CleanupError(f"Cannot remove owned fork head ref {self.head_ref}: {exc}",
-                               next_step="resolve the fork head ref removal error") from exc
+                               next_step=f"run git update-ref -d {self.head_ref} {self.head_tip} in {self.root}") from exc
         self.head_tip = None
 
     def cleanup_branch(self):
@@ -257,7 +257,7 @@ class Workspace:
     def check_private_boundary(self):
         if self.private.resolve() != self.private:
             raise CleanupError(f"Private worktree path {self.private} redirects outside its owned directory",
-                               next_step="restore the owned worktree path without redirects")
+                               next_step=f"restore {self.private} without redirects")
 
 
 def group_members(group):

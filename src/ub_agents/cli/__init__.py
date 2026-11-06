@@ -6,7 +6,7 @@ import sys
 
 from .. import __version__
 from ..config import DEFAULT_CONFIG, resolve_config_path
-from ..errors import AgentError, CheckoutSetupInterrupted
+from ..errors import AgentError, CheckoutSetupInterrupted, ConfigurationError
 from ..help import HelpParser
 from . import _runtime
 from ._registry import commands
@@ -78,7 +78,9 @@ def _prepare_args(command_line, args):
         if declaration.missing_config is not None and declaration.missing_config(args):
             return
         name = DEFAULT_CONFIG if args.default_config else str(args.config)
-        raise AgentError(f"No {name} here; run ub-agents init to set up a project")
+        raise ConfigurationError(f"No {name} here; run ub-agents init to set up a project", path=args.config,
+                                 detail=f"No {name} here",
+                                 next_step=f"Run ub-agents init in {args.config.parent}, then launch again")
 
 
 def run(args):
@@ -98,10 +100,12 @@ def main(argv=None):
 
 
 def _main(argv=None):
-    with ExitStack() as stack:
-        args = None
-        declaration = None
-        try:
+    from ..updates.self_updates import RestartLauncher
+
+    args = None
+    declaration = None
+    try:
+        with ExitStack() as stack:
             command_line = parser()
             args = command_line.parse_args(argv)
             if args.command in {None, "help"}:
@@ -112,14 +116,22 @@ def _main(argv=None):
             if declaration.resources is not None:
                 declaration.resources(args, stack)
             return run(args) or 0
-        except KeyboardInterrupt as exc:
-            detail = (f"ub-agents: {exc}" if isinstance(exc, CheckoutSetupInterrupted)
-                      else "Stopped; supervised execution terminated")
+    except KeyboardInterrupt as exc:
+        detail = (f"ub-agents: {exc}" if isinstance(exc, CheckoutSetupInterrupted)
+                  else "Stopped; supervised execution terminated")
+        if declaration is not None and declaration.name == "launch" and isinstance(args.config, Path):
+            launch.report_launch_stop(detail, args.config.parent, config_path=args.config)
+        else:
             print(detail, file=sys.stderr)
-            return 130
-        except (AgentError, OSError) as exc:
-            detail = str(exc)
-            if declaration is not None and declaration.error_message is not None and isinstance(args.config, Path):
-                detail = declaration.error_message(exc, args.config.parent)
-            print(f"ub-agents: {detail}", file=sys.stderr)
+        return 130
+    except RestartLauncher:
+        raise
+    except Exception as exc:
+        if declaration is not None and declaration.name == "launch":
+            path = Path(args.config).absolute() if args.config else Path.cwd() / DEFAULT_CONFIG
+            launch.report_launch_error(exc, path.parent, config_path=path)
             return 1
+        if not isinstance(exc, (AgentError, OSError)):
+            raise
+        print(f"ub-agents: {exc}", file=sys.stderr)
+        return 1

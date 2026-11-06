@@ -258,8 +258,8 @@ class CheckoutSetupTests(unittest.TestCase):
         self.assertEqual(self.github.writes, [])
         self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
         self.assertIn(f"checkout setup failed after {cause}", errors.getvalue())
-        self.assertIn("log:", errors.getvalue())
-        self.assertIn(f"Fix the install in {self.root} and launch again.", errors.getvalue())
+        self.assertIn("process.log", errors.getvalue())
+        self.assertIn(f"fix the install in {self.root} and launch again.".lower(), errors.getvalue().lower())
         return errors.getvalue()
 
     def test_without_watched_files_failure_stops_launch_and_retries_after_unchanged_refresh(self):
@@ -399,7 +399,7 @@ class CheckoutSetupTests(unittest.TestCase):
             (attempt / "pid").write_text("321")
             raise CleanupError("Cannot inspect setup process group 321", next_step="make ps usable")
         with patch("ub_agents.checkout_setup.supervise", side_effect=uncertain):
-            self.assertIn("make ps usable", self.failed_launch())
+            self.assertIn("Make ps usable", self.failed_launch())
         attempt = next((setup_directory(self.root) / "attempts").iterdir())
         self.assertFalse((attempt / "stopped").exists())
         self.new_loop()

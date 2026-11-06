@@ -16,12 +16,12 @@ def diagnostic(config, run, event, **details):
     # Never follow a redirected run-log directory when doing maintenance.
     if directory.resolve() != directory:
         raise CleanupError(f"Run diagnostics path {directory} redirects",
-                           next_step="restore the run diagnostics path without redirects")
+                           next_step=f"restore {directory} without redirects")
     directory.mkdir(parents=True, exist_ok=True)
     events = directory / "events.jsonl"
     if events.resolve() != events:
         raise CleanupError(f"Run diagnostics file {events} redirects",
-                           next_step="restore the run diagnostics file without redirects")
+                           next_step=f"restore {events} without redirects")
     with events.open("a") as stream:
         stream.write(json.dumps({"time": iso(timestamp()), "event": event, **details}) + "\n")
 
@@ -67,7 +67,7 @@ def run_hook(config, lease, worktree, outcome=None, expires=None, pass_fds=(), *
     directory = run_directory(config.root, lease["run"]) / "cleanup" / uuid.uuid4().hex
     if directory.resolve() != directory:
         raise CleanupError(f"Hook diagnostics path {directory} redirects",
-                           next_step="restore the hook diagnostics path without redirects")
+                           next_step=f"restore {directory} without redirects")
     directory.mkdir(parents=True, exist_ok=True)
     context = {
         "repository": config.repository, "run": lease["run"], "agent": lease.get("agent"),

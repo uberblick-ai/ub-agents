@@ -17,7 +17,7 @@ from unittest.mock import Mock, patch
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.coordination import Coordinator
-from ub_agents.errors import AgentError, CleanupError, GitHubError
+from ub_agents.errors import AgentError, CleanupError, ConfigurationError, GitHubError
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.records import iso, seconds, timestamp
@@ -381,11 +381,14 @@ class LaunchTests(unittest.TestCase):
 
     def test_configuration_error_is_logged_before_loop_startup(self):
         stderr = io.StringIO()
-        with patch("ub_agents.cli._runtime.load_config", side_effect=AgentError("Invalid configuration")), \
+        with patch("ub_agents.cli._runtime.load_config", side_effect=ConfigurationError("Invalid configuration")), \
                 redirect_stderr(stderr):
             self.assertEqual(main(self.argv), 1)
-        self.assertEqual(stderr.getvalue(), "ub-agents: Invalid configuration\n")
-        self.assertEqual(self.log_lines(), ["ub-agents: Invalid configuration"])
+        message = ("ub-agents: ub-agents.yaml is invalid. "
+                   f"Fix {self.root / 'ub-agents.yaml'}, then launch again. Here is the error: Invalid configuration\n")
+        self.assertEqual(stderr.getvalue(), message)
+        self.assertIn("ConfigurationError: Invalid configuration", "\n".join(self.log_lines()))
+        self.assertEqual(self.log_lines()[-1] + "\n", message)
 
     def test_continuous_launch_logs_wait_and_final_stop(self):
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -846,7 +849,7 @@ class TargetedLaunchTests(unittest.TestCase):
                 patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 redirect_stderr(io.StringIO()) as stderr:
             self.assertEqual(main(self.argv + ["11"]), 1)
-        self.assertIn("Cannot read #11", stderr.getvalue())
+        self.assertIn("GET repos/org/project/issues/11: HTTP 404", stderr.getvalue())
         self.assertIn("HTTP 404", stderr.getvalue())
         self.assertEqual(self.github.writes, [])
         self.github.change(11, state="closed")
