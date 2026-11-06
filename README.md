@@ -27,7 +27,7 @@
 | src/ub\_agents/cli/retry.py                      |       61 |        0 |    100% |           |
 | src/ub\_agents/cli/status.py                     |      117 |        0 |    100% |           |
 | src/ub\_agents/config.py                         |      487 |        9 |     98% |98, 309, 338, 361, 483, 494, 523, 572, 589 |
-| src/ub\_agents/coordination.py                   |      613 |       13 |     98% |119-120, 154, 162-163, 334, 367, 413, 429, 683, 716, 728, 769 |
+| src/ub\_agents/coordination.py                   |      612 |       13 |     98% |118-119, 153, 161-162, 333, 366, 412, 428, 682, 715, 727, 768 |
 | src/ub\_agents/denials.py                        |       47 |        0 |    100% |           |
 | src/ub\_agents/dependencies.py                   |       31 |        0 |    100% |           |
 | src/ub\_agents/diagnostic\_retention.py          |      197 |       13 |     93% |57, 70, 89, 108, 120, 138, 164-165, 174, 185, 187, 211, 224 |
@@ -89,7 +89,7 @@
 | src/ub\_agents/polling.py                        |       45 |        0 |    100% |           |
 | src/ub\_agents/prompts.py                        |        4 |        0 |    100% |           |
 | src/ub\_agents/queue\_order.py                   |       58 |        0 |    100% |           |
-| src/ub\_agents/queue\_planner.py                 |      368 |        3 |     99% |205, 437, 440 |
+| src/ub\_agents/queue\_planner.py                 |      363 |        3 |     99% |195, 426, 429 |
 | src/ub\_agents/rate\_limits.py                   |       29 |        1 |     97% |        44 |
 | src/ub\_agents/read\_input.py                    |       16 |        1 |     94% |        23 |
 | src/ub\_agents/records.py                        |      321 |       27 |     92% |67, 88, 123, 125, 139, 142, 154, 198, 218, 221, 324-326, 332, 334, 338, 345, 351, 353, 355, 357, 389, 391, 393, 395, 397, 399, 413 |
@@ -142,7 +142,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18191** |  **687** | **96%** |           |
+| **TOTAL**                                        | **18185** |  **687** | **96%** |           |
 
 
 ## Setup coverage badge
