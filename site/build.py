@@ -210,8 +210,9 @@ def collect():
         for f in files:
             stem = re.sub(r'^\d+-', '', f.stem)
             path = f'docs/{stem}.html' if kind == 'page' else f'docs/{entry}/{stem}.html'
-            title, body = markdown(expand(f.read_text()))
-            pages.append({'section': name, 'title': title, 'path': path, 'body': body,
+            src = f.read_text()
+            title, body = markdown(expand(src))
+            pages.append({'section': name, 'title': title, 'path': path, 'body': body, 'src': src,
                           'nav': 'Overview' if stem == 'index' and entry == 'configuration' else
                                  ('View all commands' if stem == 'index' else title)})
     return pages
@@ -340,8 +341,12 @@ HEAD = '''<!doctype html>
 '''
 
 # Fonts never change in place: a changed font gets a new file name.
+# Markdown copies are for agents; search engines index the HTML pages.
 HEADERS = '''/assets/fonts/*
   Cache-Control: public, max-age=31536000, immutable
+/*.md
+  Content-Type: text/markdown; charset=utf-8
+  X-Robots-Tag: noindex
 '''
 
 def head(here, **fields):
@@ -509,6 +514,67 @@ def workflow_entry(workflow, scenario=''):
             f'your own loop too. Running the workflow needs only <a href="{home}">ub-agents</a>.</p>')
     return here, workflow_shell(here, workflow['title'], workflow['intent'], body)
 
+# ---------- Markdown copies for agents ----------
+
+def md_path(path):
+    """The Markdown copy of an HTML page: docs/x.html -> docs/x.md, dir/index.html -> dir/index.md."""
+    return path.removesuffix('.html') + '.md'
+
+def md_links(text):
+    """Absolute links, to the Markdown copy where a page has one, so an agent can follow them anywhere."""
+    def link(m):
+        path, frag = m.group(1), m.group(2) or ''
+        return f']({SITE}/{md_path(path) if path.endswith(".html") else path}{frag})'
+    return re.sub(r'\]\(/([^)#]*)(#[^)]*)?\)', link, text)
+
+def md_source(src):
+    """A page's Markdown as an agent reads it: command help expanded, diagrams as their flow source, no buttons."""
+    src = re.sub(r' ?' + DISCUSS.pattern, '', expand(src))
+    src = re.sub(r'^' + FLOW.pattern + r'$', lambda m: '```flow\n' + (ROOT / 'diagrams' / f'{m.group(1)}.flow')
+                 .read_text().strip() + '\n```', src, flags=re.M)
+    return md_links(src).rstrip() + '\n'
+
+def first_text(body):
+    first = re.search(r'<p>(.*?)</p>', body, re.S)
+    return html.unescape(re.sub(r'<[^>]+>', '', first.group(1))) if first else TAGLINE
+
+def html_to_md(fragment):
+    fragment = re.sub(r'<a href="([^"]+)">(.*?)</a>', lambda m: f'[{m.group(2)}]({urllib.parse.urljoin(SITE + "/", m.group(1))})',
+                      fragment, flags=re.S)
+    fragment = re.sub(r'</?code>', '`', fragment)
+    return html.unescape(re.sub(r'<[^>]+>', '', fragment))
+
+def workflow_md(workflow):
+    name = workflow['name']
+    out = [f'# {workflow["title"]}', html_to_md(workflow.get('lede_html') or workflow['intent'])]
+    if workflow.get('requires_html'):
+        out.append(html_to_md(workflow['requires_html']))
+    out.append(md_source((CONTENT / 'workflows' / f'{name}.md').read_text()).strip())
+    out.append('## The flow\n\n```flow\n' + (ROOT / 'diagrams' / f'workflow-{name}.flow').read_text().strip() + '\n```')
+    out.append('## Adopt it\n\nGive your coding agent this prompt:\n\n```text\n'
+               + (ROOT / 'prompts' / f'workflow-{name}.md').read_text().strip() + '\n```')
+    return '\n\n'.join(out) + '\n'
+
+def llms_txt(pages):
+    """The home page for agents (llms.txt): what ub-agents is and every page's Markdown copy."""
+    landing = (ROOT / 'index.html').read_text()
+    about = re.search(r'<h2>What is ub-agents\?</h2>(.*?)</section>', landing, re.S).group(1)
+    out = ['# ub-agents', '> ' + TAGLINE,
+           '\n\n'.join(html_to_md(p).strip() for p in re.findall(r'<p>(.*?)</p>', about, re.S)),
+           'Install on macOS or Linux with `brew install uberblick-ai/tap/ub-agents`. '
+           f'Source, issues and releases: {REPO}', '## Docs']
+    section = None
+    for p in pages:
+        if p['section'] != section and sum(q['section'] == p['section'] for q in pages) > 1:
+            out.append(f'### {p["section"]}')
+        section = p['section']
+        summary = ' '.join(first_text(p['body']).split()).removesuffix(':') + '.'
+        out.append(f'- [{p["title"]}]({SITE}/{md_path(p["path"])}): {summary.replace("..", ".")}')
+    out.append('## Workflows')
+    for w in WORKFLOWS:
+        out.append(f'- [{w["title"]}]({SITE}/workflows/{w["name"]}/index.md): {w["intent"]}')
+    return '\n\n'.join(out).replace('\n\n- ', '\n- ') + '\n'
+
 def workflow_pages():
     pages = [('workflows/index.html', workflow_gallery())]
     for workflow in WORKFLOWS:
@@ -527,12 +593,30 @@ def main():
     # Opened from disk or the artifact host, pages are files by name, so keep their .html links.
     preview = artifact or '--preview' in sys.argv
 
+    markdown_copies = {}  # HTML page -> its Markdown copy
+
     def write(path, body):
         dest = OUT / path
         dest.parent.mkdir(parents=True, exist_ok=True)
+        if path in markdown_copies:
+            href = rel(markdown_copies[path], path)
+            body = body.replace('</head>', f'<link rel="alternate" type="text/markdown" href="{href}">\n</head>', 1)
         dest.write_text(body if preview else extensionless(body))
 
+    def write_md(path, text, *pages):
+        (OUT / path).parent.mkdir(parents=True, exist_ok=True)
+        (OUT / path).write_text(text)
+        markdown_copies.update(dict.fromkeys(pages, path))
+
     pages = collect()
+    for p in pages:
+        write_md(md_path(p['path']), md_source(p['src']), p['path'])
+    for w in WORKFLOWS:
+        entries = [f'workflows/{w["name"]}/index.html'] + [
+            f'workflows/{w["name"]}/{t["slug"]}/index.html' for t in workflow_timelines(w['name'])]
+        write_md(f'workflows/{w["name"]}/index.md', workflow_md(w), *entries)
+    (OUT / 'llms.txt').write_text(llms_txt(pages))
+    write_md('index.md', llms_txt(pages), 'index.html')
     for i, p in enumerate(pages):
         write(p['path'], doc_page(pages, i))
     workflows = workflow_pages()

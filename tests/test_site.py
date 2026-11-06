@@ -197,6 +197,20 @@ class SiteTests(unittest.TestCase):
             self.assertTrue((out / 'og.png').exists())
             self.assertNotIn('og:url', (out / '404.html').read_text())
 
+            # Every docs and workflow page links to a Markdown copy for agents, and llms.txt lists them all.
+            llms = (out / 'llms.txt').read_text()
+            self.assertEqual((out / 'index.md').read_text(), llms)
+            self.assertIn('Content-Type: text/markdown', (out / '_headers').read_text())
+            for page in [out / 'index.html', *(out / 'docs').rglob('*.html'), *(out / 'workflows').glob('*/**/index.html')]:
+                with self.subTest(page=str(page.relative_to(out))):
+                    href = re.search(r'<link rel="alternate" type="text/markdown" href="([^"]+)">', page.read_text()).group(1)
+                    copy = (out / urljoin(str(page.relative_to(out)), href))
+                    text = copy.read_text()
+                    self.assertNotIn('{{', text)
+                    self.assertNotRegex(text, r'\]\(/')
+                    if copy.name != 'index.md' or copy.parent != out:
+                        self.assertIn(f'{build.SITE}/{copy.relative_to(out)}', llms)
+
     def test_extensionless_links_match_the_served_urls(self):
         self.assertEqual(build.extensionless(
             '<a href="./index.html"><a href="index.html"><a href="../index.html#a"><a href="docs/commands/index.html">'
