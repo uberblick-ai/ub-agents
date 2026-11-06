@@ -1,6 +1,6 @@
 """The browser monitor shows every launcher's trusted runs and serves only this machine."""
 
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import chdir, redirect_stderr, redirect_stdout
 from dataclasses import replace
 from io import BytesIO, StringIO
 import json
@@ -41,7 +41,120 @@ def snapshot_request(port):
     return request
 
 
+def checkout(root, name):
+    folder = root / name
+    folder.mkdir()
+    (folder / 'ub-agents.yaml').write_text(
+        f'repository: org/{name}\nagents:\n  worker:\n    command: [echo]\n'
+        '    trigger: ready\n    outcomes: {done: {}}\n')
+    return folder
+
+
 class MonitorTests(unittest.TestCase):
+    def test_monitor_file_works_without_a_project_and_preserves_checkout_order_and_overrides(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            first, second = checkout(root, 'backend'), checkout(root, 'studio')
+            (second / 'ub-agents.local.yaml').write_text('stop-labels: [pause]\n')
+            (root / 'ub-agents-monitor.yaml').write_text('checkouts: [studio/ub-agents.yaml, backend]\n')
+            with chdir(root), patch('ub_agents.monitor.monitor_sources') as sources, \
+                    patch('ub_agents.monitor.serve', return_value=0) as serve:
+                self.assertEqual(main(['monitor', '--no-open']), 0)
+            configs = sources.call_args.args[0]
+            self.assertEqual([cfg.repository for cfg in configs], ['org/studio', 'org/backend'])
+            self.assertEqual([cfg.root for cfg in configs], [second, first])
+            self.assertEqual(configs[0].stop_labels, ('pause',))
+            serve.assert_called_once_with(sources.return_value, 4377, open_page=False)
+
+    def test_monitor_file_yields_to_explicit_checkouts_and_config_but_wins_over_current_project(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            listed, explicit = checkout(root, 'listed'), checkout(root, 'explicit')
+            (root / 'ub-agents.yaml').write_text((explicit / 'ub-agents.yaml').read_text())
+            monitor = root / 'ub-agents-monitor.yaml'
+            monitor.write_text('checkouts: [listed]\n')
+            with chdir(root), patch('ub_agents.monitor.monitor_sources') as sources, \
+                    patch('ub_agents.monitor.serve', return_value=0):
+                self.assertEqual(main(['monitor']), 0)
+                self.assertEqual(sources.call_args.args[0][0].root, listed)
+                monitor.write_text('invalid: file\n')
+                for arguments in (['monitor', 'explicit'], ['monitor', '--config', 'explicit/ub-agents.yaml'],
+                                  ['--config', 'explicit/ub-agents.yaml', 'monitor'],
+                                  ['monitor', '--config', 'ub-agents.yaml']):
+                    with self.subTest(arguments=arguments):
+                        self.assertEqual(main(arguments), 0)
+                        self.assertEqual(sources.call_args.args[0][0].repository, 'org/explicit')
+
+    def test_monitor_ignores_parent_monitor_file_and_keeps_missing_project_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            child = checkout(root, 'child')
+            (root / 'ub-agents-monitor.yaml').write_text('invalid: file\n')
+            with chdir(child), patch('ub_agents.monitor.monitor_sources') as sources, \
+                    patch('ub_agents.monitor.serve', return_value=0):
+                self.assertEqual(main(['monitor']), 0)
+                self.assertEqual(sources.call_args.args[0][0].root, child)
+                (child / 'ub-agents.yaml').unlink()
+                with redirect_stderr(StringIO()) as error:
+                    self.assertEqual(main(['monitor']), 1)
+                self.assertIn('No ub-agents.yaml here', error.getvalue())
+
+    def test_monitor_file_rejects_invalid_schema_before_starting(self):
+        cases = [('extra: true\ncheckouts: [backend]', 'extra'), ('{}', 'checkouts'),
+                 ('checkouts: []', 'checkouts'), ('checkouts: backend', 'checkouts'),
+                 ('checkouts: null', 'checkouts'), ('[]', 'mapping'), ('checkouts: [', 'parsing'),
+                 ('checkouts: [backend]\ncheckouts: [studio]', 'unique'),
+                 ('checkouts: [null]', 'entry 1 (None)'), ('checkouts: [42]', 'entry 1 (42)'),
+                 ('checkouts: [true]', 'entry 1 (True)'), ('checkouts: [{}]', 'entry 1 ({})'),
+                 ('checkouts: [""]', "entry 1 ('')"), ('checkouts: ["\\0"]', 'entry 1')]
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            monitor = Path(folder).resolve() / 'ub-agents-monitor.yaml'
+            for content, message in cases:
+                monitor.write_text(content)
+                with self.subTest(content=content), patch('ub_agents.monitor.monitor_sources') as sources, \
+                        patch('ub_agents.monitor.monitor_background') as background, \
+                        redirect_stderr(StringIO()) as error:
+                    self.assertEqual(main(['monitor', '--background']), 1)
+                    self.assertIn(str(monitor), error.getvalue())
+                    self.assertIn(message, error.getvalue())
+                    sources.assert_not_called()
+                    background.assert_not_called()
+
+    def test_monitor_file_rejects_missing_invalid_and_duplicate_checkouts_before_starting(self):
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            root = Path(folder).resolve()
+            checkout(root, 'good')
+            bad = checkout(root, 'bad')
+            (bad / 'ub-agents.yaml').write_text('repository: [invalid]\n')
+            monitor = root / 'ub-agents-monitor.yaml'
+            for entries, messages in [('good, missing', ('missing',)), ('good, bad', ('bad', 'repository')),
+                                      ('good, good/ub-agents.yaml', ('good', 'good/ub-agents.yaml', 'same repository')),
+                                      ('good, ~ub-agents-no-such-user', ('~ub-agents-no-such-user',))]:
+                monitor.write_text(f'checkouts: [{entries}]\n')
+                with self.subTest(entries=entries), patch('ub_agents.monitor.monitor_sources') as sources, \
+                        patch('ub_agents.monitor.monitor_background') as background, \
+                        redirect_stderr(StringIO()) as error:
+                    self.assertEqual(main(['monitor', '--background']), 1)
+                    self.assertIn(str(monitor), error.getvalue())
+                    for message in messages:
+                        self.assertIn(message, error.getvalue())
+                    sources.assert_not_called()
+                    background.assert_not_called()
+
+    def test_background_monitor_file_expands_home_passes_resolved_checkouts_and_logs_next_to_file(self):
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            root = Path(folder).resolve()
+            first, second = checkout(root, 'backend'), checkout(root, 'studio')
+            (root / 'ub-agents-monitor.yaml').write_text('checkouts: [~/backend, studio/ub-agents.yaml]\n')
+            with patch('os.path.expanduser', side_effect=lambda path: path.replace('~', str(root), 1)), \
+                    patch('ub_agents.monitor.already_serving', side_effect=[False, True]), \
+                    patch('ub_agents.monitor.subprocess.Popen') as popen, redirect_stdout(StringIO()):
+                self.assertEqual(main(['monitor', '--background', '--no-open', '--port', '4400']), 0)
+            self.assertEqual(popen.call_args.args[0][-6:],
+                             ['monitor', str(first / 'ub-agents.yaml'), str(second / 'ub-agents.yaml'),
+                              '--port', '4400', '--no-open'])
+            self.assertEqual(popen.call_args.kwargs['stdout'].name, str(root / '.ub-agents' / 'monitor.log'))
+
     def test_cli_loads_each_checkout_and_its_local_overrides_before_serving(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder).resolve()
