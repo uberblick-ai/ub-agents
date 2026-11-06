@@ -24,3 +24,10 @@ def own_merge_head(lease, item, github):
 def unfinished_merge(summary):
     warning = "Post-merge work may be unfinished."
     return summary if summary.startswith(warning) else f"{warning} {summary}"
+
+
+def recover_own_merge(source, receipt, item, github):
+    head = source.get("own_merge_head") or receipt.get("own_merge_head")
+    if not head and item is not None:
+        head = own_merge_head(source, item, github)
+    return source | {"own_merge_head": head} if head else source

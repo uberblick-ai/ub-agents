@@ -2,16 +2,18 @@
 
 from dataclasses import replace
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from ub_agents.assignment_run import AssignmentRun
 from ub_agents.config import LEASE_RENEW_SECONDS, LEASE_SECONDS
 from ub_agents.errors import AgentError, LostOwnership
+from ub_agents.execution import Workspace, group_members, supervise
 from ub_agents.loop import Loop
 from ub_agents.notices import ACTION_MARKER
-from ub_agents.records import seconds
+from ub_agents.records import seconds, timestamp
+from ub_agents.settlement import Settlement
 from tests.support import PollGitHub, agent, config, pr, stub_refresh
 from tests.test_renewal import ManualRenewal
 
@@ -134,23 +136,23 @@ class OwnMergeTests(unittest.TestCase):
                             raise failure
                         return 1
 
-                    cleanup = AssignmentRun.cleanup_workspace
+                    cleanup = Workspace.cleanup
 
-                    def check_cleanup(assignment, *args, **kwargs):
-                        result = cleanup(assignment, *args, **kwargs)
+                    def check_cleanup(workspace, *args, **kwargs):
                         stored = self.co.history(1)[0]
                         self.assertIn("own_merge_head", stored)
                         self.assertTrue(stored["action_needed"])
-                        return result
+                        return cleanup(workspace, *args, **kwargs)
 
                     with patch("ub_agents.assignment_run.supervise", side_effect=run), \
-                            patch.object(AssignmentRun, "cleanup_workspace", check_cleanup):
+                            patch.object(Workspace, "cleanup", check_cleanup):
                         self.assertTrue(self.loop.tick())
                     lease = self.co.history(1)[0]
                     self.assertEqual((lease["state"], lease["result"]), ("released", "blocked"))
                     self.assertIn("Post-merge work may be unfinished", lease["summary"])
                     self.assertEqual(len(self.notices()), 1)
                     self.assertIn("Post-merge work may be unfinished", self.notices()[0]["body"])
+                    self.assertNotIn("nothing else is needed", self.notices()[0]["body"])
                     restarted = self.restart()
                     with patch("ub_agents.assignment_run.supervise") as execution:
                         self.assertFalse(restarted.tick())
@@ -187,3 +189,100 @@ class OwnMergeTests(unittest.TestCase):
                     if report:
                         self.assertTrue(history[1]["accepted"])
                         self.assertIn("completed", self.github.item(1).labels)
+
+    def test_real_timeout_after_own_merge_terminates_process_group(self):
+        self.now = timestamp()
+        self.loop.config = replace(self.cfg, agents=(replace(
+            self.role, timeout_seconds=1, command=(sys.executable, "-c", "import time; time.sleep(30)")),))
+
+        def run(*args, **kwargs):
+            def merge(final=False):
+                if not final and not self.github.item(1).merged:
+                    self.merge()
+                    self.advance()
+            return supervise(*args, **(kwargs | {"observe_output": merge}))
+
+        with patch("ub_agents.assignment_run.supervise", side_effect=run):
+            self.assertTrue(self.loop.tick())
+        lease = self.co.history(1)[0]
+        directory = self.root / ".ub-agents/runs" / lease["run"]
+        self.assertEqual(group_members(int((directory / "pid").read_text())), [])
+        self.assertEqual((lease["state"], lease["result"]), ("released", "blocked"))
+        self.assertIn("timed out", lease["summary"])
+        self.assertEqual(len(self.notices()), 1)
+
+    def test_early_report_cannot_hide_timeout_or_rejection_or_interrupt(self):
+        for failure in ("timeout", "rejected", "interrupt"):
+            with self.subTest(failure=failure):
+                self.setUp()
+
+                def run(*args, **kwargs):
+                    self.merge()
+                    self.advance()
+                    lease = self.loop._renewal.lease
+                    outcome = self.co.report(lease, "success", "Early report", outcome="merged")
+                    if failure == "timeout":
+                        raise AgentError("Agent timed out")
+                    if failure == "interrupt":
+                        raise KeyboardInterrupt
+                    self.co.update_outcome(lease, outcome, candidate_sha="wrong-head")
+                    return 0
+
+                with patch("ub_agents.assignment_run.supervise", side_effect=run):
+                    if failure == "interrupt":
+                        with self.assertRaises(KeyboardInterrupt):
+                            self.loop.tick()
+                    else:
+                        self.assertTrue(self.loop.tick())
+                lease, outcome = self.co.history(1)
+                self.assertEqual((lease["state"], lease["result"]), ("released", "blocked"))
+                self.assertFalse(outcome["accepted"])
+                self.assertNotIn("completed", self.github.item(1).labels)
+                self.assertEqual(len(self.notices()), 1)
+
+    def test_interrupted_cleanup_keeps_failed_verdict_and_rebuilds_missing_notice(self):
+        def run(*args, **kwargs):
+            self.merge()
+            self.advance()
+            self.co.report(self.loop._renewal.lease, "success", "Early report", outcome="merged")
+            raise AgentError("Agent timed out")
+
+        def interrupted_cleanup(*args, **kwargs):
+            stored = self.co.history(1)[0]
+            self.assertEqual(stored["result"], "blocked")
+            self.assertTrue(stored["action_needed"])
+            self.assertIn("Post-merge work may be unfinished", stored["summary"])
+            raise KeyboardInterrupt
+
+        with patch("ub_agents.assignment_run.supervise", side_effect=run), \
+                patch.object(Workspace, "cleanup", side_effect=interrupted_cleanup), self.assertRaises(KeyboardInterrupt):
+            self.loop.tick()
+        self.now = seconds(self.co.history(1)[0]["expires"])
+        restarted = self.restart()
+        with patch("ub_agents.assignment_run.supervise") as execution:
+            self.assertFalse(restarted.tick())
+        execution.assert_not_called()
+        self.assertFalse(self.co.history(1)[1]["accepted"])
+        self.assertEqual(len(self.notices()), 1)
+
+    def test_restart_preserves_own_merge_receipt_from_interrupted_recovery(self):
+        def run(*args, **kwargs):
+            self.merge()
+            raise LostOwnership("Launcher stopped before observing merge")
+
+        with patch("ub_agents.assignment_run.supervise", side_effect=run), self.assertRaises(LostOwnership):
+            self.loop.tick()
+        self.now = seconds(self.co.history(1)[0]["expires"])
+        restarted = self.restart()
+        with patch.object(Settlement, "settle", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            restarted.tick()
+        recovery = self.co.history(1)[-1]
+        self.assertIn("own_merge_head", recovery)
+        self.now = seconds(recovery["expires"])
+        self.github.change(1, head="unrelated-later-head")
+        restarted = self.restart()
+        with patch("ub_agents.assignment_run.supervise") as execution:
+            self.assertTrue(restarted.tick())
+        execution.assert_not_called()
+        self.assertEqual(self.co.history(1)[-2]["result"], "blocked")
+        self.assertEqual(len(self.notices()), 1)

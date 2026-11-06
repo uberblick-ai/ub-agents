@@ -1016,24 +1016,14 @@ class Loop:
         # The claim reread may have observed a supervisor's newer outcome flags.
         source = lease_by_id(self.coordinator.history(plan.item.number), recovery["recovered_lease_id"])
         outcome = self.coordinator.outcome(source) if source else None
-        if outcome is None:
-            if source and recovery.get("own_merge_head"):
-                return self._recover_unfinished_merge(plan, recovery, source)
-            raise LostOwnership("Recovered outcome disappeared after claiming")
-        # Validate against the originally assigned candidate, not today's head.
-        original = replace(plan, item=replace(plan.item, head=source["assignment_sha"]))
+        if source is None:
+            raise LostOwnership("Recovered source lease disappeared after claiming")
         settlement = Settlement(self.config, self.github, self.coordinator, self.approvals, LauncherMerge(self))
-        try:
-            result, summary, effect = settlement.reported_verdict(recovery, original, outcome, source,
-                                                                 "recovered completion")
-        except MergeNotRecovered as exc:
-            result, summary, effect = "retry", str(exc), "unchanged"
-        except ValidationError as exc:
-            result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
-            effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
+        result, summary, effect = self._recovery_verdict(settlement, plan, recovery, source, outcome)
         # The source's attempt counts this failure, as an execution lease's does.
-        settlement.settle(plan, recovery, source["attempt"], result, f"Recovered {source['run']}:\n\n{summary}",
-                          effect, parking_outcome=outcome, completed=True)
+        result, summary, effect = settlement.settle(
+            plan, recovery, source["attempt"], result, f"Recovered {source['run']}:\n\n{summary}",
+            effect, parking_outcome=outcome, completed=True)
         self.github.end_finalization()
         self._renewal.close()
         self._diagnostic(run_directory(self.config.root.resolve(), recovery['run']), "released",
@@ -1042,14 +1032,20 @@ class Loop:
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
 
-    def _recover_unfinished_merge(self, plan, recovery, source):
-        summary = "Post-merge work may be unfinished. The run ended without an accepted report."
-        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals)
-        settlement.settle(plan, recovery, source["attempt"], "blocked", summary, "unchanged")
-        self.github.end_finalization()
-        self._renewal.close()
-        self.output(f"#{plan.item.number} {plan.agent.name}: {summary}")
-        return True
+    def _recovery_verdict(self, settlement, plan, recovery, source, outcome):
+        if outcome is None:
+            if recovery.get("own_merge_head"):
+                return "blocked", "Post-merge work may be unfinished. The run ended without an accepted report.", "unchanged"
+            raise LostOwnership("Recovered outcome disappeared after claiming")
+        # Validate against the originally assigned candidate, not today's head.
+        original = replace(plan, item=replace(plan.item, head=source["assignment_sha"]))
+        try:
+            return settlement.reported_verdict(recovery, original, outcome, source, "recovered completion")
+        except MergeNotRecovered as exc:
+            return "retry", str(exc), "unchanged"
+        except ValidationError as exc:
+            effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
+            return "blocked", f"Recorded outcome cannot be recovered: {exc}", effect
 
     def _end_poll(self):
         self.before_claim()

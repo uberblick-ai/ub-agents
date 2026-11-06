@@ -13,7 +13,7 @@ from .errors import AgentError, ExecutionStopped, GitHubError, LostOwnership, Re
 from .finalization import FinalizationReads
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
-from .own_merge import own_merge_head, unfinished_merge
+from .own_merge import own_merge_head, recover_own_merge, unfinished_merge
 from .records import (MARKER, attempt_effect, attempts, backoff, body, display_provenance, exhausted_rounds,
                       iso, issue_branch, latest_leases, lease_by_id, lease_summary, live_leases,
                       outcome_declarations, outcome_rounds, payload, records, recovers, report_asks,
@@ -202,8 +202,10 @@ class Coordinator:
         if owners:
             owner = owners[0]
             state, reason = "owned", "An unexpired assignment owns this work item"
-        elif self.pending_completion(history, agent.name, now, item=item):
-            state, reason = "recover", "An expired run needs completion settlement without reexecution"
+        elif completion := self.pending_completion(history, agent.name, now, item=item):
+            state = "recover"
+            reason = ("An expired run needs post-merge settlement without reexecution" if completion.get("own_merge_head")
+                      else "An expired run has an explicit outcome to validate without reexecution")
         elif latest and latest[-1].get("cleanup") == "unconfirmed":
             state, reason = "blocked", "Previous cleanup was unconfirmed; establish termination before an operator reset"
         elif (owner := self.shared_branch_owner(item, agent, history)) is not None:
@@ -371,10 +373,9 @@ class Coordinator:
                    and seconds(source["created"]) <= seconds(r["created"]) <= seconds(source["expires"])]
         if len(matches) > 1:
             raise RecordError("Expired run reported conflicting outcomes; inspect GitHub before resetting")
-        if not source.get("own_merge_head") and item is not None:
-            head = own_merge_head(source, item, self.github)
-            if head:
-                source = source | {"own_merge_head": head}
+        if matches and "merge" in matches[0].get("transition", {}):
+            return source  # Launcher-performed merges keep their own recovery contract.
+        source = recover_own_merge(source, lease, item, self.github)
         return source if matches or source.get("own_merge_head") else None
 
     def shared_branch_owner(self, item, agent, history):
@@ -697,8 +698,8 @@ class Coordinator:
                     return False
                 updated = payload(current) | changes | {"expires": iso(max(seconds(current["expires"]), now + self.lease_seconds))}
                 result = records([github.update_comment(lease["id"], body(updated))])[0]
-                # Only expiry belongs to renewal. Workspace preparation may have
-                # a branch staged locally while a Git command is in progress.
+                # Preserve main-thread fields; only expiry and this observed
+                # merge belong to renewal.
                 lease["expires"] = result["expires"]
                 lease.update(changes)
                 self._renewal_failures.pop(lease["id"], None)

@@ -263,7 +263,7 @@ PR's `merged_by` must match the lease actor, ignoring case, and its merged head
 must be the assigned head or a chain of two-parent base merges whose first parents
 lead back to that head. A same-account merge of another head does not qualify.
 The launcher records the merged head as `own_merge_head` on the lease before
-cleanup, with action still needed until a report settles successfully. Renewal
+cleanup, so an unfinished run retains its need for action. Renewal
 and completion can observe the merge; expiry recovery also checks for a merge
 that happened before the launcher could record it. Lease expiry, ownership checks
 and the agent timeout continue to bound execution. A stop label still cancels

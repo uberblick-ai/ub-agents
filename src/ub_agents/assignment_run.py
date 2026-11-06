@@ -206,22 +206,23 @@ class AssignmentRun:
             result, effect = "retry", "unchanged"
             summary = self.usage_output.summary
             self.completing = False  # This supervision verdict supersedes an early report.
-        if lease.get("own_merge_head") and result != "success":
-            result, summary, effect = "blocked", unfinished_merge(summary), "unchanged"
         loop.github.begin_finalization()
         if self.outcome is None:
             # A report can precede a timeout/interruption. Keep that report
             # unaccepted and persist the supervisor's actual verdict on the lease.
             self.outcome = loop.coordinator.outcome(lease)
         if stopped:
+            if lease.get("own_merge_head"):
+                summary = unfinished_merge(summary)
             fields = usage_fields(diagnostics) | context_fields(diagnostics)
             if self.outcome is not None and fields:
                 loop.coordinator.update_outcome(lease, self.outcome, **fields)
             loop.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True,
                                      **usage_fields(diagnostics))
         else:
-            settlement.settle(plan, lease, lease["attempt"], result, summary, effect, self.outcome, diagnostics,
-                              completed=self.completing)
+            result, summary, effect = settlement.settle(
+                plan, lease, lease["attempt"], result, summary, effect, self.outcome, diagnostics,
+                completed=self.completing)
         loop.github.end_finalization()
         loop._renewal.close()
         self.diagnostic("released", result=result, summary=summary,

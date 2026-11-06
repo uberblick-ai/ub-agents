@@ -53,6 +53,7 @@ class Settlement:
                                  parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts,
                                  unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers,
                                  **usage_fields(diagnostics or {}))
+        return result, summary, effect
 
     def finalize(self, lease, plan, outcome, what, *, deadline=None):
         """Validate a success report, apply its transition and accept it.
