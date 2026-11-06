@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 from ub_agents.cli import main
 from ub_agents.cli.launch_errors import launch_error_message
 from ub_agents.errors import AgentError, GitHubError
+from ub_agents.github_auth import AuthenticationRetry
 from ub_agents.loop import Loop, _GracefulStop
 from tests.support import FakeGitHub, MemoryPublisher, config, isolate_runtime_state
 
@@ -194,6 +195,41 @@ class LaunchSetupTests(unittest.TestCase):
                 self.checks.assert_called_once()
                 wait.assert_not_called()
                 self.assert_no_work()
+
+    def test_continuous_failures_exit_one_after_two_hours_in_setup_and_polling(self):
+        self.github.auth_retry = AuthenticationRetry()
+        for stage in ("setup", "poll"):
+            for status in (None, 503, 401):
+                with self.subTest(stage=stage, status=status):
+                    first = GitHubError("GET", "repos/org/project", "First failure", retryable=True, status=status)
+                    last = GitHubError("GET", "repos/org/project/issues/12/comments", "Last failure\nextra detail",
+                                       retryable=status != 401, status=status, response_message="Last failure")
+                    self.github.failures.succeeded()
+                    self.checks.side_effect = [first, last] if stage == "setup" else None
+                    self.poll.side_effect = [first, last]
+                    self.stderr.seek(0)
+                    self.stderr.truncate()
+                    delays = []
+
+                    def wait(loop, event, delay, reason):
+                        delays.append(delay)
+                        clock.return_value = 7198 if len(delays) == 1 else clock.return_value + delay
+
+                    with patch("ub_agents.github_failures.monotonic", return_value=0) as clock, \
+                            patch.object(Loop, "wait", autospec=True, side_effect=wait):
+                        # Poll errors have already been classified by continuous authentication handling.
+                        if stage == "poll":
+                            last.retryable = True
+                        self.assertEqual(main(self.argv), 1)
+                    self.assertEqual(delays, [60 if stage == "poll" and status == 401 else 5, 2])
+                    self.assertEqual(clock.return_value, 7200)
+                    message = self.stderr.getvalue()
+                    self.assertIn("giving up after 2h of retrying", message)
+                    self.assertIn("Check the network and `gh auth status`, then restart ub-agents launch.", message)
+                    self.assertTrue(message.endswith("Last failure\n"), message)
+                    self.assertEqual(len(message.splitlines()), 1)
+                    self.view.close.assert_called()
+                    self.assertTrue(self.publisher.snapshots[-1]["ended"])
 
     def test_signals_interrupt_slow_setup_subprocess_without_work(self):
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):

@@ -65,8 +65,10 @@ class StartupCleanup:
         # caches and rate-limit state. Recording fakes share their durable store.
         if isinstance(github, GitHub):
             auth_retry = github.auth_retry
+            failures = github.failures
             github = GitHub(github.repository, github.runner, before_request=self.control.checkpoint)
             github.auth_retry = auth_retry
+            github.failures = failures
         self.config, self.github, self.actor, self.session = config, github, actor, session
         self.thread = threading.Thread(target=sweep, name="startup-cleanup", daemon=True,
                                        args=(config, github, actor),

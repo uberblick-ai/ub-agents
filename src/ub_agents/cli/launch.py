@@ -70,11 +70,18 @@ def check_launch_setup(config, github, loop, *, interrupt, once=False):
                 launch_checks(config, github)
             except GitHubError as exc:
                 loop.before_claim()
-                if once or not exc.retryable:
+                if once or not (exc.retryable or exc.status == 401):
                     raise
+                if exc.rate_limited:
+                    loop.wait_rate_limit(exc)
+                    continue
+                github.failures.failed(exc)
+                remaining = github.failures.remaining()
                 detail = " ".join(str(exc).split())
                 loop.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
-                loop.wait(loop.stop_event, delay, "setup retry")
+                loop.wait(loop.stop_event, min(delay, remaining), "setup retry")
+                loop.before_claim()
+                github.failures.remaining()
                 delay = min(POLL_RETRY_MAX_SECONDS, delay * 2)
             else:
                 loop.before_claim()

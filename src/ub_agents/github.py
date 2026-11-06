@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .errors import AgentError, GitHubError
 from .github_auth import AuthenticationRetry
+from .github_failures import GitHubFailures
 from .github_http import REQUEST_TIMEOUT_SECONDS, Transport, interruptible_request, token
 from .records import iso, positive_int, seconds, timestamp
 
@@ -337,6 +338,7 @@ class GitHub:
         self.runner = runner
         self.before_request = before_request
         self.auth_retry = AuthenticationRetry()
+        self.failures = GitHubFailures()
         self._http = Transport()
         self.repository = repository
         self.prefix = f"repos/{repository}"
@@ -542,6 +544,7 @@ class GitHub:
         # gh exits 1 for a 304 and writes "gh: HTTP 304" to stderr. The
         # server's freshness confirmation takes precedence over that exit code.
         if status == 304:
+            self.failures.succeeded()
             return status, headers, payload
         if status is not None and 300 <= status < 400:
             error = GitHubError(method, endpoint, f"Unexpected GitHub redirect (HTTP {status}); "
@@ -566,6 +569,7 @@ class GitHub:
             error.response_output = result.stdout + "\n" + result.stderr
             error.probe_reason = f"exit {result.returncode}"
             raise error
+        self.failures.succeeded()
         return status, headers, payload
 
     def actor(self):

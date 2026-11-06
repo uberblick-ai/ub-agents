@@ -52,6 +52,14 @@ class RecordError(AgentError):
     """A trusted item's coordination record is malformed or contradictory."""
 
 
+class GitHubRetryExhausted(AgentError):
+    """Continuous launch exhausted its connection-failure budget."""
+
+    def __init__(self, error):
+        super().__init__("Encountered GitHub connection issues, giving up after 2h of retrying")
+        self.error = error
+
+
 class ValidationError(AgentError):
     """Observed GitHub state fails the assignment's acceptance contract."""
 

@@ -340,7 +340,8 @@ class Loop:
         until, remaining = now + delay, delay
         # Publish the actual reset once, and reject forced planning polls even
         # between the ownership checks that split an owned run's wait.
-        with self.poll_now.rate_limit(until) if self.poll_now is not None else nullcontext():
+        with self.github.failures.pause(), (self.poll_now.rate_limit(until)
+                                           if self.poll_now is not None else nullcontext()):
             if lease is None:
                 self.wait(event, delay, "rate-limit reset")
                 if self.interrupt_event.is_set():
@@ -1066,6 +1067,11 @@ class Loop:
         if not isinstance(exc, GitHubError) or not exc.retryable:
             raise AgentError(f"{detail}; ub-agents does not retry this error. "
                              "Fix the cause and restart ub-agents launch.") from exc
+        if exc.rate_limited:
+            self.wait_rate_limit(exc)
+            return retry_delay
+        self.github.failures.failed(exc)
+        remaining = self.github.failures.remaining()
         if exc.status == 401:
             delay, message = self.github.auth_retry.poll_failure()
             self.output(f"Skipped GitHub poll: {message}")
@@ -1073,8 +1079,10 @@ class Loop:
             delay = retry_delay
             retry_delay = min(POLL_RETRY_MAX_SECONDS, retry_delay * 2)
             self.output(f"Skipped GitHub poll: {detail}; retrying in {delay:g}s")
-        delay = self.usage.bound_wait(delay)
+        delay = min(remaining, self.usage.bound_wait(delay))
         self.wait(self.stop_event, delay, "poll retry or runtime pause")
+        if not self.stop_event.is_set():
+            self.github.failures.remaining()
         return retry_delay
 
     def launch(self, once=False, number=None, agent_name=None):
@@ -1164,7 +1172,8 @@ class Loop:
                 delay = max(0, until - self.coordinator.clock()) if until is not None else 0
                 if delay:
                     self.output(f"GitHub rate limit reached; waiting until {iso(until)} ({delay / 60:g} min)")
-                    with self.poll_now.rate_limit(until) if self.poll_now is not None else nullcontext():
+                    with self.github.failures.pause(), (self.poll_now.rate_limit(until)
+                                                       if self.poll_now is not None else nullcontext()):
                         self.wait(self.stop_event, delay, "rate-limit reset")
                 continue
             elapsed = monotonic() - self._pass_started

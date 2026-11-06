@@ -5,7 +5,7 @@ import sys
 
 from ..config import DEFAULT_CONFIG
 from ..errors import (AgentError, CheckoutRefreshError, CleanupError, ConfigurationError,
-                      GitHubError, InstructionError, LostOwnership, RecordError,
+                      GitHubError, GitHubRetryExhausted, InstructionError, LostOwnership, RecordError,
                       RetryableExecutionError, RuntimePaused)
 from ..logs.launch_log import launch_output
 
@@ -67,6 +67,8 @@ def _agent_recovery(error, root):
 
 
 def _recovery(error, root):
+    if isinstance(error, GitHubRetryExhausted):
+        return (str(error), "Check the network and `gh auth status`, then restart ub-agents launch")
     if isinstance(error, CheckoutRefreshError):
         return ("The control checkout could not be refreshed",
                 error.next_step or f"Run git status in {root} and repair the checkout, then launch again")
@@ -89,6 +91,8 @@ def _recovery(error, root):
 
 
 def _error_detail(error):
+    if isinstance(error, GitHubRetryExhausted):
+        return _github_detail(error.error)
     if isinstance(error, GitHubError):
         return _github_detail(error)
     if isinstance(error, AgentError):
@@ -102,7 +106,7 @@ def launch_error_message(exc, root, *, restart=False):
     errors = _chain(exc)
     # Wrappers must not replace a cleanup remedy or a failed request's metadata.
     kinds = (CheckoutRefreshError, CleanupError, InstructionError, ConfigurationError,
-             RecordError, LostOwnership, GitHubError, RetryableExecutionError, RuntimePaused)
+             RecordError, LostOwnership, GitHubRetryExhausted, GitHubError, RetryableExecutionError, RuntimePaused)
     error = next((error for kind in kinds for error in errors if isinstance(error, kind)), exc)
     problem, action = _recovery(error, root)
     if restart:

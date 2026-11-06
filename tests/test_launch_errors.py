@@ -220,6 +220,29 @@ class LaunchErrorTests(unittest.TestCase):
         self.assertTrue(message.endswith("GET user: HTTP 401 Bad credentials"), message)
         self.assertEqual(message.count("gh auth status"), 1)
 
+    def test_exhausted_github_retries_keep_one_exit_line_and_full_last_error_in_log(self):
+        stdout = 'HTTP/2 401 Unauthorized\n\n{"message":"Bad credentials"}'
+        stderr = 'gh: Bad credentials (HTTP 401)\nExtra advice\nRepeated failure'
+        github = GitHub("acme/app", runner=Mock(return_value=subprocess.CompletedProcess([], 1, stdout, stderr)))
+
+        def fail():
+            try:
+                github.request("repos/acme/app/issues/12/comments")
+            except GitHubError as exc:
+                github.failures.failed(exc)
+            clock.return_value = 7200
+            github.failures.remaining()
+
+        with patch("ub_agents.github_failures.monotonic", return_value=0) as clock:
+            message = self.invoke(fail)
+        self.assertEqual(message, "ub-agents: Encountered GitHub connection issues, giving up after 2h of retrying. "
+                         "Check the network and `gh auth status`, then restart ub-agents launch. "
+                         "Here is the error: GET repos/acme/app/issues/12/comments: HTTP 401 Bad credentials\n")
+        log = (self.root / ".ub-agents/launch.log").read_text()
+        for line in (stdout + "\n" + stderr).splitlines():
+            self.assertIn(line, log)
+        self.assertTrue(log.endswith(message))
+
     def test_network_failures_drop_the_repeated_request_address(self):
         error = GitHubError("POST", "graphql", 'gh: Post "https://api.github.com/graphql": '
                             'dial tcp: lookup api.github.com: no such host\nExtra gh text', retryable=True)

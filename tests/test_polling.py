@@ -13,12 +13,14 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
-from ub_agents.errors import AgentError, CleanupError, GitHubError, LostOwnership, RecordError
+from ub_agents.errors import AgentError, CleanupError, GitHubError, GitHubRetryExhausted, LostOwnership, RecordError
 from ub_agents.execution import group_members, supervise
 from ub_agents.github import GitHub
+from ub_agents.github_failures import GITHUB_FAILURE_LIMIT_SECONDS
 from ub_agents.loop import Loop, POLL_RETRY_BASE_SECONDS, POLL_RETRY_MAX_SECONDS
 from ub_agents.records import attempts, iso, timestamp
 from ub_agents.signals import SignalEvent
+from ub_agents.run_planning import RunPlanning
 from tests.support import stub_refresh, PollGitHub, RecordingRunner, agent, config, issue, pr
 from tests.test_etags import SequenceRunner, response
 
@@ -111,7 +113,7 @@ class PollingTests(unittest.TestCase):
                 self.assertTrue(self.lines[0].startswith("Discovery pass empty:"))
                 self.assertTrue(self.lines[1].startswith("Skipped"))
 
-    def test_transport_failures_retry_indefinitely_with_capped_delays_then_resume(self):
+    def test_transport_failures_retry_with_capped_delays_then_resume(self):
         failure = self.request_error(subprocess.CompletedProcess(
             [], 1, "", "error connecting to api.github.com\n"
             "check your internet connection or https://githubstatus.com"))
@@ -151,7 +153,7 @@ class PollingTests(unittest.TestCase):
         self.assertEqual(self.lines.count("No open issue or PR has a trigger label (ready, needs-changes); "
                                           "add one to start; next poll in 1s (0 requests last poll)"), 1)
 
-    def test_continuous_401_polls_back_off_indefinitely_and_any_success_resets(self):
+    def test_continuous_401_polls_back_off_and_any_success_resets(self):
         replies = SequenceRunner(*[response(401)] * 28, response(payload={}), *[response(401)] * 4)
         github = GitHub('org/project', replies)
         self.loop.github.github = github
@@ -201,8 +203,60 @@ class PollingTests(unittest.TestCase):
             self.loop.launch()
         self.assertEqual(delays, [60, 5, 120, 10, 240])
 
+    def test_successful_background_request_resets_two_hour_failure_budget_including_304(self):
+        for status in (200, 304):
+            with self.subTest(status=status):
+                github = GitHub('org/project', SequenceRunner(response(500), response(500), response(500)))
+                github._etag_cache['user'] = ('"known"', '{"login":"operator"}')
+                self.loop.github.github = github
+                worker = RunPlanning(self.loop, 0)
+                background = worker.planner.github.github.github
+                background.runner = SequenceRunner(response(status, payload={'login': 'operator'}))
+                delays = []
+
+                def tick():
+                    if len(delays) == 1:
+                        self.assertEqual(background.actor(), 'operator')
+                    github.request('failing-request')
+
+                def wait(delay):
+                    delays.append(delay)
+                    clock.return_value = [7199, 7201, 14399][len(delays) - 1]
+
+                with patch('ub_agents.github_failures.monotonic', return_value=0) as clock, \
+                        patch.object(self.loop, 'tick', side_effect=tick), \
+                        patch.object(self.loop.stop_event, 'wait', side_effect=wait), \
+                        self.assertRaises(GitHubRetryExhausted):
+                    self.loop.launch()
+                self.assertEqual(delays, [5, 10, 20])
+                self.assertEqual(clock.return_value, 14399)
+                worker.cancel()
+
+    def test_rate_limit_wait_does_not_spend_two_hour_failure_budget(self):
+        failure = self.http_error()
+        delays = []
+
+        def tick():
+            if len(delays) == 1:
+                self.loop.wait_rate_limit(GitHubError('GET', 'items', 'rate limit', rate_limited=True,
+                                                     reset_at=self.loop.coordinator.clock() + 3600))
+            raise failure
+
+        def wait(delay):
+            delays.append(delay)
+            clock.return_value = 7100 if len(delays) == 1 else clock.return_value + delay
+
+        with patch('ub_agents.github_failures.monotonic', return_value=0) as clock, \
+                patch.object(self.loop.coordinator, 'clock', side_effect=lambda: 1000 + clock.return_value), \
+                patch.object(self.loop, 'tick', side_effect=tick), \
+                patch.object(self.loop.stop_event, 'wait', side_effect=wait), \
+                self.assertRaises(GitHubRetryExhausted):
+            self.loop.launch()
+        self.assertEqual(delays, [5, 3600, 10, 20, 40, 30])
+        self.assertEqual(clock.return_value, 10800)
+
     def test_401_setup_once_and_numbered_launch_keep_stopping(self):
-        cases = [(False, ['launch']), (False, ['launch', '--once']), (False, ['launch', '1']),
+        cases = [(False, ['launch', '--once']), (False, ['launch', '1']),
                  (True, ['launch', '--once']), (True, ['launch', '1'])]
         for setup_passed, argv in cases:
             with self.subTest(setup_passed=setup_passed, argv=argv):
@@ -990,4 +1044,4 @@ class PollingTests(unittest.TestCase):
         docs = (Path(__file__).resolve().parents[1] / "docs/polling.md").read_text()
         self.assertIn(f"**{POLL_RETRY_BASE_SECONDS} seconds**", docs)
         self.assertIn(f"**{POLL_RETRY_MAX_SECONDS} seconds**", docs)
-        self.assertIn("without a retry limit", docs)
+        self.assertIn(f"**{GITHUB_FAILURE_LIMIT_SECONDS // 3600} hours**", docs)
