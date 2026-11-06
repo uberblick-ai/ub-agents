@@ -73,11 +73,15 @@ nothing, so writes are safe to replay. If the token lookup fails or prints
 nothing, requests use `gh api --include`. Setup and doctor keep using `gh`, as do
 non-request commands such as `gh pr merge`.
 
-Each thread has its own connection. A transport failure discards that connection;
-REST `GET` requests that fail before a response retry up to three times on fresh
-connections, after waits of **1, 2 and 4 seconds**. Each retry logs the method,
-endpoint and attempt to `launch.log`. Writes, GraphQL and the `gh api` fallback
-are not replayed for transport failures. HTTP 401 has the separate policy above.
+Each thread has its own connection. A transport failure discards that connection.
+Over direct HTTPS, REST `GET` requests and GraphQL `query` documents retry when
+no response arrives or GitHub answers **500, 502, 503 or 504**. They share a limit
+of **four attempts**, even when these failures mix, with fresh connections after
+waits of **1, 2 and 4 seconds**. Each retry logs the method, endpoint and attempt
+to `launch.log`. Writes, including GraphQL mutations, and the `gh api` fallback
+are not replayed for these failures. Other HTTP 4xx responses and GraphQL `200`
+responses containing `errors` do not retry in place. Rate limits keep their reset
+waits below; HTTP 401 has the separate policy above.
 Planning and startup cleanup check cancellation before every request, including
 connection retries, refetches and authentication retries. Requests have a
 **20-second** timeout; Ctrl-C interrupts requests and retry waits.

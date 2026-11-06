@@ -170,6 +170,15 @@ def failure_retry(status, headers, detail):
     return status is None or bool(transport), None
 
 
+def is_graphql_query(data):
+    document = data.get("query") if isinstance(data, dict) else None
+    if not isinstance(document, str):
+        return False
+    operation = re.match(r"(?:[\s,\ufeff]|#[^\r\n]*)*(?:query\b(?:\s+([_A-Za-z][_0-9A-Za-z]*))?|\{)", document)
+    # An operation name must select this query, never a later mutation.
+    return operation is not None and (data.get("operationName") is None or data["operationName"] == operation[1])
+
+
 @dataclass(frozen=True)
 class Item:
     number: int
@@ -451,15 +460,13 @@ class GitHub:
             command = command + ["-H", f"If-None-Match: {cached[0]}"]
         rest = urlsplit(endpoint).path.rstrip("/") not in {"graphql", "/graphql"}
         if credential is not None:
-            status, headers, payload, detail = self._http_response(endpoint, method, data, cached, credential, rest)
-            result = subprocess.CompletedProcess([], int(status >= 400 or bool(detail)), payload, detail)
-        else:
-            self._begin_request(rest)
-            result = self._gh_response(command, endpoint, method, data)
-            try:
-                status, headers, payload = response_parts(result.stdout)
-            except ValueError as exc:
-                raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
+            return self._http_response(endpoint, method, data, cached, credential, rest)
+        self._begin_request(rest)
+        result = self._gh_response(command, endpoint, method, data)
+        try:
+            status, headers, payload = response_parts(result.stdout)
+        except ValueError as exc:
+            raise GitHubError(method, endpoint, f"Unreadable GitHub response: {exc}") from exc
         self._record_response_quota(status, headers, result, rest)
         return status, headers, payload, result
 
@@ -473,15 +480,22 @@ class GitHub:
             self.graphql_calls += 1
 
     def _http_response(self, endpoint, method, data, cached, credential, rest):
+        read = method == "GET" if rest else method == "POST" and is_graphql_query(data)
         for attempt in range(4):
             self._begin_request(rest)
             try:
-                return self._http.send(endpoint, method, data, cached, credential)
+                status, headers, payload, detail = self._http.send(endpoint, method, data, cached, credential)
             except GitHubError as exc:
                 # Only transport failures before a response raise here. Replaying
                 # writes could duplicate a request that GitHub already applied.
-                if not (rest and method == "GET" and exc.retryable and attempt < 3):
+                if not (read and exc.retryable and attempt < 3):
                     raise
+            else:
+                result = subprocess.CompletedProcess([], int(status >= 400 or bool(detail)), payload, detail)
+                self._record_response_quota(status, headers, result, rest)
+                if not (read and status in {500, 502, 503, 504} and attempt < 3):
+                    return status, headers, payload, result
+                self._http.close()
             self._retry_wait(endpoint, method, attempt)
 
     def _retry_wait(self, endpoint, method, attempt):

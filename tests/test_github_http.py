@@ -145,6 +145,66 @@ class GitHubHTTPTests(unittest.TestCase):
         self.assertEqual(raised.exception.probe_reason, 'connection failed')
         self.assertNotIn('sentinel-credential', ''.join(traceback.format_exception(raised.exception)))
 
+    def test_get_server_errors_retry_on_a_fresh_connection_and_count_each_response(self):
+        for status in (500, 502, 503, 504):
+            with self.subTest(status=status):
+                self.sleep.reset_mock()
+                first = Connection(Reply(status, headers=[('X-RateLimit-Remaining', '100')]))
+                second = Connection(Reply(payload={'login': 'operator'},
+                                          headers=[('X-RateLimit-Remaining', '99')]))
+                self.connect.side_effect = [first, second]
+                github = GitHub('org/project')
+                with redirect_stderr(io.StringIO()):
+                    self.assertEqual(github.actor(), 'operator')
+                self.assertTrue(first.closed)
+                self.assertFalse(second.closed)
+                self.assertEqual([len(c.calls) for c in (first, second)], [1, 1])
+                self.assertEqual((github.gh_calls, github.rest_requests, github.quota_requests), (2, 2, 2))
+                self.assertEqual(github.quota_headers['x-ratelimit-remaining'], '99')
+                self.sleep.assert_called_once_with(1)
+
+    def test_server_errors_and_no_response_share_four_attempt_budget(self):
+        cases = [([Reply(503) for _ in range(4)], 4, 503),
+                 ([OSError(), Reply(502), OSError(), Reply(503)], 2, 503),
+                 ([Reply(502), OSError(), Reply(503), OSError()], 2, None)]
+        for failures, quota, final_status in cases:
+            with self.subTest(final_status=final_status, quota=quota):
+                self.sleep.reset_mock()
+                connections = [Connection(failure) for failure in failures]
+                self.connect.side_effect = connections
+                github = GitHub('org/project')
+                output = io.StringIO()
+                with redirect_stderr(output), self.assertRaises(GitHubError) as raised:
+                    github.request('user')
+                self.assertEqual(raised.exception.status, final_status)
+                self.assertTrue(raised.exception.retryable)
+                self.assertEqual([len(c.calls) for c in connections], [1, 1, 1, 1])
+                self.assertTrue(all(c.closed for c in connections[:3]))
+                self.assertEqual((github.gh_calls, github.quota_requests), (4, quota))
+                self.assertEqual(self.sleep.call_args_list, [call(1), call(2), call(4)])
+                self.assertEqual(len(output.getvalue().splitlines()), 3)
+
+    def test_graphql_query_retries_connection_and_server_failures(self):
+        cases = [('graphql', {'query': '\n query Viewer { viewer { login } }', 'variables': {}}),
+                 ('https://api.github.com/graphql', {'query': '{ viewer { login } }'}),
+                 ('graphql', {'query': '# Read the viewer\nquery Viewer { viewer { login } }',
+                              'operationName': 'Viewer'})]
+        for endpoint, data in cases:
+            for failure in (OSError('connection failed'), Reply(502)):
+                with self.subTest(endpoint=endpoint, failure=type(failure)):
+                    self.sleep.reset_mock()
+                    first = Connection(failure)
+                    second = Connection(Reply(payload={'data': {'viewer': {'login': 'operator'}}}))
+                    self.connect.side_effect = [first, second]
+                    github = GitHub('org/project')
+                    with redirect_stderr(io.StringIO()):
+                        result = github.request(endpoint, 'POST', data)
+                    self.assertEqual(result['data']['viewer']['login'], 'operator')
+                    self.assertTrue(first.closed)
+                    self.assertEqual([len(c.calls) for c in (first, second)], [1, 1])
+                    self.assertEqual((github.gh_calls, github.graphql_calls, github.rest_requests), (2, 2, 0))
+                    self.sleep.assert_called_once_with(1)
+
     def test_writes_and_graphql_connection_failures_are_not_replayed(self):
         cases = [('resource', method) for method in ('POST', 'PATCH', 'PUT', 'DELETE')]
         cases += [('graphql', 'POST'), ('https://api.github.com/graphql', 'GET')]
@@ -155,6 +215,30 @@ class GitHubHTTPTests(unittest.TestCase):
                     GitHub('org/project').request(endpoint, method)
                 self.assertEqual(len(connection.calls), 1)
                 self.assertTrue(connection.closed)
+        self.sleep.assert_not_called()
+
+    def test_writes_and_graphql_mutations_do_not_replay_server_errors(self):
+        cases = [('resource', method, {'body': 'write'}) for method in ('POST', 'PATCH', 'PUT', 'DELETE')]
+        cases += [('graphql', 'POST', {'query': 'mutation { addDiscussionComment(input:{}) { clientMutationId } }'}),
+                  ('https://api.github.com/graphql', 'POST', {'query': '\n mutation Update { minimizeComment(input:{}) { clientMutationId } }'}),
+                  ('graphql', 'POST', {'query': 'query Read { viewer { login } } mutation Write { createDiscussion(input:{}) { clientMutationId } }',
+                                       'operationName': 'Write'})]
+        for endpoint, method, data in cases:
+            for failure in (Reply(502), OSError('connection failed')):
+                with self.subTest(endpoint=endpoint, method=method, failure=type(failure)):
+                    connection = self.connection(failure)
+                    github = GitHub('org/project')
+                    with self.assertRaises(GitHubError):
+                        github.request(endpoint, method, data)
+                    self.assertEqual(len(connection.calls), 1)
+                    self.assertEqual(github.gh_calls, 1)
+        self.sleep.assert_not_called()
+
+    def test_graphql_errors_in_successful_response_fail_without_retry(self):
+        connection = self.connection(Reply(payload={'errors': [{'message': 'Unavailable'}]}))
+        with self.assertRaisesRegex(GitHubError, 'Unreadable GraphQL response'):
+            GitHub('org/project').graphql('query { viewer { login } }', {})
+        self.assertEqual(len(connection.calls), 1)
         self.sleep.assert_not_called()
 
     def test_get_failure_in_gh_fallback_is_not_replayed(self):
@@ -355,7 +439,7 @@ class GitHubHTTPTests(unittest.TestCase):
             (403, [('X-RateLimit-Remaining', '0'), ('X-RateLimit-Reset', '4600')], '', True, True, 4605),
             (403, [('Retry-After', '12')], '', True, True, 1012),
             (429, [], 'secondary rate limit', True, True, 1060),
-            (500, [], 'server error', True, False, None),
+            (501, [], 'server error', True, False, None),
             (403, [], 'Resource not accessible', False, False, None),
             (404, [], 'not found', False, False, None),
             (422, [], 'invalid', False, False, None),
@@ -441,7 +525,7 @@ class GitHubHTTPTests(unittest.TestCase):
         self.assertIn('[redacted]', str(raised.exception))
 
     def test_truncated_body_keeps_status_and_quota_without_replaying(self):
-        for method, status, retryable in (('GET', 200, True), ('GET', 403, False), ('GET', 500, True),
+        for method, status, retryable in (('GET', 200, True), ('GET', 403, False), ('GET', 501, True),
                                           ('POST', 200, True), ('POST', 403, False), ('POST', 500, True)):
             with self.subTest(method=method, status=status):
                 reply = Reply(status, headers=[('X-RateLimit-Remaining', '100'),
@@ -587,7 +671,7 @@ class GitHubHTTPTests(unittest.TestCase):
                 self.assertEqual(len(connection.calls), 1)
                 self.assertEqual(github.gh_calls, 1)
 
-    def coordination_http(self, root, reject=None):
+    def coordination_http(self, root, reject=None, reject_status=401):
         runner = CoordinationRunner(root, True)
         runner.store = FakeGitHub(issue())
         own, connections = [], []
@@ -602,7 +686,7 @@ class GitHubHTTPTests(unittest.TestCase):
                            '-H', 'Accept: application/vnd.github+json', '--include', endpoint]
                 if 'If-None-Match' in sent['headers']:
                     command += ['-H', 'If-None-Match: ' + sent['headers']['If-None-Match']]
-                wire = (response(401) if reject is not None and reject(method, endpoint)
+                wire = (response(reject_status) if reject is not None and reject(method, endpoint)
                         else runner(command, input=sent['body'].decode() if sent['body'] is not None else None))
                 status, headers, payload = response_parts(wire.stdout)
                 own.append((endpoint == 'graphql', status))
@@ -699,6 +783,39 @@ class GitHubHTTPTests(unittest.TestCase):
                     self.assertNotIn('needs-review', runner.store.item(1).labels)
                 self.assertEqual(len(failures), failure_count)
                 self.assertEqual(sum(c.closed for c in connections), failure_count)
+
+    def test_finalization_retries_get_server_error_and_applies_transition(self):
+        stub_refresh(self)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            finished, failures = [], []
+
+            def reject(method, endpoint):
+                if (finished and not failures and method == 'GET'
+                        and urlsplit(endpoint).path == 'repos/org/project/issues/1/comments'):
+                    failures.append(endpoint)
+                    return True
+                return False
+
+            runner, github, own, connections = self.coordination_http(root, reject, reject_status=502)
+            role = agent(root, outcomes={'done': {'add': ('needs-review',), 'remove': ()}})
+            loop = Loop(config(root, role), github, 'operator', output=lambda line: None)
+
+            def execute(*args, **kwargs):
+                loop.coordinator.report(loop.github.lease, 'success', 'Finished', outcome='done')
+                finished.append(True)
+                return 0
+
+            with patch('ub_agents.assignment_run.supervise', side_effect=execute), \
+                    redirect_stderr(io.StringIO()):
+                self.assertTrue(loop.tick())
+            lease = records(runner.store.comments(1), 'operator')[0]
+            self.assertEqual(lease['result'], 'success')
+            self.assertIn('needs-review', runner.store.item(1).labels)
+            self.assertNotIn('ready', runner.store.item(1).labels)
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(sum(status == 502 for _, status in own), 1)
+            self.assertEqual(sum(c.closed for c in connections), 1)
 
     def test_http_requests_keep_pass_and_released_event_counter_names_and_values(self):
         stub_refresh(self)
