@@ -41,6 +41,7 @@ class MonitorTests(unittest.TestCase):
     def test_planner_uses_the_local_runtime_pause_and_recovers_after_it_ends(self):
         root, now = Path('/checkout'), [timestamp()]
         worker = agent(root, command=(), runtimes=(Runtime('claude', 'model', 'high'),))
+        self.enterContext(patch('ub_agents.updates.runtime_updates.RuntimeMaintenance.available', return_value=True))
         github = FakeGitHub(issue(1))
         source = MonitorSource(config(root, worker), github, Coordinator(github, None), lambda: now[0])
         with patch('ub_agents.monitor.eligible.runtime_pauses', return_value={'claude': now[0] + 100}):
