@@ -16,14 +16,43 @@ ub-agents monitor . ../studio --background
 
 Give any number of checkout folders or paths to their `ub-agents.yaml` files.
 Each checkout applies its own `ub-agents.local.yaml` overrides. With none, the
-monitor reads the current configuration as usual. You cannot combine checkouts
-with `--config`, or give two checkouts that configure the same repository. Every
+monitor can read a list saved in the current folder:
+
+```yaml
+# ~/Projects/Uberblick/ub-agents-monitor.yaml
+checkouts:
+  - uberblick-2
+  - ub-agents
+```
+
+Keep those checkouts next to the file, then run `ub-agents monitor` from
+`~/Projects/Uberblick`. The monitor watches them in the listed order. Paths are
+relative to the file, and `~` expands to your home folder. You can also list paths
+to the checkouts' `ub-agents.yaml` files. This folder needs no `ub-agents.yaml` of
+its own.
+
+The command chooses checkouts in this order:
+
+1. Checkouts on the command line, or `--config PATH`, skip the monitor file.
+2. Otherwise, `ub-agents-monitor.yaml` in the current folder wins, even when that
+   folder also has `ub-agents.yaml`. Parent folders are never searched.
+3. Without a monitor file, it uses the current folder's `ub-agents.yaml` as usual.
+
+The monitor file accepts only `checkouts`, a list of at least one path. An unknown
+key, a missing or empty list, or a non-path entry is an error naming the file.
+An entry whose checkout is missing or whose configuration is invalid stops the
+command at start, naming both the entry and the monitor file. The list and the
+checkouts' configurations are read once at start; restart to apply edits.
+
+You cannot combine checkouts with `--config`, or give two checkouts that configure
+the same repository. Every
 configuration must load before the monitor starts; an error names its checkout.
 
 It reads GitHub with your `gh` login, as the launcher does, so there's no token to
 paste. Ctrl-C stops it. With `--background` it keeps serving after the terminal
 closes: the command waits until the page answers, prints the process id, and
-`kill PID` stops it; its output goes to `.ub-agents/monitor.log` in the first checkout.
+`kill PID` stops it; its output goes to `.ub-agents/monitor.log` next to the monitor
+file when using that file, or in the first checkout otherwise.
 The background process receives absolute paths for every checkout's configuration.
 Running it again while it runs just opens the page.
 
