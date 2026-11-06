@@ -3,39 +3,22 @@
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
 import os
 from pathlib import Path
-import stat
 import time
 from typing import ClassVar
 
 from ..logs.log_format import CONTROLS, inert
 from ..attention import attention_state, stamp
-from ..observation_data import (ELIGIBLE_LIMIT, WORK_GROUPS, WorkRow, history_path, mapping,
+from ..observation_data import (ELIGIBLE_LIMIT, SNAPSHOT_BYTES, WORK_GROUPS, WorkRow, history_path, mapping, read_json,
                                omitted_plan, own_run, plan_group, rows, runtime_type, text,
                                work_rows as snapshot_rows)
 
-SNAPSHOT_BYTES = 64 * 1024
 CONTEXT_BYTES = 256 * 1024
 SESSION_LIMIT = 256
 DESCRIPTION_LIMIT = 2048
 POINTERS_LIMIT = 8192
 POINTERS_INCOMPLETE = 'Pointers section may be missing or incomplete because the snapshot description was shortened.'
-
-
-def read_json(path, limit=SNAPSHOT_BYTES):
-    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-    with os.fdopen(descriptor, 'rb') as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise ValueError('Not a regular file')
-        data = stream.read() if limit is None else stream.read(limit + 1)
-    if limit is not None and len(data) > limit:
-        raise ValueError(f'File exceeds {limit} bytes')
-    value = json.loads(data)
-    if not isinstance(value, dict):
-        raise ValueError('Expected a JSON object')
-    return value
 
 
 @dataclass(frozen=True)

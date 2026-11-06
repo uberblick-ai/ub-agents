@@ -13,8 +13,8 @@ def port_number(value):
 
 def arguments(commands):
     monitor = commands.add_parser("monitor", help="every launcher's runs in a browser, with notifications",
-                                  description="Serve a page on 127.0.0.1 that shows what needs a person, what runs now "
-                                  "and what ended in the last 24 hours, on every machine that runs a launcher for the "
+                                  description="Serve a page on 127.0.0.1 that shows what needs a person, what runs now, "
+                                  "what runs next and what ended in the last 24 hours, on every machine that runs a launcher for the "
                                   "repository. It reads GitHub with your gh login, polls every 30 seconds and can send "
                                   "browser notifications. It never changes anything on GitHub; Ctrl-C stops it.",
                                   examples=("ub-agents monitor", "ub-agents monitor --background",

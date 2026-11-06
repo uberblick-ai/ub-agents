@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  The ub-agents monitor: what needs a person, what runs now and what ended in
+  The ub-agents monitor: what needs a person, what runs now, what's next and what ended in
   the last 24 hours, on every machine that runs a launcher for the repository.
   `ub-agents monitor` serves it on 127.0.0.1 and computes /snapshot.json with
   the launcher's own record rules; this page only draws it and notifies.
@@ -24,6 +24,9 @@
         --accent: #b79cff;
         --success: #7ee2a0;
         --attention: #ff8b7f;
+        --priority-urgent: #e0524a;
+        --priority-high: #c98a86;
+        --priority-low: #86a891;
       }
       @media (prefers-color-scheme: light) {
         :root {
@@ -38,6 +41,9 @@
           --accent: #7a55d6;
           --success: #18804a;
           --attention: #c8382c;
+          --priority-urgent: #c8382c;
+          --priority-high: #844b45;
+          --priority-low: #1b5b3e;
         }
       }
       * { box-sizing: border-box; }
@@ -53,6 +59,10 @@
       .running { color: var(--running); }
       .success { color: var(--success); }
       .attention { color: var(--attention); }
+      .priority-urgent { color: var(--priority-urgent); }
+      .priority-high { color: var(--priority-high); }
+      .priority-medium { color: var(--muted); }
+      .priority-low { color: var(--priority-low); }
       /* A panel's title sits in its top border, as in the terminal view. */
       .panel {
         position: relative;
@@ -86,6 +96,15 @@
       .sub, .block { grid-column: 2 / -1; color: var(--muted); }
       .block { white-space: normal; max-width: 110ch; }
       .needs .row { grid-template-columns: 2ch minmax(0, 1fr) auto; }
+      .eligible-rows { max-height: 280px; overflow-y: auto; scrollbar-gutter: stable; }
+      .eligible-rows:focus-visible { outline: 1px solid var(--success); }
+      .eligible .row {
+        grid-template-columns: 2ch minmax(0, 1fr) auto;
+        grid-template-rows: 19.5px 19.5px;
+        height: 56px;
+        margin: 0;
+      }
+      .eligible .right { max-width: 40ch; }
       ul.block { margin: 6px 0 0; padding: 0; list-style: none; color: var(--foreground); }
       ul.block li::before { content: "→ "; color: var(--attention); }
       ol.block { margin: 2px 0 0; padding-left: 3ch; color: var(--foreground); }
@@ -247,6 +266,38 @@
                 run.state === "claiming" ? "claiming" : clock(run.started, "for"))))
             : el("div", { class: "muted" }, "Idle · nothing running on any machine"));
 
+      const eligibleState = (row) => {
+        const pauses = Object.entries(row.pauses).filter(([, end]) => time(end) > Date.now());
+        if (row.state !== "waiting" || !pauses.length) return row.state;
+        let minutes = Math.max(1, Math.ceil((Math.min(...pauses.map(([, end]) => time(end))) - Date.now()) / 60000));
+        let days = Math.floor(minutes / 1440);
+        let hours = Math.floor(minutes % 1440 / 60);
+        minutes %= 60;
+        if (days && hours && minutes) {
+          hours += 1;
+          days += Math.floor(hours / 24);
+          hours %= 24;
+          minutes = 0;
+        }
+        const remaining = [[days, "d"], [hours, "h"], [minutes, "m"]].filter(([n]) => n).map(([n, unit]) => `${n}${unit}`).join(" ");
+        return `${pauses.map(([cli]) => cli).join(", ")} paused ${remaining}`;
+      };
+      const eligiblePanel = (eligible) => {
+        const count = `${eligible.count}${eligible.count > eligible.rows.length ? ` · showing ${eligible.rows.length}` : ""}`;
+        const result = panel("Eligible", count, "eligible", eligible.rows.length
+          ? el("div", { class: "eligible-rows", id: "eligible-rows", tabindex: "0", "aria-label": "Eligible items" },
+              eligible.rows.map((row) => el("div", { class: "row" },
+                el("span", { class: row.glyph === "●" ? "success" : "muted" }, row.glyph),
+                itemLink(row.item),
+                el("div", { class: "cell right muted" }, eligibleState(row)),
+                el("div", { class: "sub cell" },
+                  row.agents.map((agent) => `${agent.name}${agent.failures ? ` · ${agent.failures}/${agent.max_attempts} failures` : ""}`).join(", "),
+                  row.priority ? [" · ", el("span", { class: `priority-${row.priority}` }, row.priority)] : null))))
+          : el("div", { class: "muted" }, "Nothing eligible"));
+        result.querySelector("h2").title = `Planned every ${eligible.interval_seconds / 60} minutes; last planned ${new Date(eligible.generated_at).toLocaleTimeString()}.`;
+        return result;
+      };
+
       const expiredPanel = (runs) =>
         runs.length
           ? panel("Expired without a result", runs.length, "attention-panel", [
@@ -287,13 +338,16 @@
         document.getElementById("repository").textContent = `· ${data.repository}`;
         document.title = data.needs_human.length ? `(${data.needs_human.length}) needs human · ub-agents`
           : data.running.length ? `${data.running.length} running · ub-agents` : "ub-agents";
+        const eligibleScroll = document.getElementById("eligible-rows")?.scrollTop ?? 0;
         app.replaceChildren(
           state.error ? el("div", { class: "banner" }, `Couldn't refresh: ${state.error}. Showing the last result.`) : "",
           ...data.notices.map((notice) => el("div", { class: "banner" }, notice)),
           needsPanel(data.needs_human, data.stop_labels),
           runningPanel(data.running),
+          eligiblePanel(data.eligible),
           expiredPanel(data.expired) ?? "",
           recentPanel(data.recent));
+        if (document.getElementById("eligible-rows")) document.getElementById("eligible-rows").scrollTop = eligibleScroll;
         renderPicker();
         tick();
       };
@@ -428,7 +482,7 @@
           rates.core ? [" · ", el("span", { class: "budget", title: [
             `${count(rates.core)} REST calls left until ${new Date(rates.core.reset * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}; every tool using this account draws from them.`,
             rates.graphql ? `GraphQL: ${count(rates.graphql)} left.` : "",
-            `This monitor: ${rates.counted} counted calls and ${rates.not_modified} free "not modified" answers.`,
+            `This monitor: ${rates.counted} counted REST calls, ${rates.graphql_calls} GraphQL calls and ${rates.not_modified} free "not modified" answers.`,
           ].join(" ") }, "GH API budget", el("span", { class: `bar${percent < 20 ? " low" : ""}` }, el("span", { style: `width: ${percent}%` })), `${percent}%`)] : "",
           " · ", notifyControl(),
           permission() !== "denied" ? [" · ", el("button", { class: "link", type: "button", onclick: () => { state.choosing = !state.choosing; renderPicker(); } }, `notify when (${chosen().length})`)] : "",
