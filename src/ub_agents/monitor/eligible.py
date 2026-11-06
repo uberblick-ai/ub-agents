@@ -55,7 +55,7 @@ class EligiblePlanning:
         return {'item': plan.item.number, 'kind': plan.item.kind, 'title': plan.item.title,
                 'agent': plan.agent.name, 'state': plan.state, 'reason': plan.reason,
                 'priority': plan.priority.rsplit(':', 1)[-1]
-                if priority.labels and plan.priority_labelled and plan.priority else None,
+                if priority.labels and plan.priority and plan.priority != priority.default else None,
                 'failures': plan.attempt - 1, 'max_attempts': plan.agent.max_attempts,
                 'paused_clis': list(plan.paused_clis)}
 

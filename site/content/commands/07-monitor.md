@@ -41,10 +41,13 @@ errors still print in the terminal or background log.
   rest. The heading counts all eligible items and says how many are shown when
   there are more than 20. Ready and recoverable work comes first, then backoff and
   waiting work. The first ready or recoverable item says **next**. Each row links
-  to its item and shows its agents, failures and any labelled priority, including
-  inherited priority. A configured default priority alone shows no word. Local
-  usage pauses show the runtime and time left. Claimed work, work needing a
-  person, and items waiting for blockers or the active milestone stay out.
+  to its item and shows its agents and failures. With `queue.priority` configured,
+  it shows the item's effective priority, including inherited priority, only when
+  it differs from `queue.priority.default`. With no default set, any effective
+  priority shows. Items with no effective priority show no word. Without
+  `queue.priority`, no priority word shows. Local usage pauses show the runtime
+  and time left. Claimed work, work needing a person, and items waiting for
+  blockers or the active milestone stay out.
 - **Expired without a result**: runs whose launcher stopped renewing them. The next
   launcher that picks the item up recovers it.
 - **Recent activity**: runs that ended in the last 24 hours, with result, machine,
