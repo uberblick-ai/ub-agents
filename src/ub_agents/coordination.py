@@ -43,7 +43,6 @@ class Plan:
     matches: AgentMatches | None = field(default=None, compare=False, repr=False)
     health_wait: bool = False
     paused_clis: tuple[str, ...] = ()
-    priority_labelled: bool = False
     # Display-only GitHub comment, never coordination input.
     attention_notice: dict | None = field(default=None, compare=False, repr=False)
 

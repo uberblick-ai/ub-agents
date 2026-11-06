@@ -19,14 +19,6 @@ from .records import attempts, display_provenance, latest_leases, lease_summary,
 COMMENT_RECOVERY_SECONDS = 7 * 24 * 60 * 60
 
 
-def labelled_priority(label, source, items, dependencies):
-    """Follow the planner's provenance through a PR's closing issue."""
-    if dependencies:
-        source = dependencies.priorities.get(source, (None, None))[1] or source
-    origin = items.get(source)
-    return origin is not None and label in origin.labels
-
-
 class QueuePlanner:
     def __init__(self, config, github, coordinator, approvals, *, health, usage, maintenance,
                  output, observe, observing, before_claim, reconcile_blocked_notices, targeted, claiming,
@@ -183,8 +175,6 @@ class QueuePlanner:
                         label, from_issue = inherited, number
             ranked.append(replace(plan, priority=label, priority_source=source,
                                   priority_from_issue=from_issue, milestone=milestone,
-                                  priority_labelled=labelled_priority(
-                                      label, source or from_issue or plan.item.number, items, dependencies),
                                   milestone_source=milestone_source,
                                   milestone_rank=milestone_ranks.get(milestone, len(milestones))))
         milestone_plans = [] if self.config.queue.milestones in {"gate", "strict-gate"} else None
@@ -220,7 +210,6 @@ class QueuePlanner:
                     continue
                 observed = replace(plan, priority=candidate.priority, priority_source=candidate.priority_source,
                               priority_from_issue=candidate.priority_from_issue, blockers=blockers,
-                              priority_labelled=candidate.priority_labelled,
                               milestone=candidate.milestone, milestone_source=candidate.milestone_source,
                               milestone_rank=candidate.milestone_rank)
                 yield observed

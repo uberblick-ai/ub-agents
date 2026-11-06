@@ -95,9 +95,10 @@ class MonitorTests(unittest.TestCase):
         [row] = source.snapshot()['eligible']['rows']
         self.assertEqual((row['item']['number'], row['priority']), (2, None))
 
-    def test_pr_priority_follows_the_label_through_its_closing_issue(self):
+    def test_pr_priority_uses_effective_inheritance_and_hides_the_default(self):
         for labels, default, expected in ((('priority:urgent',), 'priority:medium', 'urgent'),
-                                          (('priority:urgent',), 'priority:urgent', 'urgent'),
+                                          (('priority:urgent',), 'priority:urgent', None),
+                                          (('priority:urgent',), None, 'urgent'),
                                           ((), 'priority:urgent', None)):
             with self.subTest(labels=labels, default=default):
                 priority = Priority(('priority:urgent', 'priority:medium', 'priority:low'), default)
@@ -154,10 +155,10 @@ class MonitorTests(unittest.TestCase):
         planning = EligiblePlanning(cfg, github, Coordinator(github, None), lambda: now)
         planning.loop = Loop(cfg, planning.github, None, output=lambda *_: None)
         plans = [Plan(issue(1), first, None, 'backoff', '', 2),
-                 Plan(pr(2), first, None, 'recover', '', 1, priority='priority:high', priority_labelled=True),
-                 Plan(pr(2), second, None, 'ready', '', 1, priority='priority:high', priority_labelled=True),
+                 Plan(pr(2), first, None, 'recover', '', 1, priority='priority:high'),
+                 Plan(pr(2), second, None, 'ready', '', 1, priority='priority:high'),
                  Plan(issue(3, labels=('ready', 'priority:high')), first, None, 'ready', '', 1,
-                      priority='priority:high', priority_labelled=True),
+                      priority='priority:high'),
                  Plan(issue(4), first, None, 'waiting', '', 1, paused_clis=('claude',)),
                  Plan(issue(5), first, None, 'waiting', '', 1)]
         with patch.object(planning.loop, 'iter_plans', return_value=plans), \
@@ -171,21 +172,20 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(rows[2]['agents'][0]['failures'], 1)
         self.assertEqual(rows[3]['pauses'], {'claude': iso(now + 100800)})
 
-    def test_priority_is_shown_only_for_labels_with_priority_configured(self):
+    def test_priority_is_shown_only_when_effective_priority_differs_from_default(self):
         root = Path('/checkout')
-        worker = agent(root)
-        github = FakeGitHub()
-        plans = [Plan(issue(1), worker, None, 'ready', '', 1, priority='priority:medium'),
-                 Plan(issue(2, labels=('ready', 'priority:medium')), worker, None, 'ready', '', 1,
-                      priority='priority:medium', priority_labelled=True),
-                 Plan(issue(3), worker, None, 'ready', '', 1, priority='priority:high', priority_labelled=True)]
-        for priority, expected in ((Priority(), [None, None, None]),
-                                   (Priority(('priority:high', 'priority:medium'), 'priority:medium'), [None, 'medium', 'high'])):
-            cfg = config(root, worker, queue=Queue(priority=priority))
-            planning = EligiblePlanning(cfg, github, Coordinator(github, None), timestamp)
-            planning.loop = Loop(cfg, planning.github, None, output=lambda *_: None)
-            with patch.object(planning.loop, 'iter_plans', return_value=plans):
-                self.assertEqual([r['priority'] for r in planning.snapshot()['rows']], expected)
+        labels = ('priority:high', 'priority:medium', 'priority:low')
+        for priority, expected in ((Priority(), {1: None, 2: None, 3: None, 4: None}),
+                                   (Priority(labels, 'priority:medium'), {1: None, 2: None, 3: 'high', 4: 'low'}),
+                                   (Priority(labels), {1: None, 2: 'medium', 3: 'high', 4: 'low'})):
+            with self.subTest(priority=priority):
+                github = FakeGitHub(issue(1), issue(2, labels=('ready', 'priority:medium')),
+                                    issue(3, labels=('ready', 'priority:high')),
+                                    issue(4, labels=('ready', 'priority:low')))
+                source = MonitorSource(config(root, queue=Queue(priority=priority)),
+                                       github, Coordinator(github, None), timestamp)
+                rows = source.snapshot()['eligible']['rows']
+                self.assertEqual({row['item']['number']: row['priority'] for row in rows}, expected)
 
     def test_planning_interval_reuses_discovery_and_refreshes_after_changes(self):
         now = [timestamp()]
