@@ -5,7 +5,6 @@ from dataclasses import replace
 from io import BytesIO, StringIO
 import json
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -183,8 +182,11 @@ class MonitorTests(unittest.TestCase):
             'graphql': {'remaining': 501, 'limit': 1000, 'reset': 9000},
             'counted': 7, 'graphql_calls': 2, 'not_modified': 8})
 
-    @unittest.skipUnless(shutil.which('node'), 'Node.js is needed to run the browser script')
     def test_page_read_errors_partial_results_and_recovery(self):
+        try:
+            subprocess.run(['node', '--version'], check=True, capture_output=True, timeout=5)
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            self.skipTest('Node.js must be runnable to run the browser script')
         result = subprocess.run(['node', str(Path(__file__).with_name('monitor_page.cjs'))],
                                 input=page().decode(), text=True, capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

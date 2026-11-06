@@ -16,8 +16,10 @@ error. Bad: separate tests for every helper call used to build that same error.
 
 The monitor page behavior test runs its shipped JavaScript with Node.js and fake
 browser APIs. It checks read failures, partial results and recovery through the
-rendered page. Install Node.js to run it locally; the suite skips it when Node.js
-is unavailable. GitHub's hosted runners include Node.js.
+rendered page. Install Node.js to run it locally. The suite skips it when
+`node --version` cannot start, exits unsuccessfully or takes more than five
+seconds, including when a version-manager shim is present but cannot run Node.js.
+GitHub's hosted runners include Node.js and run the test.
 
 Run the [required checks](../../AGENTS.md#checks) before handoff; their scope and
 CI equivalents are in [Development checks](checks.md).
