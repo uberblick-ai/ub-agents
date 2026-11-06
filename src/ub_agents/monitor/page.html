@@ -92,7 +92,8 @@
         padding: 0 6px;
         background: var(--background);
       }
-      .machine-picker select {
+      .repository-picker { position: relative; display: inline-block; padding-right: 6px; max-width: 100%; }
+      .machine-picker select, .repository-picker select {
         appearance: none;
         max-width: 100%;
         padding: 0 2ch 0 0;
@@ -103,7 +104,7 @@
         text-overflow: ellipsis;
         cursor: pointer;
       }
-      .machine-picker > span { position: absolute; right: 6px; pointer-events: none; }
+      .machine-picker > span, .repository-picker > span { position: absolute; right: 6px; pointer-events: none; }
       .row {
         display: grid;
         grid-template-columns: 2ch minmax(0, 1fr) 16ch 22ch 12ch;
@@ -194,6 +195,7 @@
       const NOTIFY_KEY = "ub-agents-monitor.notify";
       const EVENTS_KEY = "ub-agents-monitor.notify-events-v2";
       const MACHINE_KEY = "ub-agents-monitor.machine";
+      const REPOSITORY_KEY = "ub-agents-monitor.repository";
       const EVENTS = [
         { id: "started", text: "a run starts" },
         { id: "ended", text: "a run ends" },
@@ -218,7 +220,9 @@
         try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* kept for this tab */ }
       };
       const keptMachine = stored(MACHINE_KEY, null);
+      const keptRepository = stored(REPOSITORY_KEY, null);
       const state = { data: null, error: null, loading: false, lastPoll: 0, seen: null, seenRepositories: new Set(), open: new Set(), choosing: false, testSentAt: 0,
+        repository: typeof keptRepository === "string" && keptRepository ? keptRepository : null,
         machine: typeof keptMachine === "string" && keptMachine ? keptMachine : null };
       const time = (stamp) => new Date(stamp).getTime();
 
@@ -235,18 +239,19 @@
           repositories: outcome.repositories.length === repositories.length ? null : outcome.repositories,
         }));
       };
-      const combine = (snapshot) => {
+      const combine = (snapshot, repository = null) => {
         const short = (repository) => repository.split("/").pop();
         const repositories = snapshot.repositories.map((source) => ({ ...source,
           name: snapshot.repositories.filter((other) => short(other.repository).toLowerCase() === short(source.repository).toLowerCase()).length > 1 ? source.repository : short(source.repository),
-        }));
+        })).filter((source) => repository === null || source.repository === repository);
         const rows = (key) => repositories.flatMap((source) => (source[key] ?? []).map((row) => ({ ...row,
           stop_outcomes: source.stop_outcomes ?? [],
           item: { ...row.item, repository: source.repository, repository_name: source.name, folder: source.folder },
         })));
         return { ...snapshot, repositories, multiple: repositories.length > 1,
           repository: repositories[0].repository, folder: repositories[0].folder,
-          stop_labels: [...new Set(repositories.flatMap((source) => source.stop_labels ?? []))],
+          stop_labels: repositories.some((source) => source.generated_at)
+            ? [...new Set(repositories.flatMap((source) => source.stop_labels ?? []))] : undefined,
           stop_outcomes: combinedOutcomes(repositories),
           needs_human: rows("needs_human"),
           running: rows("running").sort((a, b) => time(a.started) - time(b.started)),
@@ -289,7 +294,7 @@
       const clock = (stamp, format) => el("span", { "data-since": stamp, "data-format": format }, FORMATS[format](Date.now() - time(stamp)));
       const machine = (host) => host && host === state.data?.local_host ? "this machine" : host || "unknown machine";
       const ref = (item) => `${item.kind === "pr" ? "PR " : ""}#${item.number}`;
-      const itemLink = (item, showRepository = state.data?.multiple) => el("div", { class: "cell item" }, link(item.url, [showRepository ? `${item.repository_name} ` : "", el("span", { class: "ref" }, ref(item)), item.title || ""]));
+      const itemLink = (item, showRepository = state.data?.multiple && state.repository === null) => el("div", { class: "cell item" }, link(item.url, [showRepository ? `${item.repository_name} ` : "", el("span", { class: "ref" }, ref(item)), item.title || ""]));
       const panel = (title, count, classes, children) =>
         el("section", { class: `panel ${classes}` }, el("h2", {}, title, el("span", { class: "muted" }, ` · ${count}`)), children);
 
@@ -329,8 +334,18 @@
           last,
           el("div", { class: "sub" }, `attempt ${run.attempt} · ${run.runtime} · by ${run.actor}`));
 
-      const machinePicker = () => {
-        const { data } = state;
+      const repositoryPicker = () => el("span", { class: "repository-picker" },
+        el("select", { "aria-label": "Repository", onchange: (event) => {
+          state.repository = event.target.value || null;
+          store(REPOSITORY_KEY, state.repository);
+          render();
+          document.querySelector('.repository-picker select').focus();
+        } },
+          el("option", { value: "", selected: state.repository === null }, `All repositories (${state.data.repositories.length})`),
+          state.data.repositories.map((source) => el("option", { value: source.repository, selected: state.repository === source.repository }, source.name))),
+        el("span", { "aria-hidden": "true" }, "▾"));
+
+      const machinePicker = (data) => {
         const others = new Set([...data.running, ...data.recent].map((run) => run.host).filter(Boolean));
         if (state.machine) others.add(state.machine);
         others.delete(data.local_host);
@@ -347,14 +362,14 @@
           el("span", { "aria-hidden": "true" }, "▾"));
       };
 
-      const runningPanel = (runs) => {
+      const runningPanel = (runs, data) => {
         const shown = state.machine === null ? runs : runs.filter((run) => run.host === state.machine);
         const result = panel("Running", shown.length, shown.length ? "running-panel" : "",
           shown.length
             ? shown.map((run) => runRow(run, SPINNER[frame], "spinner", el("div", { class: "cell right running", title: run.renewed ? `renewed ${new Date(run.renewed).toLocaleTimeString()}` : null },
                 run.state === "claiming" ? "claiming" : clock(run.started, "for"))))
             : el("div", { class: "muted" }, `Idle · nothing running on ${state.machine === null ? "any machine" : machine(state.machine)}`));
-        result.append(machinePicker());
+        result.append(machinePicker(data));
         return result;
       };
 
@@ -433,13 +448,21 @@
 
       const render = () => {
         const app = document.getElementById("app");
-        const { data } = state;
+        // Notifications keep the complete snapshot; only drawing uses this view.
+        const data = state.data && (state.repository ? combine(state.data, state.repository) : state.data);
         if (!data) {
           app.replaceChildren(...(state.error ? [el("div", { class: "banner" }, `Couldn't read GitHub: ${state.error}`)] : [el("span", { class: "spinner" }, SPINNER[0]), "Reading coordination records…"]));
           return tick();
         }
         app.className = "";
-        document.getElementById("repository").textContent = `· ${data.multiple ? data.repositories.map((source) => source.name).join(", ") : data.repository}`;
+        document.getElementById("repository").replaceChildren("· ", state.data.multiple ? repositoryPicker() : data.repository);
+        if (!data.repositories.some((source) => source.generated_at)) {
+          document.title = "ub-agents";
+          const error = state.error ?? data.repositories.map((source) => `${data.multiple ? `${source.name}: ` : ""}${source.error}`).join("; ");
+          app.replaceChildren(el("div", { class: "banner" }, `Couldn't read GitHub: ${error}`));
+          renderPicker();
+          return tick();
+        }
         document.title = titleOf(data);
         const eligibleScroll = document.getElementById("eligible-rows")?.scrollTop ?? 0;
         app.replaceChildren(
@@ -450,7 +473,7 @@
             ...(source.notices ?? []).map((notice) => el("div", { class: "banner" }, `${data.multiple ? `${source.name}: ` : ""}${notice}`)),
           ]),
           needsPanel(data.needs_human, data.stop_labels, data.repositories.every((source) => source.generated_at)),
-          runningPanel(data.running),
+          runningPanel(data.running, data),
           data.multiple ? eligibleGroups(data.repositories) : eligiblePanel(data.eligible),
           expiredPanel(data.expired) ?? "",
           recentPanel(data.recent));
@@ -622,8 +645,9 @@
           const snapshot = await response.json();
           if (!response.ok) throw new Error(snapshot.error ?? `HTTP ${response.status}`);
           const data = combine(snapshot);
-          if (!data.repositories.some((source) => source.generated_at)) {
-            throw new Error(data.repositories.map((source) => `${data.multiple ? `${source.name}: ` : ""}${source.error}`).join("; "));
+          if (state.repository && !data.repositories.some((source) => source.repository === state.repository)) {
+            state.repository = null;
+            store(REPOSITORY_KEY, null);
           }
           notify(changesOf(data));
           state.data = data;

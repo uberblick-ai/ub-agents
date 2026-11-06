@@ -182,7 +182,7 @@ class MonitorTests(unittest.TestCase):
             'graphql': {'remaining': 501, 'limit': 1000, 'reset': 9000},
             'counted': 7, 'graphql_calls': 2, 'not_modified': 8})
 
-    def test_page_read_errors_partial_results_and_recovery(self):
+    def test_page_read_errors_repository_filtering_notifications_and_recovery(self):
         try:
             subprocess.run(['node', '--version'], check=True, capture_output=True, timeout=5)
         except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -203,7 +203,8 @@ class MonitorTests(unittest.TestCase):
                          'item.repository_name', 'params.set("folder", item.folder)',
                          'Showing its last result; other repositories are current.',
                          '`${source.name}: `', 'source.notices ?? []', 'source.eligible_error',
-                         'ub-agents-monitor.notify-events-v2', 'ub-agents-monitor.machine'):
+                         'ub-agents-monitor.notify-events-v2', 'ub-agents-monitor.machine',
+                         'ub-agents-monitor.repository', '"aria-label": "Repository"'):
             self.assertIn(expected, html)
 
     def test_notification_keys_titles_and_outcomes_preserve_repository_identity(self):
@@ -464,7 +465,7 @@ class MonitorTests(unittest.TestCase):
 
     def test_page_has_bounded_eligible_scrolling_empty_state_and_failure_banner(self):
         html = page().decode()
-        self.assertLess(html.index('runningPanel(data.running)'), html.index('eligiblePanel(data.eligible)'))
+        self.assertLess(html.index('runningPanel(data.running, data)'), html.index('eligiblePanel(data.eligible)'))
         self.assertLess(html.index('eligiblePanel(data.eligible)'), html.index('expiredPanel(data.expired)'))
         self.assertIn('max-height: 280px; overflow-y: auto', html)
         self.assertIn('height: 56px;', html)
