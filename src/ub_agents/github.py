@@ -487,9 +487,9 @@ class GitHub:
             try:
                 status, headers, payload, detail = self._http.send(endpoint, method, data, cached, credential)
             except GitHubError as exc:
-                # Only transport failures before a response raise here. Replaying
-                # writes could duplicate a request that GitHub already applied.
-                if not (read and exc.retryable and attempt < 3):
+                # Once sending starts, only reads are safe to replay. Opening a
+                # fresh connection can fail before GitHub sees even a write.
+                if not ((read or exc.not_sent) and exc.retryable and attempt < 3):
                     raise
             else:
                 result = subprocess.CompletedProcess([], int(status >= 400 or bool(detail)), payload, detail)

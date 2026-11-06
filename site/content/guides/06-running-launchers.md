@@ -117,13 +117,17 @@ attempts, run `ub-agents retry NUMBER --agent ROLE --reason "Setup fixed"`.
 
 **GitHub is slow, unreachable or rate limited.** Continuous launch waits and retries
 without a limit, printing `Skipped GitHub poll: …; retrying in Ns`. No attempt is
-charged and no action is needed. Over direct HTTPS, REST `GET` requests and
-GraphQL queries retry if no response arrives or GitHub answers 500, 502, 503 or
-504. They make at most four attempts in total, even when these failures mix,
-waiting 1, 2 and 4 seconds and using fresh connections. Writes, GraphQL mutations
-and the `gh api` fallback do not retry these failures in place. Other HTTP 4xx
-responses and GraphQL `200` responses containing `errors` do not retry in place;
-rate limits wait for their reset. HTTP 401 follows the separate policy below.
+charged and no action is needed. Over direct HTTPS, any request, including writes
+and GraphQL mutations, retries if opening a new connection fails before sending
+starts. This covers DNS, refused or unreachable connections, TLS handshakes and
+connect timeouts. Once sending starts, including on a reused keep-alive connection,
+only REST `GET` requests and GraphQL queries retry if no response arrives or GitHub
+answers 500, 502, 503 or 504. A write's HTTP 5xx does not retry, even after a
+connection-open retry. These failures share at most four attempts in total,
+waiting 1, 2 and 4 seconds and using fresh connections. The `gh api` fallback does
+not retry these failures in place. Other HTTP 4xx responses and GraphQL `200`
+responses containing `errors` do not retry in place; rate limits wait for their
+reset. HTTP 401 follows the separate policy below.
 Each retry appears in `launch.log` with the method, endpoint and attempt.
 Ctrl-C interrupts the wait.
 `launch --once`, `launch N` and `status` fail if the request still fails after these

@@ -5,6 +5,8 @@ import io
 import json
 from pathlib import Path
 import signal
+import socket
+import ssl
 import subprocess
 import tempfile
 import threading
@@ -42,10 +44,11 @@ class Reply:
 
 
 class Connection:
-    def __init__(self, *responses):
+    def __init__(self, *responses, connect_error=None):
         self.responses = list(responses)
         self.calls = []
         self.closed = False
+        self.connect = Mock(side_effect=connect_error)
 
     def request(self, method, target, **kwargs):
         self.calls.append((method, target, kwargs))
@@ -90,11 +93,84 @@ class GitHubHTTPTests(unittest.TestCase):
         self.assertEqual(json.loads(sent['body']), {'query': 'query { viewer { login } }'})
         self.assertEqual(sent['headers']['Content-Type'], 'application/json')
         self.assertEqual(sent['headers']['Authorization'], 'Bearer sentinel-credential')
+        connection.connect.assert_called_once_with()
         GitHub('other/project').request('user')
         self.run.assert_called_once_with(['gh', 'auth', 'token', '--hostname', 'github.com'],
                                         capture_output=True, text=True, timeout=20, check=False)
         self.assertEqual((github.gh_calls, github.rest_requests, github.quota_requests, github.graphql_calls),
                          (3, 2, 2, 1))
+
+    def test_not_sent_requests_retry_any_method_and_send_once_after_connection_opens(self):
+        cases = [('resource', method, {'body': 'write'})
+                 for method in ('POST', 'PATCH', 'PUT', 'DELETE', 'HEAD')]
+        cases += [('graphql', 'POST', {'query': 'mutation { addDiscussionComment(input:{}) { clientMutationId } }'}),
+                  ('https://api.github.com/graphql', 'POST', {'query': 'mutation { minimizeComment(input:{}) { clientMutationId } }'})]
+        for endpoint, method, data in cases:
+            for failure in (socket.gaierror('DNS failed'), ConnectionRefusedError('refused'),
+                            OSError('unreachable'), ssl.SSLError('TLS handshake failed'),
+                            TimeoutError('connect timed out')):
+                with self.subTest(endpoint=endpoint, method=method, failure=type(failure)):
+                    self.sleep.reset_mock()
+                    first = Connection(connect_error=failure)
+                    second = Connection(Reply(payload={'ok': True}))
+                    self.connect.side_effect = [first, second]
+                    github = GitHub('org/project')
+                    with redirect_stderr(io.StringIO()):
+                        self.assertEqual(github.request(endpoint, method, data), {'ok': True})
+                    self.assertEqual([len(c.calls) for c in (first, second)], [0, 1])
+                    self.assertTrue(first.closed)
+                    self.assertFalse(second.closed)
+                    first.connect.assert_called_once_with()
+                    second.connect.assert_called_once_with()
+                    self.assertEqual(github.gh_calls, 2)
+                    self.sleep.assert_called_once_with(1)
+
+    def test_post_stops_after_four_not_sent_failures_with_backoff_and_retry_logs(self):
+        connections = [Connection(connect_error=OSError('sentinel-credential')) for _ in range(4)]
+        self.connect.side_effect = connections
+        github = GitHub('org/project')
+        with tempfile.TemporaryDirectory() as directory, redirect_stderr(io.StringIO()):
+            root = Path(directory)
+            with launch_output(root), self.assertRaises(GitHubError) as raised:
+                github.request('repos/org/project/issues/1/comments', 'POST', {'body': 'write'})
+            lines = (root / '.ub-agents' / 'launch.log').read_text().splitlines()
+        self.assertEqual(self.sleep.call_args_list, [call(1), call(2), call(4)])
+        self.assertEqual(len(lines), 3)
+        for line, attempt, delay in zip(lines, (2, 3, 4), (1, 2, 4)):
+            self.assertIn(f'Retrying GitHub POST repos/org/project/issues/1/comments: '
+                          f'attempt {attempt}/4 in {delay}s', line)
+        self.assertTrue(all(c.closed and not c.calls and c.connect.call_count == 1 for c in connections))
+        self.assertEqual((github.gh_calls, github.rest_requests, github.quota_requests), (4, 4, 0))
+        self.assertTrue(raised.exception.retryable)
+        self.assertTrue(raised.exception.not_sent)
+        self.assertEqual(raised.exception.probe_reason, 'connection failed')
+        self.assertNotIn('sentinel-credential', ''.join(traceback.format_exception(raised.exception)))
+
+    def test_write_failure_after_not_sent_retry_is_not_replayed(self):
+        for failure in (Reply(500), Reply(502), Reply(503), Reply(504), OSError('request sent')):
+            with self.subTest(failure=failure):
+                self.sleep.reset_mock()
+                first = Connection(connect_error=TimeoutError('connect timed out'))
+                second = Connection(failure)
+                self.connect.side_effect = [first, second]
+                github = GitHub('org/project')
+                with redirect_stderr(io.StringIO()), self.assertRaises(GitHubError) as raised:
+                    github.request('resource', 'POST', {'body': 'write'})
+                self.assertFalse(raised.exception.not_sent)
+                self.assertTrue(raised.exception.retryable)
+                self.assertEqual([len(c.calls) for c in (first, second)], [0, 1])
+                self.assertEqual(github.gh_calls, 2)
+                self.sleep.assert_called_once_with(1)
+
+    def test_write_failure_during_request_is_not_replayed(self):
+        connection = self.connection()
+        connection.request = Mock(side_effect=OSError('send failed'))
+        with self.assertRaises(GitHubError) as raised:
+            GitHub('org/project').request('resource', 'POST', {'body': 'write'})
+        self.assertFalse(raised.exception.not_sent)
+        connection.request.assert_called_once()
+        self.assertTrue(connection.closed)
+        self.sleep.assert_not_called()
 
     def test_dropped_connection_fails_once_and_next_request_reconnects_without_replaying_write(self):
         first, second = Connection(Reply(), http.client.RemoteDisconnected('dropped')), Connection(Reply())
@@ -183,6 +259,20 @@ class GitHubHTTPTests(unittest.TestCase):
                 self.assertEqual((github.gh_calls, github.quota_requests), (4, quota))
                 self.assertEqual(self.sleep.call_args_list, [call(1), call(2), call(4)])
                 self.assertEqual(len(output.getvalue().splitlines()), 3)
+
+    def test_not_sent_and_read_failures_share_four_attempt_budget(self):
+        connections = [Connection(connect_error=OSError('connect failed')), Connection(Reply(502)),
+                       Connection(OSError('request sent')), Connection(connect_error=TimeoutError())]
+        self.connect.side_effect = connections
+        github = GitHub('org/project')
+        with redirect_stderr(io.StringIO()), self.assertRaises(GitHubError) as raised:
+            github.request('user')
+        self.assertTrue(raised.exception.retryable)
+        self.assertTrue(raised.exception.not_sent)
+        self.assertEqual([len(c.calls) for c in connections], [0, 1, 1, 0])
+        self.assertTrue(all(c.closed for c in connections))
+        self.assertEqual((github.gh_calls, github.quota_requests), (4, 1))
+        self.assertEqual(self.sleep.call_args_list, [call(1), call(2), call(4)])
 
     def test_graphql_query_retries_connection_and_server_failures(self):
         cases = [('graphql', {'query': '\n query Viewer { viewer { login } }', 'variables': {}}),
@@ -570,20 +660,24 @@ class GitHubHTTPTests(unittest.TestCase):
         self.connect.assert_not_called()
 
     def test_http_interrupt_unwinds_when_launcher_handler_defers_sigint(self):
-        handler = Mock()
-        previous = signal.signal(signal.SIGINT, handler)
-        try:
-            connection = self.connection()
-            def interrupted():
-                signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
-            connection.getresponse = interrupted
-            with self.assertRaises(KeyboardInterrupt):
-                GitHub('org/project').request('user')
-            handler.assert_called_once_with(signal.SIGINT, None)
-            self.assertIs(signal.getsignal(signal.SIGINT), handler)
-            self.assertTrue(connection.closed)
-        finally:
-            signal.signal(signal.SIGINT, previous)
+        for step in ('connect', 'getresponse'):
+            with self.subTest(step=step):
+                handler = Mock()
+                previous = signal.signal(signal.SIGINT, handler)
+                try:
+                    connection = self.connection()
+                    def interrupted():
+                        signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+                    setattr(connection, step, interrupted)
+                    with self.assertRaises(KeyboardInterrupt):
+                        GitHub('org/project').request('resource', 'POST', {'body': 'write'})
+                    handler.assert_called_once_with(signal.SIGINT, None)
+                    self.assertIs(signal.getsignal(signal.SIGINT), handler)
+                    self.assertTrue(connection.closed)
+                    self.assertEqual(len(connection.calls), 0 if step == 'connect' else 1)
+                    self.sleep.assert_not_called()
+                finally:
+                    signal.signal(signal.SIGINT, previous)
 
     def test_ctrl_c_during_retry_wait_unwinds_with_deferred_launcher_handler(self):
         handler = Mock()
