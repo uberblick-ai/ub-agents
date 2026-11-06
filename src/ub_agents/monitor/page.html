@@ -283,6 +283,7 @@
         return `${pauses.map(([cli]) => cli).join(", ")} paused ${remaining}`;
       };
       const eligiblePanel = (eligible) => {
+        if (!eligible) return panel("Eligible", "unavailable", "eligible", el("div", { class: "muted" }, "Planning unavailable"));
         const count = `${eligible.count}${eligible.count > eligible.rows.length ? ` · showing ${eligible.rows.length}` : ""}`;
         const result = panel("Eligible", count, "eligible", eligible.rows.length
           ? el("div", { class: "eligible-rows", id: "eligible-rows", tabindex: "0", "aria-label": "Eligible items" },
@@ -341,6 +342,7 @@
         const eligibleScroll = document.getElementById("eligible-rows")?.scrollTop ?? 0;
         app.replaceChildren(
           state.error ? el("div", { class: "banner" }, `Couldn't refresh: ${state.error}. Showing the last result.`) : "",
+          data.eligible_error ? el("div", { class: "banner" }, `Couldn't refresh: Eligible: ${data.eligible_error}. ${data.eligible ? "Showing the last Eligible result. " : ""}Other panels are current.`) : "",
           ...data.notices.map((notice) => el("div", { class: "banner" }, notice)),
           needsPanel(data.needs_human, data.stop_labels),
           runningPanel(data.running),

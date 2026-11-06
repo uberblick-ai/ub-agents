@@ -6,6 +6,7 @@ grouping. Keep both discovery and the GitHub conditional cache between refreshes
 
 import threading
 
+from ..errors import AgentError
 from ..loop import Loop
 from ..observation_data import work_rows
 from ..records import iso
@@ -24,11 +25,19 @@ class EligiblePlanning:
         self.loop = None
         self.value = None
         self.read_at = None
+        self.error = None
 
     def snapshot(self):
         now = self.clock()
         if self.read_at is not None and now - self.read_at < PLAN_SECONDS:
             return self.value
+        try:
+            self.refresh(now)
+        except AgentError as exc:
+            self.error = str(exc)
+        return self.value
+
+    def refresh(self, now):
         if self.loop is None:
             self.loop = Loop(self.config, self.github, self.actor, output=lambda *_: None)
             self.loop.coordinator.clock = self.clock
@@ -39,15 +48,14 @@ class EligiblePlanning:
         self.value = {'count': len(rows), 'rows': [self.row(row, index) for index, row in enumerate(rows[:LIMIT])],
                       'interval_seconds': PLAN_SECONDS, 'generated_at': iso(now)}
         self.read_at = now
-        return self.value
+        self.error = None
 
     def plan_row(self, plan):
         priority = self.config.queue.priority
-        origin = self.loop.discovery.items.get(plan.priority_source or plan.priority_from_issue)
-        labelled = plan.priority in plan.item.labels or (origin is not None and plan.priority in origin.labels)
         return {'item': plan.item.number, 'kind': plan.item.kind, 'title': plan.item.title,
                 'agent': plan.agent.name, 'state': plan.state, 'reason': plan.reason,
-                'priority': plan.priority.rsplit(':', 1)[-1] if priority.labels and labelled and plan.priority else None,
+                'priority': plan.priority.rsplit(':', 1)[-1]
+                if priority.labels and plan.priority_labelled and plan.priority else None,
                 'failures': plan.attempt - 1, 'max_attempts': plan.agent.max_attempts,
                 'paused_clis': list(plan.paused_clis)}
 

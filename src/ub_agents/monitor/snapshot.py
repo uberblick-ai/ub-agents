@@ -71,6 +71,7 @@ class MonitorSource:
                                        for lease in blocked],
             "running": [self.run(lease, renewed) for lease in live_leases(history, now)],
             "eligible": eligible,
+            "eligible_error": self.planning.error,
             "expired": [self.run(lease, renewed) for lease in leases if lease["state"] in CLAIMED
                         and seconds(lease["expires"]) <= now and not later_on_item(history, lease)],
             "recent": sorted((self.ended(history, lease, renewed) for lease in leases

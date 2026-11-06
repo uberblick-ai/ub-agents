@@ -54,12 +54,16 @@ status bar shows the share of your account's GitHub REST calls left this hour, s
 every tool using the account draws from them; hover it for the counts.
 An unchanged 30-second poll measured on this repository used 1 counted REST call
 and 0 GraphQL calls, because unchanged REST reads answer "not modified". Eligible
-replans every five minutes, keeping its planning state between polls. An unchanged
-poll that also replanned used 2 counted REST calls and 0 GraphQL calls after
+replans every five minutes, keeping its planning state between polls. Pressing `r`
+also keeps Eligible's plan until the five-minute interval ends. An unchanged poll
+that also replanned used 2 counted REST calls and 0 GraphQL calls after
 warm-up; the initial read used 6 counted REST calls and 1 GraphQL call. Costs vary
 with the repository and its configuration. Hover Eligible's heading for its
-interval and last planning time. If a refresh fails, the page keeps the last
-result under a **Couldn't refresh** banner.
+interval and last planning time. If Eligible planning fails, its last result stays
+under a **Couldn't refresh** banner while the other panels and their notifications
+keep updating. Before the first successful plan, Eligible says **Planning unavailable**.
+The next poll retries planning. If another read fails, the page keeps its last result
+under the banner.
 
 Click **notify: off** to switch on browser notifications. The page sends one test
 notification and, for 20 seconds, says where to look if none appeared (on macOS:
