@@ -190,6 +190,9 @@ async function dismissalIdentityAndNotifications() {
     page.act("org/backend", 1, "dismiss");
     await page.poll(snapshot());
     assert.equal(page.notifications.length, 1, "A dismissed stop never notifies again");
+    await page.poll([source, unread("org/studio")]);
+    await page.poll([...snapshot(), unread("org/studio")]);
+    assert.equal(page.notifications.length, 1, "A kept dismissal suppresses a stop newly found by a poll");
     page = await page.reload();
     assert.equal(page.notifications.length, 0);
     assert.equal(headings(page)[0], "Needs human · 0");
