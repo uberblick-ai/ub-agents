@@ -220,6 +220,13 @@ class LaunchErrorTests(unittest.TestCase):
         self.assertTrue(message.endswith("GET user: HTTP 401 Bad credentials"), message)
         self.assertEqual(message.count("gh auth status"), 1)
 
+    def test_network_failures_drop_the_repeated_request_address(self):
+        error = GitHubError("POST", "graphql", 'gh: Post "https://api.github.com/graphql": '
+                            'dial tcp: lookup api.github.com: no such host\nExtra gh text')
+        message = launch_error_message(error, self.root)
+        self.assertTrue(message.endswith("POST graphql: dial tcp: lookup api.github.com: no such host"), message)
+        self.assertEqual(message.count("graphql"), 1)
+
     def test_invalid_configuration_names_the_files_to_fix_before_starting(self):
         self.path.write_text('repository: acme/app\nagents:\n  worker:\n    command: [echo]\n'
                              '    trigger: ready\n    outcomes: {done: {}}\n    max-attempts: 2\n')

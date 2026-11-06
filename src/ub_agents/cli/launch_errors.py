@@ -38,7 +38,9 @@ def _github_detail(error):
         status = status or int(match[1])
         detail = detail[:match.start()] + detail[match.end():]
     detail = re.sub(r"\s*\(https?://[^)]+\)", "", detail)
+    detail = re.sub(r'^\w+ "https?://[^"]+":\s*', "", detail)
     detail = " ".join(detail.split(";", 1)[0].split()).strip(" :.")
+    detail = _one_line(detail) if detail else ""
     cause = f"HTTP {status} {detail}" if status else detail
     return f"{error.method} {error.endpoint}: {cause.rstrip()}"
 
