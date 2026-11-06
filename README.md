@@ -213,7 +213,8 @@ The test runner uses every core by default. Pass test names to run a subset,
 `--timeout SECONDS` to change the five-minute limit per test.
 
 The website builds from `site/content/` into `site/out/` with
-`.venv/bin/python site/build.py`; open `site/out/index.html` to preview it.
+`.venv/bin/python site/build.py`. To preview it from disk, build with
+`--preview`, which keeps `.html` links, and open `site/out/index.html`.
 Workflow diagrams have their own [README](site/diagrams/README.md).
 
 Reference for contributors: [coordination contract](docs/coordination.md),

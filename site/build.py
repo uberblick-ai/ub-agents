@@ -225,6 +225,24 @@ def rel(target, here):
 def fix_links(body, here):
     return re.sub(r'href="/([^"]+)"', lambda m: f'href="{rel(m.group(1), here)}"', body)
 
+def extensionless(body):
+    """Link to the URLs Cloudflare Pages serves, so links match canonical URLs instead of redirecting."""
+    def clean(m):
+        path = re.sub(r'(^|/)index$', r'\1', m.group(1))
+        return f'href="{path or "./"}{m.group(2) or ""}"'
+    return re.sub(r'href="(?![a-z][a-z0-9+.-]*:|#|//)([^"#?]*)\.html([#?][^"]*)?"', clean, body)
+
+def structured_data():
+    """Name the site and the project for search engines; links the repository as the same project."""
+    data = {'@context': 'https://schema.org', '@graph': [
+        {'@type': 'WebSite', 'name': 'ub-agents', 'url': f'{SITE}/'},
+        {'@type': 'SoftwareApplication', 'name': 'ub-agents', 'description': TAGLINE, 'url': f'{SITE}/',
+         'applicationCategory': 'DeveloperApplication', 'operatingSystem': 'macOS, Linux',
+         'softwareVersion': VERSION, 'license': 'https://opensource.org/licenses/MIT', 'sameAs': [REPO],
+         'offers': {'@type': 'Offer', 'price': '0', 'priceCurrency': 'USD'}}]}
+    # Escape '<' so the data can never end this script block.
+    return '<script type="application/ld+json">' + json.dumps(data).replace('<', '\\u003c') + '</script>\n'
+
 def header(here):
     return f'''<header class="top">
   <span class="brand"><a class="parent" href="https://uberblick.ai">uberblick</a><span class="sep">/</span><a class="mark" href="{rel('index.html', here)}">ub-agents</a></span>
@@ -301,6 +319,15 @@ HEAD = '''<!doctype html>
 <title>{title}</title>
 <meta name="description" content="{description}">
 <link rel="canonical" href="{canonical}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ub-agents">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{description}">
+<meta property="og:url" content="{canonical}">
+<meta property="og:image" content="''' + SITE + '''/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="{favicon}" sizes="32x32">
 <link rel="icon" href="{svg_icon}" type="image/svg+xml">
 <link rel="icon" href="{icon}" type="image/png" sizes="512x512">
@@ -368,7 +395,7 @@ def not_found():
   </section>
 </main>
 ''' + footer('index.html') + '\n</body>\n</html>\n')
-    body = re.sub(r'<link rel="canonical"[^>]*>\n', '', body)
+    body = re.sub(r'<(link rel="canonical"|meta property="og:url")[^>]*>\n', '', body)
     body = body.replace('url(assets/', 'url(/assets/')
     return re.sub(r'href="(?!https?:|/|#)', 'href="/', body)
 
@@ -496,26 +523,32 @@ def main():
     shutil.copytree(ROOT / 'static', OUT)
     shutil.copytree(ROOT / 'fonts', OUT / 'assets' / 'fonts')
     (OUT / '_headers').write_text(HEADERS)
-    pages = collect()
-    for i, p in enumerate(pages):
-        dest = OUT / p['path']
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(doc_page(pages, i))
-    workflows = workflow_pages()
-    for path, body in workflows:
+    artifact = '--artifact' in sys.argv
+    # Opened from disk or the artifact host, pages are files by name, so keep their .html links.
+    preview = artifact or '--preview' in sys.argv
+
+    def write(path, body):
         dest = OUT / path
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(body)
+        dest.write_text(body if preview else extensionless(body))
+
+    pages = collect()
+    for i, p in enumerate(pages):
+        write(p['path'], doc_page(pages, i))
+    workflows = workflow_pages()
+    for path, body in workflows:
+        write(path, body)
     landing = (ROOT / 'index.html').read_text()
     landing = landing.replace('{{header}}', header('index.html')).replace('{{footer}}', footer('index.html'))
     landing = landing.replace('{{demo}}', (ROOT / 'demo.html').read_text().rstrip())
-    top = head('index.html', title='ub-agents', description=TAGLINE, canonical=f'{SITE}/')
-    if '--artifact' in sys.argv:  # the artifact host adds its own document skeleton
+    top = head('index.html', title='ub-agents · A coding loop for GitHub', description=TAGLINE, canonical=f'{SITE}/')
+    top = top.replace('</head>', structured_data() + '</head>')
+    if artifact:  # the artifact host adds its own document skeleton
         landing = top[top.index('<title>'):top.index('</head>')] + landing
     else:
         landing = top + landing + '\n</body>\n</html>\n'
-    (OUT / 'index.html').write_text(fix_links(landing, 'index.html'))
-    (OUT / '404.html').write_text(not_found())
+    write('index.html', fix_links(landing, 'index.html'))
+    write('404.html', not_found())
     urls = ([public_url('index.html')] + [public_url(p['path']) for p in pages]
             + [public_url(path) for path, _ in workflows])
     (OUT / 'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
