@@ -37,8 +37,21 @@ includes the needs-human count when any items need a person, otherwise the runni
 count when any runs are active. Until the first snapshot arrives, the title is
 `ub-agents`.
 
-With several checkouts, the header lists their short names. Rows start with their
-repository's short name; matching short names use `owner/name` to distinguish them.
+With several checkouts, the header has a repository dropdown, styled like Running's
+machine dropdown. **All repositories (N)** is selected by default. Each repository
+follows in the order you gave them, using its short name or `owner/name` when short
+names match. With one checkout, the header stays as the repository name.
+
+Choose a repository to show its panels, counts, banners and Needs human all-clear.
+Rows drop their repository name, Eligible shows that checkout's own queue without
+a repository line, and the tab title names only that repository. The machine
+dropdown includes only machines from the repositories shown, plus this machine
+and any kept machine choice. Your browser remembers the repository choice by
+`owner/name` across reloads. If the monitor no longer watches it, the choice returns
+to **All repositories**. This filters the view: the server still reads every
+repository, so GitHub cost stays the same.
+
+With **All repositories** selected, rows start with their repository's short name.
 Needs human keeps each repository's order, with repositories in the order you gave
 them. Running, Expired and Recent activity combine rows by time. **discuss with
 Claude** opens the row's own checkout. The Running machine dropdown includes
@@ -50,8 +63,9 @@ words, 20-row limit and **next** item. Empty groups disappear; a group with no
 successful plan says **Planning unavailable**. The heading sums the counts and
 says how many rows are shown when any group is cut.
 
-The tab count adds all repositories. Its names identify the repositories needing
-a person, otherwise those with running work, or all repositories when idle.
+With **All repositories** selected, the tab count adds all repositories. Its names
+identify the repositories needing a person, otherwise those with running work, or
+all repositories when idle.
 More than two names use the first name plus `+N`, for example:
 
 ```text
@@ -114,11 +128,12 @@ keep updating. Before the first successful plan, Eligible says **Planning unavai
 The next poll retries planning. If another read fails, the page keeps its last result
 under the banner. With several checkouts, each repository reads in parallel with
 its own cache and five-minute Eligible plan. A failed repository keeps its last
-result while the others refresh. Until any repository has been read successfully,
+result while the others refresh. Until any shown repository has been read successfully,
 the page shows only the read errors. When some repositories have been read and
 others have not, their results stay visible, and Needs human withholds its all-clear
-until every repository has been read once. Refresh errors, unreadable records,
-newer record formats and Eligible errors all name their repository. The budget
+until every shown repository has been read once. When several repositories are
+shown, refresh errors, unreadable records, newer record formats and Eligible
+errors all name their repository. The budget
 uses the newest account quota headers and adds the monitor's call counters across
 repositories. Each repository costs what one monitor costs: quiet repositories mostly answer
 "not modified"; two busy repositories cost about twice one.
@@ -133,8 +148,9 @@ With several repositories, each outcome name has one checkbox. Its text lists
 all declaring agents and names the repositories when only some declare it, such
 as `a run reports maintainer-merge (integrator · backend only)`. Stop labels combine
 across repositories. Notifications include the repository name, so the same item
-number in two repositories can notify twice. Kept choices and the machine filter
-remain valid when you add checkouts.
+number in two repositories can notify twice. Notifications and **notify when**
+always cover every repository, whichever repository you choose in the header.
+Kept choices and the machine filter remain valid when you add checkouts.
 A stop-labelled item notifies only for the choice matching its latest outcome,
 or for **another way** if no stop outcome explains it. Blocked reports on items
 without stop labels use the blocked choice.
