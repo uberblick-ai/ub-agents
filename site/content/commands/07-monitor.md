@@ -77,13 +77,23 @@ under the banner.
 
 Click **notify: off** to switch on browser notifications. The page sends one test
 notification and, for 20 seconds, says where to look if none appeared (on macOS:
-System Settings › Notifications › your browser, and Focus). **notify when** sets what
-notifies: an item gets a stop label (the default), a run reports blocked or one
-of the outcomes your config sends to a stop label (such as `maintainer-merge`),
-or a run starts, ends or expires. Stop labels, blocked reports and those outcomes
-stay on screen until dismissed;
-clicking a notification opens the item. Nothing notifies for what was already
-there when the page opened. Eligible never notifies. With notifications on, a hidden tab keeps polling.
+System Settings › Notifications › your browser, and Focus). **notify when** groups
+stops under **a person is needed**. Its indented choices cover blocked reports,
+each outcome your config sends to a stop label (with its declaring agents), and
+stop labels added another way, such as by hand or a round or attempt limit.
+A stop-labelled item notifies only for the choice matching its latest outcome,
+or for **another way** if no stop outcome explains it. Blocked reports on items
+without stop labels use the blocked choice.
+
+Ticking or clearing the parent selects or clears every child. A partial tick means
+some children are selected. By default, all these stop choices are selected;
+run starts, ends and expiries are clear. Your browser remembers your choices.
+Press Esc, click outside the picker, or click **notify when** again to close it.
+Stop notifications stay on screen until dismissed. An item gets at most one
+notification per poll, with a stop taking precedence over an ordinary run event.
+Clicking a notification opens the item. Nothing notifies for what was already
+there when the page opened. Eligible never notifies. With notifications on, a
+hidden tab keeps polling.
 
 ## Security
 

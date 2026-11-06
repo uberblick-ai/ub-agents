@@ -169,6 +169,7 @@
       .picker { position: fixed; right: 24px; bottom: 44px; background: var(--panel); }
       .picker > h2 { background: var(--panel); }
       .picker label { display: flex; gap: 8px; padding: 2px 0; cursor: pointer; }
+      .picker .stop-events { padding-left: 3ch; }
       @media (max-width: 860px) {
         .row { grid-template-columns: 2ch minmax(0, 1fr) auto; }
         .wide { display: none; }
@@ -190,23 +191,20 @@
       "use strict";
       const POLL_SECONDS = 30;
       const NOTIFY_KEY = "ub-agents-monitor.notify";
-      const EVENTS_KEY = "ub-agents-monitor.notify-events";
+      const EVENTS_KEY = "ub-agents-monitor.notify-events-v2";
       const MACHINE_KEY = "ub-agents-monitor.machine";
-      // A stop label or a blocked report stays on screen until it's dismissed.
       const EVENTS = [
-        { id: "label", urgent: true },
-        { id: "blocked", text: "a run reports blocked", urgent: true },
         { id: "started", text: "a run starts" },
         { id: "ended", text: "a run ends" },
         { id: "expired", text: "a run expires without a result" },
       ];
-      // Each outcome the repository's config hands to a person, such as
-      // maintainer-merge, can notify on its own.
-      const events = () => [
-        ...EVENTS.slice(0, 2),
-        ...(state.data?.stop_outcomes ?? []).map((name) => ({ id: `outcome:${name}`, outcome: name, text: `a run reports ${name}`, urgent: true })),
-        ...EVENTS.slice(2),
+      // Each cause of a stop can notify on its own; the parent selects them all.
+      const stopEvents = (data = state.data) => [
+        { id: "blocked", text: "a run reports blocked", urgent: true },
+        ...(data?.stop_outcomes ?? []).map(({ name, agents }) => ({ id: `outcome:${name}`, text: `a run reports ${name} (${agents.join(", ")})`, urgent: true })),
+        { id: "label", text: `${(data?.stop_labels ?? ["needs-human"]).join(" or ")} is added another way (by hand, or a round or attempt limit)`, urgent: true },
       ];
+      const events = () => [...stopEvents(), ...EVENTS];
       // More ordinary notifications than this in one poll arrive as one summary.
       const NOTIFY_SINGLY = 3;
       const TEST_HINT_MS = 20_000;
@@ -406,18 +404,21 @@
       };
 
       /* ── Notifications ── */
-      const chosen = () => stored(EVENTS_KEY, ["label"]).filter((id) => events().some((e) => e.id === id));
-      const eventText = (event) => event.text ?? `an item gets the ${(state.data?.stop_labels ?? ["needs-human"]).join(" or ")} label`;
+      const chosen = () => stored(EVENTS_KEY, stopEvents().map((e) => e.id)).filter((id) => events().some((e) => e.id === id));
+      const eventText = (event) => event.text;
       const permission = () => ("Notification" in window ? Notification.permission : "denied");
       const notifyOn = () => stored(NOTIFY_KEY, false) && permission() === "granted";
 
       // What a poll found that could notify, by event. The first poll sets the
       // baseline: nothing notifies on load.
+      const stopEvent = (entry, data) => {
+        if (!entry.labelled) return "blocked";
+        return data.stop_outcomes.some(({ name }) => name === entry.ask?.outcome) ? `outcome:${entry.ask.outcome}` : "label";
+      };
+      const stopKey = (entry, event) => event === "label" ? entry.item.number : `${entry.item.number}:${entry.ask?.url}`;
       const keysOf = (data) => ({
-        ...Object.fromEntries((data.stop_outcomes ?? []).map((name) => [`outcome:${name}`,
-          new Set(data.needs_human.filter((e) => e.ask?.outcome === name).map((e) => `${e.item.number}:${e.ask.url}`))])),
-        label: new Set(data.needs_human.filter((e) => e.labelled).map((e) => e.item.number)),
-        blocked: new Set(data.needs_human.filter((e) => !e.labelled).map((e) => `${e.item.number}:${e.ask?.url}`)),
+        ...Object.fromEntries(stopEvents(data).map(({ id }) => [id,
+          new Set(data.needs_human.filter((e) => stopEvent(e, data) === id).map((e) => stopKey(e, id)))])),
         started: new Set(data.running.map((r) => r.id)),
         ended: new Set(data.recent.map((r) => r.id)),
         expired: new Set(data.expired.map((r) => r.id)),
@@ -432,9 +433,8 @@
         const change = (event, item, title, body) => ({ event, item, title: `${title} · ${ref(item)} ${item.title}`, body });
         const ask = (entry) => entry.ask?.actions[0] || entry.ask?.summary || "The loop stopped on it until a person answers.";
         return [
-          ...data.needs_human.filter((e) => e.labelled && fresh("label", e.item.number)).map((e) => change("label", e.item, e.labels.join(", "), ask(e))),
-          ...data.needs_human.filter((e) => !e.labelled && fresh("blocked", `${e.item.number}:${e.ask?.url}`)).map((e) => change("blocked", e.item, "blocked", ask(e))),
-          ...data.needs_human.filter((e) => e.ask && fresh(`outcome:${e.ask.outcome}`, `${e.item.number}:${e.ask.url}`)).map((e) => change(`outcome:${e.ask.outcome}`, e.item, e.ask.outcome, ask(e))),
+          ...data.needs_human.filter((e) => fresh(stopEvent(e, data), stopKey(e, stopEvent(e, data))))
+            .map((e) => change(stopEvent(e, data), e.item, stopEvent(e, data).startsWith("outcome:") ? e.ask.outcome : e.labels.join(", "), ask(e))),
           ...data.expired.filter((r) => fresh("expired", r.id)).map((r) => change("expired", r.item, "expired", `${r.agent} on ${machine(r.host)} stopped renewing its run.`)),
           ...data.recent.filter((r) => fresh("ended", r.id)).map((r) => change("ended", r.item, r.result, [r.agent, r.summary].filter(Boolean).join(" · "))),
           ...data.running.filter((r) => fresh("started", r.id)).map((r) => change("started", r.item, "started", `${r.agent} on ${machine(r.host)}`)),
@@ -483,17 +483,34 @@
         const picker = document.getElementById("picker");
         picker.hidden = !state.choosing;
         if (picker.hidden) return;
+        const stops = stopEvents().map((e) => e.id);
+        const inputs = new Map();
+        const update = () => {
+          const selected = chosen();
+          for (const [id, input] of inputs) input.checked = selected.includes(id);
+          parent.checked = stops.every((id) => selected.includes(id));
+          parent.indeterminate = !parent.checked && stops.some((id) => selected.includes(id));
+        };
+        const choose = (ids, checked) => {
+          const selected = new Set(chosen());
+          for (const id of ids) checked ? selected.add(id) : selected.delete(id);
+          store(EVENTS_KEY, [...selected]);
+          update();
+          tick();
+        };
+        const parent = el("input", { type: "checkbox", onchange: (e) => choose(stops, e.target.checked) });
+        const row = (event) => {
+          const input = el("input", { type: "checkbox", onchange: (e) => choose([event.id], e.target.checked) });
+          inputs.set(event.id, input);
+          return el("label", {}, input, eventText(event));
+        };
         picker.replaceChildren(
           el("h2", {}, "Notify me when"),
-          ...events().map((event) =>
-            el("label", {},
-              el("input", { type: "checkbox", checked: chosen().includes(event.id), onchange: (e) => {
-                store(EVENTS_KEY, events().map((x) => x.id).filter((id) => (id === event.id ? e.target.checked : chosen().includes(id))));
-                tick();
-              } }),
-              eventText(event),
-              event.urgent ? el("span", { class: "muted" }, " · stays until dismissed") : null)),
-          el("p", { class: "muted" }, notifyOn() ? "Esc closes this." : "Switch notify on to get them. Esc closes this."));
+          el("label", {}, parent, "a person is needed", el("span", { class: "muted" }, " · stays until dismissed")),
+          el("div", { class: "stop-events", role: "group", "aria-label": "a person is needed" }, stopEvents().map(row)),
+          ...EVENTS.map(row),
+          el("p", { class: "muted" }, notifyOn() ? "Esc or a click outside closes this." : "Switch notify on to get them. Esc or a click outside closes this."));
+        update();
       };
 
       const notifyControl = () => {
@@ -532,7 +549,7 @@
             `This monitor: ${rates.counted} counted REST calls, ${rates.graphql_calls} GraphQL calls and ${rates.not_modified} free "not modified" answers.`,
           ].join(" ") }, "GH API budget", el("span", { class: `bar${percent < 20 ? " low" : ""}` }, el("span", { style: `width: ${percent}%` })), `${percent}%`)] : "",
           " · ", notifyControl(),
-          permission() !== "denied" ? [" · ", el("button", { class: "link", type: "button", onclick: () => { state.choosing = !state.choosing; renderPicker(); } }, `notify when (${chosen().length})`)] : "",
+          permission() !== "denied" ? [" · ", el("button", { id: "notify-when", class: "link", type: "button", onclick: () => { state.choosing = !state.choosing; renderPicker(); } }, `notify when (${chosen().length})`)] : "",
         ].flat());
       };
 
@@ -578,6 +595,12 @@
           return renderPicker();
         }
         if (event.key === "r" && !event.metaKey && !event.ctrlKey && !event.altKey) poll(true);
+      });
+      document.addEventListener("click", (event) => {
+        if (state.choosing && !event.target.closest("#picker, #notify-when")) {
+          state.choosing = false;
+          renderPicker();
+        }
       });
       poll();
     </script>
