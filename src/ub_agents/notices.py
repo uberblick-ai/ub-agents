@@ -48,6 +48,25 @@ def outcome_resume(number, agent, steps, *, is_pr=False):
     return f"Then resume {agent}:\n\n{steps}"
 
 
+def action_resume(number, lease, stops, resume_triggers, rounds, *, is_pr=False):
+    if lease.get("own_merge_head") and lease["result"] == "blocked":
+        return "Post-merge work may be unfinished. Review the merged PR and run's report, and complete any remaining work."
+    if stops:
+        labels = ", ".join(f"`{label}`" for label in stops)
+        triggers = ", ".join(f"`{label}`" for label in resume_triggers)
+        resume = f"Remove the stop label(s) {labels}, then apply a trigger to resume {lease['agent']}: {triggers}."
+        if rounds:
+            resume += (" This allows one more run with the count kept; another limited outcome parks it again."
+                       f"\n\nFor a fresh set of {rounds['limit']} rounds, reset the count:\n\n"
+                       f"```sh\n{retry_command(number, lease['agent'])}\n```")
+    else:
+        resume = f"```sh\n{retry_command(number, lease['agent'])}\n```"
+    resume += (f"\n\nUse these steps only when resuming the same role (`{lease['agent']}`). "
+               "If a different role must act next, follow the project's documented correction "
+               "or handoff route instead.")
+    return outcome_resume(number, lease['agent'], resume, is_pr=is_pr)
+
+
 def action_body(marker, actions, details, *, options=(), reason='', resume=''):
     asks = [ask_markdown(ask.strip()) for ask in actions]
     lead = f"**{asks[0]}**" if len(asks) == 1 else "\n".join(f"- **{ask}**" for ask in asks)
@@ -286,7 +305,7 @@ class Notices:
         if existing:
             self.remember(number, existing)
             return
-        sha = (outcome.get("candidate_sha") if outcome else None) or lease.get("assignment_sha")
+        sha = lease.get("own_merge_head") or (outcome.get("candidate_sha") if outcome else None) or lease.get("assignment_sha")
         evidence = f"Candidate: `{sha}`." if sha else "Candidate: no PR SHA recorded (issue assignment)."
         item = self.advisory(f"evidence item read on #{number}", lambda: self.github.item(number))
         if item is None or item.kind == "pr":
@@ -299,22 +318,8 @@ class Notices:
             links += f" · [Outcome]({outcome['url']})"
         else:
             links += " · No outcome was reported."
-        if stops:
-            labels = ", ".join(f"`{label}`" for label in stops)
-            triggers = ", ".join(f"`{label}`" for label in resume_triggers)
-            resume = f"Remove the stop label(s) {labels}, then apply a trigger to resume {lease['agent']}: {triggers}."
-            if rounds:
-                resume += (" This allows one more run with the count kept; another limited outcome parks it again."
-                           f"\n\nFor a fresh set of {rounds['limit']} rounds, reset the count:\n\n"
-                           f"```sh\n{retry_command(number, lease['agent'])}\n```")
-        else:
-            command = retry_command(number, lease['agent'])
-            resume = f"```sh\n{command}\n```"
-        resume = (f"{resume}\n\n"
-                  f"Use these steps only when resuming the same role (`{lease['agent']}`). "
-                  "If a different role must act next, follow the project's documented correction "
-                  "or handoff route instead.")
-        resume = outcome_resume(number, lease['agent'], resume, is_pr=item is not None and item.kind == 'pr')
+        resume = action_resume(number, lease, stops, resume_triggers, rounds,
+                               is_pr=item is not None and item.kind == 'pr')
         extra = ""
         if lease.get("unreported") or outcome is None:
             extra = (f"\n\nLauncher host: `{lease.get('host') or socket.gethostname()}`. "
@@ -322,12 +327,16 @@ class Notices:
         actions = reported_actions(outcome) if outcome and not outcome.get("rejected") else []
         options = outcome.get("options", ()) if outcome and not outcome.get("rejected") else ()
         if rounds:
+            labels = ", ".join(f"`{label}`" for label in stops)
+            triggers = ", ".join(f"`{label}`" for label in resume_triggers)
             options = [
                 f"Maintainer: remove {labels} and apply a trigger ({triggers}) for one more run; keep the round count.",
                 f"Maintainer: reset the round count for a fresh set of rounds: `{retry_command(number, lease['agent'])}`",
                 *options]
         if not actions and not options:
-            actions = ["Maintainer: review the blocker details and decide the next step."]
+            actions = (["Maintainer: review and finish any remaining post-merge work before choosing the next handoff."]
+                       if lease.get("own_merge_head") else
+                       ["Maintainer: review the blocker details and decide the next step."])
         self.post_once(number, action_body(marker, actions,
             f"{summary.strip()}\n\n{evidence}\n\n{links}{extra}",
             options=options, reason=summary, resume=resume), marker)

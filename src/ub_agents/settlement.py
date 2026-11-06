@@ -3,6 +3,7 @@
 from .errors import TransitionPaused, ValidationError
 from .github import links_issue
 from .labels import OUTSIDE_INPUT
+from .own_merge import unfinished_merge
 from .records import backoff, iso, lease_by_id, resolve_transition, same_run, validate_report_action
 from .run_branches import earlier_branches
 from .usage.run_usage import usage_fields
@@ -32,6 +33,8 @@ class Settlement:
         Completed reports remain recoverable until release succeeds.
         Without an outcome the launcher writes the run's report. The run is unreported
         unless a recovery parks the source's agent report."""
+        if lease.get("own_merge_head") and result != "success":
+            result, summary, effect = "blocked", unfinished_merge(summary), "unchanged"
         delay = backoff(plan.agent, attempt) if result == "retry" and effect == "failure" else 0
         unreported = outcome is None and parking_outcome is None
         if result != "success" and not completed:
@@ -50,6 +53,7 @@ class Settlement:
                                  parking_outcome=parking_outcome, max_attempts=plan.agent.max_attempts,
                                  unreported=unreported, stop_labels=self.config.stop_labels, triggers=plan.agent.triggers,
                                  **usage_fields(diagnostics or {}))
+        return result, summary, effect
 
     def finalize(self, lease, plan, outcome, what, *, deadline=None):
         """Validate a success report, apply its transition and accept it.

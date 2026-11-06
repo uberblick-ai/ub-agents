@@ -135,7 +135,7 @@ class QueuePlanner:
             try:
                 ongoing = any(r["state"] in {"claiming", "running"}
                               and (seconds(r["expires"]) > now or
-                                   coordinator.pending_completion(records, r["agent"], now))
+                                   coordinator.pending_completion(records, r["agent"], now, item=item))
                               for r in latest_leases(records).values())
             except RecordError:
                 ongoing = False  # Item evaluation will expose the conflicting outcomes.
@@ -471,7 +471,7 @@ class QueuePlanner:
                               and item.labels.intersection(r.get("transition", {}).get("add", ()))
                                   .intersection(self.config.stop_labels) for r in history))
             try:
-                pending = coordinator.pending_completion(history, agent.name, now)
+                pending = coordinator.pending_completion(history, agent.name, now, item=item)
             except RecordError as exc:
                 yield Plan(item, agent, None, "blocked", str(exc),
                            len(attempts(history, agent.name, now)) + 1, history=tuple(history))

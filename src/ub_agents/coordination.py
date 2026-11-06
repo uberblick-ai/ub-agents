@@ -13,6 +13,7 @@ from .errors import AgentError, ExecutionStopped, GitHubError, LostOwnership, Re
 from .finalization import FinalizationReads
 from .github import Item, REQUEST_TIMEOUT_SECONDS
 from .notices import Notices
+from .own_merge import own_merge_head, recover_own_merge, unfinished_merge
 from .records import (MARKER, attempt_effect, attempts, backoff, body, display_provenance, exhausted_rounds,
                       iso, issue_branch, latest_leases, lease_by_id, lease_summary, live_leases,
                       outcome_declarations, outcome_rounds, payload, records, recovers, report_asks,
@@ -201,8 +202,10 @@ class Coordinator:
         if owners:
             owner = owners[0]
             state, reason = "owned", "An unexpired assignment owns this work item"
-        elif self.pending_completion(history, agent.name, now):
-            state, reason = "recover", "An expired run has an explicit outcome to validate without reexecution"
+        elif completion := self.pending_completion(history, agent.name, now, item=item):
+            state = "recover"
+            reason = ("An expired run needs post-merge settlement without reexecution" if completion.get("own_merge_head")
+                      else "An expired run has an explicit outcome to validate without reexecution")
         elif latest and latest[-1].get("cleanup") == "unconfirmed":
             state, reason = "blocked", "Previous cleanup was unconfirmed; establish termination before an operator reset"
         elif (owner := self.shared_branch_owner(item, agent, history)) is not None:
@@ -349,7 +352,8 @@ class Coordinator:
                 or any(r["kind"] == "lease" and r["state"] == "released" and r.get("result") == "success"
                        and recovers(r, source) and r.get("cleanup") != "unconfirmed" for r in history))
 
-    def pending_completion(self, history, agent, now, allow_live=False):
+    def pending_completion(self, history, agent, now, allow_live=False, *, item=None):
+        """Return the source lease needing report or unfinished-merge settlement."""
         latest = [r for r in latest_leases(history).values() if r["agent"] == agent]
         if not latest:
             return None
@@ -369,7 +373,10 @@ class Coordinator:
                    and seconds(source["created"]) <= seconds(r["created"]) <= seconds(source["expires"])]
         if len(matches) > 1:
             raise RecordError("Expired run reported conflicting outcomes; inspect GitHub before resetting")
-        return matches[0] if matches else None
+        if matches and "merge" in matches[0].get("transition", {}):
+            return source  # Launcher-performed merges keep their own recovery contract.
+        source = recover_own_merge(source, lease, item, self.github)
+        return source if matches or source.get("own_merge_head") else None
 
     def shared_branch_owner(self, item, agent, history):
         """A live lease, or an unconfirmed cleanup, on another item that shares this item's branch.
@@ -447,8 +454,8 @@ class Coordinator:
         history = self.history(current.number)
         outcome = None
         if recovery:
-            outcome = self.pending_completion(history, plan.agent.name, self.clock())
-            if outcome is None or any(r["id"] != outcome["lease_id"]
+            outcome = self.pending_completion(history, plan.agent.name, self.clock(), item=current)
+            if outcome is None or any(r["id"] != outcome["id"]
                                       for r in live_leases(history, self.clock())):
                 return self.decline(plan, "Recovery outcome no longer matches")
         else:
@@ -481,8 +488,10 @@ class Coordinator:
             if rounds:
                 record["outcome_rounds"] = rounds
         if recovery:
-            record |= {"mode": "recovery", "recovered_lease_id": outcome["lease_id"],
-                       "recovered_run": lease_by_id(history, outcome["lease_id"])["run"]}
+            record |= {"mode": "recovery", "recovered_lease_id": outcome["id"],
+                       "recovered_run": outcome["run"]}
+            if outcome.get("own_merge_head"):
+                record |= {"own_merge_head": outcome["own_merge_head"], "action_needed": True}
         return record
 
     def _write_claim(self, plan, current, record, stop_labels, recovery, before_write):
@@ -593,20 +602,46 @@ class Coordinator:
             lease["expires"] = current["expires"]
         return current
 
-    def observe_execution_item(self, lease, item):
+    def observe_execution_item(self, lease, item, github=None):
         with self._lease_lock:
             if lease["id"] not in self._stop_labels:
-                return
+                return {}
             stops = set(self._stop_labels[lease["id"]]).intersection(item.labels)
             if stops:
-                reason = f"Stop label {sorted(stops)[0]} added"
-            elif item.state != "open":
+                self._execution_stops.setdefault(lease["id"], (f"Stop label {sorted(stops)[0]} added", False))
+                return {}
+        # Parent reads use renewal's bounded client outside the writer lock.
+        head = own_merge_head(lease, item, github or self.github)
+        with self._lease_lock:
+            if lease["id"] not in self._stop_labels:
+                return {}
+            changes = ({"own_merge_head": head, "action_needed": True}
+                       if head and not lease.get("own_merge_head") else {})
+            if item.state != "open" and not head:
                 kind = "Pull request" if item.kind == "pr" else "Issue"
                 state = "merged" if item.kind == "pr" and item.merged else "closed"
                 reason = f"{kind} {state}"
             else:
-                return
-            self._execution_stops.setdefault(lease["id"], (reason, item.state != "open" and not stops))
+                return changes
+            self._execution_stops.setdefault(lease["id"], (reason, True))
+            return changes
+
+    def record_own_merge(self, lease, failure=None):
+        """Persist merge attribution and any failed supervision before cleanup."""
+        head = lease.get("own_merge_head")
+        if not head and lease.get("assignment_sha"):
+            head = own_merge_head(lease, self.github.item(lease["assignment"], "pr"), self.github)
+            if isinstance(self.github, FinalizationReads):
+                self.github.refresh_finalization()
+        changes = {}
+        if head:
+            changes = {"own_merge_head": head, "action_needed": True}
+            if failure is not None:
+                changes |= {"result": "blocked", "summary": unfinished_merge(failure),
+                            "attempt_effect": "unchanged", "unreported": True}
+        if any(lease.get(key) != value for key, value in changes.items()):
+            self.assert_owned(lease)
+            self.update(lease, **changes)
 
     def execution_deadline(self, lease):
         """Check cancellation while keeping ownership available for cleanup and release."""
@@ -648,8 +683,8 @@ class Coordinator:
         try:
             # Pagination/role reads may outlast the lease. Keep deadlines and
             # local state edits available while those bounded requests finish.
-            if watch_stops:
-                self.observe_execution_item(lease, github.item(assignment))
+            changes = (self.observe_execution_item(lease, github.item(assignment), github)
+                       if watch_stops else {})
             trusted = LauncherTrust(github, self.trust.launchers, trusted_bots=self.trust.trusted_bots,
                                     trusted_pr_authors=self.trust.trusted_pr_authors).observation()
             history = records(github.comments(assignment), trusted=trusted)
@@ -661,11 +696,12 @@ class Coordinator:
                 now = self.clock()
                 if now + REQUEST_TIMEOUT_SECONDS + LEASE_RENEW_MARGIN_SECONDS >= seconds(lease["expires"]):
                     return False
-                updated = payload(current) | {"expires": iso(max(seconds(current["expires"]), now + self.lease_seconds))}
+                updated = payload(current) | changes | {"expires": iso(max(seconds(current["expires"]), now + self.lease_seconds))}
                 result = records([github.update_comment(lease["id"], body(updated))])[0]
-                # Only expiry belongs to renewal. Workspace preparation may have
-                # a branch staged locally while a Git command is in progress.
+                # Preserve main-thread fields; only expiry and this observed
+                # merge belong to renewal.
                 lease["expires"] = result["expires"]
+                lease.update(changes)
                 self._renewal_failures.pop(lease["id"], None)
                 if isinstance(self.github, FinalizationReads):
                     self.github.renewed(lease)

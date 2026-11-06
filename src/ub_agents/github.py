@@ -193,6 +193,7 @@ class Item:
     head_repository: str | None = None
     base_branch: str | None = None
     merge_commit_sha: str | None = None
+    merged_by: str | None = None
 
     def is_fork(self, repository):
         return self.kind == "pr" and is_fork(self.head_repository, repository)
@@ -281,7 +282,10 @@ def parse_item(data, kind, endpoint=None):
                     data.get("mergeable") if kind == "pr" and type(data.get("mergeable")) is bool else None,
                     merged=kind == "pr" and (data.get("merged") is True or data.get("merged_at") is not None),
                     head_repository=head_repository, base_branch=base_branch,
-                    merge_commit_sha=data.get("merge_commit_sha") if kind == "pr" else None)
+                    merge_commit_sha=data.get("merge_commit_sha") if kind == "pr" else None,
+                    merged_by=data["merged_by"].get("login") if kind == "pr"
+                    and isinstance(data.get("merged_by"), dict)
+                    and isinstance(data["merged_by"].get("login"), str) else None)
     except (KeyError, TypeError, ValueError, AttributeError, AgentError) as exc:
         if endpoint is not None:
             raise GitHubError("GET", endpoint, "Unreadable GitHub work item") from exc

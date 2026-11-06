@@ -995,11 +995,10 @@ class Loop:
     def _recover(self, plan):
         self._finalizing = False
         history = self.coordinator.history(plan.item.number)
-        outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
-        if outcome is None:
+        source = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock(), item=plan.item)
+        if source is None:
             self.declined(plan, "Recovery outcome no longer matches")
             return False
-        source = lease_by_id(history, outcome["lease_id"])
         confirm_worktree_setup_stopped(self.config, source["run"])
         self.observe("assignment", plan)
         self._finalizing = True
@@ -1017,22 +1016,14 @@ class Loop:
         # The claim reread may have observed a supervisor's newer outcome flags.
         source = lease_by_id(self.coordinator.history(plan.item.number), recovery["recovered_lease_id"])
         outcome = self.coordinator.outcome(source) if source else None
-        if outcome is None:
-            raise LostOwnership("Recovered outcome disappeared after claiming")
-        # Validate against the originally assigned candidate, not today's head.
-        original = replace(plan, item=replace(plan.item, head=source["assignment_sha"]))
+        if source is None:
+            raise LostOwnership("Recovered source lease disappeared after claiming")
         settlement = Settlement(self.config, self.github, self.coordinator, self.approvals, LauncherMerge(self))
-        try:
-            result, summary, effect = settlement.reported_verdict(recovery, original, outcome, source,
-                                                                 "recovered completion")
-        except MergeNotRecovered as exc:
-            result, summary, effect = "retry", str(exc), "unchanged"
-        except ValidationError as exc:
-            result, summary = "blocked", f"Recorded outcome cannot be recovered: {exc}"
-            effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
+        result, summary, effect = self._recovery_verdict(settlement, plan, recovery, source, outcome)
         # The source's attempt counts this failure, as an execution lease's does.
-        settlement.settle(plan, recovery, source["attempt"], result, f"Recovered {source['run']}:\n\n{summary}",
-                          effect, parking_outcome=outcome, completed=True)
+        result, summary, effect = settlement.settle(
+            plan, recovery, source["attempt"], result, f"Recovered {source['run']}:\n\n{summary}",
+            effect, parking_outcome=outcome, completed=True)
         self.github.end_finalization()
         self._renewal.close()
         self._diagnostic(run_directory(self.config.root.resolve(), recovery['run']), "released",
@@ -1040,6 +1031,21 @@ class Loop:
                          github_requests=request_delta(request_counts(self.github), requests_before))
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
         return True
+
+    def _recovery_verdict(self, settlement, plan, recovery, source, outcome):
+        if outcome is None:
+            if recovery.get("own_merge_head"):
+                return "blocked", "Post-merge work may be unfinished. The run ended without an accepted report.", "unchanged"
+            raise LostOwnership("Recovered outcome disappeared after claiming")
+        # Validate against the originally assigned candidate, not today's head.
+        original = replace(plan, item=replace(plan.item, head=source["assignment_sha"]))
+        try:
+            return settlement.reported_verdict(recovery, original, outcome, source, "recovered completion")
+        except MergeNotRecovered as exc:
+            return "retry", str(exc), "unchanged"
+        except ValidationError as exc:
+            effect = "unchanged" if isinstance(exc, TransitionPaused) else "failure"
+            return "blocked", f"Recorded outcome cannot be recovered: {exc}", effect
 
     def _end_poll(self):
         self.before_claim()

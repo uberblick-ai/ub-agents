@@ -13,6 +13,7 @@ from .execution import ScratchDirectory, Workspace, command_for, supervise
 from .hooks import run_hook
 from .launcher_code import descriptors as code_descriptors
 from .merging import LauncherMerge
+from .own_merge import unfinished_merge
 from .report_command import launcher_report_command
 from .records import iso
 from .usage.request_stats import request_counts, request_delta
@@ -74,7 +75,10 @@ class AssignmentRun:
                 loop.observe("process", "exited", "Supervision confirmed worktree setup has ended")
                 loop.observe("activity", "running assignment")
             current = loop.github.item(plan.item.number, plan.item.kind)
-            loop.coordinator.observe_execution_item(lease, current)
+            changes = loop.coordinator.observe_execution_item(lease, current)
+            if changes:
+                loop.coordinator.assert_owned(lease)
+                loop.coordinator.update(lease, **changes)
             loop.coordinator.execution_deadline(lease)
             if current.state != "open" or not current.labels.intersection(plan.agent.triggers):
                 raise AgentError("State or trigger changed before execution")
@@ -159,7 +163,7 @@ class AssignmentRun:
             summary = "Launcher interrupted; attributable execution terminated"
             if isinstance(exc, CheckoutSetupInterrupted):
                 summary += f"; {exc}"
-            self.cleanup_after_failure()
+            self.cleanup_after_failure(summary)
         except ExecutionStopped as exc:
             stopped = True
             result, summary, effect = "blocked", str(exc), "unchanged"
@@ -171,15 +175,16 @@ class AssignmentRun:
                 loop.coordinator.assert_owned(lease)
                 loop.coordinator.update(lease, result=result, summary=summary,
                                         attempt_effect=effect, unreported=True,
-                                        **({"action_needed": False} if exc.item_closed else {}))
+                                        **({"action_needed": False} if exc.item_closed
+                                           and not lease.get("own_merge_head") else {}))
             except (LostOwnership, GitHubError):
                 loop._renewal.close()
                 self.cleanup_workspace(record=False)
                 raise
-            self.cleanup_after_failure()
+            self.cleanup_after_failure(summary)
         except TransitionPaused as exc:
             result, summary, effect = "blocked", str(exc), "unchanged"
-            self.cleanup_after_failure()
+            self.cleanup_after_failure(summary)
         except Exception as exc:
             if self.completing and not isinstance(exc, ValidationError):
                 raise  # Keep completed reports recoverable; never invent a failure verdict.
@@ -187,7 +192,7 @@ class AssignmentRun:
                       or (self.setup and isinstance(exc, (AgentError, OSError))
                           and not isinstance(exc, (RecordError, ValidationError))) else "blocked")
             summary = str(exc)
-            self.cleanup_after_failure()
+            self.cleanup_after_failure(summary)
         finally:
             if not self.preserve_scratch:
                 try:
@@ -207,14 +212,17 @@ class AssignmentRun:
             # unaccepted and persist the supervisor's actual verdict on the lease.
             self.outcome = loop.coordinator.outcome(lease)
         if stopped:
+            if lease.get("own_merge_head"):
+                summary = unfinished_merge(summary)
             fields = usage_fields(diagnostics) | context_fields(diagnostics)
             if self.outcome is not None and fields:
                 loop.coordinator.update_outcome(lease, self.outcome, **fields)
             loop.coordinator.release(lease, result, summary, attempt_effect=effect, unreported=True,
                                      **usage_fields(diagnostics))
         else:
-            settlement.settle(plan, lease, lease["attempt"], result, summary, effect, self.outcome, diagnostics,
-                              completed=self.completing)
+            result, summary, effect = settlement.settle(
+                plan, lease, lease["attempt"], result, summary, effect, self.outcome, diagnostics,
+                completed=self.completing)
         loop.github.end_finalization()
         loop._renewal.close()
         self.diagnostic("released", result=result, summary=summary,
@@ -274,8 +282,10 @@ class AssignmentRun:
                 loop.stop_event.set()
             self.diagnostic("cleanup-verdict-unrecorded", error=str(failure))
 
-    def cleanup_workspace(self, record=True):
+    def cleanup_workspace(self, record=True, failure=None):
         try:
+            if record:
+                self.loop.coordinator.record_own_merge(self.lease, failure)
             self.workspace.cleanup(lambda: self.before_remove(record))
         except CleanupError as exc:
             self.preserve_scratch = True
@@ -319,9 +329,9 @@ class AssignmentRun:
             return False
         return True
 
-    def cleanup_after_failure(self):
+    def cleanup_after_failure(self, summary=None):
         try:
-            self.cleanup_workspace()
+            self.cleanup_workspace(failure=summary)
         except (LostOwnership, GitHubError):
             self.loop._renewal.close()
             self.cleanup_workspace(record=False)
