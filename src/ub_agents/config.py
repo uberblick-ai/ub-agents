@@ -7,7 +7,7 @@ import re
 
 import yaml
 
-from .errors import AgentError, InstructionError, UnsupportedConfiguration
+from .errors import AgentError, ConfigurationError, InstructionError, UnsupportedConfiguration
 from .github import REPOSITORY, REQUEST_TIMEOUT_SECONDS
 
 DEFAULT_CONFIG = "ub-agents.yaml"
@@ -248,9 +248,9 @@ def _read_config(path, *, optional=False):
     except FileNotFoundError as exc:
         if optional and not path.is_symlink():
             return {}
-        raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
+        raise ConfigurationError(f"Cannot read configuration {path}: {exc}", path=path) from exc
     except (OSError, UnicodeError) as exc:
-        raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
+        raise ConfigurationError(f"Cannot read configuration {path}: {exc}", path=path) from exc
     loader = UniqueLoader(content)
     try:
         node = loader.get_single_node()
@@ -264,7 +264,7 @@ def _read_config(path, *, optional=False):
             raise AgentError("configuration must be a mapping")
         return data
     except (AgentError, yaml.YAMLError) as exc:
-        raise AgentError(f"Cannot read configuration {path}: {exc}") from exc
+        raise ConfigurationError(f"Cannot read configuration {path}: {exc}", path=path) from exc
     finally:
         loader.dispose()
 
@@ -282,6 +282,18 @@ def _merge_config(base, local):
 
 def load_config(path):
     path = Path(path).resolve()
+    try:
+        return _load_config(path)
+    except InstructionError:
+        raise
+    except ConfigurationError as exc:
+        exc.path = exc.path or path
+        raise
+    except AgentError as exc:
+        raise ConfigurationError(str(exc), path=path) from exc
+
+
+def _load_config(path):
     base = _read_config(path)
     local_path = path.parent / LOCAL_CONFIG
     local = _read_config(local_path, optional=True)

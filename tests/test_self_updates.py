@@ -378,6 +378,9 @@ class SelfUpdateTests(unittest.TestCase):
                         self.assertIsNone(loop.poll_now.waiter)
 
     def test_exec_preserves_pid_arguments_and_waits_until_resources_are_closed(self):
+        class ReplacedProcess(BaseException):
+            pass
+
         path = self.root / "ub-agents.yaml"
         path.touch()
         for mode in ([], ["--no-ui"]):
@@ -389,7 +392,7 @@ class SelfUpdateTests(unittest.TestCase):
                 self.assertEqual(arguments, [executable, *args])
                 if view is not None:
                     view.close.assert_called_once()
-                raise RuntimeError("exec replaced the process")
+                raise ReplacedProcess("exec replaced the process")
             with patch("ub_agents.cli._runtime.load_config", return_value=self.settings), \
                     patch("ub_agents.cli._runtime.GitHub", return_value=FakeGitHub()), \
                     patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
@@ -399,7 +402,7 @@ class SelfUpdateTests(unittest.TestCase):
                     patch("ub_agents.startup_cleanup.StartupCleanup.start"), \
                     patch.object(Loop, "launch", side_effect=restart), \
                     patch("ub_agents.cli.launch.os.execv", side_effect=execute), redirect_stdout(io.StringIO()):
-                with self.assertRaisesRegex(RuntimeError, "exec replaced"):
+                with self.assertRaisesRegex(ReplacedProcess, "exec replaced"):
                     main(args)
 
 

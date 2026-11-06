@@ -1,11 +1,13 @@
 from contextlib import redirect_stderr, redirect_stdout
 import io
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
+from ub_agents.cli.launch import launch_error_message
 
 
 class ArgumentTests(unittest.TestCase):
@@ -87,11 +89,19 @@ class ArgumentTests(unittest.TestCase):
                          [*command, "--config", str(self.path)]):
                 failure = FileNotFoundError(2, "No such file or directory")
                 with self.subTest(argv=argv), \
-                        patch("ub_agents.cli.resolve_config_path", side_effect=failure):
+                        patch("ub_agents.cli.resolve_config_path", side_effect=failure), \
+                        patch("ub_agents.config.Path.cwd", return_value=self.root):
                     self.stderr.seek(0)
                     self.stderr.truncate()
                     self.assertEqual(main(argv), 1)
-                    self.assertEqual(self.stderr.getvalue(), f"ub-agents: {failure}\n")
+                    if command[0] == "launch":
+                        root = self.path.parent if str(self.path) in argv else self.root
+                        self.assertEqual(self.stderr.getvalue(), f"ub-agents: {launch_error_message(failure, root)}\n")
+                        log = root / ".ub-agents/launch.log"
+                        self.assertIn(str(failure), log.read_text())
+                        shutil.rmtree(root / ".ub-agents")
+                    else:
+                        self.assertEqual(self.stderr.getvalue(), f"ub-agents: {failure}\n")
         self.run.assert_not_called()
         self.load.assert_not_called()
         self.assertFalse((self.path.parent / ".ub-agents").exists())
@@ -184,7 +194,7 @@ class MissingConfigTests(unittest.TestCase):
     commands = (("status",), ("status", "42"), ("launch",), ("launch", "--once"),
                 ("retry", "42", "--reason", "Fixed"), ("read", "42"))
 
-    def test_missing_config_names_init_and_creates_nothing(self):
+    def test_missing_config_names_init_and_only_launch_writes_diagnostics(self):
         with tempfile.TemporaryDirectory() as directory:
             # Resolve like config paths are: macOS temporary paths live under /private/var.
             root = Path(directory).resolve()
@@ -199,8 +209,15 @@ class MissingConfigTests(unittest.TestCase):
                                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
                             self.assertEqual(main(argv), 1)
                         name = str(selected) if selection else "ub-agents.yaml"
-                        self.assertEqual(stderr.getvalue(),
-                                         f"ub-agents: No {name} here; run ub-agents init to set up a project\n")
+                        if command[0] == "launch":
+                            self.assertIn(f"Run ub-agents init in {root}, then launch again. Here is the error:",
+                                          stderr.getvalue())
+                            self.assertIn(f"No {name} here", stderr.getvalue())
+                            self.assertTrue((root / ".ub-agents/launch.log").is_file())
+                            shutil.rmtree(root / ".ub-agents")
+                        else:
+                            self.assertEqual(stderr.getvalue(),
+                                             f"ub-agents: No {name} here; run ub-agents init to set up a project\n")
                         self.assertEqual(stdout.getvalue(), "")
                         run.assert_not_called()
                         self.assertEqual(list(root.iterdir()), [])

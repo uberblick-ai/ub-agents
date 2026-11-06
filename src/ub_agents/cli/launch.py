@@ -4,7 +4,7 @@ import os
 import signal
 import sys
 
-from ..errors import (AgentError, CheckoutRefreshError, CleanupError, GitHubError, InstructionError)
+from ..errors import AgentError, GitHubError
 from ..execution import repository_checks
 from ..help import CommentHelpFormatter
 # Preserve the lightweight init.setup import boundary used by startup copies.
@@ -17,6 +17,7 @@ from ..refresh import control_checkout_checks
 from ..signals import SignalRelay
 from ..startup_cleanup import StartupCleanup
 from ._registry import command
+from .launch_errors import launch_error_message, report_launch_error, report_launch_stop
 
 
 def arguments(commands):
@@ -44,7 +45,9 @@ def launch_checks(config, github, read_git=None):
                if any(use.required for use in label.uses) and label.name.casefold() not in existing]
     if missing:
         raise AgentError(f"Missing GitHub workflow labels ({', '.join(missing)}); "
-                         "run ub-agents doctor for setup commands")
+                         "run ub-agents doctor for setup commands",
+                         detail=f"Missing GitHub workflow labels ({', '.join(missing)})",
+                         next_step="Run ub-agents doctor to create the missing labels, then launch again")
 
 
 def check_launch_setup(config, github, loop, *, interrupt, once=False):
@@ -170,35 +173,6 @@ def _finish_launch(handlers, relay, loop, publisher):
         publisher.close()
 
 
-def launch_error_message(exc, root):
-    # Request reads and continuous polling can wrap the original failure.
-    # A failed fallback signal can also mask CleanupError with an OSError.
-    errors = []
-    error = exc
-    while error is not None and error not in errors:
-        errors.append(error)
-        error = error.__cause__ or (None if error.__suppress_context__ else error.__context__)
-    refresh = next((error for error in errors if isinstance(error, CheckoutRefreshError)), None)
-    cleanup = next((error for error in errors if isinstance(error, CleanupError)), None)
-    if refresh is not None:
-        detail = str(refresh)
-    elif cleanup is not None:
-        detail = f"{cleanup}; {cleanup.next_step}, then launch again"
-    elif any(isinstance(error, GitHubError) for error in errors):
-        detail = str(exc)
-        advice = "Fix the cause and restart ub-agents launch."
-        no_retry = "ub-agents does not retry this error."
-        if any(isinstance(error, GitHubError) and not error.retryable for error in errors) and no_retry not in detail:
-            detail = f"{detail}; {no_retry} {advice}"
-        if not detail.endswith(advice):
-            detail = f"{detail}; {advice}"
-    elif any(isinstance(error, InstructionError) for error in errors):
-        detail = f"{root}: {exc}; restore readable, valid instruction files and launch again"
-    else:
-        return str(exc)
-    return " ".join(detail.split())
-
-
 def launch_resources(args, stack):
     stack.enter_context(launcher_lock(args.config.parent))
     args.launch_output = stack.enter_context(launch_output(args.config.parent))
@@ -212,9 +186,11 @@ def restart_launcher(restart, argv):
         return 0
     try:
         os.execv(restart.executable, [restart.executable, *(sys.argv[1:] if argv is None else argv)])
-    except OSError as exc:
-        with launch_output(restart.root):
-            print(f"ub-agents: automatic restart failed: {exc}", file=sys.stderr)
+    except KeyboardInterrupt:
+        report_launch_stop("Stopped; supervised execution terminated", restart.root)
+        return 130
+    except Exception as exc:
+        report_launch_error(exc, restart.root, restart=isinstance(exc, OSError))
         return 1
 
 

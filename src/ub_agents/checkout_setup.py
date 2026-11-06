@@ -62,7 +62,9 @@ def baseline_record(root):
             yield directory, read_record(directory)
     except (AgentError, OSError, ValueError) as exc:
         raise CheckoutRefreshError(f"checkout setup baseline failed: {exc} (state: {directory}). "
-                                   "Repair the setup state and launch again.") from exc
+                                   "Repair the setup state and launch again.", detail=str(exc),
+                                   next_step=(f"Repair the setup state in {directory} and launch again" if directory else
+                                              "Run ub-agents doctor --offline and repair the checkout setup state, then launch again")) from exc
 
 
 def preserve_baseline(root, previous, head):
@@ -173,9 +175,13 @@ def run_setup(config, interrupt, output, activity, previous=None):  # noqa: C901
             detail = f"checkout setup failed after {cause}: {detail} (log: {log})."
         else:
             detail = f"checkout setup failed: {detail} (state: {directory})."
+        failure_detail = detail
+        next_step = f"Fix the install in {root} and launch again"
         if isinstance(exc, CleanupError):
             detail += f" {exc.next_step};"
+            next_step = f"{exc.next_step}, then fix the install in {root} and launch again"
         message = f"{detail} Fix the install in {root} and launch again."
         activity(message)
-        error = CheckoutSetupInterrupted if interrupted else CheckoutRefreshError
-        raise error(message) from exc
+        if interrupted:
+            raise CheckoutSetupInterrupted(message) from exc
+        raise CheckoutRefreshError(message, detail=failure_detail, next_step=next_step) from exc

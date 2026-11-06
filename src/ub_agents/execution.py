@@ -216,7 +216,7 @@ class Workspace:
             git(self.root, "worktree", "remove", "--force", str(self.private))
         except AgentError as exc:
             raise CleanupError(f"Cannot remove owned private worktree {self.private}: {exc}",
-                               next_step="resolve the worktree removal error") from exc
+                               next_step=f"remove {self.private} by hand") from exc
         self.created = False
         self.cleanup_head_ref()
         # Remove remotely recoverable branches; preserve unpublished commits.

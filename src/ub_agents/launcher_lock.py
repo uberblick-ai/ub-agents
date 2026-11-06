@@ -102,7 +102,8 @@ def launcher_lock(root):
             if stream is None:
                 owner = _owner(directory)
                 raise AgentError(f"{launcher_summary(owner)}. Stop that launcher first, "
-                                 "or use ub-agents retry to hand it an item.")
+                                 "or use ub-agents retry to hand it an item.", detail=launcher_summary(owner),
+                                 next_step="Stop that launcher first, or use ub-agents retry to hand it an item")
             owner = {"pid": os.getpid(), "host": socket.gethostname(), "started_at": iso(timestamp())}
             stream.seek(0)
             stream.truncate()

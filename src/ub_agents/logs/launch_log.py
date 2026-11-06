@@ -6,6 +6,7 @@ import os
 import stat
 import sys
 import threading
+import traceback
 
 from ..records import iso, timestamp
 
@@ -79,6 +80,20 @@ class LaunchOutput:
         self.result = ()
         self.stdout = LaunchStream(sys.stdout, log, self)
         self.stderr = LaunchStream(sys.stderr, log, self)
+
+    def error(self, exc):
+        """Keep diagnostics out of the terminal and its remembered last line."""
+        diagnostic = "".join(traceback.format_exception(exc))
+        seen = set()
+        while exc is not None and id(exc) not in seen:
+            seen.add(id(exc))
+            if getattr(exc, "response_output", ""):
+                diagnostic += f"\nGitHub output:\n{exc.response_output}\n"
+            exc = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
+        with self.lock:
+            for line in diagnostic.splitlines():
+                self.stderr.log.write(f"{iso(timestamp())} {line}\n")
+            self.stderr.log.flush()
 
     def hide(self):
         with self.lock:
