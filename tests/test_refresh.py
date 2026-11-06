@@ -127,7 +127,7 @@ class RefreshTests(unittest.TestCase):
         message = stderr.getvalue()
         self.assertRegex(message, condition)
         self.assertTrue(message.startswith("ub-agents: The control checkout could not be refreshed. "), message)
-        self.assertIn(f"{next_step[0].upper() + next_step[1:]}. Here is the error: ", message)
+        self.assertIn(f"Run git status in {self.root}, then {next_step}. Here is the error: ", message)
         self.assertEqual(len(message.splitlines()), 1)
         self.assertNotIn("Fix the operator checkout", message)
         self.assertNotIn("no assignment attempt was charged", message)
@@ -760,7 +760,7 @@ class RefreshTests(unittest.TestCase):
         with patch("ub_agents.refresh.git", side_effect=fail_fetch):
             message = self.stopped("fetch of origin/main failed", "fix origin access and launch again")
         self.assertEqual(message, "ub-agents: The control checkout could not be refreshed. "
-                         "Fix origin access and launch again. Here is the error: fetch of origin/main failed: "
+                         f"Run git status in {self.root}, then fix origin access and launch again. Here is the error: fetch of origin/main failed: "
                          "Git operation failed: authentication denied\n")
 
     def test_fast_forward_failure_stops_without_mutation(self):
@@ -781,7 +781,7 @@ class RefreshTests(unittest.TestCase):
         with patch("ub_agents.refresh.git", side_effect=fail_merge):
             message = self.stopped("fast-forward to origin/main failed", "resolve the checkout's merge error and launch again")
         self.assertEqual(message, "ub-agents: The control checkout could not be refreshed. "
-                         "Resolve the checkout's merge error and launch again. Here is the error: fast-forward to origin/main failed: "
+                         f"Run git status in {self.root}, then resolve the checkout's merge error and launch again. Here is the error: fast-forward to origin/main failed: "
                          "Git operation failed: synthetic lock\n")
 
     def test_fast_forward_refuses_to_overwrite_ignored_local_files(self):

@@ -93,7 +93,10 @@ agents:
                     code, stdout, stderr, launch = self.launch(*arguments)
                     self.assertEqual(code, 1)
                     self.assertEqual(stdout, "")
-                    self.assertEqual(stderr, f"ub-agents: {message}\n")
+                    self.assertTrue(stderr.startswith("ub-agents: The launcher could not continue. "))
+                    self.assertIn(". Here is the error: " + message.split(";", 1)[0], stderr)
+                    self.assertIn(str(self.root), stderr)
+                    self.assertEqual(len(stderr.splitlines()), 1)
                     launch.assert_not_called()
                     self.clean.assert_not_called()
                 self.response(command, previous)
@@ -117,7 +120,8 @@ agents:
         with patch.object(self.github, "default_branch", return_value="trunk"):
             code, _, stderr, launch = self.launch("--once")
         self.assertEqual(code, 1)
-        self.assertEqual(stderr, f"ub-agents: {warning['message']}\n")
+        self.assertEqual(stderr, f"ub-agents: The launcher could not continue. Run git switch trunk in {self.root}, "
+                         "then launch again. Here is the error: control checkout is on main\n")
         launch.assert_not_called()
 
     def test_clean_checkout_on_origin_or_behind_it_can_launch(self):
@@ -139,7 +143,8 @@ agents:
         self.assertIn("run git fetch origin", warning["message"])
         code, _, stderr, launch = self.launch("--once")
         self.assertEqual(code, 1)
-        self.assertEqual(stderr, f"ub-agents: {warning['message']}\n")
+        self.assertEqual(stderr, f"ub-agents: The launcher could not continue. Run git fetch origin in {self.root}, "
+                         "then launch again. Here is the error: cannot compare control checkout with origin/main\n")
         launch.assert_not_called()
 
     def test_every_trigger_and_add_remove_transition_label_is_required_at_startup(self):
@@ -150,8 +155,9 @@ agents:
                     code, stdout, stderr, launch = self.launch(*arguments)
                     self.assertEqual(code, 1)
                     self.assertEqual(stdout, "")
-                    self.assertEqual(stderr, f"ub-agents: Missing GitHub workflow labels ({name}); "
-                                            "run ub-agents doctor for setup commands\n")
+                    self.assertEqual(stderr, "ub-agents: The launcher could not continue. "
+                                            "Run ub-agents doctor to create the missing labels, then launch again. "
+                                            f"Here is the error: Missing GitHub workflow labels ({name})\n")
                     launch.assert_not_called()
                 self.github.label_names.append(name)
         self.assertEqual(self.github.writes, [])

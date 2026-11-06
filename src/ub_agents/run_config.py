@@ -88,16 +88,16 @@ def process_group(root, run):
             raise ValueError("invalid process group")
         return group
     except (OSError, ValueError) as exc:
-        raise CleanupError("Run process record is unreadable", next_step="repair the local run process record") from exc
+        raise CleanupError("Run process record is unreadable", next_step=f"repair the process record {path}") from exc
 
 
 def record_process_group(root, run, group):
     path = run_directory(root.resolve(), run) / "process-group"
     if path.resolve() != path:
-        raise CleanupError("Run process record redirects", next_step="repair the local run process record")
+        raise CleanupError("Run process record redirects", next_step=f"restore {path} without redirects")
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".new")
     if temporary.resolve() != temporary:
-        raise CleanupError("Run process record redirects", next_step="repair the local run process record")
+        raise CleanupError("Run process record redirects", next_step=f"restore {temporary} without redirects")
     temporary.write_text(f"{group}\n")
     temporary.replace(path)

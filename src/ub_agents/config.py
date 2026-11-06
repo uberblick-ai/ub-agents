@@ -302,7 +302,11 @@ def _load_config(path):
     except AgentError as exc:
         if not local:
             raise
-        raise type(exc)(f"Invalid configuration {path} with local overrides {local_path}: {exc}") from exc
+        message = f"Invalid configuration {path} with local overrides {local_path}: {exc}"
+        if isinstance(exc, InstructionError):
+            raise InstructionError(message) from exc
+        error = UnsupportedConfiguration if isinstance(exc, UnsupportedConfiguration) else ConfigurationError
+        raise error(message, path=path, next_step=f"Fix {path} and {local_path}, then launch again") from exc
 
 
 def preview_config(content, path, planned):

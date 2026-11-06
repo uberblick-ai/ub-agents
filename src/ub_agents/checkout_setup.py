@@ -110,12 +110,37 @@ def setup_environment():
             if not key.startswith("UB_AGENTS_")}
 
 
-def run_setup(config, interrupt, output, activity, previous=None):  # noqa: C901, PLR0912, PLR0915
+def _setup_failure(exc, config, cause, directory, log, activity):
+    root = config.root
+    interrupted = isinstance(exc, KeyboardInterrupt)
+    command = shlex.join(config.checkout_setup.command)
+    detail = f"{command} interrupted" if interrupted and log is not None else " ".join(str(exc).split())
+    if log is not None:
+        detail = f"checkout setup failed after {cause}: {detail} (log: {log})."
+    else:
+        detail = f"checkout setup failed: {detail} (state: {directory})."
+    if isinstance(exc, CleanupError):
+        detail += f" {exc.next_step};"
+    message = f"{detail} Fix the install in {root} and launch again."
+    activity(message)
+    if interrupted:
+        raise CheckoutSetupInterrupted(message) from exc
+    brief = exc.detail if isinstance(exc, AgentError) else str(exc)
+    next_step = f"Fix the install in {root} and launch again"
+    if log is not None:
+        brief = f"checkout setup failed after {cause}: {brief}"
+        next_step = f"Read {log}, fix the install in {root} and launch again"
+    if isinstance(exc, CleanupError):
+        next_step = f"{exc.next_step}, then {next_step[0].lower() + next_step[1:]}"
+    raise CheckoutRefreshError(message, detail=brief, next_step=next_step) from exc
+
+
+def run_setup(config, interrupt, output, activity, previous=None):  # noqa: C901
     root = config.root
     if config.checkout_setup is None:
         return
     directory = None
-    trigger = None
+    cause = None
     log = None
     try:
         directory = setup_directory(root)
@@ -158,7 +183,7 @@ def run_setup(config, interrupt, output, activity, previous=None):  # noqa: C901
                                  setting.timeout_seconds, interrupt, pass_fds=(guard.fileno(),))
                 confirmed = True
                 if code:
-                    raise AgentError(f"{command} exited {code}")
+                    raise AgentError(f"{command} exited {code}", detail=f"checkout setup command exited {code}")
             except (KeyboardInterrupt, RetryableExecutionError):
                 # These supervisor exits have either never spawned or confirmed
                 # termination. A cleanup error masks them and remains uncertain.
@@ -169,19 +194,4 @@ def run_setup(config, interrupt, output, activity, previous=None):  # noqa: C901
                     (attempt / "stopped").write_text("confirmed\n")
             write_record(directory, {"baseline": head, "succeeded": True, "pending": None})
     except (AgentError, OSError, ValueError, KeyboardInterrupt) as exc:
-        interrupted = isinstance(exc, KeyboardInterrupt)
-        detail = f"{command} interrupted" if interrupted and log is not None else " ".join(str(exc).split())
-        if log is not None:
-            detail = f"checkout setup failed after {cause}: {detail} (log: {log})."
-        else:
-            detail = f"checkout setup failed: {detail} (state: {directory})."
-        failure_detail = detail
-        next_step = f"Fix the install in {root} and launch again"
-        if isinstance(exc, CleanupError):
-            detail += f" {exc.next_step};"
-            next_step = f"{exc.next_step}, then fix the install in {root} and launch again"
-        message = f"{detail} Fix the install in {root} and launch again."
-        activity(message)
-        if interrupted:
-            raise CheckoutSetupInterrupted(message) from exc
-        raise CheckoutRefreshError(message, detail=failure_detail, next_step=next_step) from exc
+        _setup_failure(exc, config, cause, directory, log, activity)

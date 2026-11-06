@@ -98,7 +98,7 @@ class LaunchErrorTests(unittest.TestCase):
         with patch("ub_agents.execution.git") as remove:
             self.assert_stop(workspace.cleanup,
                              f"Private worktree path {workspace.private} redirects outside its owned directory",
-                             "restore the owned worktree path without redirects")
+                             f"restore {workspace.private} without redirects")
         remove.assert_not_called()
         self.assertTrue(workspace.created)
 
@@ -131,14 +131,14 @@ class LaunchErrorTests(unittest.TestCase):
         directory.symlink_to(self.root, target_is_directory=True)
         self.assert_stop(lambda: diagnostic(self.config, "run", "test"),
                          f"Run diagnostics path {directory} redirects",
-                         "restore the run diagnostics path without redirects")
+                         f"restore {directory} without redirects")
         directory.unlink()
         directory.mkdir()
         events = directory / "events.jsonl"
         events.symlink_to(self.path)
         self.assert_stop(lambda: diagnostic(self.config, "run", "test"),
                          f"Run diagnostics file {events} redirects",
-                         "restore the run diagnostics file without redirects")
+                         f"restore {events} without redirects")
         self.assertEqual(self.path.read_text(), "")
 
     def test_hook_diagnostics_redirect_after_confirmation_stops_before_spawning(self):
@@ -154,7 +154,7 @@ class LaunchErrorTests(unittest.TestCase):
                 patch("ub_agents.hooks.supervise") as execute:
             self.assert_stop(lambda: run_hook(cfg, {"run": "run"}, self.root),
                              f"Hook diagnostics path {directory} redirects",
-                             "restore the hook diagnostics path without redirects")
+                             f"restore {directory} without redirects")
         execute.assert_not_called()
 
     def test_error_categories_have_one_shape_and_a_concrete_action(self):
@@ -220,6 +220,27 @@ class LaunchErrorTests(unittest.TestCase):
         self.assertTrue(message.endswith("GET user: HTTP 401 Bad credentials"), message)
         self.assertEqual(message.count("gh auth status"), 1)
 
+    def test_invalid_configuration_names_the_files_to_fix_before_starting(self):
+        self.path.write_text('repository: acme/app\nagents:\n  worker:\n    command: [echo]\n'
+                             '    trigger: ready\n    outcomes: {done: {}}\n    max-attempts: 2\n')
+        local = self.root / "ub-agents.local.yaml"
+        for text in ('agents: [', 'agents: {worker: {max-attempts: 0}}'):
+            with self.subTest(text=text):
+                local.write_text(text)
+                stderr = io.StringIO()
+                with redirect_stderr(stderr), patch("ub_agents.cli._runtime.GitHub") as github:
+                    self.assertEqual(main(["--config", str(self.path), "launch"]), 1)
+                self.assertIn(str(local), stderr.getvalue().split(". Here is the error: ")[0])
+                self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+                github.assert_not_called()
+
+    def test_gh_authentication_instructions_stay_out_of_the_error_part(self):
+        github = GitHub("acme/app", runner=Mock(return_value=subprocess.CompletedProcess(
+            [], 4, "", "To get started with GitHub CLI, please run: gh auth login\nAlternatively, set a token")))
+        message = self.invoke(lambda: github.request("user"))
+        self.assertTrue(message.endswith("GET user: GitHub CLI authentication is required\n"), message)
+        self.assertNotIn("please run", message)
+
     def test_unexpected_exception_exits_one_and_logs_traceback(self):
         def fail():
             raise ValueError("unexpected value\nfull details")
@@ -261,3 +282,9 @@ class LaunchErrorTests(unittest.TestCase):
             print("ub-agents: short exit", file=output.stderr)
             output.resume(final=True)
         self.assertEqual(terminal.getvalue(), "ub-agents: short exit\n")
+
+    def test_long_causes_are_short_on_terminal_and_complete_in_log(self):
+        failure = RuntimeError("x" * 2000)
+        message = self.invoke(Mock(side_effect=failure))
+        self.assertEqual(len(message.split("Here is the error: ")[1].strip()), 300)
+        self.assertIn("x" * 2000, (self.root / ".ub-agents/launch.log").read_text())

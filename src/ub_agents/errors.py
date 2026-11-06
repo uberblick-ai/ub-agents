@@ -1,7 +1,7 @@
 class AgentError(Exception):
     """An actionable configuration, coordination, or execution failure."""
 
-    def __init__(self, message, *, detail=None, next_step=None):
+    def __init__(self, message="", *, detail=None, next_step=None):
         super().__init__(message)
         self.detail = detail or message
         self.next_step = next_step

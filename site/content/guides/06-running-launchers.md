@@ -99,7 +99,7 @@ fast-forwards the control checkout and rereads the configuration and instruction
 An unsafe checkout or Git failure stops it, for example:
 
 ```text
-ub-agents: The control checkout could not be refreshed. Fix origin access and launch again. Here is the error: fetch of origin/main failed: Git operation failed: authentication denied
+ub-agents: The control checkout could not be refreshed. Run git status in /path/to/project, then fix origin access and launch again. Here is the error: fetch of origin/main failed: Git operation failed: authentication denied
 ```
 
 Follow the checkout action and restart.
@@ -168,13 +168,12 @@ line names the request and a concrete check:
 ub-agents: GitHub rejected a request that ub-agents does not retry. Check the repository in /path/to/project/ub-agents.yaml and `gh auth status`, then restart ub-agents launch. Here is the error: GET repos/acme/app/issues/12: HTTP 404 Not Found
 ```
 
-HTTP 401 during setup,
-in `launch --once` or in `launch N` still stops after checking for a changed token.
+HTTP 401 during setup, in `launch --once` or in `launch N` still stops after
+checking for a changed token.
 A `gh` authentication failure without an HTTP status, redirects returned by GitHub
 and other HTTP 4xx errors also stop. Check `gh auth status` and the repository in
 your configuration; sign in with `gh auth login` or correct the repository, then
-restart. The restarted launcher recovers any claim
-it left open.
+restart. The restarted launcher recovers any claim it left open.
 
 **A runtime reached its usage limit.** The launcher pauses that CLI until the limit
 resets, and other CLIs keep working. No attempt is charged. Restart the launcher to

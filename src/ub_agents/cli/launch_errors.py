@@ -20,17 +20,19 @@ def _chain(exc):
 
 def _one_line(text):
     lines = str(text).strip().splitlines()
-    return " ".join(lines[0].split()) if lines else "Unknown error"
+    line = " ".join(lines[0].split()) if lines else "Unknown error"
+    return line if len(line) <= 300 else line[:297] + "..."
 
 
 def _github_detail(error):
-    detail = error.response_message
+    detail = _one_line(error.response_message) if error.response_message is not None else None
     if detail is None:
         # gh may put its message after our authentication advice, then append
         # usage instructions and a duplicate JSON response on following lines.
         match = re.search(r"(?:^|\n|: )gh:\s*([^\n]+)", error.detail)
         detail = match[1] if match else _one_line(error.detail)
-    status = error.status
+    reported_status = re.search(r"HTTP (\d{3})", error.detail)
+    status = error.status or (int(reported_status[1]) if reported_status else None)
     match = re.search(r"\(?HTTP (\d{3})\)?", detail)
     if match:
         status = status or int(match[1])
@@ -81,6 +83,16 @@ def _recovery(error, root):
             "This looks like a bug in ub-agents. Please report it with launch.log")
 
 
+def _error_detail(error):
+    if isinstance(error, GitHubError):
+        return _github_detail(error)
+    if isinstance(error, AgentError):
+        return _one_line(error.detail)
+    if isinstance(error, OSError) and error.strerror:
+        return _one_line(error.strerror)
+    return _one_line(str(error))
+
+
 def launch_error_message(exc, root, *, restart=False):
     errors = _chain(exc)
     # Wrappers must not replace a cleanup remedy or a failed request's metadata.
@@ -90,8 +102,7 @@ def launch_error_message(exc, root, *, restart=False):
     problem, action = _recovery(error, root)
     if restart:
         problem, action = "The automatic launcher restart failed", "Run ub-agents launch again by hand"
-    detail = _github_detail(error) if isinstance(error, GitHubError) else _one_line(
-        error.detail if isinstance(error, AgentError) else str(error))
+    detail = _error_detail(error)
     action = action[0].upper() + action[1:]
     return " ".join(f"{problem}. {action.rstrip('.')}. Here is the error: {detail}".split())
 

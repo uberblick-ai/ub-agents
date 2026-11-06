@@ -559,8 +559,10 @@ class GitHub:
                 retryable = True
             if status is None and result.returncode == 4:
                 retryable, reset_at = False, None  # gh requires authentication.
+            response_message = ("GitHub CLI authentication is required" if status is None and result.returncode == 4
+                                else _response_message(payload))
             error = GitHubError(method, endpoint, detail, retryable=retryable, reset_at=reset_at,
-                                rate_limited=limited, status=status, response_message=_response_message(payload))
+                                rate_limited=limited, status=status, response_message=response_message)
             error.response_output = result.stdout + "\n" + result.stderr
             error.probe_reason = f"exit {result.returncode}"
             raise error

@@ -484,9 +484,10 @@ class PollingTests(unittest.TestCase):
                 waits.assert_not_called()
                 self.assertEqual(self.github.writes, [])
                 if argv[0] == "launch":
-                    prefix = "Cannot read #1: " if argv == ["launch", "1"] else ""
-                    self.assertEqual(stderr.getvalue(), f"ub-agents: {prefix}{' '.join(str(error).split())}; "
-                                     "Fix the cause and restart ub-agents launch.\n")
+                    self.assertEqual(stderr.getvalue(), "ub-agents: A GitHub request failed. "
+                                     f"Check the repository in {self.root / 'ub-agents.yaml'} and `gh auth status`, "
+                                     "then restart ub-agents launch. Here is the error: "
+                                     "GET repos/org/project/issues/comments?per_page=100: HTTP 403 Rate limit\n")
                 else:
                     self.assertEqual(stderr.getvalue(), f"ub-agents: {error}\n")
 
@@ -498,8 +499,10 @@ class PollingTests(unittest.TestCase):
                 patch("ub_agents.cli.launch.repository_checks", return_value=[]), \
                 patch("ub_agents.cli.launch.launch_checks", side_effect=error), redirect_stderr(stderr):
             self.assertEqual(main(["--config", str(self.root / "ub-agents.yaml"), "launch", "--once"]), 1)
-        self.assertEqual(stderr.getvalue(), f"ub-agents: {' '.join(str(error).split())}; "
-                         "Fix the cause and restart ub-agents launch.\n")
+        self.assertEqual(stderr.getvalue(), "ub-agents: A GitHub request failed. "
+                         f"Check the repository in {self.root / 'ub-agents.yaml'} and `gh auth status`, "
+                         "then restart ub-agents launch. Here is the error: "
+                         "GET repos/org/project/issues/comments?per_page=100: unavailable\n")
         self.assertEqual(self.github.writes, [])
 
     def test_stop_during_wait_prevents_another_poll(self):

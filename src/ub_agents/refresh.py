@@ -202,7 +202,7 @@ def refresh_checkout(config, github, agent=None, *, on_fetch=None):  # noqa: C90
         # Git may append several paragraphs of advice; keep the actual error.
         detail = " ".join(str(exc).splitlines()[0].split())
         raise CheckoutRefreshError(f"{root}: {detail}; {next_step}",
-                                   detail=detail, next_step=next_step) from exc
+                                   detail=detail, next_step=f"Run git status in {root}, then {next_step}") from exc
 
 
 def refresh_instructions(config, agent, github, *, on_fetch=None):
