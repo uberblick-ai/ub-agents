@@ -84,7 +84,7 @@
       }
       .panel.attention-panel { border-color: var(--attention); }
       .panel.running-panel { border-color: var(--running); }
-      .machine-picker {
+      .machine-picker, .needs-picker {
         position: absolute;
         top: -0.8em;
         right: 12px;
@@ -92,8 +92,10 @@
         padding: 0 6px;
         background: var(--background);
       }
+      .needs-picker { top: auto; bottom: -0.8em; max-width: calc(100% - 24px); }
+      .needs.with-picker { padding-bottom: 20px; }
       .repository-picker { position: relative; display: inline-block; padding-right: 6px; max-width: 100%; }
-      .machine-picker select, .repository-picker select {
+      .machine-picker select, .needs-picker select, .repository-picker select {
         appearance: none;
         max-width: 100%;
         padding: 0 2ch 0 0;
@@ -104,7 +106,7 @@
         text-overflow: ellipsis;
         cursor: pointer;
       }
-      .machine-picker > span, .repository-picker > span { position: absolute; right: 6px; pointer-events: none; }
+      .machine-picker > span, .needs-picker > span, .repository-picker > span { position: absolute; right: 6px; pointer-events: none; }
       .row {
         display: grid;
         grid-template-columns: 2ch minmax(0, 1fr) 16ch 22ch 12ch;
@@ -196,6 +198,8 @@
       const EVENTS_KEY = "ub-agents-monitor.notify-events-v2";
       const MACHINE_KEY = "ub-agents-monitor.machine";
       const REPOSITORY_KEY = "ub-agents-monitor.repository";
+      const DISMISSED_KEY = "ub-agents-monitor.dismissed-stops";
+      const NEEDS_VIEW_KEY = "ub-agents-monitor.needs-view";
       const EVENTS = [
         { id: "started", text: "a run starts" },
         { id: "ended", text: "a run ends" },
@@ -221,10 +225,27 @@
       };
       const keptMachine = stored(MACHINE_KEY, null);
       const keptRepository = stored(REPOSITORY_KEY, null);
+      const keptDismissed = stored(DISMISSED_KEY, []);
       const state = { data: null, error: null, loading: false, lastPoll: 0, seen: null, seenRepositories: new Set(), open: new Set(), choosing: false, testSentAt: 0,
+        dismissed: new Set(Array.isArray(keptDismissed) ? keptDismissed.filter((key) => typeof key === "string") : []),
+        needsView: stored(NEEDS_VIEW_KEY, "open") === "dismissed" ? "dismissed" : "open",
         repository: typeof keptRepository === "string" && keptRepository ? keptRepository : null,
         machine: typeof keptMachine === "string" && keptMachine ? keptMachine : null };
       const time = (stamp) => new Date(stamp).getTime();
+
+      // Identity belongs to one stop, even when labels alone explain it.
+      const stopKey = (entry) => `${entry.item.repository}:${entry.item.number}:${JSON.stringify([entry.ask?.url ?? null, entry.notice ?? null, [...entry.labels].sort()])}`;
+      const isDismissed = (entry) => state.dismissed.has(stopKey(entry));
+      const openStops = (entries) => entries.filter((entry) => !isDismissed(entry));
+      const pruneDismissals = (data) => {
+        if (!data.repositories.every((source) => source.generated_at)) return;
+        // Failed reads carry the server's last rows, so their dismissals survive.
+        const current = new Set(data.needs_human.map(stopKey));
+        const kept = [...state.dismissed].filter((key) => current.has(key));
+        if (kept.length === state.dismissed.size) return;
+        state.dismissed = new Set(kept);
+        store(DISMISSED_KEY, kept);
+      };
 
       const combinedOutcomes = (repositories) => {
         const outcomes = new Map();
@@ -261,10 +282,11 @@
         };
       };
       const titleOf = (data) => {
-        const rows = data.needs_human.length ? data.needs_human : data.running;
+        const needs = openStops(data.needs_human);
+        const rows = needs.length ? needs : data.running;
         const names = data.repositories.filter((source) => !rows.length || rows.some((row) => row.item.repository === source.repository)).map((source) => source.name);
         const repositories = names.length > 2 ? `${names[0]} +${names.length - 1}` : names.join(", ");
-        return data.needs_human.length ? `(${rows.length}) needs human · ${repositories}`
+        return needs.length ? `(${rows.length}) needs human · ${repositories}`
           : data.running.length ? `${rows.length} running · ${repositories}` : repositories;
       };
 
@@ -306,24 +328,56 @@
         return `claude://code/new?${params.toString().replace(/\+/g, "%20")}`;
       };
 
-      const needsPanel = (entries, stopLabels, complete) =>
-        panel("Needs human", entries.length, entries.length ? "needs attention-panel" : "needs",
-          entries.length
-            ? entries.map(({ item, labels, ask, notice }) =>
-                el("div", { class: "row" },
-                  el("span", { class: "attention" }, "!"),
-                  itemLink(item),
-                  el("span", { class: "attention" }, labels.join(", ")),
-                  el("div", { class: "sub" }, ask ? [`${ask.agent}${ask.outcome ? ` · ${ask.outcome}` : ""} · `, clock(ask.created, "ago")] : "No outcome on record: read the item."),
-                  ask?.actions.length ? el("ul", { class: "block" }, ask.actions.map((a) => el("li", {}, a)))
-                    : ask?.summary ? el("div", { class: "block" }, ask.summary) : null,
-                  ask?.options.length ? [el("div", { class: "block" }, "Options, recommended first:"), el("ol", { class: "block" }, ask.options.map((o) => el("li", {}, o)))] : null,
-                  el("div", { class: "block" },
-                    el("a", { class: "discuss", href: discussUrl(item), title: "Opens a Claude Code session in this checkout with the unblock prompt filled in" }, "discuss with Claude"),
-                    notice ? [link(notice, "action needed"), " · "] : null,
-                    ask ? link(ask.url, "outcome record") : link(item.url, "open the item"))))
+      const setNeedsView = (value) => {
+        state.needsView = value;
+        store(NEEDS_VIEW_KEY, value);
+      };
+      const toggleDismissal = (entry) => {
+        const key = stopKey(entry);
+        isDismissed(entry) ? state.dismissed.delete(key) : state.dismissed.add(key);
+        store(DISMISSED_KEY, [...state.dismissed]);
+        // Keep notification baselines intact: restoring a stop is quiet.
+        render();
+      };
+      const needsPicker = (open, dismissed) => el("div", { class: "needs-picker muted" },
+        el("select", { "aria-label": "Needs human view", onchange: (event) => {
+          setNeedsView(event.target.value);
+          render();
+          document.querySelector('.needs-picker select').focus();
+        } },
+          el("option", { value: "open", selected: state.needsView === "open" }, `Open (${open})`),
+          el("option", { value: "dismissed", selected: state.needsView === "dismissed" }, `Dismissed (${dismissed})`)),
+        el("span", { "aria-hidden": "true" }, " ▾"));
+      const needsRow = (entry, dismissed) => {
+        const { item, labels, ask, notice } = entry;
+        return el("div", { class: "row" },
+          el("span", { class: "attention" }, "!"),
+          itemLink(item),
+          el("span", { class: "attention" }, labels.join(", ")),
+          el("div", { class: "sub" }, ask ? [`${ask.agent}${ask.outcome ? ` · ${ask.outcome}` : ""} · `, clock(ask.created, "ago")] : "No outcome on record: read the item."),
+          ask?.actions.length ? el("ul", { class: "block" }, ask.actions.map((a) => el("li", {}, a)))
+            : ask?.summary ? el("div", { class: "block" }, ask.summary) : null,
+          ask?.options.length ? [el("div", { class: "block" }, "Options, recommended first:"), el("ol", { class: "block" }, ask.options.map((o) => el("li", {}, o)))] : null,
+          el("div", { class: "block" },
+            el("a", { class: "discuss", href: discussUrl(item), title: "Opens a Claude Code session in this checkout with the unblock prompt filled in" }, "discuss with Claude"),
+            notice ? [link(notice, "action needed"), " · "] : null,
+            ask ? link(ask.url, "outcome record") : link(item.url, "open the item"),
+            " · ", el("button", { class: "link", type: "button", onclick: () => toggleDismissal(entry) }, dismissed ? "restore" : "dismiss")));
+      };
+      const needsPanel = (entries, stopLabels, complete) => {
+        const open = openStops(entries);
+        const dismissed = entries.filter(isDismissed);
+        if (!dismissed.length && state.needsView !== "open") setNeedsView("open");
+        const showingDismissed = state.needsView === "dismissed";
+        const shown = showingDismissed ? dismissed : open;
+        const result = panel("Needs human", `${shown.length}${showingDismissed ? " dismissed" : ""}`,
+          `needs${open.length ? " attention-panel" : ""}${dismissed.length ? " with-picker" : ""}`,
+          shown.length ? shown.map((entry) => needsRow(entry, showingDismissed))
             : !complete ? el("div", { class: "muted" }, "Some repositories have not been read yet.")
             : el("div", { class: "muted" }, el("span", { class: "success" }, "✓ "), `Nothing waits for a person · stop labels: ${stopLabels.join(", ")}`));
+        if (dismissed.length) result.append(needsPicker(open.length, dismissed.length));
+        return result;
+      };
 
       const runRow = (run, glyph, tone, last) =>
         el("div", { class: "row" },
@@ -494,11 +548,10 @@
         if (!entry.labelled) return "blocked";
         return entry.stop_outcomes.some(({ name }) => name === entry.ask?.outcome) ? `outcome:${entry.ask.outcome}` : "label";
       };
-      const stopKey = (entry, event) => `${entry.item.repository}:${entry.item.number}${event === "label" ? "" : `:${entry.ask?.url}`}`;
       const runKey = (run) => `${run.item.repository}:${run.id}`;
       const keysOf = (data) => ({
         ...Object.fromEntries(stopEvents(data).map(({ id }) => [id,
-          new Set(data.needs_human.filter((e) => stopEvent(e, data) === id).map((e) => stopKey(e, id)))])),
+          new Set(data.needs_human.filter((e) => stopEvent(e, data) === id).map(stopKey))])),
         started: new Set(data.running.map(runKey)),
         ended: new Set(data.recent.map(runKey)),
         expired: new Set(data.expired.map(runKey)),
@@ -515,7 +568,7 @@
         const change = (event, item, title, body) => ({ event, item, title: `${title} · ${item.repository_name} ${ref(item)} ${item.title}`, body });
         const ask = (entry) => entry.ask?.actions[0] || entry.ask?.summary || "The loop stopped on it until a person answers.";
         return [
-          ...data.needs_human.filter((e) => fresh(stopEvent(e, data), stopKey(e, stopEvent(e, data))))
+          ...data.needs_human.filter((e) => !isDismissed(e) && fresh(stopEvent(e, data), stopKey(e)))
             .map((e) => change(stopEvent(e, data), e.item, stopEvent(e, data).startsWith("outcome:") ? e.ask.outcome : e.labels.join(", "), ask(e))),
           ...data.expired.filter((r) => fresh("expired", runKey(r))).map((r) => change("expired", r.item, "expired", `${r.agent} on ${machine(r.host)} stopped renewing its run.`)),
           ...data.recent.filter((r) => fresh("ended", runKey(r))).map((r) => change("ended", r.item, r.result, [r.agent, r.summary].filter(Boolean).join(" · "))),
@@ -645,6 +698,7 @@
           const snapshot = await response.json();
           if (!response.ok) throw new Error(snapshot.error ?? `HTTP ${response.status}`);
           const data = combine(snapshot);
+          pruneDismissals(data);
           if (state.repository && !data.repositories.some((source) => source.repository === state.repository)) {
             state.repository = null;
             store(REPOSITORY_KEY, null);
