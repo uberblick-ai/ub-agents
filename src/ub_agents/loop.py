@@ -995,11 +995,10 @@ class Loop:
     def _recover(self, plan):
         self._finalizing = False
         history = self.coordinator.history(plan.item.number)
-        outcome = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock())
-        if outcome is None:
+        source = self.coordinator.pending_completion(history, plan.agent.name, self.coordinator.clock(), item=plan.item)
+        if source is None:
             self.declined(plan, "Recovery outcome no longer matches")
             return False
-        source = lease_by_id(history, outcome["lease_id"])
         confirm_worktree_setup_stopped(self.config, source["run"])
         self.observe("assignment", plan)
         self._finalizing = True
@@ -1018,6 +1017,8 @@ class Loop:
         source = lease_by_id(self.coordinator.history(plan.item.number), recovery["recovered_lease_id"])
         outcome = self.coordinator.outcome(source) if source else None
         if outcome is None:
+            if source and recovery.get("own_merge_head"):
+                return self._recover_unfinished_merge(plan, recovery, source)
             raise LostOwnership("Recovered outcome disappeared after claiming")
         # Validate against the originally assigned candidate, not today's head.
         original = replace(plan, item=replace(plan.item, head=source["assignment_sha"]))
@@ -1039,6 +1040,15 @@ class Loop:
                          result=result, summary=summary,
                          github_requests=request_delta(request_counts(self.github), requests_before))
         self.output(f"#{plan.item.number} {plan.agent.name}: recovered durable outcome; no execution started")
+        return True
+
+    def _recover_unfinished_merge(self, plan, recovery, source):
+        summary = "Post-merge work may be unfinished. The run ended without an accepted report."
+        settlement = Settlement(self.config, self.github, self.coordinator, self.approvals)
+        settlement.settle(plan, recovery, source["attempt"], "blocked", summary, "unchanged")
+        self.github.end_finalization()
+        self._renewal.close()
+        self.output(f"#{plan.item.number} {plan.agent.name}: {summary}")
         return True
 
     def _end_poll(self):

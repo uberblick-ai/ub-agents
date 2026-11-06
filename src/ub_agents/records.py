@@ -332,7 +332,7 @@ def _validate_record_identity(record):
             raise ValueError(f"missing {field}")
     if not positive_int(record.get("assignment")):
         raise ValueError("invalid assignment")
-    for field in ("assignment_sha", "candidate_sha", "merge_commit_sha"):
+    for field in ("assignment_sha", "candidate_sha", "merge_commit_sha", "own_merge_head"):
         value = record.get(field)
         if value is not None and (not isinstance(value, str) or not value):
             raise ValueError(f"invalid {field}")

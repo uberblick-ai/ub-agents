@@ -42,7 +42,9 @@ NAME` starts a fresh set of rounds.
 | Approval fails at pickup or after claiming | Unchanged | Parked until approved, without `retry` |
 | Operator interrupt with confirmed cleanup | Unchanged | Eligible on the next launch, without backoff |
 | Stop label detected before the agent process exits | Unchanged | No outcome or label changes; parked by the stop label until resumed with `retry` |
-| Closed issue or closed or merged PR detected before the agent process exits | Unchanged | No outcome or label changes; the closed item needs no further action |
+| Closed issue, closed unmerged PR, or PR merged by someone else detected before the agent process exits | Unchanged without a report | Stop execution; settle a stored report normally, otherwise release `blocked` without an action notice |
+| Run merges its own PR | Normal report rules | Keep executing under the lease and agent timeout; settle its report normally |
+| Run's own merge followed by timeout, crash, or another end without an accepted report | Unchanged | Release `blocked`; post an action notice because post-merge work may be unfinished |
 | Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves, another run's accepted outcome hands off the PR, or an operator uses `retry`; issues need `retry` |
 | Transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
@@ -193,11 +195,18 @@ run exhausts `max-attempts` and parks. When a transition parks a handoff PR, the
 notice goes on that PR. [Approval gates](approvals.md#with-approvals-on) post their
 own notice, once per gate.
 
-A run cancelled without a stored report because its issue closed or its PR closed
-or merged posts no action notice. The lease records that no action is needed before
+A run cancelled without a stored report because its issue closed, its PR closed
+without merging, or someone else merged its PR posts no action notice. The lease records that no action is needed before
 cleanup, so later passes and restarted launchers do not recreate the notice.
 Superseded records are still minimized. Unconfirmed process cleanup still requires
 action and gets a notice.
+
+A run that merged its own PR and ends without an accepted report gets a `blocked`
+release and an **Action needed** notice that post-merge work may be unfinished.
+Merge attribution is recorded on the lease before cleanup. Timeout, crash, rejected
+reports, lost ownership and launcher interruption keep this warning, including
+after restart. Ownership loss permits no further writes by the old owner; after
+expiry, recovery settles the unfinished merge without starting another agent.
 
 A notice leads with the agent's asks, or with the summary's first sentence (one
 line, at most 300 characters) and numbered options. Resume steps follow. The full
@@ -228,8 +237,8 @@ A lease lasts for the configured [claim timing](https://agents.uberblick.ai/docs
 The supervising launcher renews it while it owns the work, from setup through
 cleanup and recovery, including rate-limit waits. A dead launcher's claim stays live
 until its recorded expiry, and the supervisor stops a run whose last confirmed
-expiry has passed by wall clock, including after sleep. Renewal moves only
-`expires` forward, after a fresh ownership read. Release and withdrawal expire the
+expiry has passed by wall clock, including after sleep. Renewal moves
+`expires` forward and records an observed own merge, after a fresh ownership read. Release and withdrawal expire the
 lease at once. A failed renewal retries at the next interval, and a renewal write
 starts only with enough time left for its 20-second request timeout. If retryable
 GitHub failures prevent renewal until expiry, continuous launch stops the owned
@@ -241,13 +250,24 @@ cancels execution, discards any early report and releases the run as `blocked`
 without an outcome or a failed attempt. The launcher preserves the item's labels;
 the lease summary and launcher output name the stop label.
 
-A closed issue or a closed or merged PR also cancels execution. A report stored
+A closed issue, a closed unmerged PR, or a PR merged by someone else also cancels execution. A report stored
 before the agent process stops is settled as after a normal exit, through the
 usual validation and transition checks. Rejected reports follow the normal exit
 rules too. An interruption before release leaves the stored report recoverable.
 Without a stored report, the run is released as `blocked`, with no action notice or
 failed attempt; its labels stay unchanged and its summary names closure or merger.
 A stop label takes precedence over closure and still discards the report.
+
+A run's own merge keeps execution running until the agent exits or reports. The
+PR's `merged_by` must match the lease actor, ignoring case, and its merged head
+must be the assigned head or a chain of two-parent base merges whose first parents
+lead back to that head. A same-account merge of another head does not qualify.
+The launcher records the merged head as `own_merge_head` on the lease before
+cleanup, with action still needed until a report settles successfully. Renewal
+and completion can observe the merge; expiry recovery also checks for a merge
+that happened before the launcher could record it. Lease expiry, ownership checks
+and the agent timeout continue to bound execution. A stop label still cancels
+execution and discards the report after an own merge.
 
 Both stops clean up the worktree and scratch as after a timeout. A label removed
 or an item reopened before the check does not cancel the run. Outcome application
@@ -262,8 +282,9 @@ Every lease names the actor, agent, run, configured CLI, model and effort, expir
 attempt and input candidate SHA for a PR. Branches are derived when needed. A changed
 head or vanished trigger found after setup but before execution counts as a launcher
 setup failure. A stop label or closed or merged item found at that point cancels the
-run without changing its count. `ub-agents retry` resumes a stopped open item; a closed
-item needs no further action. Run branches and worktrees are removed as
+run without changing its count. `ub-agents retry` resumes a stopped open item.
+An unfinished own merge requires a person to review what remains, rather than
+automatically retrying the agent on the merged PR. Run branches and worktrees are removed as
 [stale artifact cleanup](#stale-artifact-cleanup) describes.
 
 GitHub comment writes are not compare-and-swap. The election does **not** give

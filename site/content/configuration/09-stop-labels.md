@@ -4,7 +4,11 @@ A stop label pauses all work on an issue or pull request until a person removes 
 
 Adding a stop label also stops a running agent at the next lease renewal check, within `lease-renew-minutes` (10 minutes by default). The launcher discards any early report, leaves labels unchanged and does not count the stop as a failed attempt. Its output and run record name the stop label.
 
-Closing the issue, or closing or merging the pull request, also stops the agent, even with `stop-labels: []`. If the run stored a report before the process stopped, the launcher settles it through the same validation and outcome transitions as a normal exit. A rejected report gets the same result as after a normal exit. The report stays recoverable if the launcher is interrupted before release. Without a stored report, the run is recorded as `blocked`, with no failed attempt or **Action needed** notice.
+Closing the issue, closing the pull request without merging, or someone else merging the pull request also stops the agent, even with `stop-labels: []`. If the run stored a report before the process stopped, the launcher settles it through the same validation and outcome transitions as a normal exit. A rejected report gets the same result as after a normal exit. The report stays recoverable if the launcher is interrupted before release. Without a stored report, the run is recorded as `blocked`, with no failed attempt or **Action needed** notice.
+
+A run that merges its own pull request keeps running to finish its post-merge work and report. The merge must be by the launcher's GitHub account, from the assigned head or the run's base merges on it. The lease, ownership checks and agent timeout still apply. A stop label still stops the run and discards its report after this merge.
+
+If that run ends without an accepted report, the launcher records `blocked` and posts an **Action needed** notice that post-merge work may be unfinished. This includes timeouts, crashes, rejected reports, lost ownership and launcher interruptions. A restarted launcher preserves the warning and can settle a stored report without rerunning the agent.
 
 The check covers setup from the claim until the agent process exits. A label removed or an item reopened before the check has no effect. Once the process exits, the normal outcome transition checks apply instead of cancelling the run.
 
@@ -58,6 +62,7 @@ Answer the asks on GitHub, remove the stop label and add the trigger label you w
 
 Use `ub-agents retry` to resume an item stopped during execution; it removes the stop label and restores the selected agent's trigger.
 Stopping for closure without a stored report needs no further action and posts no **Action needed** notice. To resume work on a closed item, reopen it before retrying.
+If a run merged its own PR and left an unfinished-work notice, review and complete the remaining work before deciding the next role or handoff.
 
 ```sh
 ub-agents retry 214 --reason "Chose local storage"
