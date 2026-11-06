@@ -21,12 +21,14 @@ class CheckoutSetupInterrupted(KeyboardInterrupt):
 class GitHubError(AgentError):
     """A named request failure, with conservative poll retry metadata."""
 
-    def __init__(self, method, endpoint, detail, *, retryable=False, reset_at=None, rate_limited=False, status=None):
+    def __init__(self, method, endpoint, detail, *, retryable=False, reset_at=None,
+                 rate_limited=False, status=None, not_sent=False):
         super().__init__(f"GitHub {method} {endpoint} failed: {detail}")
         self.retryable = retryable
         self.reset_at = reset_at
         self.rate_limited = rate_limited
         self.status = status
+        self.not_sent = not_sent
 
 
 class RecordError(AgentError):

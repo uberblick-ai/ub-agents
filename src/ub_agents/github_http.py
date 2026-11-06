@@ -123,13 +123,19 @@ class Transport:
         if cached is not None:
             headers["If-None-Match"] = cached[0]
         response, received = None, {}
+        not_sent = False
         try:
             target = request_target(endpoint)
-            if getattr(self._local, "connection", None) is None:
-                self._local.connection = http.client.HTTPSConnection(
-                    "api.github.com", timeout=REQUEST_TIMEOUT_SECONDS)
-            connection = self._local.connection
             with interruptible_request():
+                if getattr(self._local, "connection", None) is None:
+                    not_sent = True
+                    self._local.connection = http.client.HTTPSConnection(
+                        "api.github.com", timeout=REQUEST_TIMEOUT_SECONDS)
+                    # Separate connection setup from request()'s implicit send:
+                    # only this failure proves that even a write is safe to retry.
+                    self._local.connection.connect()
+                    not_sent = False
+                connection = self._local.connection
                 connection.request(method, target, body=body, headers=headers)
                 response = connection.getresponse()
                 for name, value in response.getheaders():
@@ -148,7 +154,7 @@ class Transport:
                 return (response.status, {k: token.redact(v) for k, v in received.items()}, "",
                         "HTTPS operation timed out (20s)" if isinstance(exc, TimeoutError)
                         else "HTTPS connection reset while reading response")
-            error = GitHubError(method, endpoint, f"HTTPS {reason}", retryable=True)
+            error = GitHubError(method, endpoint, f"HTTPS {reason}", retryable=True, not_sent=not_sent)
             error.probe_reason = reason
             # http.client exceptions can contain request headers. Do not retain
             # their text or chain them into launcher diagnostics.
