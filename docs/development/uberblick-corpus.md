@@ -38,10 +38,10 @@ repository guide.
 
 ## Who writes the corpus
 
-The corpus pass below and maintainers write corpus pages. Other roles read them.
-Corpus edits fall outside the reviewed diff and can describe a candidate that
-changes or never merges, so a change records what the corpus needs in its PR, and
-the pass applies it once the code has merged.
+The integrator, through the corpus pass below, and maintainers write corpus pages.
+Other roles read them. Corpus edits fall outside the reviewed diff and can describe a
+candidate that changes or never merges, so a change records what the corpus needs in
+its PR, and the pass applies it once the PR has passed its gates.
 
 Decisions come from a person, and a record shows who suggested the answer. Any role
 may propose a decision record by creating it `open` with a recommendation, tagged
@@ -66,39 +66,48 @@ Corpus note:
 
 ### Corpus pass
 
-The integrator runs the pass once its own merge of a PR has landed, before reporting
-`merged`. Most PRs need no page change, so a small PR gets a small pass.
+The integrator owns the pass. It runs it once its own merge of a PR has landed, before
+reporting `merged`, or against the candidate before reporting `maintainer-merge`, so
+the corpus is done before a maintainer merges. Most PRs need no page change, so a small
+PR gets a small pass.
 
-1. Fetch `main` and compare pages with that commit, so overlapping passes from several
-   launchers settle on current code.
+1. Fetch `main` and compare pages with that commit, plus the candidate when the PR is
+   waiting for a maintainer, so overlapping passes from several launchers settle on
+   current code.
 2. Find the checkpoint: go through merged PRs newest first, reading their comments for
    `Corpus pass complete at SHA` from an account with write access. Stop at the first
    you find or at `v0.5.3`. If a read fails, report it rather than treating it as no
    checkpoint.
 3. Take the PRs merged after the checkpoint, oldest first and at most 20, so PRs that
-   a maintainer merged or whose pass didn't finish are covered too. Read their corpus
-   notes and the open questions the checkpoint comment lists.
+   a maintainer merged or whose pass didn't finish are covered too, and the PR you're
+   handling. Read their corpus notes and the open questions the checkpoint comment lists.
 4. Search the corpus by each changed command, option or feature's name, and read each
    page that covers it as a whole. The notes are hints: they don't limit what you check.
 5. Fix what is wrong and add reasoning that a note supplies. Leave anything that needs
    a decision as a question, or propose a decision record.
 6. Remove any stale status narration from the pages you read.
 7. Record a `code_check` at the fetched commit on each page compared.
-8. Comment `Corpus pass complete at SHA` on the PR you merged, with SHA the merge commit
-   of the last PR covered, naming the pages changed and the questions still open.
+8. Comment `Corpus pass complete at SHA` on the PR you're handling, naming the pages
+   changed and the questions still open. SHA is the merge commit of the last merged PR
+   covered, so a PR waiting for a maintainer is checked again after it merges.
 
 An open question doesn't make the run blocked: name it in the report and the next
-pass raises it again. A pass that stops leaves no comment, and the launcher posts an
-**Action needed** notice. The next pass covers those PRs, but only an agent's merge
-starts one, so a maintainer can run the pass when no merge is coming. `edit_block`
-splices only unmarked text: to change inline code or links, insert a new block with
-`inline` runs and delete the old one.
+pass raises it again. An unreachable corpus never holds up a merge or a handoff: report
+it as the setup problem it is and leave no comment. A pass that stops also leaves no
+comment, and after a merge the launcher posts an **Action needed** notice. The next pass
+covers those PRs, but only an integrator run starts one, so a maintainer can run the
+pass when none is coming. If a PR closes unmerged after a handoff pass, the pages its
+comment names need correcting by whoever closes it.
+
+`edit_block` splices only unmarked text: to change inline code or links, insert a new
+block with `inline` runs and delete the old one.
 
 ### What pages hold
 
 A page holds a lasting reason or promise and links to where the rest lives. Reshape
 a page rather than appending to it; it grows only when it gains a new promise. Pages
-follow `main`, so they can be ahead of the latest release. A target that `main` doesn't
+follow `main`, so they can be ahead of the latest release, and ahead of `main` for a PR
+waiting for a maintainer. A target that `main` doesn't
 deliver yet says it is a target, links its issue and records `ahead` in `code_check`.
 Leave out:
 
