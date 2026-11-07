@@ -73,6 +73,7 @@ All optional:
 | `queue` | [Queue](/docs/configuration/queue.html) |
 | `approvals`, `trusted-bots` | [Approvals](/docs/configuration/approvals.html) |
 | `trusted-pr-authors` | [Trusted PR authors](/docs/configuration/approvals.html#trusted-pr-authors) |
+| `upstream-retrospectives` | [Upstream retrospectives](/docs/best-practices/retrospectives.html#send-feedback-about-ub-agents) |
 | `launchers` | [Launcher accounts](/docs/configuration/launchers.html) |
 | `cleanup` | [Cleanup hook](/docs/configuration/cleanup.html) |
 | `events` | [Loop events](/docs/configuration/events.html) |
@@ -122,6 +123,7 @@ existing project, add that line before creating the file.
 |---|---|---|
 | `repository` | Required string | GitHub `owner/name`; must match the checkout's `origin`. |
 | `agents` | Required mapping | Nonempty; names are lowercase slugs: a letter, then letters, digits, `-` or `_`. See [Agents](/docs/configuration/agents.html). |
+| `upstream-retrospectives` | `on` or `off`, default `off` | Opt in to public feedback about ub-agents itself; pinned by the launcher for each run. See [Retrospectives](/docs/best-practices/retrospectives.html#send-feedback-about-ub-agents). |
 | `poll-seconds` | Positive number, `30` | Minimum gap between discovery-pass starts. |
 
 `origin` may be `https://github.com/OWNER/REPO`, `git@github.com:OWNER/REPO` or

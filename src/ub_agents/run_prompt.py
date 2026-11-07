@@ -5,7 +5,7 @@ import json
 from .eligibility import AgentMatches
 from .execution import fork_head_ref
 from .labels import OUTSIDE_INPUT
-from .prompts import CONTINUATION_PROMPT, FORK_PR_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT
+from .prompts import CONTINUATION_PROMPT, FORK_PR_PROMPT, RETROSPECTIVE_PROMPT, RUN_PROMPT, UPSTREAM_RETROSPECTIVE_PROMPT
 from .records import outcome_declarations
 
 
@@ -48,6 +48,8 @@ def run_prompt(config, approvals, plan, lease, context, instructions, *, shared_
     report_command = context["report_command"]
     retrospective = (RETROSPECTIVE_PROMPT.format(report_command=report_command)
                      if plan.agent.retrospectives is not None else "")
+    if retrospective and config.upstream_retrospectives == "on":
+        retrospective += UPSTREAM_RETROSPECTIVE_PROMPT.format(report_command=report_command)
     continuation = (CONTINUATION_PROMPT.format(earlier_branches=json.dumps(earlier)) if earlier else "")
     matches = plan.matches
     if matches is None or matches.configured != config.agents:
