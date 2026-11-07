@@ -5,6 +5,10 @@ queue:
   milestones: ignore
   dependencies: wait
 
+# Let these bots' comments and reviews reach agents as feedback, with no other authority.
+# https://agents.uberblick.ai/docs/configuration/approvals.html
+# trusted-bots: [copilot-pull-request-reviewer, Copilot]
+
 # Set up dependencies before every new run, after the control-checkout refresh,
 # even if HEAD did not move, and in each new private worktree (except fork PRs).
 # The command must be idempotent and fast when nothing changed.

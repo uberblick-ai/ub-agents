@@ -57,10 +57,13 @@ With Uberblick selected and no `.uberblick.json` in the checkout or above it:
 └
 ```
 
-The Uberblick extra also plans project-scope MCP registration for the chosen
-runtime. When updates are enabled, it includes `ub: auto` in `runtime-updates`
+The Uberblick extra also plans project-scope MCP registration for each configured
+CLI. When both are logged in, the chosen CLI remains the default and the other
+runs both reviewers; permissions, updates and MCP registration cover both.
+With one logged-in CLI or unattended setup, all roles keep the chosen runtime.
+When updates are enabled, it includes `ub: auto` in `runtime-updates`
 and reports that `ub` updates through Homebrew too. **Changes** shows one line
-for that runtime and its planned action, such
+per CLI and its planned action, such
 as:
 
 ```text
