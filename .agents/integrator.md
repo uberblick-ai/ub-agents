@@ -59,7 +59,7 @@ chooses check commands.
 
 You own the [corpus pass](../docs/development/uberblick-corpus.md#corpus-pass). Run it
 once your own merge has landed, including when a failed merge command turns out to have
-merged, before reporting `merged`. Run it against the candidate before reporting
-`maintainer-merge`. If the launcher performs the merge, the next pass covers the PR.
-Write no corpus pages at any other point. An unreachable corpus never holds up a merge
+merged, before reporting `merged`. Run its handoff form against the candidate before
+reporting `maintainer-merge`. If the launcher performs the merge, the next pass covers the
+PR. Write no corpus pages at any other point. An unreachable corpus never holds up a merge
 or a handoff: say so in your report.
