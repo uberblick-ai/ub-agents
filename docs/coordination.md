@@ -339,7 +339,19 @@ configuration.
 
 `run.json` pins `repository`, `run`, `assignment`, `lease_id`, `agent`, `approvals`,
 `trusted-bots`, `trusted-pr-authors`, `triggers` and `retrospectives`, plus
-`launchers` and `sub-issue-labels` when configured.
+`upstream-retrospectives` and the selected lease's `runtime` (`cli:model:effort`,
+or `direct` for command agents). `launchers` and `sub-issue-labels` appear when
+configured. Older contexts without the upstream fields keep local commands working
+and treat the upstream opt-in as off.
+
+`retrospective` posts to the role's pinned local board. `retrospective --upstream`
+requires the pinned [upstream-retrospectives opt-in](https://agents.uberblick.ai/docs/best-practices/retrospectives.html#send-feedback-about-ub-agents),
+independently of a local board. Worktree configuration cannot enable it or change
+the fixed upstream repository and discussion. Upstream bodies must not link their
+item. The command checks common repository, path and token leaks before any GitHub
+request, appends the launcher version and pinned runtime, and warns with exit 0
+if GitHub delivery fails. Local bodies and failures keep their existing behavior.
+The upstream board is outside input; `read N` reads issues and PRs, never discussions.
 
 `report` verifies the run's current ownership and creates one versioned outcome
 comment. `--outcome NAME` reports a declared outcome with status `success`;
@@ -647,7 +659,9 @@ follows them. Runtimes load the repository's own guidance themselves, and `init`
 never edits `AGENTS.md` or `CLAUDE.md`. The earlier-branches line appears only with
 earlier branches, the retrospective guidance only for a role with a board, and the
 shared policy section only with `shared-instructions`. Braced values are per-run
-values; `${VAR}` is literal text.
+values; `${VAR}` is literal text. With `upstream-retrospectives: on`, roles with a
+local board also receive the upstream passage quoted after the base contract.
+With the key unset or off, the prompt is unchanged.
 
 <!-- run-prompt:start -->
 ```text
@@ -678,6 +692,15 @@ Project instructions:
 {instructions}
 ```
 <!-- run-prompt:end -->
+
+The following passage follows the local retrospective guidance only when the
+upstream opt-in is on and the role has a local board:
+
+<!-- upstream-retrospective-prompt:start -->
+```text
+For local agent, CI or tool limits this repository can fix itself, use the local board and link the item as above. For how ub-agents works, its limits, ub-agents.yaml syntax or structural gaps, use {report_command} retrospective --upstream --body-file PATH. An upstream post is public and leaves the operator's project. Write general but actionable feedback about ub-agents: what it did, what was missing and the smallest change. Never include repository, organization, people, issue or PR names, code, file paths, hostnames, credentials, log excerpts or business details. Do not link the item in an upstream post.
+```
+<!-- upstream-retrospective-prompt:end -->
 
 ## Execution boundaries
 

@@ -22,6 +22,16 @@ RETROSPECTIVE_PROMPT = (
     "tool in the run's scratch directory, then post before reporting; a failed post blocks nothing.\n"
 )
 
+UPSTREAM_RETROSPECTIVE_PROMPT = (
+    "For local agent, CI or tool limits this repository can fix itself, use the local board "
+    "and link the item as above. For how ub-agents works, its limits, ub-agents.yaml syntax or "
+    "structural gaps, use {report_command} retrospective --upstream --body-file PATH. "
+    "An upstream post is public and leaves the operator's project. Write general but actionable "
+    "feedback about ub-agents: what it did, what was missing and the smallest change. Never "
+    "include repository, organization, people, issue or PR names, code, file paths, hostnames, "
+    "credentials, log excerpts or business details. Do not link the item in an upstream post.\n"
+)
+
 CONTINUATION_PROMPT = (
     "Earlier runs of this issue recorded branches {earlier_branches}; check each with "
     "gh pr list --state open --head BRANCH and continue an open draft PR there instead "

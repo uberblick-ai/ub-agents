@@ -20,6 +20,8 @@ def run_config(config, agent, lease):
     return read_policy(config) | {"run": lease["run"], "assignment": lease["assignment"],
                                  "lease_id": lease["id"], "agent": agent.name,
                                  "retrospectives": agent.retrospectives,
+                                 "upstream-retrospectives": config.upstream_retrospectives,
+                                 "runtime": lease.get("runtime", "direct"),
                                  "outcomes": outcome_declarations(agent), "stop-labels": list(config.stop_labels)}
 
 
@@ -31,7 +33,7 @@ def supervised_run():  # noqa: C901
             raise ValueError("missing launcher context")
         context = json.loads(Path(path).read_text(encoding="utf-8"))
         if (not isinstance(context, dict)
-                or set(context) - {"launchers", "sub-issue-labels"} != {"repository", "run", "assignment", "lease_id", "agent",
+                or set(context) - {"launchers", "sub-issue-labels", "upstream-retrospectives", "runtime"} != {"repository", "run", "assignment", "lease_id", "agent",
                                     "approvals", "trusted-bots", "trusted-pr-authors", "triggers", "retrospectives", "outcomes", "stop-labels"}
                 or not isinstance(context["repository"], str)
                 or not re.fullmatch(REPOSITORY, context["repository"])
@@ -44,6 +46,8 @@ def supervised_run():  # noqa: C901
                 or not isinstance(context["agent"], str)
                 or not re.fullmatch(r"[a-z][a-z0-9_-]*", context["agent"])
                 or context["approvals"] not in (None, "on", "off")
+                or context.get("upstream-retrospectives", "off") not in ("on", "off")
+                or not _valid_runtime(context.get("runtime", "direct"))
                 or (context["retrospectives"] is not None and not positive_int(context["retrospectives"]))
                 or not isinstance(context["triggers"], dict)
                 or set(context["triggers"]) != {"issue", "pr"}):
@@ -71,6 +75,11 @@ def supervised_run():  # noqa: C901
     except (OSError, ValueError, TypeError, KeyError, AgentError) as exc:
         raise AgentError("Command requires a supervised ub-agents assignment and the launcher's readable "
                          "run.json (UB_AGENTS_RUN_CONFIG); no input shown or record posted") from exc
+
+
+def _valid_runtime(value):
+    return isinstance(value, str) and (value == "direct" or (
+        len(parts := value.split(":")) == 3 and parts[0] in {"codex", "claude"} and all(parts)))
 
 
 def process_group(root, run):

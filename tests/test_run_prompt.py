@@ -14,6 +14,7 @@ from ub_agents.approvals import ApprovalCheck
 from ub_agents.config import Runtime
 from ub_agents.coordination import Plan
 from ub_agents.loop import Loop
+from ub_agents.prompts import UPSTREAM_RETROSPECTIVE_PROMPT
 from ub_agents.run_prompt import run_context, run_environment, run_prompt
 from tests.support import FakeGitHub, agent, config, issue, pr, stub_refresh
 
@@ -104,6 +105,34 @@ class RunPromptCharacterizationTests(unittest.TestCase):
 
 
 class RunPromptBuilderTests(unittest.TestCase):
+    def test_upstream_passage_requires_opt_in_and_a_board_and_off_preserves_exact_prompt(self):
+        root = Path("/unused/project")
+        role = agent(root, retrospectives=203)
+        configured = config(root, role)
+        plan = Plan(issue(), role, None, "ready", "", 1)
+        context = {"earlier_branches": [], "report_command": "/launcher/report"}
+        original = run_prompt(configured, "on", plan, {}, context, "Role procedure")
+        self.assertEqual(original, run_prompt(replace(configured, upstream_retrospectives="off"),
+                                             "on", plan, {}, context, "Role procedure"))
+        self.assertNotIn("--upstream", original)
+        enabled = replace(configured, upstream_retrospectives="on")
+        prompt = run_prompt(enabled, "on", plan, {}, context, "Role procedure")
+        for text in ("retrospective --upstream --body-file PATH", "public", "leaves the operator's project",
+                     "what it did", "what was missing", "smallest change", "Do not link the item",
+                     "organization", "people", "code", "file paths", "hostnames", "credentials",
+                     "business details", "ub-agents.yaml syntax"):
+            self.assertIn(text, prompt)
+        without_board = replace(plan, agent=replace(role, retrospectives=None))
+        prompt = run_prompt(enabled, "on", without_board, {}, context, "Role procedure")
+        self.assertNotIn("Post a retrospective", prompt)
+        self.assertNotIn("--upstream", prompt)
+
+    def test_coordination_document_quotes_upstream_passage(self):
+        doc = (Path(__file__).resolve().parents[1] / "docs/coordination.md").read_text()
+        quote = doc.split("<!-- upstream-retrospective-prompt:start -->\n```text\n")[1].split(
+            "```\n<!-- upstream-retrospective-prompt:end -->")[0]
+        self.assertEqual(quote, UPSTREAM_RETROSPECTIVE_PROMPT)
+
     def test_builders_use_explicit_inputs_without_io_or_environment_reads(self):
         root = Path("/unused/project")
         role = agent(root, worktree=True)
