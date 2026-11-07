@@ -127,8 +127,9 @@ run handed off to a new PR. Each half scrolls on its own. Arrow keys move betwee
 them.
 
 Until you pick a row, the view selects the launcher's own run whenever one
-starts. Your selection, tab, focus and log position survive refreshes. A
-selected row that leaves Work stays in the right pane as an earlier observation
+starts. When that run ends, the right pane clears until the next run starts or
+you pick a row. Your selection, tab, focus and log position survive refreshes. A
+row you picked that leaves Work stays in the right pane as an earlier observation
 until you select another.
 
 ## Item tabs

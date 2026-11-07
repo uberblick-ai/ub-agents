@@ -374,6 +374,31 @@ class WorkPaneTests(unittest.TestCase):
         self.assertEqual(kept.selected, 'assignment:owned-run')
         self.assertEqual([row.key for row in kept.sections[0].rows], ['assignment:next-run'])
 
+    def test_followed_run_that_ends_leaves_nothing_selected_until_a_run_or_a_pick(self):
+        running = self.pane()
+        self.assertEqual(running.selected, 'assignment:owned-run')
+        self.data['assignment'] = None
+        self.data['latest_pass'] = {'state': 'complete', 'rows': []}
+        self.data['outcomes'].append({'item': 114, 'agent': 'implementer', 'run': 'owned-run', 'result': 'success'})
+        ended = self.pane(running, running.selected)
+        self.assertIsNone(ended.selected)
+        self.assertTrue(ended.released)
+        self.assertNotIn('assignment:owned-run', [row.key for row in ended.rows])
+        still = self.pane(ended, ended.selected)
+        self.assertIsNone(still.selected)
+        picked = self.pane(still, 'outcome:owned-run', True)
+        self.assertEqual(picked.selected, 'outcome:owned-run')
+        self.assertFalse(picked.released)
+        self.data['assignment'] = {'item': 12, 'agent': 'reviewer', 'run': 'next-run', 'process': 'running'}
+        followed = self.pane(still, still.selected)
+        self.assertEqual(followed.selected, 'assignment:next-run')
+        self.assertFalse(followed.released)
+        # A run a person picked stays on screen after it ends.
+        self.data['assignment'] = None
+        kept = self.pane(followed, followed.selected, True)
+        self.assertEqual(kept.selected, 'assignment:next-run')
+        self.assertEqual(kept.rows[-1].state, 'earlier observation')
+
     def test_selection_moves_to_related_plan_including_a_merged_secondary_agent(self):
         pane = self.pane(selected='plan:12', chosen=True)
         self.data['latest_pass']['rows'] = [{'item': 12, 'agent': 'reviewer', 'state': 'blocked'}]

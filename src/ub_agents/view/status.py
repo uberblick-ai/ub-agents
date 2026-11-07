@@ -7,7 +7,7 @@ from math import ceil
 from rich.style import Style
 from rich.text import Text
 
-from .data import item_handoff, item_header, mapping, run_status, text
+from .data import SELECT_ITEM, item_handoff, item_header, mapping, run_status, text
 from .spinner import spinner_frame
 from .time import deadline, pause_status, remaining_time, runtime_pauses
 from .unblock import unblock_metadata
@@ -275,8 +275,10 @@ def log_notices(row, reading, width, styles):
 
 
 def empty_log_message(row):
-    return (row.reason if row and mapping(row.data.get('owner')) else
-            'No local log cached for this row.' if not row or not row.log else 'No log output yet.')
+    if not row:
+        return SELECT_ITEM
+    return (row.reason if mapping(row.data.get('owner')) else
+            'No local log cached for this row.' if not row.log else 'No log output yet.')
 
 
 def run_status_line(row, session, width, styles, monotonic_now):
