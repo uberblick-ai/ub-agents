@@ -43,10 +43,12 @@ Corpus edits fall outside the reviewed diff and can describe a candidate that
 changes or never merges, so a change records what the corpus needs in its PR, and
 the pass applies it once the code has merged.
 
-Decisions come from a person. Any role may propose a decision record by creating it
-`open` with a recommendation and linking it from its issue or PR. Only a maintainer
-answers it: no role moves a record to `decided`, including as a first-record agent
-stance.
+Decisions come from a person, and a record shows who suggested the answer. Any role
+may propose a decision record by creating it `open` with a recommendation, tagged
+`agent-proposal`, and linking it from its issue or PR. Work may go ahead on an agent's
+proposal only where that is easy to undo. Work may build on a person's suggestion, an
+`open` record with no such tag, unless that is hard to undo. Only a maintainer answers
+a record: no role moves one to `decided`, including as a first-record agent stance.
 
 ### Corpus note
 
@@ -64,25 +66,33 @@ Corpus note:
 
 ### Corpus pass
 
-The integrator runs the pass after merging a PR, from the merge commit, before
-reporting `merged`. Most PRs need no page change, so a small PR gets a small pass.
+The integrator runs the pass once its own merge of a PR has landed, before reporting
+`merged`. Most PRs need no page change, so a small PR gets a small pass.
 
-1. Take the PRs merged since the commit named in the last `Corpus pass complete`
-   comment, or since `v0.5.3` if there is none, so PRs that a maintainer merged or
-   whose pass didn't finish are covered too. Read their corpus notes and the open
-   questions that comment lists.
-2. Search the corpus by each changed command, option or feature's name, and read each
+1. Fetch `main` and compare pages with that commit, so overlapping passes from several
+   launchers settle on current code.
+2. Find the checkpoint: go through merged PRs newest first, reading their comments for
+   `Corpus pass complete at SHA` from an account with write access. Stop at the first
+   you find or at `v0.5.3`. If a read fails, report it rather than treating it as no
+   checkpoint.
+3. Take the PRs merged after the checkpoint, oldest first and at most 20, so PRs that
+   a maintainer merged or whose pass didn't finish are covered too. Read their corpus
+   notes and the open questions the checkpoint comment lists.
+4. Search the corpus by each changed command, option or feature's name, and read each
    page that covers it as a whole. The notes are hints: they don't limit what you check.
-3. Fix what is wrong and add reasoning that a note supplies. Leave anything that needs
+5. Fix what is wrong and add reasoning that a note supplies. Leave anything that needs
    a decision as a question, or propose a decision record.
-4. Remove any stale status narration from the pages you read.
-5. Record a `code_check` at the merge commit on each page compared.
-6. Comment `Corpus pass complete at SHA` on the PR, naming the pages changed and the
-   questions still open.
+6. Remove any stale status narration from the pages you read.
+7. Record a `code_check` at the fetched commit on each page compared.
+8. Comment `Corpus pass complete at SHA` on the PR you merged, with SHA the merge commit
+   of the last PR covered, naming the pages changed and the questions still open.
 
 An open question doesn't make the run blocked: name it in the report and the next
-pass raises it again. `edit_block` splices only unmarked text: to change inline code
-or links, insert a new block with `inline` runs and delete the old one.
+pass raises it again. A pass that stops leaves no comment, and the launcher posts an
+**Action needed** notice. The next pass covers those PRs, but only an agent's merge
+starts one, so a maintainer can run the pass when no merge is coming. `edit_block`
+splices only unmarked text: to change inline code or links, insert a new block with
+`inline` runs and delete the old one.
 
 ### What pages hold
 

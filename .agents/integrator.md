@@ -57,5 +57,7 @@ permission, an external service or a human decision), another gate fails, or evi
 is missing. The framework never grants merge authority, approves its own PR, or
 chooses check commands.
 
-After you merge a PR, run the [corpus pass](../docs/development/uberblick-corpus.md#corpus-pass)
-from the merge commit before reporting `merged`. Write no corpus pages before the merge.
+Once your own merge has landed, including when a failed merge command turns out to have
+merged, run the [corpus pass](../docs/development/uberblick-corpus.md#corpus-pass) before
+reporting `merged`. If the launcher performs the merge, the next pass covers the PR. Write
+no corpus pages before the merge.
