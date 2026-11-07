@@ -23,6 +23,11 @@ def later_on_item(history, record):
                and other["kind"] in {"lease", "reset"} for other in history)
 
 
+def unconfirmed(lease):
+    """Its launcher could not prove the run's processes ended, so it stopped and holds the item."""
+    return lease.get("cleanup") == "unconfirmed"
+
+
 def ask(outcome, lease=None):
     """What a stopped run asks of a person: its outcome's actions and options."""
     source = outcome or lease
@@ -75,6 +80,11 @@ class MonitorSource:
         blocked = [lease for lease in leases if lease.get("result") == "blocked"
                    and lease["assignment"] in open_items and lease["assignment"] not in stopped
                    and not later_on_item(history, lease)]
+        # A closed item's claim is stale: its launcher stops the run, or has already gone.
+        claimed = [lease for lease in leases if lease["state"] in CLAIMED and lease["assignment"] in open_items]
+        held = [lease for lease in claimed if unconfirmed(lease) and lease["assignment"] not in stopped
+                and not later_on_item(history, lease)]
+        live = {lease["id"] for lease in live_leases(history, now)}
         eligible = self.planning.snapshot()
         return {
             "repository": self.config.repository,
@@ -86,11 +96,13 @@ class MonitorSource:
             "notices": notices,
             "needs_human": labelled + [{"item": self.item(lease), "labels": ["blocked"], "labelled": False,
                                         "ask": ask(self.outcome(history, lease), lease), "notice": None}
-                                       for lease in blocked],
-            "running": [self.run(lease, renewed) for lease in live_leases(history, now)],
+                                       for lease in blocked]
+                         + [{"item": self.item(lease), "labels": ["cleanup unconfirmed"], "labelled": False,
+                             "ask": ask(None, lease), "notice": None} for lease in held],
+            "running": [self.run(lease, renewed) for lease in claimed if lease["id"] in live and not unconfirmed(lease)],
             "eligible": eligible,
             "eligible_error": self.planning.error,
-            "expired": [self.run(lease, renewed) for lease in leases if lease["state"] in CLAIMED
+            "expired": [self.run(lease, renewed) for lease in claimed if not unconfirmed(lease)
                         and seconds(lease["expires"]) <= now and not later_on_item(history, lease)],
             "recent": sorted((self.ended(history, lease, renewed) for lease in leases
                               if lease["state"] == "released" and seconds(lease["expires"]) >= now - WINDOW_SECONDS),
