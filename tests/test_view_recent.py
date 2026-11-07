@@ -9,6 +9,7 @@ from textual import events
 from tests.support import RecordingDescriptionTransport
 from tests.test_view_data import event, fixture, publish_snapshot
 from tests.terminal import Terminal
+from tests.view_pilot import RefreshPilot
 from ub_agents.view.github import DescriptionLoads
 from ub_agents.view.ui import LogPane, View
 from ub_agents.view.work import RecentActivity, WorkTree
@@ -95,6 +96,7 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(size=size):
                 app = View(self.root, self.path, descriptions=DescriptionLoads(RecordingDescriptionTransport()))
                 async with app.run_test(size=size) as pilot:
+                    pilot = RefreshPilot(app)
                     tree, recent = app.query_one(WorkTree), app.query_one(RecentActivity)
                     await self.ready(pilot, lambda: len(recent.rows) == 20 and recent.max_scroll_y > 0)
                     # Initial layout defers revealing the selection until refresh.
@@ -161,6 +163,7 @@ class RecentActivityTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(size=size):
                 app = View(self.root, self.path)
                 async with app.run_test(size=size) as pilot:
+                    pilot = RefreshPilot(app)
                     recent = app.query_one(RecentActivity)
                     await self.ready(pilot, lambda: len(recent.rows) == 20 and recent.max_scroll_y > 0
                                      and recent.allow_vertical_scroll)
