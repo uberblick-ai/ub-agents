@@ -13,8 +13,8 @@ Only the integrator merges, by squash, once the checks above and every CI check
 pass at the exact head it merges. No agent enables auto-merge, changes branch
 protection or publishes a release. Leave the merge to `@org/maintainers` when the PR:
 
-- changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` and any
-  `AGENTS.md` or `CLAUDE.md`;
+- changes agent configuration or guidance: `ub-agents.yaml`, `.agents/`, `.claude/`
+  and any `AGENTS.md` or `CLAUDE.md`;
 - changes setup, CI or release tooling;
 - adds a runtime dependency;
 - changes what users rely on, such as commands, options, public APIs or output,
