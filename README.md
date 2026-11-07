@@ -93,7 +93,7 @@
 | src/ub\_agents/polling.py                        |       45 |        0 |    100% |           |
 | src/ub\_agents/prompts.py                        |        5 |        0 |    100% |           |
 | src/ub\_agents/queue\_order.py                   |       58 |        0 |    100% |           |
-| src/ub\_agents/queue\_planner.py                 |      363 |        3 |     99% |195, 426, 429 |
+| src/ub\_agents/queue\_planner.py                 |      374 |        3 |     99% |224, 455, 458 |
 | src/ub\_agents/rate\_limits.py                   |       29 |        1 |     97% |        44 |
 | src/ub\_agents/read\_input.py                    |       16 |        1 |     94% |        23 |
 | src/ub\_agents/records.py                        |      321 |       27 |     92% |67, 88, 123, 125, 139, 142, 154, 198, 218, 221, 324-326, 332, 334, 338, 345, 351, 353, 355, 357, 389, 391, 393, 395, 397, 399, 413 |
@@ -146,7 +146,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18759** |  **686** | **96%** |           |
+| **TOTAL**                                        | **18770** |  **686** | **96%** |           |
 
 
 ## Setup coverage badge
