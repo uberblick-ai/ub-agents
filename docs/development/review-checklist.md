@@ -17,7 +17,7 @@ rules; this checklist links to the rules rather than replacing them.
 | Blocking (P1) | Runtime dependencies have maintainer agreement and GitHub calls use the existing client. | [Dependencies](principles.md#dependencies) |
 | Blocking (P1) | New modules explain their purpose and usage; changed module docstrings remain accurate. | [Module docstrings](conventions.md#module-docstrings) |
 | Blocking (P1) | Errors preserve failures and their causes rather than reporting empty results or success. | [Error handling](conventions.md#error-handling) |
-| Blocking (P1) | Operator and contributor documentation remains accurate in its home, and affected corpus topics are updated. | [Documentation homes](../../AGENTS.md#documentation-homes), [corpus updates](uberblick-corpus.md) |
+| Blocking (P1) | Operator and contributor documentation remains accurate in its home, and a behavior change carries a corpus note. | [Documentation homes](../../AGENTS.md#documentation-homes), [corpus note](uberblick-corpus.md#corpus-note) |
 | Blocking (P1) | The PR title describes its change, internal-only work is identified, and required upgrade instructions are in the PR body. | [Pull requests](changelog-and-releases.md#pull-requests) |
 | Blocking (P1) | Release-prep work follows the release scope and version rules; loop roles leave publication to a maintainer. | [Release preparation](changelog-and-releases.md#release-preparation), [publication](changelog-and-releases.md#publishing-releases) |
 | Blocking (P1) | Coordination and execution changes preserve ownership, recovery and process cleanup; bugs, security risks and data-loss risks are resolved. | [Review focus](../../.agents/ub_agents.md#review-focus), [P1 definition](../../.agents/reviewer.md) |
