@@ -71,7 +71,7 @@
 | src/ub\_agents/launcher\_lock.py                 |       88 |        6 |     93% |20-22, 35, 74, 95 |
 | src/ub\_agents/logs/\_\_init\_\_.py              |        0 |        0 |    100% |           |
 | src/ub\_agents/logs/launch\_log.py               |      118 |        3 |     97% | 19, 70-71 |
-| src/ub\_agents/logs/log\_format.py               |      458 |       15 |     97% |117, 149-150, 228-229, 246-247, 299-300, 336, 376, 379, 485, 510, 514 |
+| src/ub\_agents/logs/log\_format.py               |      467 |       15 |     97% |117, 149-150, 228-229, 246-247, 303-304, 340, 380, 383, 497, 522, 526 |
 | src/ub\_agents/logs/log\_json.py                 |      144 |        2 |     99% |  153, 167 |
 | src/ub\_agents/logs/log\_limits.py               |        3 |        0 |    100% |           |
 | src/ub\_agents/logs/log\_reader.py               |      212 |        3 |     99% |92-93, 142 |
@@ -86,7 +86,7 @@
 | src/ub\_agents/notices.py                        |      236 |        2 |     99% |  151, 238 |
 | src/ub\_agents/observation\_data.py              |      105 |        1 |     99% |        29 |
 | src/ub\_agents/observation\_worker.py            |      145 |       13 |     91% |24, 36-37, 49, 58-59, 62-63, 68, 72-73, 97, 116 |
-| src/ub\_agents/observations.py                   |      568 |       13 |     98% |84, 102, 108-109, 133, 137-139, 321, 379, 406, 540, 698 |
+| src/ub\_agents/observations.py                   |      568 |       10 |     98% |84, 102, 108-109, 133, 321, 379, 406, 540, 698 |
 | src/ub\_agents/own\_merge.py                     |       24 |        1 |     96% |        15 |
 | src/ub\_agents/pass\_messages.py                 |       54 |        0 |    100% |           |
 | src/ub\_agents/poll\_now.py                      |       68 |        1 |     99% |        29 |
@@ -146,7 +146,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18750** |  **689** | **96%** |           |
+| **TOTAL**                                        | **18759** |  **686** | **96%** |           |
 
 
 ## Setup coverage badge
