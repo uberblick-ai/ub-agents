@@ -58,6 +58,8 @@ Running it again while it runs just opens the page.
 
 Closing or reloading the page while a reply is pending is quiet. Other server
 errors still print in the terminal or background log.
+GitHub requests still retry, but retry messages are not printed in the terminal
+or `.ub-agents/monitor.log`.
 
 ## What the page shows
 
