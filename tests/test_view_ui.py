@@ -1433,6 +1433,39 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press('q')
         app.worker.thread.join(2)
 
+    async def test_followed_run_that_ends_clears_the_item_pane_until_a_person_picks_a_row(self):
+        app = View(self.root, self.path)
+        async with app.run_test(size=(200, 40)) as pilot:
+            await self.ready(app, pilot)
+            self.assertEqual(app.selected, 'assignment:owned-run')
+            focus = app.focused
+            self.state.update(assignment=None, activity={'state': 'polling'},
+                              latest_pass={'state': 'complete', 'rows': []})
+            self.state['outcomes'].append({'item': 114, 'agent': 'implementer', 'run': 'owned-run',
+                                           'completed': True, 'result': 'success', 'summary': 'Done',
+                                           'time': self.state['published_at']})
+            publish_snapshot(self.path, self.state)
+            await self.ready(app, pilot, lambda: app.selected is None)
+            await pilot.pause(0.1)
+            self.assertIs(app.focused, focus)
+            self.assertEqual(app.query_one('#item_header').render().plain.split('\n')[0], 'No item selected.')
+            self.assertEqual(app.reading.empty_message, 'Select an item on the left to see it here.')
+            await pilot.press('3')
+            await pilot.pause(0.1)
+            self.assertEqual(app.query_one('#runs_text', Static).render().plain,
+                             'Select an item on the left to see it here.')
+            # Later snapshots keep the pane empty; a picked row stays after the next snapshot.
+            publish_snapshot(self.path, self.state)
+            await pilot.pause(0.3)
+            self.assertIsNone(app.selected)
+            app.select('outcome:owned-run')
+            publish_snapshot(self.path, self.state)
+            await pilot.pause(0.3)
+            self.assertEqual(app.selected, 'outcome:owned-run')
+            self.assertIn('Cached title', app.query_one('#item_header').render().plain)
+            await pilot.press('q')
+        app.worker.thread.join(2)
+
     async def test_view_started_below_floor_restores_keyboard_focus_when_grown(self):
         app = View(self.root, self.path)
         async with app.run_test(size=(59, 16)) as pilot:
@@ -5592,6 +5625,8 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(app, pilot)
+            # A picked run stays on screen after it ends; a followed one clears.
+            app.select(app.selected)
             await pilot.press('f')
             page = app.reading.page
             self.state['latest_pass']['state'] = '[/red]'

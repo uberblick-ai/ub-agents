@@ -644,6 +644,26 @@ class MonitorTests(unittest.TestCase):
             waiting.append([entry["item"]["number"] for entry in source.snapshot()["needs_human"]])
         self.assertEqual(waiting, [[3], [], [3]])
 
+    def test_closed_items_and_unconfirmed_cleanup_never_show_as_running(self):
+        github = FakeGitHub(issue(4), issue(5), issue(6))
+        github.create_comment(4, body(lease(4, "e")))
+        github.create_comment(5, body(lease(5, "f", expires=iso(timestamp() - 60))))
+        github.create_comment(6, body(lease(6, "g", cleanup="unconfirmed", action_needed=True,
+                                            summary="Cannot inspect owned process group 7")))
+        source = MonitorSource(config(Path("/checkout")), github, Coordinator(github, None), timestamp)
+
+        snapshot = source.snapshot()
+        self.assertEqual([run["item"]["number"] for run in snapshot["running"]], [4])
+        self.assertEqual([run["item"]["number"] for run in snapshot["expired"]], [5])
+        [held] = snapshot["needs_human"]
+        self.assertEqual((held["item"]["number"], held["labels"]), (6, ["cleanup unconfirmed"]))
+        self.assertEqual(held["ask"]["summary"], "Cannot inspect owned process group 7")
+
+        for number in (4, 5, 6):
+            github.change(number, state="closed")
+        snapshot = source.snapshot()
+        self.assertEqual((snapshot["running"], snapshot["expired"], snapshot["needs_human"]), ([], [], []))
+
     def test_snapshot_offers_each_configured_outcome_that_stops_for_a_person(self):
         root = Path("/checkout")
         integrator = agent(root, name="integrator", outcomes={

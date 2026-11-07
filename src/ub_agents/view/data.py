@@ -183,6 +183,7 @@ class Pane:
     rows: tuple[WorkRow, ...]
     selected: str | None
     title: str
+    released: bool = False  # the followed run ended; nothing is selected until a run or a person picks one
 
     @property
     def next(self):
@@ -240,12 +241,16 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):
         selected = own
     selection = next((row for row in work if row.key == selected), None)
     earlier = next((row for row in previous.rows if row.key == selected), None) if previous else None
+    released = not chosen and selected is None and previous is not None and previous.released
     if selection is None and earlier is not None:
         selection = related_assignment(work, earlier) or related_plan(work, earlier)
-        if selection is None:
+        if selection is None and not chosen and earlier.group == 'Running':
+            # The followed run ended: show no item rather than its last output.
+            released = True
+        elif selection is None:
             selection = earlier_selection(session, earlier)
             work.append(selection)
-    if selection is None and work:
+    if selection is None and work and not released:
         selection = work[0]
 
     sections = work_sections(session, work)
@@ -257,7 +262,8 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):
     omitted = mapping(session.data.get('omitted')).get('plans', 0)
     if omitted:
         title += f' · omitted {text(str(omitted))}'
-    return Pane(tuple(sections), recent, tuple(work), selection.key if selection else None, title)
+    return Pane(tuple(sections), recent, tuple(work), selection.key if selection else None, title,
+                released and selection is None)
 
 
 def item_history(row, session, *, full=False):
@@ -480,9 +486,12 @@ def run_status(row, session):
     return left + ' · ' + report, right, state == 'running'
 
 
+SELECT_ITEM = 'Select an item on the left to see it here.'
+
+
 def context_header(row, description):
     if not row:
-        return 'No item selected.'
+        return SELECT_ITEM
     if row.attention_rows and row.state != 'earlier observation':
         return attention_context(row)
     return f'{row.state}\n{row.reason}'
