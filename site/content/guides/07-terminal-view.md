@@ -171,6 +171,7 @@ Formatted mode turns Claude and Codex output into a compact transcript:
 - Times are local. `~07:42:30` marks a supervisor observation time for a record without its own timestamp (including Codex), or the view's capture time for live output. These times remain available when reopening a run, paging back with `h` or reloading with `g`. Runs supervised before timing was recorded have no historical times. Producer timestamps appear without `~`; continuation lines keep a blank time column.
 - `▸` is a tool call with its main argument. Edit and Write add green `+N` and red `-N` line counts. `· 1m` is a Claude call's elapsed time.
 - Assistant text is italic. A dim `·` line is a thinking summary, an unfamiliar record type, or a notice about skipped or omitted output.
+- The dim `· codex: model list refresh failed (background)` line marks a failed background refresh of Codex's model list. The run can continue; raw mode shows the original diagnostic.
 - A red `✗` line is a failed tool call, command or run, with its first error line. `✓ run finished` marks a successful end.
 
 Successful tool output, IDs and usage appear only in raw mode. Other runtimes
