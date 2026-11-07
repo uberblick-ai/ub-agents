@@ -38,9 +38,3 @@ Use literal versions, PR numbers and commit SHAs in commands below.
    Homebrew version. Confirm it prints exactly `ub-agents X.Y.Z` and report that
    result. If the PR is closed without merging, or the upgrade/version check
    fails, report the state and wait for the maintainer's next step.
-
-4. Once the integrator has no live run on the release-prep PR, check that PR for a
-   `Corpus pass complete` comment. If there is none, run the
-   [corpus pass](../../../docs/development/uberblick-corpus.md#corpus-pass) yourself and
-   report what it changed. If the corpus is unreachable, say so: the next release's pass
-   covers these PRs. This step doesn't hold up the release.

@@ -64,40 +64,36 @@ Corpus note:
 
 ### Corpus pass
 
-The pass runs once per release, from the merge commit of the release-prep PR. The
-integrator runs it after merging that PR. If a maintainer merged the PR or the
-integrator's pass didn't finish, the [release skill](../../.agents/skills/release/SKILL.md)
-runs it instead.
+The integrator runs the pass after merging a PR, from the merge commit, before
+reporting `merged`. Most PRs need no page change, so a small PR gets a small pass.
 
 1. Take the PRs merged since the commit named in the last `Corpus pass complete`
-   comment on a release-prep PR, or since `v0.5.3` if there is none. Read their
-   corpus notes, the changelog sections they fall under and the open questions that
-   comment lists.
+   comment, or since `v0.5.3` if there is none, so PRs that a maintainer merged or
+   whose pass didn't finish are covered too. Read their corpus notes and the open
+   questions that comment lists.
 2. Search the corpus by each changed command, option or feature's name, and read each
    page found as a whole. The notes are hints: they don't limit what you check.
 3. Fix what is wrong and add reasoning that a note supplies. Leave anything that needs
    a decision as a question, or propose a decision record.
-4. Search the corpus for the status words listed below and remove stale ones.
+4. Remove any stale status narration from the pages you read.
 5. Record a `code_check` at the merge commit on each page compared.
-6. Comment `Corpus pass complete at SHA` on the release-prep PR, naming the pages
-   changed and the questions still open. A pass that doesn't finish leaves no such
-   comment, so the next one covers its PRs too.
+6. Comment `Corpus pass complete at SHA` on the PR, naming the pages changed and the
+   questions still open.
 
-The pass never holds up publishing, and an open question doesn't make it blocked: name
-it in the report and the next pass raises it again. `edit_block` splices only unmarked
-text: to change inline code or links, insert a new block with `inline` runs and delete
-the old one.
+An open question doesn't make the run blocked: name it in the report and the next
+pass raises it again. `edit_block` splices only unmarked text: to change inline code
+or links, insert a new block with `inline` runs and delete the old one.
 
 ### What pages hold
 
 A page holds a lasting reason or promise and links to where the rest lives. Reshape
-a page rather than appending to it; it grows only when it gains a new promise. Desired
-experience, merged code and published behavior are different claims, so a target that
-hasn't been delivered says it is a target, links its issue and records `ahead` in
-`code_check`. Leave out:
+a page rather than appending to it; it grows only when it gains a new promise. Pages
+follow `main`, so they can be ahead of the latest release. A target that `main` doesn't
+deliver yet says it is a target, links its issue and records `ahead` in `code_check`.
+Leave out:
 
-- status narration such as "pending review", "not yet on main", "on main" or "not in
-  a release", because GitHub and the release notes hold that state;
+- status narration such as "pending review", "not yet on main" or "not in a release",
+  because GitHub and the release notes hold that state;
 - version samples, commit footers and source paths;
 - pasted help and option lists, because [site command pages](../../site/content/commands/)
   generate help from the CLI.
