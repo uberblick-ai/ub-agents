@@ -359,7 +359,9 @@ class LaunchTerminalTests(unittest.TestCase):
                     (root / 'continue-setup').touch()
                     terminal.expect(b'next poll ', timeout=3)
                 else:
-                    terminal.wait_for((root / 'setup-pid').exists)
+                    # Stopping after file creation can interrupt the child's PID write.
+                    terminal.wait_for(lambda: (root / 'setup-pid').exists()
+                                      and (root / 'setup-pid').read_text().isdigit())
                 if action == 'q':
                     terminal.send(b'q')
                 elif action == 'interrupt':

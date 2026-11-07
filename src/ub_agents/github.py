@@ -334,9 +334,10 @@ def candidate_check(row, field, sha):
 
 
 class GitHub:
-    def __init__(self, repository, runner=None, *, before_request=None):
+    def __init__(self, repository, runner=None, *, before_request=None, print_retries=True):
         self.runner = runner
         self.before_request = before_request
+        self.print_retries = print_retries
         self.auth_retry = AuthenticationRetry()
         self.failures = GitHubFailures()
         self._http = Transport()
@@ -517,8 +518,9 @@ class GitHub:
             self.before_request()
         delay = 2 ** attempt
         with interruptible_request():
-            print(token.redact(f"Retrying GitHub {method} {endpoint}: attempt {attempt + 2}/4 in {delay}s"),
-                  file=sys.stderr, flush=True)
+            if self.print_retries:
+                print(token.redact(f"Retrying GitHub {method} {endpoint}: attempt {attempt + 2}/4 in {delay}s"),
+                      file=sys.stderr, flush=True)
             sleep(delay)
 
     def _gh_response(self, command, endpoint, method, data):

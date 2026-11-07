@@ -9,13 +9,14 @@ import subprocess
 import tempfile
 import threading
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 from urllib.parse import unquote
 
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.cli import main
 from ub_agents.coordination import Coordinator, Plan
 from ub_agents.errors import AgentError
+from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.monitor import monitor_background, monitor_sources
 from ub_agents.monitor.eligible import EligiblePlanning, PLAN_SECONDS
@@ -24,6 +25,7 @@ from ub_agents.monitor.server import Repositories, Snapshots, allowed, create, p
 from ub_agents.monitor.snapshot import MonitorSource
 from ub_agents.records import body, iso, timestamp
 from tests.support import FakeGitHub, PollGitHub, agent, config, issue, pr
+from tests.test_github_http import Connection, Reply
 
 
 def lease(number, run, **changes):
@@ -278,6 +280,24 @@ class MonitorTests(unittest.TestCase):
         recovered = snapshots.get(fresh=True)['repositories'][0]
         self.assertIsNone(recovered['error'])
         self.assertEqual(recovered['eligible']['count'], 1)
+
+    def test_monitor_github_retries_are_quiet_while_default_clients_still_print(self):
+        endpoint = 'repos/org/project/issues/comments'
+        expected = ''.join(f'Retrying GitHub GET {endpoint}: attempt {attempt}/4 in {delay}s\n'
+                           for attempt, delay in ((2, 1), (3, 2), (4, 4)))
+        monitor = monitor_sources([config(Path('/checkout'))])[0].github
+        for github, output in ((monitor, ''), (GitHub('org/project'), expected)):
+            with self.subTest(client='monitor' if github is monitor else 'default'):
+                connections = [Connection(Reply(503)) for _ in range(3)]
+                connections.append(Connection(Reply(payload={'ok': True})))
+                with patch('ub_agents.github.token.get', return_value='sentinel-credential'), \
+                        patch('ub_agents.github_http.http.client.HTTPSConnection', side_effect=connections), \
+                        patch('ub_agents.github.sleep') as sleep, redirect_stderr(StringIO()) as error:
+                    self.assertEqual(github.request(endpoint), {'ok': True})
+                self.assertEqual(error.getvalue(), output)
+                self.assertEqual(sleep.call_args_list, [call(1), call(2), call(4)])
+                self.assertEqual(github.rest_requests, 4)
+                self.assertEqual([len(connection.calls) for connection in connections], [1, 1, 1, 1])
 
     def test_rates_use_the_latest_headers_per_resource_and_sum_client_counters(self):
         sources = []
