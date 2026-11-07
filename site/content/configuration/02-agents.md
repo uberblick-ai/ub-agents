@@ -97,7 +97,10 @@ different-runtime-from: implementer
 ```
 
 For independent issue review, use `different-runtime-from: issue-preparer` and
-configure both runtime alternatives on the issue reviewer.
+configure a runtime that differs from the issue preparer's. When both CLIs are
+logged in, [init](/docs/commands/init.html) assigns both reviewers to the other CLI
+and enables their `different-runtime-from` setting. With one CLI or unattended
+setup, it leaves the examples commented out.
 
 To exclude several sources, use a nonempty list:
 

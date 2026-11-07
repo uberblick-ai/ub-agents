@@ -20,6 +20,11 @@ protection or publishes a release. Leave the merge to `@org/maintainers` when th
 - changes what users rely on, such as commands, options, public APIs or output,
   beyond what the closing issue asks for.
 
+Judge each rule by what the diff does; the paths are where such changes usually
+live. A maintainer's answer on the issue or PR that covers this diff lets the
+integrator merge it; an answer covers what it names, and anything beyond it is a
+new question.
+
 Only for the setup, CI or release tooling rule, a change limited to a verified minor
 or patch version bump of an existing dependency does not trigger that rule. Changes
 to CI workflows, including their `uses:` pins, always go to a maintainer. All other
@@ -30,7 +35,7 @@ the merge to a maintainer.
 
 `@org/maintainers` answers scope and policy questions; replace this handle with the
 project's person or team. An issue's author may answer only if they have write
-access. An answer covers what it names; anything beyond it is a new question.
+access.
 
 ## New issues
 
