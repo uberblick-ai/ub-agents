@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from unittest.mock import patch
 
 from textual.app import App
 from textual.widgets import Button, Static
@@ -51,3 +52,25 @@ class RefreshPilotTests(unittest.IsolatedAsyncioTestCase):
             asyncio.get_running_loop().call_later(0.02, fired.set)
             await RefreshPilot(app).pause(0.03)
             self.assertTrue(fired.is_set())
+
+    async def test_resize_waits_for_deferred_screen_layout(self):
+        app = FrameApp()
+        async with app.run_test(size=(80, 24)):
+            pilot = RefreshPilot(app)
+            await pilot.pause()
+            requested = asyncio.Event()
+            check_resize = app._check_resize
+            # Hold Textual's debounced resize until ordinary refreshes have
+            # completed, so a fast frame cannot masquerade as the resized one.
+            with patch.object(app, '_check_resize', side_effect=requested.set):
+                resizing = asyncio.create_task(pilot.resize_terminal(60, 16))
+                try:
+                    await asyncio.wait_for(requested.wait(), 5)
+                    await pilot.pause()
+                    self.assertFalse(resizing.done())
+                    self.assertEqual(app.screen.region.size, (80, 24))
+                finally:
+                    check_resize()
+                    await asyncio.wait_for(resizing, 5)
+            self.assertEqual(app.screen.region.size, (60, 16))
+            self.assertEqual(app.query_one('#value').region.width, 60)

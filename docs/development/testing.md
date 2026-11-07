@@ -35,8 +35,10 @@ a substitute for this measurement.
 
 Wait for the state or rendered frame a test needs. For interaction-heavy Textual
 checks, `tests.view_pilot.RefreshPilot` waits for queued messages and a refresh
-instead of inferring readiness from CPU idleness. Keep explicit delays when
-elapsed time is the behavior under test. Split independent layout or theme
+instead of inferring readiness from CPU idleness. Its `resize_terminal()` also
+waits for the requested screen layout and subsequent refresh callbacks; an
+ordinary refresh can finish before Textual delivers a resize. Keep explicit
+delays when elapsed time is the behavior under test. Split independent layout or theme
 cases into separately discoverable tests when one long test holds up the workers.
 Keep transition and resize sequences together when their order is the behavior.
 
