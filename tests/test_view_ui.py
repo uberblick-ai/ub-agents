@@ -154,6 +154,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         launcher = Mock()
         app = View(self.root, self.path, launcher=launcher)
         async with app.run_test(size=(160, 45)) as pilot:
+            pilot = RefreshPilot(app)
             await self.ready(app, pilot)
             app.select(next(k for k, row in app.rows.items() if row.group == 'Needs attention'))
             await self.ready(app, pilot, lambda: app.unblock_visible)
@@ -333,6 +334,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         for attached in (False, True):
             app = View(self.root, self.path, launcher=Mock() if attached else None)
             async with app.run_test(size=(160, 45)) as pilot:
+                pilot = RefreshPilot(app)
                 await self.ready(app, pilot)
                 for size in ((160, 45), (109, 31)):
                     await pilot.resize_terminal(*size)
@@ -365,6 +367,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path, launcher=Mock())
         async with app.run_test(size=(160, 45)) as pilot:
+            pilot = RefreshPilot(app)
             await self.ready(app, pilot)
             app.keep_awake_state({'supported': True, 'enabled': True})
 
@@ -458,6 +461,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         with (patch('ub_agents.view.ui.local_pbcopy', return_value=None),
               patch.object(app, 'raw_details', return_value=value)):
             async with app.run_test(size=(110, 32)) as pilot:
+                pilot = RefreshPilot(app)
                 await self.ready(app, pilot)
                 await app.query_one('#issue VerticalScroll').mount(
                     Static(Text(value), id='copy_sample'), before=app.query_one('#issue_text'))
@@ -734,6 +738,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 launcher = Mock() if attached else None
                 app = View(self.root, self.path, launcher=launcher)
                 async with app.run_test(size=(160, 45)) as pilot:
+                    pilot = RefreshPilot(app)
                     await self.ready(app, pilot)
                     app.select(next(k for k, row in app.rows.items() if row.group == 'Needs attention'))
                     await self.ready(app, pilot, lambda: app.unblock_visible)
@@ -1297,6 +1302,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
     async def test_resizes_preserve_item_focus_tab_and_paused_raw_log_position(self):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
+            pilot = RefreshPilot(app)
             await self.ready(app, pilot)
             output = app.query_one(LogPane)
             output.focus()
@@ -2547,6 +2553,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         with patch.object(app, 'open_url') as opened:
             async with app.run_test(size=(130, 36)) as pilot:
+                pilot = RefreshPilot(app)
                 await self.ready(app, pilot)
                 header = app.query_one('#item_header', Static)
                 row = app.rows[app.selected]
@@ -2776,6 +2783,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                      patch.object(Markdown, 'load', side_effect=AssertionError('loaded link')), \
                      patch('subprocess.Popen', side_effect=AssertionError('unexpected process')):
                     async with app.run_test(size=(110, 32)) as pilot:
+                        pilot = RefreshPilot(app)
                         await self.ready(app, pilot)
                         await pilot.press('2', 'g')
                         await self.ready(app, pilot, lambda: f'Source: {source}' in (app.last_context or ''))
@@ -2833,6 +2841,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                      patch.object(Markdown, 'load', side_effect=AssertionError('loaded link')), \
                      patch('subprocess.Popen', side_effect=AssertionError('unexpected process')):
                     async with app.run_test(size=(110, 32)) as pilot:
+                        pilot = RefreshPilot(app)
                         await self.ready(app, pilot)
                         await pilot.press('2')
                         await self.ready(app, pilot, lambda: f'Source: {source}' in (app.last_context or ''))
@@ -3207,6 +3216,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
+            pilot = RefreshPilot(app)
             await self.ready(app, pilot, lambda: app.query_one(WorkTree).idle_node is not None)
             tree = app.query_one('#work', Tree)
             tree.get_node_at_line(0)
@@ -3999,6 +4009,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
     async def test_recent_split_fixed_with_empty_and_overflowing_live_work(self):
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
+            pilot = RefreshPilot(app)
             await self.ready(app, pilot)
             tree, recent = app.query_one('#work', Tree), app.query_one(RecentActivity)
             for size in ((110, 32), (140, 44), (80, 24)):
@@ -4377,6 +4388,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 publish_snapshot(self.path, self.state)
                 app = View(self.root, self.path)
                 async with app.run_test(size=size) as pilot:
+                    pilot = RefreshPilot(app)
                     await self.ready(app, pilot)
                     tree = app.query_one(Tree)
                     tree.focus()
@@ -4512,6 +4524,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(140, 44)) as pilot:
+            pilot = RefreshPilot(app)
             await self.ready(app, pilot)
             tree, recent = app.query_one(Tree), app.query_one(RecentActivity)
             tree.get_node_at_line(0)
@@ -4624,12 +4637,15 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.select('plan:22')
             tree.focus()
             tree.move_cursor(app.query_one(WorkTree).nodes['plan:22'])
+            # Drive snapshot application through the normal tick; timer cadence
+            # is covered by ViewRefreshTests.test_idle_timer_and_each_visible_spinner_choose_the_cadence.
             for size in ((140, 44), (80, 24), (140, 44)):
                 await pilot.resize_terminal(*size)
                 await pilot.pause()
                 for displayed in (False, True, False):
                     self.state['latest_pass']['rows'] = attention + eligible if displayed else eligible
                     publish_snapshot(self.path, self.state)
+                    app.tick()
                     await self.ready(app, pilot, lambda: ('Needs attention' in app.query_one(WorkTree).groups) == displayed)
                     tree.get_node_at_line(0)
                     names = ['Running', 'Needs attention', 'Eligible'] if displayed else ['Running', 'Eligible']
@@ -4657,12 +4673,14 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                 app.select('outcome:previous-run')
                 self.state['latest_pass']['rows'] = []
                 publish_snapshot(self.path, self.state)
+                app.tick()
                 await self.ready(app, pilot, lambda: list(app.query_one(WorkTree).groups) == ['Running'])
                 tree.get_node_at_line(0)
                 self.assertEqual(tree.virtual_size.height, 2)
                 self.assertEqual(tree._spacer_lines, set())
                 self.state['latest_pass']['rows'] = eligible
                 publish_snapshot(self.path, self.state)
+                app.tick()
                 await self.ready(app, pilot, lambda: 'Eligible' in app.query_one(WorkTree).groups)
                 app.select('plan:22')
                 tree.move_cursor(app.query_one(WorkTree).nodes['plan:22'])
@@ -5111,6 +5129,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
+            pilot = RefreshPilot(app)
             await self.ready(app, pilot, lambda: app.local_description is not None)
             self.assertEqual(transport.calls, [])
             await pilot.press('2')
@@ -5159,6 +5178,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         transport = RecordingDescriptionTransport()
         app = View(self.root, self.path, descriptions=DescriptionLoads(transport))
         async with app.run_test(size=(110, 32)) as pilot:
+            pilot = RefreshPilot(app)
             await self.ready(app, pilot)
             await pilot.press('g', '2', 'g')
             self.assertEqual(transport.calls, [])  # run context is already present
@@ -5268,6 +5288,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
                     launcher = Mock() if attached else None
                     app = View(self.root, self.path, descriptions=DescriptionLoads(transport), launcher=launcher)
                     async with app.run_test(size=(110, 32)) as pilot:
+                        pilot = RefreshPilot(app)
                         await self.ready(app, pilot)
                         app.select(next(k for k, row in app.rows.items() if row.item == 12))
                         await self.ready(app, pilot, lambda: app.local_description is not None)
@@ -5296,6 +5317,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
         app = View(self.root, self.path)
         with patch('subprocess.Popen', side_effect=AssertionError('view invoked a process')):
             async with app.run_test(size=(110, 32)) as pilot:
+                pilot = RefreshPilot(app)
                 await self.ready(app, pilot)
                 self.assertFalse(app.query_one(WorkTree).nodes[app.selected].children)
                 self.assertIn('Supervisor observed running', app.rows[app.selected].reason)

@@ -40,6 +40,12 @@ elapsed time is the behavior under test. Split independent layout or theme
 cases into separately discoverable tests when one long test holds up the workers.
 Keep transition and resize sequences together when their order is the behavior.
 
+The runner starts measured slow tests first, using the rough seconds in
+`tests/timings.py`. Update those estimates from `--durations 40` when a slow test
+is split or substantially changed. Unknown tests still run. Shards select their
+members in sorted name order before scheduling, so every test runs once across
+the shards regardless of its estimate.
+
 Do not skip cases, weaken assertions or raise timeouts to improve these numbers.
 If you merge or delete a test, name the test that still checks each behavior in
 the PR and account for the change in test count.
