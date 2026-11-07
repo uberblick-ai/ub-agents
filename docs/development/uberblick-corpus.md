@@ -81,8 +81,9 @@ small PR gets a small pass.
 2. Take the PRs merged after the checkpoint, oldest first and at most 20. This covers
    PRs that a maintainer merged or whose pass didn't finish. A PR beyond the 20 waits for
    the next pass. If none are left, stop here.
-3. Read their corpus notes and the open questions the checkpoint comment lists, and check
-   the pages as below. Record a `code_check` at the compared commit on each page.
+3. Read their corpus notes, any `Corpus pages updated` comments on them and the open
+   questions the checkpoint comment lists, and check the pages as below, including the ones
+   those comments name. Record a `code_check` at the compared commit on each page.
 4. Comment `Corpus pass complete at SHA` on the PR you merged, with SHA the merge commit
    of the last PR you took, naming the pages changed and the questions still open.
 
