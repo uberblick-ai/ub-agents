@@ -13,7 +13,8 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.config import Priority, Queue, Runtime
-from ub_agents.errors import AgentError, CleanupError, GitHubError, GitHubRetryExhausted, LostOwnership, RecordError
+from ub_agents.errors import (AgentError, CleanupError, GitHubError, GitHubRetryExhausted, LostOwnership, RecordError,
+                             RetryableExecutionError)
 from ub_agents.execution import group_members, supervise
 from ub_agents.github import GitHub
 from ub_agents.github_failures import GITHUB_FAILURE_LIMIT_SECONDS
@@ -844,9 +845,9 @@ class PollingTests(unittest.TestCase):
 
     def test_post_claim_failures_leave_live_lease_untouched_and_do_not_start_another_run(self):
         stages = ("election", "approval item", "approval history", "approval permissions off", "ownership", "running write",
-                  "lost running response", "execution item", "process ownership", "process write")
+                  "lost running response", "execution item", "process ownership", "execution failure write")
         cases = [(stage, False, True) for stage in stages]
-        cases += [(stage, once, retryable) for stage in ("ownership", "process write")
+        cases += [(stage, once, retryable) for stage in ("ownership", "execution failure write")
                   for once, retryable in ((True, True), (False, False))]
         for stage, once, retryable in cases:
             with self.subTest(stage=stage, once=once, retryable=retryable):
@@ -854,7 +855,7 @@ class PollingTests(unittest.TestCase):
                 if stage == "approval permissions off":
                     self.loop.config = replace(self.config, approvals="off")
                     self.github.create_comment(1, "Feedback")
-                if stage.startswith("process"):
+                if stage in {"process ownership", "execution failure write"}:
                     # Keep the child alive until its registration fails, so this
                     # checks termination rather than racing a natural exit.
                     worker = replace(self.config.agents[0], command=(sys.executable, "-c", "import time; time.sleep(30)"))
@@ -901,7 +902,7 @@ class PollingTests(unittest.TestCase):
                 def update_lease(*args):
                     if not failed and ((stage in {"running write", "lost running response"}
                                         and '"state": "running"' in args[-1])
-                                       or (stage == "process write" and executions)):
+                                       or (stage == "execution failure write" and executions)):
                         if stage == "lost running response":
                             update(*args)
                         failed.append(list(self.github.writes))
@@ -915,6 +916,16 @@ class PollingTests(unittest.TestCase):
 
                 def execute(*args, **kwargs):
                     executions.append(True)
+                    if stage == "execution failure write":
+                        registered = kwargs["process_started"]
+
+                        def fail_after_registration(pid):
+                            registered(pid)
+                            # Reach the failure write with a real, live child,
+                            # without waiting for its execution timeout.
+                            raise RetryableExecutionError("synthetic execution failure")
+
+                        kwargs["process_started"] = fail_after_registration
                     try:
                         return supervise(*args, **kwargs)
                     except BaseException as exc:
@@ -957,7 +968,9 @@ class PollingTests(unittest.TestCase):
                         self.assertEqual(delays, [5, self.config.poll_seconds])
                         self.assertEqual(sum(line.startswith("Skipped") for line in self.lines), 1)
                 self.assertEqual(self.github.writes, failed[0])
-                self.assertEqual(len(executions), int(stage.startswith("process")))
+                self.assertEqual(len(executions), int(stage in {"process ownership", "execution failure write"}))
+                if stage == "execution failure write":
+                    self.assertEqual(supervision_errors, [repr(RetryableExecutionError("synthetic execution failure"))])
                 self.assertIsNone(self.loop._renewal)
 
     def test_cleanup_and_ownership_errors_are_never_poll_retries(self):
