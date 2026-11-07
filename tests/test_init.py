@@ -344,7 +344,7 @@ class InitTests(unittest.TestCase):
                                   policy.split('## Review focus\n\n')[1])
                     for expected in (
                         'once the checks above and every CI check pass at the exact head it merges',
-                        'changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` and any '
+                        'changes agent configuration or guidance: `ub-agents.yaml`, `.agents/`, `.claude/` and any '
                         '`AGENTS.md` or `CLAUDE.md`',
                         'Only for the setup, CI or release tooling rule, a change limited to a verified minor '
                         'or patch version bump of an existing dependency does not trigger that rule.',
