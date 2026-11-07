@@ -24,10 +24,10 @@
 | src/ub\_agents/cli/monitor.py                    |       62 |        1 |     98% |        18 |
 | src/ub\_agents/cli/read.py                       |       17 |        0 |    100% |           |
 | src/ub\_agents/cli/report.py                     |       40 |        1 |     98% |        37 |
-| src/ub\_agents/cli/retrospective.py              |       17 |        0 |    100% |           |
+| src/ub\_agents/cli/retrospective.py              |       30 |        0 |    100% |           |
 | src/ub\_agents/cli/retry.py                      |       61 |        0 |    100% |           |
 | src/ub\_agents/cli/status.py                     |      117 |        0 |    100% |           |
-| src/ub\_agents/config.py                         |      501 |        9 |     98% |98, 325, 354, 377, 499, 510, 539, 588, 605 |
+| src/ub\_agents/config.py                         |      505 |        9 |     98% |98, 326, 358, 382, 504, 515, 544, 593, 610 |
 | src/ub\_agents/coordination.py                   |      640 |       14 |     98% |119-120, 154, 162-163, 336, 370, 419, 435, 617, 718, 751, 763, 804 |
 | src/ub\_agents/denials.py                        |       47 |        0 |    100% |           |
 | src/ub\_agents/dependencies.py                   |       31 |        0 |    100% |           |
@@ -86,12 +86,12 @@
 | src/ub\_agents/notices.py                        |      236 |        2 |     99% |  151, 238 |
 | src/ub\_agents/observation\_data.py              |      105 |        1 |     99% |        29 |
 | src/ub\_agents/observation\_worker.py            |      145 |       13 |     91% |24, 36-37, 49, 58-59, 62-63, 68, 72-73, 97, 116 |
-| src/ub\_agents/observations.py                   |      568 |       13 |     98% |84, 102, 108-109, 133, 137-139, 321, 379, 406, 540, 698 |
+| src/ub\_agents/observations.py                   |      568 |       10 |     98% |84, 102, 108-109, 133, 321, 379, 406, 540, 698 |
 | src/ub\_agents/own\_merge.py                     |       24 |        1 |     96% |        15 |
 | src/ub\_agents/pass\_messages.py                 |       54 |        0 |    100% |           |
 | src/ub\_agents/poll\_now.py                      |       68 |        1 |     99% |        29 |
 | src/ub\_agents/polling.py                        |       45 |        0 |    100% |           |
-| src/ub\_agents/prompts.py                        |        4 |        0 |    100% |           |
+| src/ub\_agents/prompts.py                        |        5 |        0 |    100% |           |
 | src/ub\_agents/queue\_order.py                   |       58 |        0 |    100% |           |
 | src/ub\_agents/queue\_planner.py                 |      363 |        3 |     99% |195, 426, 429 |
 | src/ub\_agents/rate\_limits.py                   |       29 |        1 |     97% |        44 |
@@ -100,12 +100,12 @@
 | src/ub\_agents/refresh.py                        |      151 |        9 |     94% |92, 98, 101-102, 118, 122-123, 141-142 |
 | src/ub\_agents/renewal.py                        |       35 |        0 |    100% |           |
 | src/ub\_agents/report\_command.py                |       12 |        5 |     58% |     17-23 |
-| src/ub\_agents/retrospective.py                  |       10 |        0 |    100% |           |
+| src/ub\_agents/retrospective.py                  |       31 |        0 |    100% |           |
 | src/ub\_agents/run\_branches.py                  |        5 |        0 |    100% |           |
-| src/ub\_agents/run\_config.py                    |       67 |        3 |     96% |82, 97, 101 |
+| src/ub\_agents/run\_config.py                    |       69 |        3 |     96% |91, 106, 110 |
 | src/ub\_agents/run\_history.py                   |       37 |        0 |    100% |           |
 | src/ub\_agents/run\_planning.py                  |      198 |       10 |     95% |94, 101-107, 195, 230, 244 |
-| src/ub\_agents/run\_prompt.py                    |       38 |        0 |    100% |           |
+| src/ub\_agents/run\_prompt.py                    |       40 |        0 |    100% |           |
 | src/ub\_agents/settlement.py                     |      131 |        5 |     96% |69, 97, 117, 122, 135 |
 | src/ub\_agents/signals.py                        |       46 |        2 |     96% |     26-27 |
 | src/ub\_agents/startup\_cleanup.py               |       68 |        1 |     99% |        18 |
@@ -146,7 +146,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18692** |  **689** | **96%** |           |
+| **TOTAL**                                        | **18735** |  **686** | **96%** |           |
 
 
 ## Setup coverage badge
