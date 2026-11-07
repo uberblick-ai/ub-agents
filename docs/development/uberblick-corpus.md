@@ -32,15 +32,75 @@ decision and its record in force, rather than inferring approval from a search
 snippet or a superseded record. When a request conflicts with a decision in
 force, ask a maintainer to resolve the conflict before implementing it.
 
-Update the corpus document whose topic a change affects. Keep the reasoning and
-workflow context there, with links to repository documentation and implementation
-evidence, following the start page's guidance. Avoid copying repository rules or
-creating a second home for the same topic.
-
-Good: read the decision about queue selection before changing its ordering, then
-update the existing queue-selection page when an approved change affects it.
+Good: read the decision about queue selection before changing its ordering.
 Bad: assume a remembered decision still applies, or copy its text into a new
 repository guide.
+
+## Who writes the corpus
+
+The corpus pass below and maintainers write corpus pages. Other roles read them.
+Corpus edits fall outside the reviewed diff and can describe a candidate that
+changes or never merges, so a change records what the corpus needs in its PR, and
+the pass applies it once the code has merged.
+
+Decisions come from a person. Any role may propose a decision record by creating it
+`open` with a recommendation and linking it from its issue or PR. Only a maintainer
+answers it: no role moves a record to `decided`, including as a first-record agent
+stance.
+
+### Corpus note
+
+Every PR that changes behavior ends its body with a `Corpus note`: the pages it
+affects, each with its UUID and the claim or reason involved, or `none` with a
+short reason. Add any reasoning that a later writer can't find in the issue or PR.
+Don't draft page text unless a short paragraph says it best. The note is a hint for
+the pass, not a list of what the pass may check.
+
+```text
+Corpus note:
+- Terminal interface direction (dc396c72-408d-4b10-88fe-b87064064065): tabs now name
+  the repository. Reason: see the issue's Problem section.
+```
+
+### Corpus pass
+
+The pass runs once per release, from the merge commit of the release-prep PR. The
+integrator runs it after merging that PR. If a maintainer merged the PR or the
+integrator's pass didn't finish, the [release skill](../../.agents/skills/release/SKILL.md)
+runs it instead.
+
+1. Take the PRs merged since the commit named in the last `Corpus pass complete`
+   comment on a release-prep PR, or since `v0.5.3` if there is none. Read their
+   corpus notes, the changelog sections they fall under and the open questions that
+   comment lists.
+2. Search the corpus by each changed command, option or feature's name, and read each
+   page found as a whole. The notes are hints: they don't limit what you check.
+3. Fix what is wrong and add reasoning that a note supplies. Leave anything that needs
+   a decision as a question, or propose a decision record.
+4. Search the corpus for the status words listed below and remove stale ones.
+5. Record a `code_check` at the merge commit on each page compared.
+6. Comment `Corpus pass complete at SHA` on the release-prep PR, naming the pages
+   changed and the questions still open. A pass that doesn't finish leaves no such
+   comment, so the next one covers its PRs too.
+
+The pass never holds up publishing, and an open question doesn't make it blocked: name
+it in the report and the next pass raises it again. `edit_block` splices only unmarked
+text: to change inline code or links, insert a new block with `inline` runs and delete
+the old one.
+
+### What pages hold
+
+A page holds a lasting reason or promise and links to where the rest lives. Reshape
+a page rather than appending to it; it grows only when it gains a new promise. Desired
+experience, merged code and published behavior are different claims, so a target that
+hasn't been delivered says it is a target, links its issue and records `ahead` in
+`code_check`. Leave out:
+
+- status narration such as "pending review", "not yet on main", "on main" or "not in
+  a release", because GitHub and the release notes hold that state;
+- version samples, commit footers and source paths;
+- pasted help and option lists, because [site command pages](../../site/content/commands/)
+  generate help from the CLI.
 
 ## Writing style
 

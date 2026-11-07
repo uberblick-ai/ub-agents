@@ -44,6 +44,9 @@ issue or PR reference and required upgrade information, dates the version's sect
 (folding in any `Unreleased` entries) and bumps `pyproject.toml`. It stays a loop
 issue and ends with a merged release-prep PR.
 
+Release prep writes nothing to the corpus. The [corpus pass](uberblick-corpus.md#corpus-pass)
+follows the merge of its PR.
+
 A new config key or value, or an upgrade step beyond restarting launchers one at a
 time, makes it a minor release. Otherwise the maintainer chooses patch or minor; a
 patch release may also carry additions. Milestones are numbered the same way.

@@ -56,3 +56,8 @@ Report blocked only when the fix needs something outside the repository (access,
 permission, an external service or a human decision), another gate fails, or evidence
 is missing. The framework never grants merge authority, approves its own PR, or
 chooses check commands.
+
+After you merge a release-prep PR, which bumps the `pyproject.toml` version, run the
+[corpus pass](../docs/development/uberblick-corpus.md#corpus-pass)
+from the merge commit before reporting `merged`. Write no corpus pages on any other
+PR.
