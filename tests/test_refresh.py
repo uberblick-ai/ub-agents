@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from ub_agents.cli import main
 from ub_agents.config import Runtime, load_config
+from ub_agents.doctor.doctor import public
 from ub_agents.errors import AgentError, GitHubError
 from ub_agents.execution import git
 from ub_agents.loop import Loop
@@ -31,7 +32,9 @@ class RefreshTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         base = Path(self.temp.name).resolve()
-        self.origin, self.upstream, self.root = [base / p for p in ("origin.git", "upstream", "control")]
+        # Doctor redacts credential-shaped path components. Exercise that case
+        # deterministically instead of depending on a random temporary name.
+        self.origin, self.upstream, self.root = [base / p for p in ("origin.git", "upstream", "gho_fixture")]
         git(base, "init", "--bare", "-b", "main", str(self.origin))
         git(base, "clone", str(self.origin), str(self.upstream))
         (self.upstream / ".gitignore").write_text(".ub-agents/\nub-agents.local.yaml\nignored\n")
@@ -242,7 +245,7 @@ class RefreshTests(unittest.TestCase):
                 with patch.object(Path, 'read_text', read):
                     message = self.offline_failure()
                 self.assertTrue(launch_error.getvalue().startswith("ub-agents: An instruction file is invalid or unreadable. "))
-                self.assertIn(". Here is the error: " + message.splitlines()[0], launch_error.getvalue())
+                self.assertIn(". Here is the error: " + message.splitlines()[0], public(launch_error.getvalue()))
                 self.assertIn(str(self.root / 'ub-agents.yaml'), launch_error.getvalue())
                 self.assertIn('shared-instructions', launch_error.getvalue())
                 execution.assert_not_called()
@@ -503,8 +506,9 @@ class RefreshTests(unittest.TestCase):
                 path = local if content == 'agents: [' else self.loop.config_path
                 self.assertTrue(launch_error.getvalue().startswith(f'ub-agents: {path.name} is invalid. '))
                 self.assertIn('. Here is the error: Cannot read configuration ' if content == 'agents: [' else
-                              '. Here is the error: ' + self.offline_failure(), launch_error.getvalue())
+                              '. Here is the error: ' + self.offline_failure(), public(launch_error.getvalue()))
                 self.assertIn(str(local), launch_error.getvalue())
+                self.assertIn(str(self.loop.config_path), launch_error.getvalue())
                 execution.assert_not_called()
                 prepare.assert_not_called()
                 self.assertEqual(self.github.writes, [])
@@ -589,7 +593,8 @@ class RefreshTests(unittest.TestCase):
                 redirect_stderr(launch_error):
             self.assertEqual(main(args + ["launch", "--once"]), 1)
         self.assertTrue(launch_error.getvalue().startswith('ub-agents: ub-agents.yaml is invalid. '))
-        self.assertIn('. Here is the error: ' + self.offline_failure().splitlines()[0], launch_error.getvalue())
+        self.assertIn('. Here is the error: ' + self.offline_failure().splitlines()[0], public(launch_error.getvalue()))
+        self.assertIn(str(self.root / 'ub-agents.yaml'), launch_error.getvalue())
         execution.assert_not_called()
         self.assertEqual(self.github.writes, [])
         self.assertEqual(attempts(self.loop.coordinator.history(1), "worker", timestamp()), [])
