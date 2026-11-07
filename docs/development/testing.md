@@ -24,6 +24,26 @@ GitHub's hosted runners include Node.js and run the test.
 Run the [required checks](../../AGENTS.md#checks) before handoff; their scope and
 CI equivalents are in [Development checks](checks.md).
 
+## Suite runtime
+
+Keep the full suite near a minute on a launcher. When you add or expand an
+integration test, run `.venv/bin/python -m tests --durations 40` before and after
+on the same machine with the same `-j` value. Record wall time, test count, OS,
+available cores and worker count in the PR. Investigate new slow tests and
+increases in full-run time before handoff; a timing assertion in a test is not
+a substitute for this measurement.
+
+Wait for the state or rendered frame a test needs. For interaction-heavy Textual
+checks, `tests.view_pilot.RefreshPilot` waits for queued messages and a refresh
+instead of inferring readiness from CPU idleness. Keep explicit delays when
+elapsed time is the behavior under test. Split independent layout or theme
+cases into separately discoverable tests when one long test holds up the workers.
+Keep transition and resize sequences together when their order is the behavior.
+
+Do not skip cases, weaken assertions or raise timeouts to improve these numbers.
+If you merge or delete a test, name the test that still checks each behavior in
+the PR and account for the change in test count.
+
 ## Process supervision and sandboxes
 
 The process-supervision tests in `tests/test_execution.py` call `ps`. A sandbox
