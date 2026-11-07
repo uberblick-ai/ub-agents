@@ -107,7 +107,9 @@ backend, studio
 ```
 
 - **Needs human**: open items with a [stop label](/docs/configuration/stop-labels.html),
-  and runs that reported blocked and weren't retried since. Each shows the actions
+  runs that reported blocked and weren't retried since, and runs marked **cleanup
+  unconfirmed**: their launcher stopped because it couldn't confirm the run's
+  processes ended, and the item waits until someone does. Each shows the actions
   and options of its latest outcome, with links to the Action needed comment and the
   outcome record. **discuss with Claude** opens a Claude Code session in the Claude
   app, in this checkout, with "help me unblock #N using the ub-agents-unblock skill"
@@ -130,7 +132,8 @@ backend, studio
   removed across all watched repositories, whichever is selected. Failed reads
   keep the last rows and their dismissals. With no dismissed rows in the chosen
   repositories, the dropdown hides and the panel shows **Open**.
-- **Running**: every live run, with its agent, machine and how long it has run.
+- **Running**: every live run on an open item, with its agent, machine and how
+  long it has run. Closing an item takes its run off the list.
   The dropdown in the top-right border shows all machines by default. Choose a
   machine to show only its runs; the heading counts the runs shown. The choice
   survives a reload. Options include this machine, machines with live runs or
@@ -149,8 +152,8 @@ backend, studio
   `queue.priority`, no priority word shows. Local usage pauses show the runtime
   and time left. Claimed work, work needing a person, and items waiting for
   blockers or the active milestone stay out.
-- **Expired without a result**: runs whose launcher stopped renewing them. The next
-  launcher that picks the item up recovers it.
+- **Expired without a result**: runs on open items whose launcher stopped renewing
+  them. The next launcher that picks the item up recovers it.
 - **Recent activity**: runs that ended in the last 24 hours, with result, machine,
   duration, tokens and cost. Click a row for the full summary.
 
