@@ -92,7 +92,7 @@ def attention_details(plan, stop_labels, notice):
         details['attention_reason'] = short_reason(plan.approval_gate.reason)
         return details
     finished = [r for r in plan.history if plan.state in {'blocked', 'failed'}
-                and r['kind'] == 'lease' and r.get('state') == 'released']
+                and r['kind'] == 'lease' and r['agent'] == plan.agent.name and r.get('state') == 'released']
     if finished:
         run = max(finished, key=lambda r: (stamp(r.get('expires')) or 0, r.get('id', 0)))
         source_id = run.get('recovered_lease_id') or run.get('id')

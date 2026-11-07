@@ -45,7 +45,7 @@ NAME` starts a fresh set of rounds.
 | Closed issue, closed unmerged PR, or PR merged by someone else detected before the agent process exits | Unchanged without a report | Stop execution; settle a stored report normally, otherwise release `blocked` without an action notice |
 | Run merges its own PR | Normal report rules | Keep executing under the lease and agent timeout; settle its report normally |
 | Run's own merge followed by timeout, crash, or another end without an accepted report | Unchanged | Release `blocked`; post an action notice because post-merge work may be unfinished |
-| Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves, another run's accepted outcome hands off the PR, or an operator uses `retry`; issues need `retry` |
+| Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves, another run's accepted outcome hands off the PR, or an operator uses `retry`; without the role's trigger, later progress by another role clears a released block as described below |
 | Transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
 | Invalid or rejected success report, unconfirmed cleanup, or unclassified failure | +1 | Blocked; PR head changes or `retry` can resume, except unconfirmed cleanup needs operator action |
@@ -69,8 +69,17 @@ later push by anyone does. An accepted outcome of another run that hands off the
 after the block also clears it at an unchanged head, such as an implementer marking
 a draft ready. The comparison uses the reports' `created` times; accepting an older
 handoff later does not clear a newer block. This check writes nothing and resets no
-attempts or backoff, and every other gate still applies. Blocked issues, and PRs with
-neither a new head nor a later handoff, need `ub-agents retry`.
+attempts or backoff, and every other gate still applies. With the role's trigger
+present, blocked issues, and PRs with neither a new head nor a later handoff, need
+`ub-agents retry`.
+
+When the role's trigger is absent, its released block stops needing attention once
+the item has moved on: another role holds a live lease created after that release,
+or another role has an accepted, transition-complete outcome created after it.
+The release time is the blocked lease's `expires`, not its claim or report time.
+This clears only the stale plan; it changes no records, labels, attempts or backoff.
+Unconfirmed cleanup and expired runs without an outcome stay blocked. If the
+role's trigger returns, the existing retry rules apply again.
 
 ## Selection order
 
@@ -576,8 +585,9 @@ read issue N's full history; other branch names have no shared-branch owner.
 
 Within that history, the queue follows the latest non-withdrawn lease after the last
 reset for each item and agent. A released retry or blocked result shows as blocked
-on an open item without triggers; a missing trigger never authorizes reexecution. On
-closed items, a released result alone produces no plan. Unfinished leases, pending
+on an open item without triggers, except a released block superseded by another
+role's later progress as described above. A missing trigger never authorizes
+reexecution. On closed items, a released result alone produces no plan. Unfinished leases, pending
 outcomes or transitions, unconfirmed cleanup and unreadable history keep their plans.
 As records age out of the window, closed or untriggered items drop out of view;
 reapplying a trigger or stop label brings an open item back with its full history.
