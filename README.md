@@ -57,12 +57,12 @@
 | src/ub\_agents/init/checks.py                    |       33 |        1 |     97% |        25 |
 | src/ub\_agents/init/edit.py                      |       91 |        7 |     92% |37, 40, 51, 54, 62, 93, 113 |
 | src/ub\_agents/init/extend.py                    |      174 |        9 |     95% |31, 35-36, 41, 110, 143, 166, 180-181 |
-| src/ub\_agents/init/flow.py                      |      423 |        9 |     98% |47, 68, 70, 127-128, 215, 312-313, 502 |
+| src/ub\_agents/init/flow.py                      |      440 |        9 |     98% |47, 68, 70, 128-129, 217, 326-327, 522 |
 | src/ub\_agents/init/inline.py                    |       92 |        2 |     98% |   92, 103 |
 | src/ub\_agents/init/mcp.py                       |      129 |       10 |     92% |28, 90, 96-97, 125-127, 155, 166-167 |
 | src/ub\_agents/init/probes.py                    |      185 |       18 |     90% |68-69, 84-86, 89, 91, 126, 130-131, 140, 161, 171-172, 177, 179, 186-187 |
 | src/ub\_agents/init/prompts.py                   |      152 |        6 |     96% |120, 158, 168, 176, 192, 209 |
-| src/ub\_agents/init/setup.py                     |      272 |       21 |     92% |34-35, 40-41, 50, 95, 101, 104, 111, 119, 150, 154, 216, 224, 258-260, 265, 278, 327, 330 |
+| src/ub\_agents/init/setup.py                     |      302 |       20 |     93% |34-35, 40-41, 145, 151, 154, 161, 169, 186, 190, 261, 269, 303-305, 310, 323, 372, 375 |
 | src/ub\_agents/init/tailoring.py                 |        5 |        0 |    100% |           |
 | src/ub\_agents/keep\_awake.py                    |       70 |        5 |     93% |66, 70-71, 77-78 |
 | src/ub\_agents/labels.py                         |       67 |        0 |    100% |           |
@@ -146,7 +146,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18770** |  **686** | **96%** |           |
+| **TOTAL**                                        | **18817** |  **685** | **96%** |           |
 
 
 ## Setup coverage badge
