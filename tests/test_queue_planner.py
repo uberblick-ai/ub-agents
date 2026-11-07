@@ -5,11 +5,126 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from ub_agents.cli.status import status_rows
 from ub_agents.coordination import Coordinator
 from ub_agents.discovery import Discovery
 from ub_agents.errors import GitHubError
 from ub_agents.loop import Loop
-from tests.support import FakeGitHub, agent, config, issue
+from ub_agents.observations import Observations
+from ub_agents.records import iso
+from ub_agents.view.data import Session, work_rows
+from tests.support import FakeGitHub, MemoryPublisher, agent, config, edit_lease, issue
+
+
+class MovedOnBlockTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def blocked_item(self):
+        self.roles = tuple(agent(self.root, name=name, triggers=(name,))
+                           for name in ("preparer", "reviewer", "implementer"))
+        self.github = FakeGitHub(issue(labels=("preparer",)))
+        cfg = config(self.root, *self.roles)
+        self.publisher = MemoryPublisher()
+        self.observer = Observations(cfg, "operator", None, self.publisher)
+        self.loop = Loop(cfg, self.github, "operator", output=lambda _: None)
+        self.now = 950
+        self.loop.coordinator.clock = lambda: self.now
+        self.block = self.claim(self.roles[0])
+        self.now = 1000
+        self.loop.coordinator.release(self.block, "blocked", "Preparation stopped")
+        self.github.change(1, labels=frozenset({"implementer"}))
+        self.now = 1020
+
+    def claim(self, role):
+        self.github.change(1, labels=frozenset(role.triggers))
+        lease = self.loop.coordinator.claim(self.loop.coordinator.plan(self.github.items[1], role, ()))
+        self.loop.coordinator.update(lease, state="running", started=True)
+        return lease
+
+    def progress(self, signal, **changes):
+        lease = self.claim(self.roles[1] if signal == "outcome" else self.roles[2])
+        if signal == "outcome":
+            outcome = self.loop.coordinator.report(lease, "success", "Review approved", outcome="done")
+            self.loop.coordinator.accept(lease, outcome)
+            self.loop.coordinator.update_outcome(lease, outcome, **({"transition_complete": True} | changes))
+            self.loop.coordinator.release(lease, "success", "Review approved")
+        else:
+            edit_lease(self.github, lease, **changes)
+        self.github.change(1, labels=frozenset({"implementer"}))
+        self.now += 10
+        return lease
+
+    def assert_blocked(self, reason):
+        self.loop.observer = self.observer
+        self.observer.begin_pass()
+        plans = self.loop.plans()
+        plan = next(plan for plan in plans if plan.agent == self.roles[0])
+        self.assertEqual(plan.state, "blocked")
+        self.assertIn(reason, plan.reason)
+        rows = work_rows(Session(self.root / "session.json", self.publisher.snapshots[-1]), self.root)
+        self.assertTrue(any(row.group == "Needs attention" and
+                            any(part.agent == "preparer" for part in row.attention_rows) for row in rows))
+
+    def test_completed_review_then_live_implementation_clears_preparer_in_status_and_view(self):
+        self.blocked_item()
+        self.progress("outcome")
+        self.progress("lease")
+        self.loop.observer = self.observer
+        self.observer.begin_pass()
+        rows = status_rows(self.loop, self.now)
+        self.assertEqual([(row["agent"], row["state"]) for row in rows], [("implementer", "owned")])
+        rows = work_rows(Session(self.root / "session.json", self.publisher.snapshots[-1]), self.root)
+        self.assertFalse(any(row.group == "Needs attention" for row in rows))
+
+    def test_each_later_progress_signal_clears_the_block(self):
+        for signal, changes in (("lease", {}), ("lease", {"state": "claiming"}), ("outcome", {})):
+            with self.subTest(signal=signal, changes=changes):
+                self.blocked_item()
+                self.progress(signal, **changes)
+                self.assertNotIn("preparer", [row["agent"] for row in status_rows(self.loop, self.now)])
+
+    def test_older_or_simultaneous_progress_does_not_clear_a_newer_release(self):
+        for signal in ("lease", "outcome"):
+            for created in (975, 1000):
+                with self.subTest(signal=signal, created=created):
+                    self.blocked_item()
+                    self.progress(signal, created=iso(created))
+                    self.assert_blocked("Last run blocked")
+
+    def test_no_progress_or_unfinished_progress_keeps_the_block(self):
+        for changes in (None, {"accepted": False}, {"transition_complete": False},
+                        {"rejected": "Transition rejected"}, {"agent": "preparer"}):
+            with self.subTest(changes=changes):
+                self.blocked_item()
+                if changes is not None:
+                    self.progress("outcome", **changes)
+                self.assert_blocked("Last run blocked")
+
+    def test_another_roles_nonlive_lease_without_an_outcome_does_not_clear_the_block(self):
+        for changes in ({"state": "withdrawn"}, {"state": "released"}, {"expires": iso(1025)}):
+            with self.subTest(changes=changes):
+                self.blocked_item()
+                self.progress("lease", **changes)
+                self.assert_blocked("Last run blocked")
+
+    def test_cleanup_and_expired_runs_stay_blocked_after_other_roles_move_on(self):
+        for changes, reason in (({"cleanup": "unconfirmed"}, "cleanup was unconfirmed"),
+                                ({"state": "running", "result": None}, "Expired run has no outcome")):
+            with self.subTest(changes=changes):
+                self.blocked_item()
+                self.progress("outcome")
+                self.progress("lease")
+                edit_lease(self.github, self.block, **changes)
+                self.assert_blocked(reason)
+
+    def test_returning_issue_trigger_still_needs_retry_after_other_role_completed(self):
+        self.blocked_item()
+        self.progress("outcome")
+        self.github.change(1, labels=frozenset({"preparer"}))
+        self.assert_blocked("use ub-agents retry")
 
 
 class QueuePlannerTests(unittest.TestCase):

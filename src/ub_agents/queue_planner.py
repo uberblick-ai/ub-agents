@@ -14,9 +14,38 @@ from .discovery import ApprovalInput, Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
 from .errors import AgentError, GitHubError, RecordError
 from .github import APPROVAL_BATCH_SIZE, closing_issues
-from .records import attempts, display_provenance, latest_leases, lease_summary, records, seconds
+from .records import attempts, display_provenance, latest_leases, lease_summary, live_leases, records, seconds
 
 COMMENT_RECOVERY_SECONDS = 7 * 24 * 60 * 60
+
+
+def _item_moved_on(history, blocked, now):
+    """Only progress created after the block's release supersedes that stop."""
+    released = seconds(blocked["expires"])
+    if any(r["agent"] != blocked["agent"] and r["assignment"] == blocked["assignment"]
+           and seconds(r["created"]) > released for r in live_leases(history, now)):
+        return True
+    return any(r["kind"] == "outcome" and r["agent"] != blocked["agent"]
+               and blocked["assignment"] in {r["assignment"], r.get("handoff")}
+               and r.get("accepted") and r.get("transition_complete") and not r.get("rejected")
+               and seconds(r["created"]) > released for r in history)
+
+
+def _untriggered_plan(item, agent, history, record, now):
+    if not record or (record["state"] not in {"claiming", "running"}
+                      and record.get("result") not in {"retry", "blocked"}):
+        return None
+    if record.get("cleanup") == "unconfirmed":
+        reason = f"Previous cleanup was unconfirmed: {lease_summary(history, record)}"
+    elif record["state"] == "released":
+        if record.get("result") == "blocked" and _item_moved_on(history, record, now):
+            return None
+        reason = f"Last run {record['result']}: {lease_summary(history, record)}"
+    else:
+        reason = "Expired run has no outcome or matching trigger"
+    return Plan(item, agent, None, "blocked",
+                f"{reason}; inspect GitHub and restore a trigger before retrying",
+                len(attempts(history, agent.name, now)) + 1, history=tuple(history))
 
 
 class QueuePlanner:
@@ -459,7 +488,7 @@ class QueuePlanner:
                 return replace(plan, state="waiting", runtime=None, reason=reason, health_wait=True)
         return plan
 
-    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,  # noqa: C901, PLR0912
+    def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,  # noqa: C901
                              history, matched, approval, *, check_input=True, defer_input=False):
         latest = latest_leases(history)
         for agent in agents:
@@ -498,14 +527,5 @@ class QueuePlanner:
                         plan = replace(plan, state="parked", runtime=None, reason=approval.reason,
                                        approval_gate=gate)
                 yield replace(plan, history=tuple(history))
-            elif record and (record["state"] in {"claiming", "running"}
-                             or record.get("result") in {"retry", "blocked"}):
-                if record.get("cleanup") == "unconfirmed":
-                    reason = f"Previous cleanup was unconfirmed: {lease_summary(history, record)}"
-                elif record["state"] == "released":
-                    reason = f"Last run {record['result']}: {lease_summary(history, record)}"
-                else:
-                    reason = "Expired run has no outcome or matching trigger"
-                yield Plan(item, agent, None, "blocked",
-                    f"{reason}; inspect GitHub and restore a trigger before retrying",
-                    len(attempts(history, agent.name, now)) + 1, history=tuple(history))
+            elif plan := _untriggered_plan(item, agent, history, record, now):
+                yield plan

@@ -232,10 +232,16 @@ available source, the same one that sets the Work row's reason and waiting time:
 1. The item's latest trusted action-needed notice since the last claim or reset.
 2. The finished outcome that added a stop label still on the item.
 3. The approval gate's reason, with no waiting time.
-4. For a blocked or failed plan, the last finished run's reported actions or summary.
+4. For a blocked or failed plan, that role's last finished run's reported actions or summary, with its release time.
 
 `ub-agents status` uses the same rule. Only notices from accounts the launcher
 already trusts for coordination records count.
+
+A released block drops out of Needs attention when its role's trigger is absent
+and another role has moved the item on. A live lease or an accepted outcome with a
+complete transition suffices, provided it was created after the blocked run's
+release. Unconfirmed cleanup and expired runs without an outcome still need
+attention. If the role's trigger returns, the existing retry rules apply.
 
 A notice shows its reason, asks and numbered options, with the recommended
 option first. Its resume steps sit in a collapsed fold:
