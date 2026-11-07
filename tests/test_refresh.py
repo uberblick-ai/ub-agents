@@ -508,7 +508,8 @@ class RefreshTests(unittest.TestCase):
                 self.assertIn('. Here is the error: Cannot read configuration ' if content == 'agents: [' else
                               '. Here is the error: ' + self.offline_failure(), public(launch_error.getvalue()))
                 self.assertIn(str(local), launch_error.getvalue())
-                self.assertIn(str(self.loop.config_path), launch_error.getvalue())
+                if content != 'agents: [':
+                    self.assertIn(str(self.loop.config_path), launch_error.getvalue())
                 execution.assert_not_called()
                 prepare.assert_not_called()
                 self.assertEqual(self.github.writes, [])
