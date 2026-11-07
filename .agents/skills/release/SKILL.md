@@ -21,8 +21,11 @@ Use literal versions, PR numbers and commit SHAs in commands below.
    absence and that the commit's newest GitHub Actions `Test` run passed, and
    prints the complete release notes. If that run is still in progress, wait with
    `gh run watch` and repeat the check. A failed run or any other failing check is
-   no-go. Show the release notes, including **Upgrading** instructions,
-   and ask the maintainer to confirm publication of this version and commit.
+   no-go. Show the release notes, including any **Upgrading** note, and ask the
+   maintainer to confirm publication of this version and commit. Point out an
+   **Upgrading** note that asks for no operator action beyond a one-at-a-time
+   launcher restart; [the changelog rules](../../../docs/development/changelog-and-releases.md#changelog)
+   leave such notes out, and the maintainer decides whether to drop it first.
 
 2. After confirmation, run `mise trust` if needed, then `mise run release X.Y.Z`.
    Report the GitHub release and tap PR links and the formula test result. If it
@@ -31,7 +34,7 @@ Use literal versions, PR numbers and commit SHAs in commands below.
 
 3. Wait for the maintainer to review and merge the tap PR; never merge it yourself.
    Confirm `MERGED` with `gh pr view NUMBER --repo uberblick-ai/homebrew-tap --json state,url`.
-   Apply the release's **Upgrading** instructions before updating; when they call
+   Apply the release's **Upgrading** note, if any, before updating; when it calls
    for stopping launchers, wait for the maintainer to confirm that step is done.
    Run `brew update && brew upgrade ub-agents`, then `ub-agents --version` from
    outside this development checkout so mise's editable install cannot mask the
