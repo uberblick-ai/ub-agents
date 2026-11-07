@@ -10,7 +10,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from ub_agents.logs.log_format import ClaudeFormatter, CodexFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
+from ub_agents.logs.log_format import (ClaudeFormatter, CodexFormatter, MAX_RECORD, MAX_TEXT,
+                                       MAX_TOOLS, SHORTENED, raw_entry)
 from ub_agents.logs.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET
 from ub_agents.logs.log_json import BoundedJSON
 from ub_agents.view.logs import FileChanged, PAGE_BYTES, ViewReader
@@ -208,17 +209,53 @@ class CodexFormattingTests(unittest.TestCase):
                 self.assertEqual(projected.styles, ((10, len(projected.text), 'dim'),))
                 self.assertIn('**Summary**', projected.display(raw=True))
 
+    def test_model_refresh_diagnostics_are_dim_and_keep_raw(self):
+        message = b'failed to refresh available models: request timed out'
+        cases = (message,
+                 b'ERROR codex_models_manager::manager: ' + message,
+                 b'2026-11-07T07:42:30Z ERROR codex_models_manager::manager: ' + message,
+                 b'\x1b[2m2026-11-07T07:42:30Z\x1b[0m \x1b[31mERROR\x1b[0m ' + message,
+                 b'failed to refresh \x1b[31mavailable models\x1b[0m: request timed out')
+        for raw in cases:
+            with self.subTest(raw=raw):
+                with patch('ub_agents.logs.log_format._time_column', return_value='~07:42:30 '):
+                    projected = self.decode(raw, NOW.isoformat())
+                self.assertTrue(projected.compact)
+                self.assertEqual(projected.display(),
+                                 '~07:42:30 · codex: model list refresh failed (background)')
+                self.assertEqual(projected.styles, ((10, len(projected.text), 'dim'),))
+                self.assertIsNone(projected.event)
+                self.assertEqual(projected.capture, NOW.isoformat())
+                self.assertEqual(projected.display(raw=True), raw_entry(raw, NOW.isoformat()).display(raw=True))
+        self.assertEqual(self.decode(message).text,
+                         '          · codex: model list refresh failed (background)')
+
+    def test_json_errors_including_reconnecting_keep_red_style(self):
+        for message in ('Reconnecting... 1/5', 'request failed',
+                        'failed to refresh available models: request timed out'):
+            with self.subTest(message=message):
+                value = {'type': 'error', 'message': message}
+                projected = self.decode(value)
+                self.assertEqual(projected.kind, 'runtime ERROR')
+                self.assertEqual(projected.text, '          ✗ ' + message)
+                self.assertEqual(projected.styles, ((10, len(projected.text), 'error'),))
+                self.assertIn(message, projected.display(raw=True))
+
     def test_non_json_diagnostics_stay_raw_and_unrecognized_objects_have_notices(self):
         for raw in (b'warning: owned diagnostic\x1b[2J', b'[]', b'null', b'\xff',
+                    b'ERROR codex_models_manager::manager: model refresh failed',
+                    b'"failed to refresh available models"', b'["failed to refresh available models"]',
                     b'[' * 2000 + b']' * 2000):
             projected = self.decode(raw)
+            self.assertEqual(projected, raw_entry(raw))
             self.assertFalse(projected.compact)
             self.assertEqual(projected.kind, 'raw text')
             self.assertNotIn('\x1b', projected.text)
         big = recorded_item('agent_message')
         big['item']['text'] = 'x' * MAX_RECORD
         self.assertEqual(self.decode(big).kind, 'assistant')
-        for raw in (b'{"type":', b'{"type":"turn.completed","usage":NaN}'):
+        for raw in (b'{"type":', b'{"type":"turn.completed","usage":NaN}',
+                    b'{"type":"error","message":"failed to refresh available models"'):
             projected = self.decode(raw)
             self.assertTrue(projected.compact)
             self.assertIn('record omitted', projected.text)
@@ -438,6 +475,24 @@ class CodexReadingTests(unittest.TestCase):
         self.assertTrue(all(value.capture == NOW.isoformat() for value in snapshot.entries))
         self.assertEqual(sum(value.kind == 'raw text' for value in snapshot.entries), 1)
         self.assertEqual(snapshot.pending_bytes, 0)
+        self.assertEqual(self.path.read_bytes(), data)
+
+    def test_model_refresh_notice_live_reopened_and_in_history_keeps_raw_bytes(self):
+        reader = ViewReader(self.path, 'codex', lambda: NOW)
+        raw = (b'\x1b[2m2026-11-07T07:42:30Z\x1b[0m \x1b[31mERROR\x1b[0m '
+               b'codex_models_manager::manager: failed to refresh available models: request timed out')
+        data = raw + b'\n'
+        self.append(data)
+        live = self.drain(reader).entries[0]
+        reopened = ViewReader(self.path, 'codex')
+        historical = self.drain(reopened).entries[0]
+        older = reopened.older(len(data), reopened.resets).refs[0].value
+        self.assertTrue(live.text.startswith('~'))
+        for value in (live, historical, older):
+            self.assertTrue(value.compact)
+            self.assertEqual(value.text[10:], '· codex: model list refresh failed (background)')
+            self.assertEqual(value.styles, ((10, len(value.text), 'dim'),))
+            self.assertEqual(value.display(raw=True), raw_entry(raw, value.capture).display(raw=True))
         self.assertEqual(self.path.read_bytes(), data)
 
     def test_unfinished_json_and_utf8_split_at_every_byte(self):
