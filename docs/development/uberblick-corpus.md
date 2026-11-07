@@ -72,7 +72,7 @@ reporting `merged`. Most PRs need no page change, so a small PR gets a small pas
    whose pass didn't finish are covered too. Read their corpus notes and the open
    questions that comment lists.
 2. Search the corpus by each changed command, option or feature's name, and read each
-   page found as a whole. The notes are hints: they don't limit what you check.
+   page that covers it as a whole. The notes are hints: they don't limit what you check.
 3. Fix what is wrong and add reasoning that a note supplies. Leave anything that needs
    a decision as a question, or propose a decision record.
 4. Remove any stale status narration from the pages you read.
