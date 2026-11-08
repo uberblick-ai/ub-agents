@@ -34,7 +34,7 @@ class CloseParentIssuesTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.root = Path(directory.name)
+        self.root = Path(directory.name).resolve()
         self.responses = {
             f'{PREFIX}/1/parent': parent(),
             f'{PREFIX}/10/sub_issues?per_page=100': [[child(), child('not_planned')]],
