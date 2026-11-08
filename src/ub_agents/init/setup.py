@@ -189,6 +189,8 @@ def make_plan(path, repository, choices):
     if any(role not in ROLES for role in choices.board_requests):
         raise AgentError("Board creation requires an explicitly selected starter role")
     targets = {path: content}
+    targets[root / ".github" / "workflows" / "close-parent-issues.yml"] = templates.joinpath(
+        "close-parent-issues.yaml").read_text()
     for role in ROLES:
         targets[root / ".agents" / f"{role}.md"] = templates.joinpath(f"{role}.md").read_text()
     if choices.reviewer_runtime:

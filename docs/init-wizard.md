@@ -132,6 +132,7 @@ team, `ub` installed and all extras selected:
 ◇  Changes ─────────────────────────────────────────────────────────────────────────╮
 │                                                                                   │
 │  + ub-agents.yaml                                                                 │
+│  + .github/workflows/close-parent-issues.yml                                      │
 │  + .agents/ ub_agents.md and 5 role files                                         │
 │  ~ .gitignore +4 lines                                                            │
 │  + 8 labels on org/project                                                        │
@@ -253,6 +254,7 @@ commands, and open no PR:
 ◇  Changes ────────────────────────────────────╮
 │                                              │
 │  + ub-agents.yaml                            │
+│  + .github/workflows/close-parent-issues.yml  │
 │  + .agents/ ub_agents.md and 5 role files    │
 │  ~ .gitignore +4 lines                       │
 │  + Tailor `.agents/ub_agents.md` to this repository · ready · print the filing command
