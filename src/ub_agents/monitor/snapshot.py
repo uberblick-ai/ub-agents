@@ -84,8 +84,19 @@ class MonitorSource:
         claimed = [lease for lease in leases if lease["state"] in CLAIMED and lease["assignment"] in open_items]
         held = [lease for lease in claimed if unconfirmed(lease) and lease["assignment"] not in stopped
                 and not later_on_item(history, lease)]
+        needs_human = labelled + [{"item": self.item(lease), "labels": ["blocked"], "labelled": False,
+                                  "ask": ask(self.outcome(history, lease), lease), "notice": None}
+                                 for lease in blocked]
+        needs_human += [{"item": self.item(lease), "labels": ["cleanup unconfirmed"], "labelled": False,
+                         "ask": ask(None, lease), "notice": None} for lease in held]
+        stopped = {entry["item"]["number"] for entry in needs_human}
+        claimed = [lease for lease in claimed if lease["assignment"] not in stopped]
         live = {lease["id"] for lease in live_leases(history, now)}
-        eligible = self.planning.snapshot()
+        running = [self.run(lease, renewed) for lease in claimed if lease["id"] in live and not unconfirmed(lease)]
+        expired = [self.run(lease, renewed) for lease in claimed if not unconfirmed(lease)
+                   and seconds(lease["expires"]) <= now and not later_on_item(history, lease)]
+        occupied = stopped | {run["item"]["number"] for run in running + expired}
+        eligible = self.planning.snapshot(excluded=occupied)
         return {
             "repository": self.config.repository,
             "folder": str(self.config.root),
@@ -94,16 +105,11 @@ class MonitorSource:
             "stop_outcomes": self.stop_outcomes(),
             "generated_at": iso(now),
             "notices": notices,
-            "needs_human": labelled + [{"item": self.item(lease), "labels": ["blocked"], "labelled": False,
-                                        "ask": ask(self.outcome(history, lease), lease), "notice": None}
-                                       for lease in blocked]
-                         + [{"item": self.item(lease), "labels": ["cleanup unconfirmed"], "labelled": False,
-                             "ask": ask(None, lease), "notice": None} for lease in held],
-            "running": [self.run(lease, renewed) for lease in claimed if lease["id"] in live and not unconfirmed(lease)],
+            "needs_human": needs_human,
+            "running": running,
             "eligible": eligible,
             "eligible_error": self.planning.error,
-            "expired": [self.run(lease, renewed) for lease in claimed if not unconfirmed(lease)
-                        and seconds(lease["expires"]) <= now and not later_on_item(history, lease)],
+            "expired": expired,
             "recent": sorted((self.ended(history, lease, renewed) for lease in leases
                               if lease["state"] == "released" and seconds(lease["expires"]) >= now - WINDOW_SECONDS),
                              key=lambda run: run["ended"], reverse=True),

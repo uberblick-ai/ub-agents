@@ -24,18 +24,27 @@ class EligiblePlanning:
         self.actor = coordinator.actor
         self.loop = None
         self.value = None
+        self.rows = []
         self.read_at = None
         self.error = None
 
-    def snapshot(self):
+    def snapshot(self, excluded=()):
         now = self.clock()
-        if self.read_at is not None and now - self.read_at < PLAN_SECONDS:
+        if self.read_at is None or now - self.read_at >= PLAN_SECONDS:
+            try:
+                self.refresh(now)
+            except AgentError as exc:
+                self.error = str(exc)
+        return self.excluding(excluded)
+
+    def excluding(self, excluded):
+        # Keep the whole cached queue so counts and the display limit apply after
+        # fresh run/stop state removes items, without changing the plan itself.
+        rows = [row for row in self.rows if row.item not in excluded]
+        if self.value is None or len(rows) == len(self.rows):
             return self.value
-        try:
-            self.refresh(now)
-        except AgentError as exc:
-            self.error = str(exc)
-        return self.value
+        return self.value | {'count': len(rows),
+                             'rows': [self.row(row, index) for index, row in enumerate(rows[:LIMIT])]}
 
     def refresh(self, now):
         if self.loop is None:
@@ -47,6 +56,7 @@ class EligiblePlanning:
                                          plan_limit=len(plans)) if row.group == 'Eligible']
         self.value = {'count': len(rows), 'rows': [self.row(row, index) for index, row in enumerate(rows[:LIMIT])],
                       'interval_seconds': PLAN_SECONDS, 'generated_at': iso(now)}
+        self.rows = rows
         self.read_at = now
         self.error = None
 
