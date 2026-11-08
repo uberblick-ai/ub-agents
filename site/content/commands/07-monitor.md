@@ -133,7 +133,8 @@ backend, studio
   keep the last rows and their dismissals. With no dismissed rows in the chosen
   repositories, the dropdown hides and the panel shows **Open**.
 - **Running**: every live run on an open item, with its agent, machine and how
-  long it has run. Closing an item takes its run off the list.
+  long it has run. Closing an item takes its run off the list. Items in Needs human
+  stay out of Running, even when you dismissed their Needs human row.
   The dropdown in the top-right border shows all machines by default. Choose a
   machine to show only its runs; the heading counts the runs shown. The choice
   survives a reload. Options include this machine, machines with live runs or
@@ -150,16 +151,24 @@ backend, studio
   it differs from `queue.priority.default`. With no default set, any effective
   priority shows. Items with no effective priority show no word. Without
   `queue.priority`, no priority word shows. Local usage pauses show the runtime
-  and time left. Claimed work, work needing a person, and items waiting for
-  blockers or the active milestone stay out.
+  and time left. Items in Needs human, Running or Expired stay out of Eligible
+  and its count, even when you dismissed a stop or hid a run with the machine
+  dropdown. This applies on every refresh; items return when they leave those
+  sections, without waiting for the next plan. Items waiting for blockers or the
+  active milestone also stay out.
 - **Expired without a result**: runs on open items whose launcher stopped renewing
-  them. The next launcher that picks the item up recovers it.
+  them. The next launcher that picks the item up recovers it. Items in Needs human
+  stay out of Expired; expired runs take precedence over Eligible.
 - **Recent activity**: runs that ended in the last 24 hours, with result, machine,
   duration, tokens and cost. Click a row for the full summary.
 
 Records count only from accounts that the launcher trusts: write access or higher,
 and listed in [`launchers`](/docs/configuration/launchers.html) when that is set.
 The host serving the monitor reads **this machine** in every panel and run detail.
+
+Within each repository, an item appears in only one current section: Needs human
+takes precedence over Running, then Expired, then Eligible. Recent activity keeps
+finished runs as history.
 
 ## Polling and notifications
 
