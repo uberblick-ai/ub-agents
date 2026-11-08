@@ -156,7 +156,7 @@ class RetryTests(unittest.TestCase):
             either = agent(self.root, name="either", kind="either")
             last = agent(self.root, name="last", kind=kind)
             for agents, chosen in (((wrong, first), "first"),
-                                   ((wrong, first, either, last), "first"),
+                                   ((wrong, first, either, last), "either"),
                                    ((wrong, either, first), "either")):
                 with self.subTest(kind=kind, agents=[a.name for a in agents]):
                     self.config = config(self.root, *agents)
@@ -176,6 +176,63 @@ class RetryTests(unittest.TestCase):
                     reset, = records(self.github.store[97], "operator")
                     self.assertEqual(reset["agent"], chosen)
                     self.assertNotIn("assignment_sha", reset)
+
+    def test_default_agent_prefers_second_issue_agents_present_trigger(self):
+        preparer = agent(self.root, name="preparer", kind="issue", triggers=("needs-preparation",))
+        reviewer = agent(self.root, name="reviewer", kind="issue", triggers=("review-ready", "needs-review"))
+        self.config = config(self.root, preparer, reviewer)
+        self.github = PollGitHub(issue(97, labels=("needs-review",)))
+
+        result, output, errors = self.retry(name=None)
+
+        self.assertEqual((result, errors), (0, ""))
+        self.assertTrue(output.startswith("Using agent reviewer for issue #97.\n"))
+        self.assertIn("Reset reviewer attempts on #97:", output)
+        self.assertIn("Labels were already in place.", output)
+        reset, = records(self.github.store[97], "operator")
+        self.assertEqual(reset["agent"], "reviewer")
+        self.assertEqual(self.github.writes, [("create", 1)])
+        self.assertEqual(self.github.items[97].labels, frozenset({"needs-review"}))
+
+    def test_default_agent_prefers_pr_agents_present_trigger_after_either_agent(self):
+        implementer = agent(self.root, name="implementer", kind="either", triggers=("ready",))
+        reviewer = agent(self.root, name="reviewer", kind="pr", triggers=("needs-review",))
+        integrator = agent(self.root, name="integrator", kind="pr", triggers=("ready-to-merge",))
+        self.config = config(self.root, implementer, reviewer, integrator)
+        for selected in (reviewer, integrator):
+            with self.subTest(agent=selected.name):
+                self.github = PollGitHub(pr(97, labels=selected.triggers))
+
+                result, output, errors = self.retry(name=None)
+
+                self.assertEqual((result, errors), (0, ""))
+                self.assertTrue(output.startswith(f"Using agent {selected.name} for pr #97.\n"))
+                self.assertIn(f"Reset {selected.name} attempts on #97:", output)
+                self.assertIn("Labels were already in place.", output)
+                reset, = records(self.github.store[97], "operator")
+                self.assertEqual(reset["agent"], selected.name)
+                self.assertEqual(self.github.writes, [("create", 1)])
+                self.assertEqual(self.github.items[97].labels, frozenset(selected.triggers))
+
+    def test_default_agent_falls_back_to_first_matching_kind_with_only_stop_label(self):
+        for factory, other_kind in ((issue, "pr"), (pr, "issue")):
+            with self.subTest(kind=factory.__name__):
+                wrong = agent(self.root, name="wrong", kind=other_kind)
+                first = agent(self.root, name="first", kind=factory(97).kind, triggers=("first-ready", "other-ready"))
+                self.config = config(self.root, wrong, first, self.worker)
+                self.github = PollGitHub(factory(97, labels=("needs-human",)))
+
+                result, output, errors = self.retry(name=None)
+
+                self.assertEqual((result, errors), (0, ""))
+                self.assertTrue(output.startswith(f"Using agent first for {factory(97).kind} #97.\n"))
+                self.assertIn("Reset first attempts on #97:", output)
+                self.assertIn("Removed needs-human, added first-ready.", output)
+                reset, = records(self.github.store[97], "operator")
+                self.assertEqual(reset["agent"], "first")
+                self.assertEqual(self.github.writes, [("create", 1), ("remove-label", 97, "needs-human"),
+                                                     ("add-labels", 97, ("first-ready",))])
+                self.assertEqual(self.github.items[97].labels, frozenset({"first-ready"}))
 
     def test_default_agent_refuses_without_writes_when_no_kind_applies(self):
         for factory, configured_kind in ((issue, "pr"), (pr, "issue")):
