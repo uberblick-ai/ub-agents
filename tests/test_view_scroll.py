@@ -137,16 +137,16 @@ class ViewScrollbarTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unblock_scroll_keys_and_wheel_from_child_show_bar(self):
         self.state['latest_pass']['rows'].append(
-            {'item': 114, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
+            {'item': 178, 'agent': 'worker', 'state': 'blocked', 'reason': 'Needs a decision'})
         self.state['coordination_authors'] = {'operator': {'trusted': True}}
-        self.state['action_needed'] = {'114': {
+        self.state['action_needed'] = {'178': {
             'text': ACTION_MARKER + 'run -->\n**Action needed**\n\n'
                     + '\n'.join(f'Line {i}' for i in range(100)), 'author': 'operator'}}
         publish_snapshot(self.path, self.state)
         app = View(self.root, self.path)
         async with app.run_test(size=(110, 32)) as pilot:
             await self.ready(pilot, lambda: app.reading.page is not None)
-            app.select('plan:114:attention')
+            app.select('plan:178:attention')
             await self.ready(pilot, lambda: app.unblock_visible)
             await pilot.press('4')
             area = app.query_one('#unblock VerticalScroll', PaneScroll)

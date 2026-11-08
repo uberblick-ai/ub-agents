@@ -3195,10 +3195,11 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.selected, key)
             self.assertIs(tree.cursor_node, app.query_one(WorkTree).nodes[key])
             self.assertEqual(sum(row.item == 12 for row in app.rows.values()), 1)
-            # Returning from a per-agent attention row finds that agent even
-            # when it is no longer first in the merged Eligible row.
+            # A stopped item returns to Eligible when a contributing agent
+            # becomes ready, even when that agent is not first in the row.
             plans = self.state['latest_pass']['rows']
             plans[1]['state'] = 'blocked'
+            plans[-1]['state'] = 'blocked'
             plans[1], plans[-1] = plans[-1], plans[1]
             publish_snapshot(self.path, self.state)
             attention = 'plan:12:attention'
@@ -3206,7 +3207,7 @@ class ViewUITests(unittest.IsolatedAsyncioTestCase):
             app.select(attention)
             tree.move_cursor(app.query_one(WorkTree).nodes[attention])
             await self.ready(app, pilot, lambda: app.pane.selected == attention)
-            plans[-1]['state'] = 'ready'
+            plans[1]['state'] = plans[-1]['state'] = 'ready'
             publish_snapshot(self.path, self.state)
             await self.ready(app, pilot, lambda: app.selected == key and attention not in app.rows and
                              tree.render_line(app.query_one(WorkTree).nodes[key]._line + 1 - tree.scroll_offset.y).text.rstrip() ==

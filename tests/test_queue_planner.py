@@ -64,9 +64,15 @@ class MovedOnBlockTests(unittest.TestCase):
         plan = next(plan for plan in plans if plan.agent == self.roles[0])
         self.assertEqual(plan.state, "blocked")
         self.assertIn(reason, plan.reason)
-        rows = work_rows(Session(self.root / "session.json", self.publisher.snapshots[-1]), self.root)
-        self.assertTrue(any(row.group == "Needs attention" and
-                            any(part.agent == "preparer" for part in row.attention_rows) for row in rows))
+        snapshot = self.publisher.snapshots[-1]
+        self.assertEqual([(row['agent'], row['state']) for row in snapshot['latest_pass']['rows']
+                          if row['agent'] == 'preparer'], [('preparer', 'blocked')])
+        rows = work_rows(Session(self.root / "session.json", snapshot), self.root)
+        eligible = any(plan.state in {'ready', 'recover', 'backoff', 'waiting'} for plan in plans)
+        self.assertEqual([(row.item, row.group) for row in rows],
+                         [(1, 'Eligible' if eligible else 'Needs attention')])
+        if not eligible:
+            self.assertIn('preparer', [part.agent for part in rows[0].attention_rows])
 
     def test_completed_review_then_live_implementation_clears_preparer_in_status_and_view(self):
         self.blocked_item()
