@@ -25,7 +25,7 @@
 | src/ub\_agents/cli/read.py                       |       17 |        0 |    100% |           |
 | src/ub\_agents/cli/report.py                     |       40 |        1 |     98% |        37 |
 | src/ub\_agents/cli/retrospective.py              |       30 |        0 |    100% |           |
-| src/ub\_agents/cli/retry.py                      |       61 |        0 |    100% |           |
+| src/ub\_agents/cli/retry.py                      |       62 |        0 |    100% |           |
 | src/ub\_agents/cli/status.py                     |      117 |        0 |    100% |           |
 | src/ub\_agents/config.py                         |      505 |        9 |     98% |98, 326, 358, 382, 504, 515, 544, 593, 610 |
 | src/ub\_agents/coordination.py                   |      640 |       14 |     98% |119-120, 154, 162-163, 336, 370, 419, 435, 617, 718, 751, 763, 804 |
@@ -146,7 +146,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **18817** |  **685** | **96%** |           |
+| **TOTAL**                                        | **18818** |  **685** | **96%** |           |
 
 
 ## Setup coverage badge
