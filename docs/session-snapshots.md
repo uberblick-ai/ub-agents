@@ -70,6 +70,10 @@ see [stale artifact cleanup](coordination.md#stale-artifact-cleanup).
 
 ## State interpretation
 
+Work groups plans by item using the [terminal view's precedence rules](https://agents.uberblick.ai/docs/guides/terminal-view.html#work).
+`latest_pass.eligible_count` counts the remaining Eligible items before trimming.
+The snapshot can still carry plan rows that those rules hide from Work.
+
 `paused_clis` lists the CLIs whose usage pause holds a plan. Readers show that cause
 only while every named CLI is still paused in `runtime_pauses`, and ignore expired or
 unreadable times.

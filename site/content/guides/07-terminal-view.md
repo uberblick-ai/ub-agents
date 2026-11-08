@@ -75,6 +75,11 @@ Running always shows. Empty sections are hidden.
 | Needs attention | Plans parked by stop labels or approval gates, blocked plans, and plans that reached their attempt limit |
 | Eligible | Up to ten items in claim order: ready and recovery plans first, then delayed plans |
 
+An item appears in only one of these sections. Running wins over every plan for
+that item. Otherwise, plans from the current pass replace the item's carried
+plans. Within one pass, Eligible wins over Needs attention because the launcher
+will work the item next. Stopped agents show again when only their plans remain.
+
 Eligible's heading counts every eligible item, for example
 `Eligible · 23 · showing 10`. [Selection order](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#selection-order)
 defines claim order. Plans claimed by other launchers and plans waiting for
@@ -112,7 +117,7 @@ counts up while the view is open: minutes below an hour, hours below two days,
 then days.
 
 While a planning pass runs, the Work title reads `Work · pass partial`. Rows from
-the previous pass stay until the pass replans them or completes. Items seen
+the previous pass stay until the pass replans that item or completes. Items seen
 closed or merged leave at once. After each run, the launcher replans that item
 before it claims again, and its rows update immediately.
 

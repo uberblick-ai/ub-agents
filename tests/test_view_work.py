@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import io
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, PropertyMock, patch
@@ -9,9 +10,59 @@ from rich.console import Console
 from rich.text import Text
 from textual.geometry import Region
 
-from ub_agents.view.data import Pane, Section, WorkRow
+from ub_agents.view.data import Pane, Section, Session, WorkRow, work_pane, work_rows
 from ub_agents.view.work import WorkTree, work_lines
 from ub_agents.view.theme import VIEW_THEME, theme_style
+
+
+class WorkRowsTests(unittest.TestCase):
+    def test_missing_times_count_as_one_pass_and_keep_all_eligible_agents(self):
+        for missing in ('started_at', 'observed_at'):
+            with self.subTest(missing=missing):
+                latest = {'started_at': '2026-11-08T09:00:00.500000Z', 'rows': [
+                    {'item': 1, 'agent': 'preparer', 'state': 'blocked',
+                     'observed_at': '2026-11-08T09:00:00.750000Z'},
+                    {'item': 1, 'agent': 'reviewer', 'state': 'ready',
+                     'observed_at': '2026-11-08T09:00:00Z'},
+                    {'item': 1, 'agent': 'integrator', 'state': 'ready',
+                     'observed_at': '2026-11-08T09:00:01Z'}]}
+                if missing == 'started_at':
+                    latest.pop(missing)
+                else:
+                    for plan in latest['rows']:
+                        plan.pop(missing)
+                work = work_rows(Session(Path('unused.json'), {'latest_pass': latest}), Path('unused'))
+                self.assertEqual([(row.item, row.group) for row in work], [(1, 'Eligible')])
+                self.assertEqual([plan['agent'] for plan in work[0].eligible_plans], ['reviewer', 'integrator'])
+
+    def test_current_omitted_plan_also_supersedes_carried_attention(self):
+        for state in ('owned', 'parked'):
+            with self.subTest(state=state):
+                data = {'latest_pass': {'started_at': '2026-11-08T09:00:00.500000Z', 'rows': [
+                    {'item': 1, 'agent': 'preparer', 'state': 'blocked',
+                     'observed_at': '2026-11-08T09:00:00Z'},
+                    {'item': 1, 'agent': 'reviewer', 'state': state, 'reason': 'Waiting for blockers #2',
+                     'observed_at': '2026-11-08T09:00:01Z'}]}}
+                self.assertEqual(work_rows(Session(Path('unused.json'), data), Path('unused')), [])
+
+    def test_superseded_eligible_selection_stays_in_details_without_duplicating_work(self):
+        for group, state in (('Running', None), ('Needs attention', 'blocked')):
+            with self.subTest(group=group):
+                data = {'latest_pass': {'rows': [{'item': 1, 'agent': 'preparer', 'state': 'ready'}]}}
+                session = Session(Path('unused.json'), data)
+                previous = work_pane(session, Path('unused'), selected='plan:1', chosen=True)
+                data['latest_pass']['rows'] = []
+                if group == 'Running':
+                    data['assignment'] = {'item': 1, 'agent': 'reviewer', 'run': 'current'}
+                else:
+                    data['latest_pass']['rows'] = [{'item': 1, 'agent': 'reviewer', 'state': state}]
+                pane = work_pane(session, Path('unused'), previous, previous.selected, True)
+                self.assertEqual([(row.item, row.group) for section in pane.sections for row in section.rows],
+                                 [(1, group)])
+                selection = next(row for row in pane.rows if row.key == pane.selected)
+                self.assertEqual(selection.state, 'earlier observation')
+                self.assertTrue(selection.hidden)
+                self.assertIsNone(pane.next)
 
 
 class WorkTreeTests(unittest.TestCase):
