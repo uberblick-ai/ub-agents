@@ -7,7 +7,9 @@ ub-agents retry 143 --reason "Blocker resolved"
 ub-agents retry 150 --agent reviewer --reason "Findings resolved"
 ```
 
-Without `--agent`, retry picks the first agent that handles that kind of item. It refuses while a launcher is working on the item, and leaves a closed item's labels alone.
+Without `--agent`, retry picks the first configured agent that handles that kind of item and has a trigger label on it. If none has a trigger on the item, it falls back to the first agent that handles that kind. When a trigger is already there, retry adds no label and still removes stop labels.
+
+Retry refuses while a launcher is working on the item, and leaves a closed item's labels alone.
 
 ## Review rounds
 

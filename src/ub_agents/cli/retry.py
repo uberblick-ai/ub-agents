@@ -11,10 +11,12 @@ def arguments(commands):
     retry = commands.add_parser("retry", help="let stopped work run again, with a recorded reason",
                                 description="Record a human-authorized reset of blocked work and attempt limits. "
                                 "Use after resolving the cause; on open items it then removes stop labels and restores the agent's trigger. "
-                                "Without --agent, print and use the first configured agent whose kind applies to the item.",
+                                "Without --agent, print and use the first configured agent whose kind applies and whose trigger is on the item. "
+                                "If none has a trigger on the item, use the first agent whose kind applies.",
                                 examples=('ub-agents retry 143 --reason "Blocker resolved"',
                                           'ub-agents retry 150 --agent reviewer --reason "Checks restored"'))
-    retry.add_argument("--agent", metavar="NAME", help="configured agent (default: first matching item kind)")
+    retry.add_argument("--agent", metavar="NAME",
+                       help="configured agent (default: first matching item kind and trigger, else first matching kind)")
     retry.add_argument("--reason", required=True, help="record why the human-authorized reset is justified")
     # main requires one number, accepting the hidden alias for one release.
     retry.add_argument("number", metavar="NUMBER", type=int, nargs="?", required_for_help=True,
@@ -57,9 +59,10 @@ def retry_labels(github, item, agent, stop_labels):
 def retry_run(args, config, github, actor, coordinator):
     if args.agent is None:
         item = github.item(args.number)
-        agent = next((agent for agent in config.agents if agent.kind in {item.kind, "either"}), None)
-        if agent is None:
+        matching = [agent for agent in config.agents if agent.kind in {item.kind, "either"}]
+        if not matching:
             raise AgentError(f"No configured agent applies to {item.kind} #{item.number}")
+        agent = next((agent for agent in matching if item.labels.intersection(agent.triggers)), matching[0])
         args.agent = agent.name
         print(f"Using agent {agent.name} for {item.kind} #{item.number}.")
     agent = next((agent for agent in config.agents if agent.name == args.agent), None)
