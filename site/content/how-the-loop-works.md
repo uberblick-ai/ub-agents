@@ -30,7 +30,7 @@ The preparer gives each acceptance criterion a short check: a command, test or o
 
 Instead of reporting `prepared`, the issue-preparer can:
 
-- **Split it.** When the work doesn't fit one reviewable pull request, the preparer creates sub-issues and keeps the original open, blocked by each of them. Agents never set trigger labels, so someone starts each sub-issue with `needs-preparation`.
+- **Split it.** When the work doesn't fit one reviewable pull request, the preparer creates sub-issues and keeps the original open, blocked by each of them. The [generated workflow](/docs/commands/init.html#close-parent-issues) closes the parent after its last sub-issue closes. Agents never set trigger labels, so someone starts each sub-issue with `needs-preparation`.
 - **Ask for a second opinion.** An issue-reviewer, ideally on another model, approves the issue to `ready` or sends it back with findings for the preparer to apply.
 
 {{flow issue-review-loop}}

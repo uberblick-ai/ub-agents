@@ -39,6 +39,7 @@ With updates enabled, selecting the Uberblick extra also writes `runtime-updates
 | `ub-agents.yaml` | The loop's [configuration](/docs/configuration/index.html): agents, labels and outcomes. |
 | `.agents/ub_agents.md` | Rules every agent follows, such as who decides what and when a PR may merge. See [what belongs in it](/docs/best-practices/instructions-as-code.html#what-goes-in-the-shared-policy). |
 | `.agents/<role>.md` | One file per starter role: issue-preparer, issue-reviewer, implementer, reviewer and integrator. Adjust them to your project over time. |
+| `.github/workflows/close-parent-issues.yml` | Closes a parent issue after all its native GitHub sub-issues close. |
 | `.gitignore` | Keeps the launcher's local state out of Git. |
 | `.mcp.json` and/or `.codex/config.toml` | Only with [Uberblick](https://uberblick.ai): connects the configured CLIs to it, plus `.uberblick.json` when init creates a workspace. |
 
@@ -59,6 +60,33 @@ With `AGENTS.md` or `CLAUDE.md`, the policy points to that file for project chec
 Detection accepts `package.json` with a UTF-8 BOM and Makefiles with non-UTF-8 comments. A target-specific variable assignment alone does not define a Makefile target. If a source cannot be read or its JSON or TOML is invalid, init names the file and stops before writing starter files; fix the file and run init again.
 
 If starter files already exist, init stops and changes nothing. It never touches `AGENTS.md` or `CLAUDE.md`. If something fails halfway, it prints what's left to do.
+
+## Close parent issues
+
+The generated workflow runs when an issue closes, including closures made by hand.
+It closes an open parent in the same repository when every sub-issue is closed,
+the parent has no workflow label and no open PR would close it. It checks all
+sub-issue pages and continues through nested parents in the same run. If any
+sub-issue closed as completed, the parent closes as completed; otherwise it closes
+as not planned, including duplicates. Move any work kept in the parent into its
+own sub-issue before splitting.
+
+The workflow has only `issues: write` permission and uses `gh api` without checking
+out repository code. It never reopens issues or changes labels. If a read fails,
+it leaves the remaining parents unchanged and reports the failure in Actions.
+Keep its `WORKFLOW_LABELS` set in sync with your triggers, outcome transitions and
+stop labels in `ub-agents.yaml`, including `outside-input` when approvals use it.
+
+For an existing project, copy the [workflow template](https://github.com/uberblick-ai/ub-agents/blob/main/src/ub_agents/templates/close-parent-issues.yaml)
+to `.github/workflows/close-parent-issues.yml` on a branch, adjust `WORKFLOW_LABELS`
+to your configuration and merge a PR. The workflow takes effect on your default
+branch for future issue closures; close older completed parents by hand.
+
+Pushing workflow files requires workflow access. For a classic token managed by
+`gh`, run `gh auth refresh -s workflow` before pushing. A fine-grained token needs
+the repository's **Workflows: write** permission. Init warns before writing when
+the token advertises missing OAuth scope and prints the fix after a failed push
+when permission could not be checked in advance.
 
 ## Next steps
 

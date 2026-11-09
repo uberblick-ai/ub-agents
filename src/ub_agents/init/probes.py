@@ -102,6 +102,7 @@ class Probes:
                 d.add("github-auth", "fail", "gh is not logged in", "Run gh auth login")
             if actor:
                 metadata = d.repository_access(config, self.github)
+                self._workflow_permission()
         github = self.collect("GitHub", [actor, config.repository])
         if metadata and not github.problems:
             github.summary.append("labels writable")
@@ -115,6 +116,14 @@ class Probes:
         except AgentError:
             self.approvals = "Approvals: unresolved (repository visibility is unreadable)"
         return actor, metadata
+
+    def _workflow_permission(self):
+        # Classic/OAuth tokens advertise scopes; fine-grained tokens and App
+        # tokens don't, so their workflow push permission is only known at push.
+        scopes = self.github.quota_headers.get("x-oauth-scopes")
+        if scopes is not None and "workflow" not in {scope.strip() for scope in scopes.split(",")}:
+            self.doctor.add("github-workflow", "warn", "Token cannot push the starter workflow",
+                            "Run gh auth refresh -s workflow before pushing the setup PR")
 
     def _checkout(self, git_ready, metadata):
         d, config = self.doctor, self.plan.config

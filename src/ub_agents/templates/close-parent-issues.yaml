@@ -1,0 +1,127 @@
+name: Close parent issues
+
+on:
+  issues:
+    types: [closed]
+
+permissions:
+  issues: write
+
+jobs:
+  close-parents:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close completed parents
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          # Keep trigger, transition and stop labels in sync with ub-agents.yaml.
+          WORKFLOW_LABELS = {
+              "needs-preparation", "ready", "needs-review", "needs-changes",
+              "ready-to-merge", "needs-human", "outside-input",
+          }
+          LINKED_PRS = """
+          query($owner: String!, $repo: String!, $number: Int!) {
+            repository(owner: $owner, name: $repo) {
+              issue(number: $number) {
+                closedByPullRequestsReferences(first: 1, includeClosedPrs: false) {
+                  totalCount
+                }
+              }
+            }
+          }
+          """
+
+          def api(endpoint, *options, missing_ok=False):
+              result = subprocess.run(
+                  ["gh", "api", "--hostname", "github.com", endpoint, *options],
+                  capture_output=True, text=True, timeout=60,
+              )
+              if result.returncode:
+                  if missing_ok and "(HTTP 404)" in result.stderr:
+                      return None
+                  raise RuntimeError(f"GitHub request failed: {endpoint}")
+              return json.loads(result.stdout)
+
+          def close_reason(children):
+              if not children or any(child["state"] != "closed" for child in children):
+                  return None
+              reasons = {child["state_reason"] for child in children}
+              if not reasons <= {"completed", "not_planned", "duplicate"}:
+                  raise ValueError("Unreadable sub-issue close reason")
+              return "completed" if "completed" in reasons else "not_planned"
+
+          def has_open_pr(repository, number):
+              owner, repo = repository.split("/")
+              result = api("graphql", "-f", f"query={LINKED_PRS}",
+                           "-f", f"owner={owner}", "-f", f"repo={repo}",
+                           "-F", f"number={number}")
+              if result.get("errors"):
+                  raise ValueError("Unreadable closing pull requests")
+              count = result["data"]["repository"]["issue"]["closedByPullRequestsReferences"]["totalCount"]
+              if type(count) is not int or count < 0:
+                  raise ValueError("Unreadable closing pull request count")
+              return count > 0
+
+          def sub_issues(repository, parent):
+              endpoint = f"repos/{repository}/issues/{parent['number']}/sub_issues?per_page=100"
+              pages = api(endpoint, "--paginate", "--slurp")
+              if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+                  raise ValueError("Unreadable sub-issue pages")
+              children = [child for page in pages for child in page]
+              total = parent["sub_issues_summary"]["total"]
+              # A token may not see sub-issues belonging to private repositories.
+              if type(total) is not int or len(children) != total:
+                  raise ValueError("Incomplete sub-issue list")
+              return children
+
+          def close_parent(repository, parent):
+              if parent["state"] == "closed":
+                  return True
+              if parent["state"] != "open":
+                  raise ValueError("Unreadable parent issue state")
+              labels = {label["name"].casefold() for label in parent["labels"]}
+              if labels & WORKFLOW_LABELS:
+                  return False
+              endpoint = f"repos/{repository}/issues/{parent['number']}"
+              reason = close_reason(sub_issues(repository, parent))
+              if reason is None or has_open_pr(repository, parent["number"]):
+                  return False
+              closed = api(endpoint, "--method", "PATCH",
+                           "-f", "state=closed", "-f", f"state_reason={reason}")
+              if closed["state"] != "closed":
+                  raise ValueError("Parent closure was not confirmed")
+              print(f"Closed parent #{parent['number']} as {reason}")
+              return True
+
+          def close_parents(repository, number):
+              prefix = f"repos/{repository}/issues"
+              repository_url = f"https://api.github.com/repos/{repository}".casefold()
+              seen = {number}
+              while True:
+                  parent = api(f"{prefix}/{number}/parent", missing_ok=True)
+                  if parent is None:
+                      return
+                  number = parent["number"]
+                  if type(number) is not int or number <= 0 or number in seen:
+                      raise ValueError("Invalid parent issue number or cycle")
+                  seen.add(number)
+                  if parent["repository_url"].casefold() != repository_url:
+                      return
+                  # Walk ancestors here: GITHUB_TOKEN closures emit no new run.
+                  if not close_parent(repository, parent):
+                      return
+
+          try:
+              event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+              close_parents(os.environ["GITHUB_REPOSITORY"], event["issue"]["number"])
+          except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.TimeoutExpired) as exc:
+              raise SystemExit(f"Stopped without changing remaining parents: {exc}")
+          PY
