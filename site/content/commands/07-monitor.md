@@ -112,7 +112,7 @@ backend, studio
   processes ended, and the item waits until someone does. Each shows the actions
   and options of its latest outcome, with links to the Action needed comment and the
   outcome record. **discuss with Claude** opens a Claude Code session in the Claude
-  app, in this checkout, with "help me unblock #N using the ub-agents-unblock skill"
+  app, in this checkout, with "help me unblock OWNER/NAME#N using the ub-agents-unblock skill"
   filled in; the app asks you to confirm the folder before you send it.
   Click **dismiss** to move a row out of **Open**, its counts, the tab title count
   and stop notifications. When the shown repositories have dismissed rows, a dropdown
