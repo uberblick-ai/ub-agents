@@ -2,6 +2,11 @@
 
 Set up dependencies in the control checkout before each new run and in new private worktrees.
 
+[Init's tailoring issue](/docs/commands/init.html#what-you-get) proposes the
+repository's existing install command and its lockfiles as `when-changed`, with
+file evidence in the PR body. It leaves this key commented out when there is no
+install step. A maintainer merges the tailoring PR.
+
 ```yaml
 checkout-setup:
   command: [sh, -c, 'mise trust ./mise.toml && exec mise run install']

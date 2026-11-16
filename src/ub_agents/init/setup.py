@@ -62,6 +62,56 @@ class Choices:
     retrospectives: dict[str, int] = field(default_factory=dict)
     board_requests: dict = field(default_factory=dict)
     visibility: str | None = None
+    reviewer_runtime: str = ""
+
+    @property
+    def clis(self):
+        return tuple(dict.fromkeys(runtime.split(":", 1)[0]
+                                   for runtime in (self.runtime, self.reviewer_runtime) if runtime))
+
+
+def configure_runtimes(content, choices):
+    args = []
+    for cli in choices.clis:
+        grant = ("unattended edits and git/gh/report commands" if cli == "claude" else
+                 "full access without the Codex sandbox")
+        args.append(f"# Grants {grant}: https://agents.uberblick.ai/docs/configuration/permissions.html")
+    if "claude" in choices.clis:
+        args.append('# Add the project\'s check commands to --allowedTools: "Bash(<project check command>)".')
+    prefix = "" if choices.permissions else "# "
+    args.append(prefix + "runtime-args:")
+    for cli in choices.clis:
+        value = json.dumps(permission_args(cli, bool(choices.retrospectives or choices.board_requests)))
+        if cli != "claude":
+            value = "[--sandbox, danger-full-access]"
+        args.append(f"{prefix}  {cli}: {value}")
+    original = ("# Grants full access without the Codex sandbox: "
+                "https://agents.uberblick.ai/docs/configuration/permissions.html\n"
+                "# runtime-args:\n#   codex: [--sandbox, danger-full-access]")
+    content = content.replace(original, "\n".join(args))
+    prefix = "" if choices.updates else "# "
+    tools = (*choices.clis, "gh", *(("ub",) if choices.updates and choices.uberblick else ()))
+    updates = [prefix + "runtime-updates:", *(f"{prefix}  {cli}: auto" for cli in tools)]
+    content = content.replace("# runtime-updates:\n#   codex: auto\n#   gh: auto", "\n".join(updates))
+    if choices.reviewer_runtime:
+        content = configure_reviewers(content, choices)
+    return content
+
+
+def configure_reviewers(content, choices):
+    content = content.replace("# Default arguments for each CLI; add the other CLI's entry for mixed runtimes.",
+                              "# Default arguments for each CLI.").replace(
+        "# Update the agent CLI and gh once a day", "# Update both agent CLIs and gh once a day")
+    for role, source in (("reviewer", "implementer"), ("issue-reviewer", "issue-preparer")):
+        content = content.replace(f"  {role}:\n    runtime: {json.dumps(choices.runtime)}",
+                                  f"  {role}:\n    runtime: {json.dumps(choices.reviewer_runtime)}")
+        content = content.replace(f"    # different-runtime-from: {source}", f"    different-runtime-from: {source}")
+    content = content.replace(
+        "    # Run this role on a different runtime from issue-preparer for independent review.\n"
+        "    # Configure runtime alternatives with different CLIs and models, then enable:\n", "")
+    return content.replace(
+        "    # For independent cross-provider review, configure an eligible alternative:\n"
+        '    # runtime: "claude:claude-opus-5-5:high"\n', "")
 
 
 @dataclass
@@ -111,7 +161,7 @@ class Plan:
             raise AgentError(f"{LOCAL_CONFIG} changed during setup; cancel and run init again to review its effective settings")
 
 
-def make_plan(path, repository, choices):  # noqa: C901
+def make_plan(path, repository, choices):
     from .checks import project_checks
 
     path = Path(path).absolute()
@@ -125,21 +175,7 @@ def make_plan(path, repository, choices):  # noqa: C901
         "your-org/your-project", json.dumps(repository)).replace(
         '"codex:gpt-6.1-sol:high"', json.dumps(choices.runtime))
     cli = choices.runtime.split(":", 1)[0]
-    if cli == "claude":
-        content = content.replace("#   codex: [--sandbox, danger-full-access]",
-                                  "#   claude: " + json.dumps(permission_args(
-                                      cli, bool(choices.retrospectives or choices.board_requests)))).replace(
-            "Grants full access without the Codex sandbox", "Grants unattended edits and git/gh/report commands")
-        content = content.replace("# runtime-args:",
-                                  '# Add the project\'s check commands to --allowedTools: "Bash(<project check command>)".\n'
-                                  '# runtime-args:')
-    content = content.replace("# runtime-updates:\n#   codex: auto", f"# runtime-updates:\n#   {cli}: auto")
-    if choices.permissions:
-        content = content.replace(f"# runtime-args:\n#   {cli}:", f"runtime-args:\n  {cli}:")
-    if choices.updates:
-        content = content.replace(f"# runtime-updates:\n#   {cli}: auto\n#   gh: auto",
-                                  f"runtime-updates:\n  {cli}: auto\n  gh: auto" +
-                                  ("\n  ub: auto" if choices.uberblick else ""))
+    content = configure_runtimes(content, choices)
     if choices.priority_labels:
         priority = {"labels": list(choices.priority_labels)}
         content = content.replace("  dependencies: wait", "  dependencies: wait\n" +
@@ -155,6 +191,15 @@ def make_plan(path, repository, choices):  # noqa: C901
     targets = {path: content}
     for role in ROLES:
         targets[root / ".agents" / f"{role}.md"] = templates.joinpath(f"{role}.md").read_text()
+    if choices.reviewer_runtime:
+        reviewer = root / ".agents" / "reviewer.md"
+        targets[reviewer] = targets[reviewer].replace(
+            "This starter uses the configured runtime without claiming independent authorship.\n"
+            "If the project requires independent cross-provider review, configure\n"
+            "different-runtime-from and an eligible runtime.",
+            "This starter runs the reviewer on a different CLI and model from the implementer,\n"
+            "with `different-runtime-from: implementer`. Keep an eligible runtime configured\n"
+            "when changing either role.")
     guidance = runtime_guidance(root, cli, fallback=True)
     checks = (f"Project checks are documented in `{guidance.relative_to(root)}`." if guidance else
               project_checks(root))
@@ -335,12 +380,12 @@ PERMISSIONS_GUIDE = "https://agents.uberblick.ai/docs/configuration/permissions"
 
 
 def next_steps(plan):
-    cli = plan.choices.runtime.split(":", 1)[0]
     name = plan.path.name
-    steps = [f"Review the agent permissions (runtime-args) in {name}; see {PERMISSIONS_GUIDE}" if plan.choices.permissions else
-             f"Grant agent permissions later: uncomment runtime-args in {name}; see {PERMISSIONS_GUIDE}",
+    clis = f" for {' and '.join(plan.choices.clis)}" if plan.choices.reviewer_runtime else ""
+    steps = [f"Review the agent permissions (runtime-args){clis} in {name}; see {PERMISSIONS_GUIDE}" if plan.choices.permissions else
+             f"Grant agent permissions later: uncomment runtime-args{clis} in {name}; see {PERMISSIONS_GUIDE}",
              "Review checks and merge authority in .agents/ub_agents.md; we set up sensible defaults you can adjust over time"]
-    if cli == "claude":
+    if "claude" in plan.choices.clis:
         steps.append(f"Add your test command to --allowedTools in {name}")
     steps.append("Open a PR with these files and merge it")
     return steps

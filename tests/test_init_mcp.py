@@ -23,27 +23,29 @@ class MCPFlowTests(unittest.TestCase):
     def ub_writes(self):
         return [call for call, _ in self.runner.calls if call[:3] == ('ub', 'mcp', 'install') and '--print' not in call]
 
-    def test_preview_and_new_registration_follow_chosen_runtime(self):
+    def test_preview_and_new_registrations_cover_both_runtimes(self):
         self.installed.add('ub')
         code, text = self.run_flow(Script(Which_agent='claude', Extras=['uberblick'], Set_up='later'))
         self.assertEqual(code, 0)
         preview = 'Uberblick MCP · Claude Code · project scope · .mcp.json · add entry'
         self.assertIn(preview, text.split('Write setup?')[0])
         self.assertIn('Uberblick MCP · Claude Code · project scope · .mcp.json · registered', text)
+        self.assertIn('Uberblick MCP · Codex · project scope · .codex/config.toml · registered', text)
         self.assertIn('Restart running agent sessions', text)
-        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'claude')])
+        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'claude'), ('ub', 'mcp', 'install', 'codex')])
         data = json.loads((self.root / '.mcp.json').read_text())
         self.assertEqual(data, {'mcpServers': {'uberblick': {'command': 'ub', 'args': ['mcp', 'serve']}}})
         self.assertFalse((self.root / '.uberblick.json').exists())
         for verb in ('add', 'commit'):
             command = next(c for c, _ in self.runner.calls if c[3:4] == (verb,))
             self.assertIn('.mcp.json', command)
+            self.assertIn('.codex/config.toml', command)
 
     def test_hub_choice_registers_without_a_binding(self):
         self.installed.add('ub')
         code, text = self.run_flow(Script(Extras=['uberblick'], Set_up='hub'))
         self.assertEqual(code, 0)
-        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'codex')])
+        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'codex'), ('ub', 'mcp', 'install', 'claude')])
         self.assertIn("Join your team's Uberblick workspace", text)
         self.assertIn('project scope · .codex/config.toml · registered', text)
         added = next(c for c, _ in self.runner.calls if c[3:4] == ('add',))
@@ -59,8 +61,8 @@ class MCPFlowTests(unittest.TestCase):
         self.assertEqual(path.read_text(), content)
         self.assertIn('reuse matching entry', text.split('Write setup?')[0])
         self.assertIn('project scope · .codex/config.toml · reused', text)
-        self.assertEqual(self.ub_writes(), [])
-        self.assertFalse([c for c, _ in self.runner.calls if c[0] == 'ub'])
+        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'claude')])
+        self.assertFalse([c for c, _ in self.runner.calls if c[0] == 'ub' and 'codex' in c])
         self.assertNotIn('.codex/config.toml', next(c for c, _ in self.runner.calls if c[3:4] == ('add',)))
 
     def test_matching_claude_entry_with_empty_env_is_reused(self):
@@ -71,7 +73,7 @@ class MCPFlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(path.read_text(), content)
         self.assertIn('· reused', text)
-        self.assertEqual(self.ub_writes(), [])
+        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'codex')])
 
     def test_unrelated_claude_entries_are_preserved(self):
         self.installed.add('ub')
@@ -96,7 +98,7 @@ class MCPFlowTests(unittest.TestCase):
         self.assertIn('· kept existing', text)
         self.assertIn('Manual command: ub mcp install codex', text)
         self.assertNotIn('private-', text)
-        self.assertEqual(self.ub_writes(), [])
+        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'claude')])
         self.assertNotIn('.codex/config.toml', next(c for c, _ in self.runner.calls if c[3:4] == ('add',)))
 
     def test_old_ub_skips_registration_but_opens_the_setup_pr(self):
@@ -117,7 +119,7 @@ class MCPFlowTests(unittest.TestCase):
         code, text = self.run_flow(Script(Extras=['uberblick'], Set_up='later'))
         self.assertEqual(code, 0)
         self.assertIn("ub did not confirm this checkout's project config path", text)
-        self.assertEqual(self.ub_writes(), [])
+        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'claude')])
 
     def test_pinned_preview_is_not_installed(self):
         self.installed.add('ub')
@@ -129,7 +131,7 @@ class MCPFlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('ub did not preview a plain ub mcp serve entry', text)
         self.assertNotIn('private-workspace', text)
-        self.assertEqual(self.ub_writes(), [])
+        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'claude')])
 
     def test_ignored_private_config_does_not_block_or_enter_the_pr(self):
         self.installed.add('ub')
@@ -142,7 +144,7 @@ class MCPFlowTests(unittest.TestCase):
         self.assertNotIn('private-secret', text)
         self.assertIn('Setup PR opened', text)
         self.assertNotIn('.codex/config.toml', next(c for c, _ in self.runner.calls if c[3:4] == ('add',)))
-        self.assertEqual(self.ub_writes(), [])
+        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'claude')])
 
     def test_config_changed_after_preview_is_kept(self):
         with patch('subprocess.run', self.runner):
@@ -222,4 +224,4 @@ class MCPFlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('kept existing (config cannot be safely read; left unchanged)', text)
         self.assertFalse((self.root / 'config.toml').exists())
-        self.assertEqual(self.ub_writes(), [])
+        self.assertEqual(self.ub_writes(), [('ub', 'mcp', 'install', 'claude')])

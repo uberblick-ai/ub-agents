@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from ub_agents.cli import main
+from ub_agents import __version__
 from ub_agents.config import Runtime
 from ub_agents.github import GitHub
 from ub_agents.loop import Loop
@@ -32,18 +33,19 @@ class RetrospectiveTests(unittest.TestCase):
         self.runner = RecordingDiscussionRunner()
         self.github = GitHub("org/project", self.runner)
 
-    def cli(self, *arguments, env=None):
+    def cli(self, *arguments, env=None, upstream=False):
         calls = len(self.runner.calls)
         with patch.dict(os.environ, self.env if env is None else env, clear=True), \
                 patch("ub_agents.cli._runtime.load_config", side_effect=AssertionError("worktree config")), \
-                patch("ub_agents.cli._runtime.GitHub", return_value=self.github) as github, \
+                patch("ub_agents.cli._runtime.GitHub", side_effect=lambda repo: GitHub(repo, self.runner)) as github, \
                 redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             try:
-                code = main(list(arguments) + ["retrospective", "--body-file", str(self.body_path)])
+                code = main(list(arguments) + ["retrospective", "--body-file", str(self.body_path)]
+                            + (["--upstream"] if upstream else []))
             except SystemExit as exc:
                 code = exc.code
         if len(self.runner.calls) > calls:
-            github.assert_called_once_with("org/project")
+            github.assert_called_once_with("uberblick-ai/ub-agents" if upstream else "org/project")
         else:
             github.assert_not_called()
         return code, stdout.getvalue(), stderr.getvalue()
@@ -59,6 +61,77 @@ class RetrospectiveTests(unittest.TestCase):
         self.assertEqual(mutation["variables"], {"discussionId": "configured-board", "body": self.body})
         self.assertNotIn("replyToId", mutation["query"])
         self.assertEqual(self.runner.writes, [mutation])
+
+    def enable_upstream(self, **overrides):
+        self.policy_path.write_text(json.dumps(self.policy | {"upstream-retrospectives": "on",
+                                                             "runtime": "claude:alternate:high"} | overrides))
+        self.runner.discussion = {"id": "field-reports", "url": "https://github.com/uberblick-ai/ub-agents/discussions/917"}
+        self.runner.comment_url = self.runner.discussion["url"] + "#discussioncomment-1"
+        self.body = "ub-agents could not explain a configuration error. Name the invalid key.\n"
+        self.body_path.write_text(self.body)
+
+    def test_upstream_requires_pinned_opt_in_before_github_even_if_worktree_enables_it(self):
+        changed = self.root / "ub-agents.yaml"
+        changed.write_text("upstream-retrospectives: on\n")
+        for value in ("off", None):
+            policy = self.policy | {"upstream-retrospectives": "off"}
+            if value is None:
+                policy.pop("upstream-retrospectives")
+            self.policy_path.write_text(json.dumps(policy))
+            code, stdout, stderr = self.cli("--config", str(changed), upstream=True)
+            self.assertEqual((code, stdout), (1, ""))
+            self.assertIn("upstream-retrospectives: on", stderr)
+        self.assertEqual(self.runner.calls, [])
+
+    def test_upstream_posts_to_fixed_board_without_local_board_with_version_and_selected_runtime(self):
+        self.enable_upstream(retrospectives=None)
+        (self.root / "ub-agents.yaml").write_text("upstream-retrospectives: off\nrepository: stranger/repo\n")
+        code, stdout, stderr = self.cli(upstream=True)
+        self.assertEqual((code, stdout, stderr), (0, self.runner.comment_url + "\n", ""))
+        lookup, mutation = [json.loads(kwargs["input"]) for _, kwargs in self.runner.calls]
+        self.assertEqual(lookup["variables"], {"owner": "uberblick-ai", "name": "ub-agents", "number": 917})
+        self.assertEqual(mutation["variables"], {
+            "discussionId": "field-reports",
+            "body": f"{self.body.rstrip()}\n\n---\nub-agents {__version__} · claude:alternate:high\n"})
+        self.assertEqual(self.runner.writes, [mutation])
+
+    def test_upstream_rejects_repository_paths_and_tokens_before_github_without_echoing_them(self):
+        self.enable_upstream()
+        cases = [("https://github.com/org/project/issues/1", "repository URL"),
+                 ("HTTPS://GITHUB.COM/ORG/PROJECT", "repository URL"),
+                 ("org/project", "owner/name"), ("ORG/PROJECT", "owner/name"),
+                 ("/home/operator/project", "path"), ("`/srv/worktree/file`", "path"),
+                 ("~/private", "path"), ("~someone/private", "path"),
+                 ("C:\\Users\\operator\\project", "path"), (r"\\server\share\project", "path"),
+                 ("ghp_example", "token"), ("github_pat_example", "token"),
+                 ("sk-proj-" + "x" * 30, "token")]
+        for body, reason in cases:
+            with self.subTest(body=body):
+                self.body_path.write_text("Feedback includes " + body)
+                code, stdout, stderr = self.cli(upstream=True)
+                self.assertEqual((code, stdout), (1, ""))
+                self.assertIn(reason, stderr)
+                self.assertNotIn(body, stderr)
+        self.assertEqual(self.runner.calls, [])
+
+    def test_upstream_checks_footer_for_leaks_too(self):
+        self.enable_upstream(runtime="codex:/home/operator/model:high")
+        code, stdout, stderr = self.cli(upstream=True)
+        self.assertEqual((code, stdout), (1, ""))
+        self.assertIn("path", stderr)
+        self.assertEqual(self.runner.calls, [])
+
+    def test_upstream_github_refusals_warn_and_exit_successfully(self):
+        self.enable_upstream()
+        for field in ("lookup_error", "post_error"):
+            with self.subTest(field=field):
+                setattr(self.runner, field, "Resource not accessible by integration")
+                code, stdout, stderr = self.cli(upstream=True)
+                self.assertEqual((code, stdout), (0, ""))
+                self.assertIn("warning: upstream retrospective could not be posted", stderr)
+                self.assertIn("Resource not accessible by integration", stderr)
+                setattr(self.runner, field, None)
+        self.assertEqual(self.runner.writes, [])
 
     def test_missing_or_invalid_run_config_never_reaches_github(self):
         for env in ({}, {"UB_AGENTS_RUN": "run"}, self.env | {"UB_AGENTS_RUN": "other"},
@@ -160,10 +233,13 @@ class RetrospectiveTests(unittest.TestCase):
                         role = replace(role, command=(), runtimes=(Runtime(cli, "model", "high"),),
                                        runtime_args=("--allowedTools", "Bash({report_command} retrospective *)"))
                     coordination = FakeGitHub(issue())
-                    loop = Loop(config(self.root, role), coordination, "operator", output=lambda *_: None)
+                    loop = Loop(replace(config(self.root, role), upstream_retrospectives="on"),
+                                coordination, "operator", output=lambda *_: None)
                     def execute(command, cwd, env, run_dir, timeout, event, prompt, **kwargs):
                         pinned = json.loads(Path(env["UB_AGENTS_RUN_CONFIG"]).read_text())
                         self.assertEqual(pinned, run_config(loop.config, role, loop.coordinator.history(1)[-1]))
+                        self.assertEqual(pinned["upstream-retrospectives"], "on")
+                        self.assertEqual(pinned["runtime"], f"{cli}:model:high" if cli else "direct")
                         if cli:
                             self.assertEqual("Post a retrospective with" in prompt, board is not None)
                             self.assertIn(f"Bash({env['UB_AGENTS_REPORT']} retrospective *)", command)

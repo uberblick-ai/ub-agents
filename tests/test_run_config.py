@@ -54,6 +54,8 @@ class RunConfigTests(unittest.TestCase):
 
     def test_missing_and_extra_keys(self):
         for field in self.context:
+            if field in {"upstream-retrospectives", "runtime"}:
+                continue
             with self.subTest(missing=field):
                 self.path.write_text(json.dumps({k: v for k, v in self.context.items() if k != field}))
                 self.assert_refused()
@@ -68,6 +70,8 @@ class RunConfigTests(unittest.TestCase):
             "lease_id": (None, True, "2", 2.0, 0, -1, [], {}),
             "agent": (None, True, 1, [], {}, "", "Worker", "../worker"),
             "approvals": (True, 1, [], {}, "invalid"),
+            "upstream-retrospectives": (None, True, 1, [], {}, "invalid"),
+            "runtime": (None, True, 1, [], {}, "", "codex:model", "other:model:high", "codex::high"),
             "trusted-bots": (None, True, "copilot", {}, [1], [" "], ["@copilot"], ["copilot", "Copilot"]),
             "trusted-pr-authors": (None, True, "dependabot", {}, [1], [" "], ["@dependabot"],
                                    ["dependabot", "DEPENDABOT"]),
@@ -105,6 +109,13 @@ class RunConfigTests(unittest.TestCase):
             loaded = supervised_run()
         self.assertIsNone(loaded["approvals"])
         self.assertIsNone(loaded["retrospectives"])
+
+    def test_older_context_without_upstream_fields_still_supports_local_commands(self):
+        context = {key: value for key, value in self.context.items()
+                   if key not in {"upstream-retrospectives", "runtime"}}
+        self.path.write_text(json.dumps(context))
+        with patch.dict(os.environ, self.env, clear=True):
+            self.assertEqual(supervised_run(), context)
 
     def test_optional_launcher_allowlist_is_valid_and_pinned(self):
         self.path.write_text(json.dumps(self.context | {"launchers": ["operator"]}))

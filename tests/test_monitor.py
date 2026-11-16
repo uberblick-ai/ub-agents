@@ -9,13 +9,14 @@ import subprocess
 import tempfile
 import threading
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 from urllib.parse import unquote
 
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.cli import main
 from ub_agents.coordination import Coordinator, Plan
 from ub_agents.errors import AgentError
+from ub_agents.github import GitHub
 from ub_agents.loop import Loop
 from ub_agents.monitor import monitor_background, monitor_sources
 from ub_agents.monitor.eligible import EligiblePlanning, PLAN_SECONDS
@@ -24,6 +25,7 @@ from ub_agents.monitor.server import Repositories, Snapshots, allowed, create, p
 from ub_agents.monitor.snapshot import MonitorSource
 from ub_agents.records import body, iso, timestamp
 from tests.support import FakeGitHub, PollGitHub, agent, config, issue, pr
+from tests.test_github_http import Connection, Reply
 
 
 def lease(number, run, **changes):
@@ -279,6 +281,24 @@ class MonitorTests(unittest.TestCase):
         self.assertIsNone(recovered['error'])
         self.assertEqual(recovered['eligible']['count'], 1)
 
+    def test_monitor_github_retries_are_quiet_while_default_clients_still_print(self):
+        endpoint = 'repos/org/project/issues/comments'
+        expected = ''.join(f'Retrying GitHub GET {endpoint}: attempt {attempt}/4 in {delay}s\n'
+                           for attempt, delay in ((2, 1), (3, 2), (4, 4)))
+        monitor = monitor_sources([config(Path('/checkout'))])[0].github
+        for github, output in ((monitor, ''), (GitHub('org/project'), expected)):
+            with self.subTest(client='monitor' if github is monitor else 'default'):
+                connections = [Connection(Reply(503)) for _ in range(3)]
+                connections.append(Connection(Reply(payload={'ok': True})))
+                with patch('ub_agents.github.token.get', return_value='sentinel-credential'), \
+                        patch('ub_agents.github_http.http.client.HTTPSConnection', side_effect=connections), \
+                        patch('ub_agents.github.sleep') as sleep, redirect_stderr(StringIO()) as error:
+                    self.assertEqual(github.request(endpoint), {'ok': True})
+                self.assertEqual(error.getvalue(), output)
+                self.assertEqual(sleep.call_args_list, [call(1), call(2), call(4)])
+                self.assertEqual(github.rest_requests, 4)
+                self.assertEqual([len(connection.calls) for connection in connections], [1, 1, 1, 1])
+
     def test_rates_use_the_latest_headers_per_resource_and_sum_client_counters(self):
         sources = []
         for index in (0, 1):
@@ -468,6 +488,133 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(eligible['count'], 130)
         self.assertEqual([row['item']['number'] for row in eligible['rows']], list(range(1, 21)))
 
+    def test_claimed_item_leaves_cached_eligible_and_returns_without_replanning(self):
+        now = timestamp()
+        github = FakeGitHub(pr(1), issue(2), issue(3))
+        source = MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), lambda: now)
+        cached = source.snapshot()['eligible']
+        record = github.create_comment(1, body(lease(1, 'claimed', host='other-machine')))
+
+        with patch.object(source.planning, 'refresh') as refresh:
+            snapshot = source.snapshot()
+            self.assertEqual([run['item']['number'] for run in snapshot['running']], [1])
+            self.assertEqual(snapshot['running'][0]['host'], 'other-machine')
+            self.assertEqual(snapshot['eligible']['count'], 2)
+            self.assertEqual([(row['item']['number'], row['state']) for row in snapshot['eligible']['rows']],
+                             [(2, 'next'), (3, 'ready')])
+            github.update_comment(record['id'], body(lease(1, 'claimed', state='released', result='done',
+                                                          attempt_effect='unchanged')))
+            self.assertIs(source.snapshot()['eligible'], cached)
+            refresh.assert_not_called()
+        self.assertEqual([row['item']['number'] for row in cached['rows']], [1, 2, 3])
+        self.assertEqual([row['state'] for row in cached['rows']], ['next', 'ready', 'ready'])
+
+    def test_cached_eligible_filters_and_counts_items_beyond_the_display_limit(self):
+        github = FakeGitHub(*(issue(n) for n in range(1, 26)))
+        source = MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), timestamp)
+        cached = source.snapshot()['eligible']
+        github.create_comment(1, body(lease(1, 'first')))
+        github.create_comment(25, body(lease(25, 'last')))
+
+        eligible = source.snapshot()['eligible']
+
+        self.assertEqual(eligible['count'], 23)
+        self.assertEqual([row['item']['number'] for row in eligible['rows']], list(range(2, 22)))
+        self.assertEqual(eligible['rows'][0]['state'], 'next')
+        self.assertEqual(cached['count'], 25)
+
+    def test_stop_label_wins_over_cached_eligible_and_live_or_expired_runs(self):
+        now = timestamp()
+        for expires in (None, now + 600, now - 60):
+            with self.subTest(expires=expires):
+                github = FakeGitHub(issue(1), issue(2))
+                source = MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), lambda: now)
+                cached = source.snapshot()['eligible']
+                if expires is not None:
+                    github.create_comment(1, body(lease(1, 'stopped', expires=iso(expires))))
+                github.change(1, labels=frozenset({'ready', 'needs-human'}))
+
+                snapshot = source.snapshot()
+
+                self.assertEqual([entry['item']['number'] for entry in snapshot['needs_human']], [1])
+                self.assertEqual((snapshot['running'], snapshot['expired']), ([], []))
+                self.assertEqual(snapshot['eligible']['count'], 1)
+                self.assertEqual([(row['item']['number'], row['state']) for row in snapshot['eligible']['rows']],
+                                 [(2, 'next')])
+                self.assertEqual(cached['count'], 2)
+
+    def test_blocked_reports_and_unconfirmed_cleanup_win_over_cached_eligible(self):
+        now = timestamp()
+        cases = [dict(state='released', result='blocked', attempt_effect='unchanged'),
+                 dict(cleanup='unconfirmed', action_needed=True),
+                 dict(cleanup='unconfirmed', action_needed=True, expires=iso(now - 60))]
+        for changes in cases:
+            with self.subTest(changes=changes):
+                github = FakeGitHub(issue(1), issue(2))
+                source = MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), lambda: now)
+                source.snapshot()
+                github.create_comment(1, body(lease(1, 'stopped', **changes)))
+
+                snapshot = source.snapshot()
+
+                self.assertEqual([entry['item']['number'] for entry in snapshot['needs_human']], [1])
+                self.assertEqual((snapshot['running'], snapshot['expired']), ([], []))
+                self.assertEqual(snapshot['eligible']['count'], 1)
+                self.assertEqual([row['item']['number'] for row in snapshot['eligible']['rows']], [2])
+                self.assertEqual(len(snapshot['recent']), int(changes.get('result') == 'blocked'))
+
+    def test_expired_run_wins_over_cached_eligible(self):
+        now = timestamp()
+        github = FakeGitHub(issue(1), issue(2))
+        source = MonitorSource(config(Path('/checkout')), github, Coordinator(github, None), lambda: now)
+        source.snapshot()
+        github.create_comment(1, body(lease(1, 'expired', expires=iso(now - 60))))
+
+        snapshot = source.snapshot()
+
+        self.assertEqual([run['item']['number'] for run in snapshot['expired']], [1])
+        self.assertEqual((snapshot['needs_human'], snapshot['running']), ([], []))
+        self.assertEqual(snapshot['eligible']['count'], 1)
+        self.assertEqual([(row['item']['number'], row['state']) for row in snapshot['eligible']['rows']],
+                         [(2, 'next')])
+
+    def test_filtered_eligible_promotes_recovery_but_preserves_backoff_and_waiting(self):
+        root, now = Path('/checkout'), timestamp()
+        worker = agent(root)
+        github = FakeGitHub(*(issue(n) for n in range(1, 5)))
+        source = MonitorSource(config(root, worker), github, Coordinator(github, None), lambda: now)
+        plans = [Plan(issue(n), worker, None, state, '', 1)
+                 for n, state in enumerate(('ready', 'recover', 'backoff', 'waiting'), 1)]
+        with patch.object(Loop, 'iter_plans', return_value=plans):
+            cached = source.snapshot()['eligible']
+        github.create_comment(1, body(lease(1, 'first')))
+        rows = source.snapshot()['eligible']['rows']
+        self.assertEqual([row['state'] for row in rows], ['next', 'backoff', 'waiting'])
+        github.create_comment(2, body(lease(2, 'second')))
+        eligible = source.snapshot()['eligible']
+        self.assertEqual(eligible['count'], 2)
+        self.assertEqual([row['state'] for row in eligible['rows']], ['backoff', 'waiting'])
+        self.assertEqual([row['state'] for row in cached['rows']], ['next', 'recover', 'backoff', 'waiting'])
+
+    def test_section_precedence_is_scoped_to_each_repository(self):
+        now = timestamp()
+        sources = []
+        for name in ('first', 'second'):
+            github = FakeGitHub(issue(1))
+            cfg = replace(config(Path(f'/checkout/{name}')), repository=f'org/{name}')
+            sources.append(MonitorSource(cfg, github, Coordinator(github, None), lambda: now))
+        snapshots = Repositories(sources)
+        snapshots.get()
+        sources[0].github.create_comment(1, body(lease(1, 'claimed')))
+
+        first, second = snapshots.get(fresh=True)['repositories']
+
+        self.assertEqual(first['eligible']['count'], 0)
+        self.assertEqual(first['eligible']['rows'], [])
+        self.assertEqual([run['item']['number'] for run in first['running']], [1])
+        self.assertEqual(second['eligible']['count'], 1)
+        self.assertEqual([row['item']['number'] for row in second['eligible']['rows']], [1])
+
     def test_eligible_groups_agents_and_puts_ready_and_recovery_before_waits(self):
         root, now = Path('/checkout'), timestamp()
         first, second = agent(root), agent(root, name='reviewer')
@@ -539,7 +686,9 @@ class MonitorTests(unittest.TestCase):
         with patch.object(source.planning.loop, 'iter_plans', side_effect=AgentError('Cannot plan queue')):
             for _ in range(2):
                 failed = snapshots.get()
-                self.assertIs(failed['eligible'], first['eligible'])
+                self.assertEqual(failed['eligible']['count'], 0)
+                self.assertEqual(failed['eligible']['rows'], [])
+                self.assertIs(source.planning.value, first['eligible'])
                 self.assertEqual(failed['eligible_error'], 'Cannot plan queue')
                 self.assertEqual(failed['generated_at'], iso(now[0]))
                 self.assertEqual([run['item']['number'] for run in failed['running']], [1])
@@ -623,6 +772,26 @@ class MonitorTests(unittest.TestCase):
             github.change(3, state=state)
             waiting.append([entry["item"]["number"] for entry in source.snapshot()["needs_human"]])
         self.assertEqual(waiting, [[3], [], [3]])
+
+    def test_closed_items_and_unconfirmed_cleanup_never_show_as_running(self):
+        github = FakeGitHub(issue(4), issue(5), issue(6))
+        github.create_comment(4, body(lease(4, "e")))
+        github.create_comment(5, body(lease(5, "f", expires=iso(timestamp() - 60))))
+        github.create_comment(6, body(lease(6, "g", cleanup="unconfirmed", action_needed=True,
+                                            summary="Cannot inspect owned process group 7")))
+        source = MonitorSource(config(Path("/checkout")), github, Coordinator(github, None), timestamp)
+
+        snapshot = source.snapshot()
+        self.assertEqual([run["item"]["number"] for run in snapshot["running"]], [4])
+        self.assertEqual([run["item"]["number"] for run in snapshot["expired"]], [5])
+        [held] = snapshot["needs_human"]
+        self.assertEqual((held["item"]["number"], held["labels"]), (6, ["cleanup unconfirmed"]))
+        self.assertEqual(held["ask"]["summary"], "Cannot inspect owned process group 7")
+
+        for number in (4, 5, 6):
+            github.change(number, state="closed")
+        snapshot = source.snapshot()
+        self.assertEqual((snapshot["running"], snapshot["expired"], snapshot["needs_human"]), ([], [], []))
 
     def test_snapshot_offers_each_configured_outcome_that_stops_for_a_person(self):
         root = Path("/checkout")

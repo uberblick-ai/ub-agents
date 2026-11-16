@@ -56,3 +56,10 @@ Report blocked only when the fix needs something outside the repository (access,
 permission, an external service or a human decision), another gate fails, or evidence
 is missing. The framework never grants merge authority, approves its own PR, or
 chooses check commands.
+
+You own the [corpus pass](../docs/development/uberblick-corpus.md#corpus-pass). Run it
+once your own merge has landed, including when a failed merge command turns out to have
+merged, before reporting `merged`. Run its handoff form against the candidate before
+reporting `maintainer-merge`. If the launcher performs the merge, the next pass covers the
+PR. Write no corpus pages at any other point. An unreachable corpus never holds up a merge
+or a handoff: say so in your report.

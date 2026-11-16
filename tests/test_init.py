@@ -89,6 +89,11 @@ class InitTests(unittest.TestCase):
         self.assertNotIn('doctor', output)
         config = load_config(self.path)
         self.assertIsNone(config.checkout_setup)
+        self.assertEqual(config.trusted_bots, ())
+        self.assertIn('# trusted-bots: [copilot-pull-request-reviewer, Copilot]', self.path.read_text())
+        self.assertIn('# Let these bots\' comments and reviews reach agents as feedback, with no other authority.',
+                      self.path.read_text())
+        self.assertIn('# https://agents.uberblick.ai/docs/configuration/approvals.html', self.path.read_text())
         self.assertIn('# checkout-setup:', self.path.read_text())
         self.assertIn("#   command: [sh, -c, 'mise trust ./mise.toml && exec mise run install']",
                       self.path.read_text())
@@ -344,7 +349,7 @@ class InitTests(unittest.TestCase):
                                   policy.split('## Review focus\n\n')[1])
                     for expected in (
                         'once the checks above and every CI check pass at the exact head it merges',
-                        'changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` and any '
+                        'changes agent configuration or guidance: `ub-agents.yaml`, `.agents/`, `.claude/` and any '
                         '`AGENTS.md` or `CLAUDE.md`',
                         'Only for the setup, CI or release tooling rule, a change limited to a verified minor '
                         'or patch version bump of an existing dependency does not trigger that rule.',
@@ -352,13 +357,15 @@ class InitTests(unittest.TestCase):
                         'All other maintainer-merge rules still apply.',
                         'If the release level cannot be verified, leave the merge to a maintainer.',
                         'adds a runtime dependency',
-                        'An answer covers what it names; anything beyond it is a new question.',
+                        'Judge each rule by what the diff does; the paths are where such changes usually live.',
+                        "A maintainer's answer on the issue or PR that covers this diff lets the integrator merge it; "
+                        'an answer covers what it names, and anything beyond it is a new question.',
                         'Callers of changed behavior still work; a finding names a concrete input that '
                         'goes wrong.',
                         'search the docs for the old wording, not only the pages the issue names.',
                     ):
                         self.assertIn(expected, ' '.join(policy.split()))
-                    self.assertNotIn('Judge each case by what the diff does, not which paths it touches', policy)
+                    self.assertEqual(policy.lower().count('an answer covers what it names'), 1)
                     self.assertEqual(policy.count('before handoff'), 1)
                     prose = ' '.join(line for line in policy.splitlines() if not line.startswith('#'))
                     sentences = re.split(r'(?<=[.!?])\s+', prose.strip())

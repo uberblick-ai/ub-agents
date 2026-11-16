@@ -13,6 +13,16 @@ from tests.support import DoctorGitHub, RecordingRunner
 
 
 class ConfigTests(unittest.TestCase):
+    def test_upstream_retrospectives_is_strict_on_off_and_defaults_off(self):
+        base = "repository: org/project\nagents:\n  worker:\n    command: [echo]\n    trigger: ready\n    outcomes: {done: {}}\n"
+        self.assertEqual(self.load(base).upstream_retrospectives, "off")
+        for value in ("on", "off", "'on'", '"off"'):
+            self.assertEqual(self.load(base + f"upstream-retrospectives: {value}\n").upstream_retrospectives,
+                             value.strip("'\""))
+        for value in ("true", "false", "yes", "no", "null", "1", "[]", "{}", "ON"):
+            with self.subTest(value=value), self.assertRaisesRegex(AgentError, "upstream-retrospectives must be on or off"):
+                self.load(base + f"upstream-retrospectives: {value}\n")
+
     def test_merge_outcomes_and_offline_doctor(self):
         base = '''repository: org/project
 agents:

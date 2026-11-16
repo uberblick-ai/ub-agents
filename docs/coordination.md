@@ -45,7 +45,7 @@ NAME` starts a fresh set of rounds.
 | Closed issue, closed unmerged PR, or PR merged by someone else detected before the agent process exits | Unchanged without a report | Stop execution; settle a stored report normally, otherwise release `blocked` without an action notice |
 | Run merges its own PR | Normal report rules | Keep executing under the lease and agent timeout; settle its report normally |
 | Run's own merge followed by timeout, crash, or another end without an accepted report | Unchanged | Release `blocked`; post an action notice because post-merge work may be unfinished |
-| Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves, another run's accepted outcome hands off the PR, or an operator uses `retry`; issues need `retry` |
+| Agent reports `--status blocked` | Unchanged | Blocked until the PR head moves, another run's accepted outcome hands off the PR, or an operator uses `retry`; without the role's trigger, later progress by another role clears a released block as described below |
 | Transition paused by a stop label or a vanished trigger | Unchanged | Parked for a human; not retried automatically |
 | Crash before a report (expired lease without an outcome), timeout, exit without a report (zero or nonzero), `--status retry`, launcher setup failure | +1 | Retried with backoff until `max-attempts` consecutive failures |
 | Invalid or rejected success report, unconfirmed cleanup, or unclassified failure | +1 | Blocked; PR head changes or `retry` can resume, except unconfirmed cleanup needs operator action |
@@ -69,8 +69,17 @@ later push by anyone does. An accepted outcome of another run that hands off the
 after the block also clears it at an unchanged head, such as an implementer marking
 a draft ready. The comparison uses the reports' `created` times; accepting an older
 handoff later does not clear a newer block. This check writes nothing and resets no
-attempts or backoff, and every other gate still applies. Blocked issues, and PRs with
-neither a new head nor a later handoff, need `ub-agents retry`.
+attempts or backoff, and every other gate still applies. With the role's trigger
+present, blocked issues, and PRs with neither a new head nor a later handoff, need
+`ub-agents retry`.
+
+When the role's trigger is absent, its released block stops needing attention once
+the item has moved on: another role holds a live lease created after that release,
+or another role has an accepted, transition-complete outcome created after it.
+The release time is the blocked lease's `expires`, not its claim or report time.
+This clears only the stale plan; it changes no records, labels, attempts or backoff.
+Unconfirmed cleanup and expired runs without an outcome stay blocked. If the
+role's trigger returns, the existing retry rules apply again.
 
 ## Selection order
 
@@ -159,7 +168,9 @@ By default, records count when the comment author's current repository role is
 `write`, `maintain` or `admin`. [`launchers`](https://agents.uberblick.ai/docs/configuration/launchers.html)
 narrows trust to listed accounts, matched ignoring case, which still need `write` or
 higher. A bot listed in `trusted-bots` or `trusted-pr-authors` supplies feedback or PR
-authorship, never records, whatever its role. Any trusted account, including a person with write access, can post records
+authorship, never records, whatever its role.
+
+Any trusted account, including a person with write access, can post records
 that count; this adds little authority, because that person can already change
 labels and push. Unlisted authors are ignored without a role read. Roles are judged
 at read time, so demoting or unlisting an account revokes all its records, including
@@ -340,7 +351,19 @@ configuration.
 
 `run.json` pins `repository`, `run`, `assignment`, `lease_id`, `agent`, `approvals`,
 `trusted-bots`, `trusted-pr-authors`, `triggers`, `retrospectives`, `outcomes` and
-`stop-labels`, plus `launchers` and `sub-issue-labels` when configured.
+`stop-labels`, plus `upstream-retrospectives` and the selected lease's `runtime`
+(`cli:model:effort`, or `direct` for command agents). `launchers` and
+`sub-issue-labels` appear when configured. Older contexts without the upstream fields
+keep local commands working and treat the upstream opt-in as off.
+
+`retrospective` posts to the role's pinned local board. `retrospective --upstream`
+requires the pinned [upstream-retrospectives opt-in](https://agents.uberblick.ai/docs/best-practices/retrospectives.html#send-feedback-about-ub-agents),
+independently of a local board. Worktree configuration cannot enable it or change
+the fixed upstream repository and discussion. Upstream bodies must not link their
+item. The command checks common repository, path and token leaks before any GitHub
+request, appends the launcher version and pinned runtime, and warns with exit 0
+if GitHub delivery fails. Local bodies and failures keep their existing behavior.
+The upstream board is outside input; `read N` reads issues and PRs, never discussions.
 
 `report` verifies the run's current ownership and creates one versioned outcome
 comment. `--outcome NAME` reports a declared outcome with status `success`;
@@ -565,8 +588,9 @@ read issue N's full history; other branch names have no shared-branch owner.
 
 Within that history, the queue follows the latest non-withdrawn lease after the last
 reset for each item and agent. A released retry or blocked result shows as blocked
-on an open item without triggers; a missing trigger never authorizes reexecution. On
-closed items, a released result alone produces no plan. Unfinished leases, pending
+on an open item without triggers, except a released block superseded by another
+role's later progress as described above. A missing trigger never authorizes
+reexecution. On closed items, a released result alone produces no plan. Unfinished leases, pending
 outcomes or transitions, unconfirmed cleanup and unreadable history keep their plans.
 As records age out of the window, closed or untriggered items drop out of view;
 reapplying a trigger or stop label brings an open item back with its full history.
@@ -623,7 +647,7 @@ with `No runtime has a different CLI and model from the candidate author`.
 
 Without an accepted report from any named agent on the issue or for the current PR
 head, the agent uses only its first configured runtime. If that runtime's CLI is
-not installed or usable, planning blocks with
+missing, unusable or unavailable, planning blocks with
 `No eligible runtime executable is installed, usable and available`.
 The launcher does not detect authorship or guess the source runtime.
 
@@ -649,7 +673,9 @@ follows them. Runtimes load the repository's own guidance themselves, and `init`
 never edits `AGENTS.md` or `CLAUDE.md`. The earlier-branches line appears only with
 earlier branches, the retrospective guidance only for a role with a board, and the
 shared policy section only with `shared-instructions`. Braced values are per-run
-values; `${VAR}` is literal text.
+values; `${VAR}` is literal text. With `upstream-retrospectives: on`, roles with a
+local board also receive the upstream passage quoted after the base contract.
+With the key unset or off, the prompt is unchanged.
 
 <!-- run-prompt:start -->
 ```text
@@ -680,6 +706,15 @@ Project instructions:
 {instructions}
 ```
 <!-- run-prompt:end -->
+
+The following passage follows the local retrospective guidance only when the
+upstream opt-in is on and the role has a local board:
+
+<!-- upstream-retrospective-prompt:start -->
+```text
+For local agent, CI or tool limits this repository can fix itself, use the local board and link the item as above. For how ub-agents works, its limits, ub-agents.yaml syntax or structural gaps, use {report_command} retrospective --upstream --body-file PATH. An upstream post is public and leaves the operator's project. Write general but actionable feedback about ub-agents: what it did, what was missing and the smallest change. Never include repository, organization, people, issue or PR names, code, file paths, hostnames, credentials, log excerpts or business details. Do not link the item in an upstream post.
+```
+<!-- upstream-retrospective-prompt:end -->
 
 ## Execution boundaries
 

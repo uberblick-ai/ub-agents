@@ -46,6 +46,9 @@ The launcher adds the stop label and posts one **Action needed** comment with th
 
 Bot accounts whose comments and reviews count as feedback. They get no other authority.
 
+[Init](/docs/commands/init.html) includes a commented example; uncomment it and
+name the bots whose feedback you want agents to read.
+
 ```yaml
 trusted-bots: [copilot-pull-request-reviewer, Copilot]
 ```

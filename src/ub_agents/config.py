@@ -49,7 +49,7 @@ def _mapping(loader, node, deep=False):
         finally:
             loader.mapping_path = path
         # Preserve exactly these policy spellings, not other YAML booleans.
-        if (key == "approvals" and isinstance(value_node, yaml.ScalarNode)
+        if (key in {"approvals", "upstream-retrospectives"} and isinstance(value_node, yaml.ScalarNode)
                 and value_node.value in {"on", "off"}):
             result[key] = value_node.value
         # YAML 1.1 parses unquoted `off` as False. Preserve just this policy
@@ -229,6 +229,7 @@ class Config:
     lease_renew_seconds: float = LEASE_RENEW_SECONDS
     trusted_pr_authors: tuple[str, ...] = ()
     events: EventsHook | None = None
+    upstream_retrospectives: str = "off"
 
     @property
     def sub_issue_labels(self):
@@ -329,7 +330,7 @@ def preview_config(content, path, planned):
 def _parse_config(data, root, *, planned=()):
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
                           "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots",
-                          "trusted-pr-authors", "shared-instructions", "events"},
+                          "trusted-pr-authors", "shared-instructions", "events", "upstream-retrospectives"},
                    "configuration")
     runtime_defaults = runtime_arguments(
         mapping(data.get("runtime-args", {}), set(CLIS), "runtime-args"), set(CLIS))
@@ -341,6 +342,9 @@ def _parse_config(data, root, *, planned=()):
     approvals = data.get("approvals")
     if "approvals" in data and (not isinstance(approvals, str) or approvals not in {"on", "off"}):
         raise UnsupportedConfiguration("approvals must be on or off")
+    upstream_retrospectives = data.get("upstream-retrospectives", "off")
+    if not isinstance(upstream_retrospectives, str) or upstream_retrospectives not in {"on", "off"}:
+        raise UnsupportedConfiguration("upstream-retrospectives must be on or off")
     trusted_bots = bot_logins(data.get("trusted-bots", []))
     trusted_pr_authors = bot_logins(data.get("trusted-pr-authors", []), "trusted-pr-authors")
     launchers = _parse_launchers(data)
@@ -366,7 +370,8 @@ def _parse_config(data, root, *, planned=()):
     return Config(root, repo, tuple(agents), poll, stop, queue, cleanup,
                   runtime_updates, launchers, approvals, trusted_bots, shared, checkout_setup,
                   lease_seconds=lease_seconds, lease_renew_seconds=renew_seconds,
-                  trusted_pr_authors=trusted_pr_authors, events=events)
+                  trusted_pr_authors=trusted_pr_authors, events=events,
+                  upstream_retrospectives=upstream_retrospectives)
 
 
 def _parse_launchers(data):

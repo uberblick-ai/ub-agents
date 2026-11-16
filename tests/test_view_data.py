@@ -198,23 +198,23 @@ class WorkPaneTests(unittest.TestCase):
         self.assertEqual(refreshed.selected, row.key)
         self.assertEqual(refreshed.sections[-1].rows[0].agent, 'reviewer')
 
-    def test_attention_merges_items_and_keeps_other_agents_in_their_sections(self):
-        first = {'item': 114, 'agent': 'reviewer', 'state': 'parked', 'reason': 'Review needed'}
+    def test_attention_merges_agents_for_items_with_only_stopped_plans(self):
+        first = {'item': 30, 'agent': 'reviewer', 'state': 'parked', 'reason': 'Review needed'}
         self.data['latest_pass']['rows'] = [first, dict(first),
-            {'item': 114, 'agent': 'integrator', 'state': 'blocked', 'reason': 'CI failed'},
-            {'item': 114, 'agent': 'preparer', 'state': 'ready'},
+            {'item': 30, 'agent': 'integrator', 'state': 'blocked', 'reason': 'CI failed'},
+            {'item': 12, 'agent': 'preparer', 'state': 'ready'},
             {'item': 20, 'agent': 'reviewer', 'state': 'blocked'}]
-        pane = self.pane(selected='plan:114:attention', chosen=True)
+        pane = self.pane(selected='plan:30:attention', chosen=True)
         self.assertEqual([section.label for section in pane.sections],
                          ['Running · 1', 'Needs attention · 2', 'Eligible · 1'])
         attention = pane.sections[1].rows
-        self.assertEqual([row.item for row in attention], [114, 20])
+        self.assertEqual([row.item for row in attention], [30, 20])
         self.assertEqual([row.agent for row in attention[0].attention_rows], ['reviewer', 'integrator'])
         self.assertEqual(pane.selected, attention[0].key)
         self.assertEqual(pane.sections[0].rows[0].agent, 'implementer')
         self.assertEqual(pane.sections[2].rows[0].agent, 'preparer')
 
-    def test_attention_refresh_replaces_reasons_and_drops_departing_agents(self):
+    def test_attention_selection_follows_eligible_then_returns_when_only_stops_remain(self):
         self.data['latest_pass']['rows'] = [
             {'item': 12, 'agent': 'reviewer', 'state': 'parked', 'reason': 'Old decision'},
             {'item': 12, 'agent': 'integrator', 'state': 'blocked', 'reason': 'Old failure'}]
@@ -225,15 +225,18 @@ class WorkPaneTests(unittest.TestCase):
                     {'item': 12, 'agent': 'reviewer', 'state': 'ready'},
                     {'item': 12, 'agent': 'integrator', 'state': 'blocked', 'reason': 'New failure'}]}
                 pane = self.pane(pane, pane.selected, True)
-                self.assertEqual(pane.selected, 'plan:12:attention')
-                attention = pane.sections[1].rows
-                self.assertEqual(len(attention), 1)
-                self.assertEqual([(row.agent, row.reason) for row in attention[0].attention_rows],
-                                 [('integrator', 'New failure')])
+                self.assertEqual(pane.selected, 'plan:12')
+                self.assertNotIn('Needs attention', [section.name for section in pane.sections])
                 self.assertEqual(pane.sections[-1].rows[0].agent, 'reviewer')
+        self.data['latest_pass']['rows'][0].update(state='parked', reason='New decision')
+        pane = self.pane(pane, pane.selected, True)
+        self.assertEqual(pane.selected, 'plan:12:attention')
+        self.assertEqual([(row.agent, row.reason) for row in pane.sections[1].rows[0].attention_rows],
+                         [('reviewer', 'New decision'), ('integrator', 'New failure')])
         self.data['latest_pass']['rows'] = [{'item': 12, 'agent': 'integrator', 'state': 'ready'}]
         pane = self.pane(pane, pane.selected, True)
-        self.assertEqual(pane.selected, 'plan:12')
+        self.assertEqual(pane.selected, 'plan:12:attention')
+        self.assertTrue(next(row for row in pane.rows if row.key == pane.selected).hidden)
         self.assertNotIn('Needs attention', [section.name for section in pane.sections])
 
     def test_vanished_eligible_is_listed_counted_and_retained_only_while_selected(self):
@@ -373,6 +376,31 @@ class WorkPaneTests(unittest.TestCase):
         kept = self.pane(pane, pane.selected, True)
         self.assertEqual(kept.selected, 'assignment:owned-run')
         self.assertEqual([row.key for row in kept.sections[0].rows], ['assignment:next-run'])
+
+    def test_followed_run_that_ends_leaves_nothing_selected_until_a_run_or_a_pick(self):
+        running = self.pane()
+        self.assertEqual(running.selected, 'assignment:owned-run')
+        self.data['assignment'] = None
+        self.data['latest_pass'] = {'state': 'complete', 'rows': []}
+        self.data['outcomes'].append({'item': 114, 'agent': 'implementer', 'run': 'owned-run', 'result': 'success'})
+        ended = self.pane(running, running.selected)
+        self.assertIsNone(ended.selected)
+        self.assertTrue(ended.released)
+        self.assertNotIn('assignment:owned-run', [row.key for row in ended.rows])
+        still = self.pane(ended, ended.selected)
+        self.assertIsNone(still.selected)
+        picked = self.pane(still, 'outcome:owned-run', True)
+        self.assertEqual(picked.selected, 'outcome:owned-run')
+        self.assertFalse(picked.released)
+        self.data['assignment'] = {'item': 12, 'agent': 'reviewer', 'run': 'next-run', 'process': 'running'}
+        followed = self.pane(still, still.selected)
+        self.assertEqual(followed.selected, 'assignment:next-run')
+        self.assertFalse(followed.released)
+        # A run a person picked stays on screen after it ends.
+        self.data['assignment'] = None
+        kept = self.pane(followed, followed.selected, True)
+        self.assertEqual(kept.selected, 'assignment:next-run')
+        self.assertEqual(kept.rows[-1].state, 'earlier observation')
 
     def test_selection_moves_to_related_plan_including_a_merged_secondary_agent(self):
         pane = self.pane(selected='plan:12', chosen=True)
@@ -606,7 +634,7 @@ class ViewDataTests(unittest.TestCase):
         self.assertEqual([row.item for row in reordered if row.group == 'Eligible'], [30, 29, 22, 20, 12, 28, 27])
         self.assertEqual({row.item: row.key for row in reordered}, keys)
 
-    def test_plans_merge_by_section_after_ordering_and_running_stays_per_agent(self):
+    def test_plans_merge_by_section_after_ordering_and_running_hides_all_agents(self):
         self.state['latest_pass']['rows'] = [
             {'item': 20, 'agent': 'reviewer', 'state': 'backoff'},
             {'item': 12, 'agent': 'reviewer', 'state': 'recover'},
@@ -624,10 +652,10 @@ class ViewDataTests(unittest.TestCase):
         eligible = [row for row in work if row.group == 'Eligible']
         self.assertEqual([(row.key, row.agent, row.state) for row in eligible],
                          [('plan:12', 'reviewer', 'recover'), ('plan:20', 'integrator', 'ready'),
-                          ('plan:114', 'preparer', 'ready'), ('plan:40', 'reviewer', 'waiting')])
+                          ('plan:40', 'reviewer', 'waiting')])
         self.assertEqual([[plan['agent'] for plan in row.eligible_plans] for row in eligible],
                          [['reviewer', 'integrator'], ['integrator', 'reviewer'],
-                          ['preparer'], ['reviewer', 'integrator']])
+                          ['reviewer', 'integrator']])
         self.assertEqual([row.agent for row in work if row.group == 'Running'], ['implementer'])
         self.assertEqual([row.key for row in work if row.group == 'Needs attention'],
                          ['plan:30:attention'])

@@ -77,7 +77,9 @@ For Claude Code, Codex, `gh` and `ub`, launchers on one machine share one daily 
 
 Updates wait until no run or queue check is using the CLI. Every run in an Uberblick project reserves an installed `ub` through execution and cleanup, even with updates off, so the next run starts a fresh MCP server after an update. A missing `ub` does not hold runs unless an earlier update left it unusable. If an update leaves `ub` unusable, new runs in Uberblick projects wait until it works again; an unusable `gh` holds every project's new runs.
 
-`ub-agents init` includes `ub: auto` when you enable updates and select the Uberblick extra.
+When you enable updates, [init](/docs/commands/init.html) includes the selected
+agent CLI and `gh`, or both agent CLIs and `gh` when both are logged in and reviewers
+use the other CLI. Selecting the Uberblick extra also includes `ub: auto`.
 
 ## Key reference
 

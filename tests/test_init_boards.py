@@ -37,6 +37,7 @@ class BoardSetupTests(unittest.TestCase):
         self.assertEqual(result.board_numbers, {'implementer': 204})
         roles = {role.name: role for role in load_config(self.path).agents}
         self.assertEqual(roles['implementer'].retrospectives, 204)
+        self.assertNotIn('upstream-retrospectives:', self.path.read_text())
         self.assertEqual([write[0] for write in self.github.writes], ['create-board'])
         mutation = self.github.writes[0][2]
         self.assertEqual(mutation['categoryId'], 'general-id')

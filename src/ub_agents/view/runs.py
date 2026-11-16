@@ -12,7 +12,7 @@ from rich.text import Text
 from ..usage.context_usage import context_fields
 from ..denials import denial_count
 from ..usage.run_usage import short_tokens, usage_fields
-from .data import item_history, mapping, text
+from .data import SELECT_ITEM, item_history, mapping, text
 from .spinner import spinner_frame
 from .theme import theme_style
 
@@ -143,7 +143,7 @@ def runs_view(row, session, now=None, *, app=None, history=None):  # noqa: C901
     success = theme_style(app, 'view-success')
     error = theme_style(app, 'view-error')
     if row is None:
-        return Text('Select an item to see its history.')
+        return Text(SELECT_ITEM)
     relative_now = now
     now = now or datetime.now().astimezone()
     if history is None:

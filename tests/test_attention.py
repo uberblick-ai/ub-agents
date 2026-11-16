@@ -120,14 +120,19 @@ class AttentionTests(unittest.TestCase):
         row, _ = self.row(comments=[notice], authors={'other': True})
         self.assertEqual(row.data['attention_reason'], 'CI is red.')
 
-    def test_blocked_and_exhausted_fall_back_to_latest_finished_run(self):
-        history = (self.finished(), self.finished(id=3, run='new', expires=iso(1500), agent='integrator'),
+    def test_blocked_and_exhausted_fall_back_to_the_roles_latest_finished_run(self):
+        history = (self.finished(id=1, run='old', expires=iso(1100), summary='Older block'),
+                   self.finished(id=2),
+                   self.finished(id=3, run='new', expires=iso(1500), agent='integrator', summary='Other role'),
                    self.finished(id=4, run='active', state='running', expires=iso(5000)))
         for state, reason, attempt in (('blocked', 'Last run blocked', 1),
                                        ('blocked', 'Attempt limit exhausted', 4), ('failed', '', 4)):
             row, _ = self.row(replace(self.plan, state=state, reason=reason, attempt=attempt, history=history))
-            self.assertEqual(row.data['waiting_since'], iso(1500))
+            self.assertEqual(row.data['waiting_since'], iso(1200))
             self.assertEqual(row.data['attention_reason'], 'Choose direction')
+            row, _ = self.row(replace(self.plan, state=state, history=(history[2],)))
+            self.assertIsNone(row.data['waiting_since'])
+            self.assertEqual(row.data['attention_reason'], '')
         row, _ = self.row(replace(self.plan, history=(self.finished(),)))
         self.assertIsNone(row.data['waiting_since'])
 

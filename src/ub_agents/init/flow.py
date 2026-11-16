@@ -79,7 +79,7 @@ class Flow:
         self.github = self.probes = self.doctor = None
         self.on_default = False
         self.workspace = None
-        self.mcp = None
+        self.mcp = []
 
     def run(self):
         self.t.intro("ub-agents init", f"v{__version__}")
@@ -99,8 +99,9 @@ class Flow:
         elif self.check() is False:
             return 1
         choices = Choices(self.choose_runtime())
-        choices.permissions = self.choose_permissions(choices.runtime)
-        choices.updates = self.choose_updates(choices.runtime)
+        choices.reviewer_runtime = self.reviewer_runtime(choices.runtime)
+        choices.permissions = self.choose_permissions(choices)
+        choices.updates = self.choose_updates(choices)
         choices.owner = self.choose_owner()
         extras = self.choose_extras()
         choices.uberblick = "uberblick" in extras
@@ -113,7 +114,7 @@ class Flow:
             if choices.updates:
                 self.t.step("Runtime updates", [Text("ub also updates once a day between runs (Homebrew only)", style=DIM)])
             self.choose_workspace()
-            self.mcp = mcp_preview(self.path.parent, choices.runtime.split(":", 1)[0], for_pr=self.on_default)
+            self.mcp = [mcp_preview(self.path.parent, cli, for_pr=self.on_default) for cli in choices.clis]
         if "retrospectives" in extras:
             boards, repo = Boards(self.github, self.repository), self.probes.discussions
             names = [c["name"] for c in repo["discussionCategories"]["nodes"]]
@@ -138,7 +139,8 @@ class Flow:
         extra = self.create_workspace() if self.workspace == "create" else []
         if self.mcp:
             with self.t.spinner("Registering the Uberblick MCP server"):
-                extra += self.mcp.apply()
+                for registration in self.mcp:
+                    extra += registration.apply()
         url = self.open_pr(plan, extra) if self.on_default else None
         issue = self.tailor_policy(plan, url) if choices.tailor_policy else None
         self.finish(plan, labels, extras, url, issue)
@@ -223,25 +225,37 @@ class Flow:
         message = "Which agent runs the loop?"
         cli = self.ask.select(message, options, clis.index(cli), "Model and effort can be changed later in ub-agents.yaml.")
         option = next(o for o in options if o.value == cli)
+        other = self.reviewer_runtime(values[cli])
+        summary = (f"{option.label} is the default; {RUNTIMES[other.split(':', 1)[0]][0]} reviews issues and PRs."
+                   if other else f"Great, {option.label} is the default for all agents.")
         self.t.step(message, [Text(f"{option.label} · {option.hint}" if option.hint else option.label, style=DIM),
-                              Text(f"Great, {option.label} is the default for all agents.", style=DIM),
+                              Text(summary, style=DIM),
                               Text(f"Review later; see {RUNTIMES_GUIDE}", style=DIM)])
         return values[cli]
 
-    def choose_permissions(self, runtime):
+    def reviewer_runtime(self, runtime):
         cli = runtime.split(":", 1)[0]
+        if cli in RUNTIMES and self.probes and all(self.probes.clis.get(name) == "logged in" for name in RUNTIMES):
+            return next(value[1] for name, value in RUNTIMES.items() if name != cli)
+        return ""
+
+    def choose_permissions(self, choices):
+        cli = choices.clis[0]
         grant = ("full access, no sandbox" if cli == "codex" else
                  "edits, git, gh and report commands without asking")
+        if choices.reviewer_runtime:
+            grant = "codex: full access, no sandbox; claude: edits, git, gh and report commands without asking"
         message = "Let agents work without asking?"
         options = [Option(True, "Yes", grant), Option(False, "No", "set runtime-args later")]
         # Unattended runs keep permissions off: nobody saw what they grant.
         enabled = self.ask.select(message, options, 1 if self.unattended else 0)
-        answer = f"Yes · review runtime-args in {self.path.name} before you launch" if enabled else "No"
+        clis = f" for {' and '.join(choices.clis)}" if choices.reviewer_runtime else ""
+        answer = f"Yes · review runtime-args{clis} in {self.path.name} before you launch" if enabled else "No"
         self.t.answered(message, answer)
         return enabled
 
-    def choose_updates(self, runtime):
-        cli = runtime.split(":", 1)[0]
+    def choose_updates(self, choices):
+        cli = ", ".join(choices.clis)
         message = f"Keep {cli} and gh up to date?"
         note = ["Once a day between runs, each with its own updater (Homebrew, npm or the native installer).",
                 f"See {UPDATES_GUIDE}"]
@@ -377,10 +391,10 @@ class Flow:
             lines.append(Text.assemble(("+ ", GREEN), TAILOR_TITLE, (f" · ready · {action}", DIM)))
         if self.workspace == "create":
             lines.append(Text.assemble(("+ ", GREEN), WORKSPACE_FILE, (" local Uberblick workspace", DIM)))
-        if self.mcp:
-            lines.append(Text(self.mcp.preview))
-            if self.mcp.action not in {"add", "reused"}:
-                lines.append(Text(f"Manual command: {self.mcp.command}", style=DIM))
+        for registration in self.mcp:
+            lines.append(Text(registration.preview))
+            if registration.action not in {"add", "reused"}:
+                lines.append(Text(f"Manual command: {registration.command}", style=DIM))
         files = "the files go to a new PR." if self.on_default else "the files stay local."
         if labels or plan.choices.board_requests:
             files = "Labels and boards are created on GitHub right away; " + files
@@ -453,7 +467,7 @@ class Flow:
         self.t.rail()
         return None
 
-    def finish(self, plan, labels, extras, url=None, issue=None):  # noqa: C901
+    def finish(self, plan, labels, extras, url=None, issue=None):
         steps = next_steps(plan) + guidance_summary(plan)
         if url:
             steps[steps.index("Open a PR with these files and merge it")] = f"Review and merge the setup PR: {url}"
@@ -470,12 +484,7 @@ class Flow:
                 steps.append(f"Join your team's Uberblick workspace: ub auth login, then ub workspace use <link>; see {UBERBLICK}")
             elif self.workspace in {"later", "failed"}:
                 steps.append(f"Bind an Uberblick workspace: ub workspace create <name> or ub workspace use <link>; see {UBERBLICK}")
-            outcome = f"{self.mcp.description} · {self.mcp.action}"
-            if self.mcp.reason:
-                outcome += f" ({self.mcp.reason})"
-            steps.append(outcome)
-            if self.mcp.action not in {"registered", "reused"} or self.mcp.reason:
-                steps.append(f"Manual command: {self.mcp.command}; see {UBERBLICK}")
+            steps += self.mcp_steps()
             steps.append("Restart running agent sessions to pick up the Uberblick MCP server")
         if "retrospectives" not in extras:
             steps.append("Want retrospectives later? Turn on Discussions if needed, then run ub-agents init --create-boards")
@@ -490,6 +499,17 @@ class Flow:
             self.t.step("Create the labels yourself", [label.command(self.repository) for label in unique])
         self.t.outro(f"After the merge, pull {self.probes.default_branch} and run " if url else "Then run ",
                      ("ub-agents launch", "cyan"))
+
+    def mcp_steps(self):
+        steps = []
+        for registration in self.mcp:
+            outcome = f"{registration.description} · {registration.action}"
+            if registration.reason:
+                outcome += f" ({registration.reason})"
+            steps.append(outcome)
+            if registration.action not in {"registered", "reused"} or registration.reason:
+                steps.append(f"Manual command: {registration.command}; see {UBERBLICK}")
+        return steps
 
     def failed(self, plan, result, labels):
         created = {name.casefold() for name in result.label_names}

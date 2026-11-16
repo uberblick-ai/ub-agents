@@ -16,7 +16,7 @@ START_SECONDS = 15
 
 
 def monitor_sources(configs):
-    return [MonitorSource(config, GitHub(config.repository), None, timestamp) for config in configs]
+    return [MonitorSource(config, GitHub(config.repository, print_retries=False), None, timestamp) for config in configs]
 
 
 def serve(sources, port, open_page=True):

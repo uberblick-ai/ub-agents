@@ -245,7 +245,7 @@ class StatusTextTests(unittest.TestCase):
         self.assertFalse(log_notices(self.row, reading(), 100, STYLES)[0])
 
     def test_empty_log_messages_distinguish_owner_and_local_output(self):
-        self.assertEqual(empty_log_message(None), 'No local log cached for this row.')
+        self.assertEqual(empty_log_message(None), 'Select an item on the left to see it here.')
         self.assertEqual(empty_log_message(replace(self.row, log=None)), 'No local log cached for this row.')
         self.assertEqual(empty_log_message(self.row), 'No log output yet.')
         self.assertEqual(empty_log_message(replace(self.row, reason='Owned elsewhere', data={'owner': {'run': 'other'}})),

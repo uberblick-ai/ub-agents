@@ -10,10 +10,16 @@ Add only what that evidence supports:
 - Add maintainer-merge bullets for this repository that the starter does not
   already cover.
 - Add one to three review focus points specific to this codebase.
+- When the repository has an install step, set `checkout-setup` in
+  `ub-agents.yaml` to that existing command, with `when-changed` listing its
+  lockfiles. With no install step, keep the key commented out.
 
 Do not repeat the starter, rules from `AGENTS.md` or `CLAUDE.md` (every agent
 already reads them), or general review advice. Do not invent rules where the
 repository supplies no evidence. Cite only files you actually opened, and list
-the evidence for each proposed rule in the PR body.
+the evidence for each proposed rule and install command and its lockfiles in the
+PR body.
 
-The PR changes `.agents/`, so the starter policy leaves its merge to a maintainer.
+The tailoring PR changes `.agents/` and may also change `ub-agents.yaml`; leave its
+merge to a maintainer. This tailoring issue itself is not a maintainer's answer
+covering that PR under the starter's Merging rules.

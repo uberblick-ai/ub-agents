@@ -59,15 +59,24 @@ class ParallelTests(unittest.TestCase):
         self.assertFalse(outcome['errors'])
         self.assertTrue(names)
         names.reverse()
-        self.assertEqual(self.dispatched_names(names), names)
+        self.assertCountEqual(self.dispatched_names(names), names)
         for count in (1, 2, 3):
             with self.subTest(count=count):
                 shards = [self.dispatched_names(names, '--shard', f'{index}/{count}')
                           for index in range(1, count + 1)]
                 self.assertCountEqual([name for shard in shards for name in shard], names)
                 for index, shard in enumerate(shards):
-                    self.assertEqual(shard, sorted(names)[index::count])
+                    self.assertCountEqual(shard, sorted(names)[index::count])
         self.assertEqual(self.dispatched_names(names[:1], '--shard', '2/2'), [])
+
+    def test_slow_tests_start_first_without_dropping_unknown_or_repeated_names(self):
+        names = ['new test', 'short', 'long', 'other new test', 'short']
+        with patch('tests.parallel.SLOW_TESTS', {'short': 3, 'long': 20}):
+            self.assertEqual(self.dispatched_names(names),
+                             ['long', 'short', 'short', 'new test', 'other new test'])
+            # Shard membership is fixed by name before scheduling changes order.
+            shards = [self.dispatched_names(names, '--shard', f'{index}/3') for index in (1, 2, 3)]
+            self.assertEqual(shards, [['long', 'short'], ['short', 'new test'], ['other new test']])
 
     def test_named_tests_are_sharded_in_sorted_order(self):
         names = [f'tests.parallel_fixtures.Results.test_{name}' for name in ('stderr_noise', 'skip', 'pass')]

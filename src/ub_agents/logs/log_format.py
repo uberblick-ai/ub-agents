@@ -247,12 +247,16 @@ class StructuredFormatter:
             return raw_entry(raw, capture, "oversized raw fragment (>128 KiB)")
         try:
             data = json.loads(raw, parse_constant=_invalid_constant)
-            if not isinstance(data, dict):
-                raise ValueError("Not a record")
         except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
+            self.last_call = None
+            return self._diagnostic(raw, capture)
+        if not isinstance(data, dict):
             self.last_call = None
             return raw_entry(raw, capture)
         return self.project(data, raw, capture)
+
+    def _diagnostic(self, raw, capture):
+        return raw_entry(raw, capture)
 
     def project(self, data, raw, capture=None, *, oversized=False):
         try:
@@ -457,6 +461,14 @@ class CodexFormatter(StructuredFormatter):
         for index in range(0, len(raw), 32 * 1024):
             parser.feed(raw[index:index + 32 * 1024])
         return self.oversized(parser, raw, capture)
+
+    def _diagnostic(self, raw, capture):
+        value = raw_entry(raw, capture)
+        if not raw.lstrip().startswith(b'{') and b'failed to refresh available models' in re.sub(
+                rb'\x1b\[[0-9;]*m', b'', raw):
+            text = _time_column(None, capture) + "· codex: model list refresh failed (background)"
+            return replace(value, text=text, compact=True, styles=((10, len(text), "dim"),))
+        return value
 
     def oversized(self, parser, raw, capture=None):
         data = parser.finish()

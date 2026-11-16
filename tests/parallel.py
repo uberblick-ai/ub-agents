@@ -7,7 +7,8 @@ so the suite takes about as long as its share per core or its slowest test.
 Names are the same dotted names `python -m unittest` takes; without names the
 whole suite under tests/ runs. With --shard K/N, run every N-th discovered test
 in sorted name order, starting with the K-th (1 <= K <= N). Named tests are
-sharded the same way; without --shard, run the whole selection.
+sharded the same way; without --shard, run the whole selection. Within that
+selection, start known slow tests first using the estimates in tests/timings.py.
 Each test has a 300-second limit, configurable
 with --timeout SECONDS. Worker startup, discovery and shutdown use the same
 limit when no test is in flight. A timeout prints worker thread stacks, stops
@@ -29,9 +30,15 @@ import time
 import unittest
 
 from tests.parallel_worker import Worker, dump_workers, stop_workers
+from tests.timings import SLOW_TESTS
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TIMEOUT = 300
+
+
+def schedule(names):
+    """Prioritize measured slow tests, preserving discovery order for ties."""
+    return sorted(names, key=lambda name: -SLOW_TESTS.get(name, 0))
 
 
 def flatten(suite):
@@ -149,7 +156,7 @@ def supervise(requested, jobs, timeout, outcomes, durations, directory, shard=No
             if shard is not None:
                 index, count = shard
                 names = sorted(names)[index - 1::count]
-            pending = list(reversed(names))
+            pending = list(reversed(schedule(names)))
             jobs = max(1, min(jobs, len(pending)))
             for number in range(1, jobs):
                 workers.append(Worker.start(directory, number, events))

@@ -129,20 +129,20 @@ class FlowTests(unittest.TestCase):
         code, text = self.run_flow()
         self.assertEqual(code, 0)
         self.assertEqual(self.script.asked, ['Which agent runs the loop?', 'Let agents work without asking?',
-                                             'Keep codex and gh up to date?', "Who answers the agents' questions?",
+                                             'Keep codex, claude and gh up to date?', "Who answers the agents' questions?",
                                              'Extras', 'Create 4 missing labels?',
                                              'Write setup?'])
-        self.assertIn('Yes · codex and gh update once a day between runs', text)
-        self.assertIn('runtime-updates:\n  codex: auto\n  gh: auto', self.path.read_text())
+        self.assertIn('Yes · codex, claude and gh update once a day between runs', text)
+        self.assertIn('runtime-updates:\n  codex: auto\n  claude: auto\n  gh: auto', self.path.read_text())
         self.assertNotIn('ub: auto', self.path.read_text())
         self.assertNotIn('ub also updates', text)
         self.assertIn('✓ Machine', text)
         self.assertIn('✓ Agents claude logged in · codex logged in', text)
         self.assertIn('Codex · gpt-6.1-sol · high', text)
-        self.assertIn('Great, Codex is the default for all agents. Review later; '
+        self.assertIn('Codex is the default; Claude Code reviews issues and PRs. Review later; '
                       'see https://agents.uberblick.ai/docs/configuration/runtimes', text)
-        self.assertIn('Yes · review runtime-args in ub-agents.yaml before you launch', text)
-        self.assertIn('Review the agent permissions (runtime-args) in ub-agents.yaml on the PR; see '
+        self.assertIn('Yes · review runtime-args for codex and claude in ub-agents.yaml before you launch', text)
+        self.assertIn('Review the agent permissions (runtime-args) for codex and claude in ub-agents.yaml on the PR; see '
                       'https://agents.uberblick.ai/docs/configuration/permissions', text)
         self.assertIn('Want retrospectives later?', text)
         self.assertNotIn('Create the labels yourself', text)
@@ -178,7 +178,10 @@ class FlowTests(unittest.TestCase):
         for evidence in ('agent guidance', 'README', 'CI configuration', 'setup and release', 'code and tests',
                          'required CI check that gates merges', 'starter does not', 'one to three',
                          'Do not repeat the starter', 'every agent', 'general review advice',
-                         'files you actually opened', 'evidence for each proposed rule in the PR body',
+                         'files you actually opened', 'evidence for each proposed rule and install command and its lockfiles',
+                         '`checkout-setup`', '`when-changed` listing its lockfiles', 'existing command',
+                         'With no install step, keep the key commented out',
+                         "This tailoring issue itself is not a maintainer's answer covering that PR",
                          'merge to a maintainer'):
             self.assertIn(evidence, ' '.join(TAILOR_BODY.split()))
 
@@ -349,7 +352,8 @@ class FlowTests(unittest.TestCase):
                                    runtime='codex:gpt-6.1-sol:high')
         self.assertEqual(code, 0)
         self.assertIn('"Bash({report_command} retrospective *)"', self.path.read_text())
-        self.assertEqual({runtime.cli for agent in load_config(self.path).agents for runtime in agent.runtimes}, {'claude'})
+        self.assertEqual({runtime.cli for agent in load_config(self.path).agents for runtime in agent.runtimes},
+                         {'claude', 'codex'})
         self.assertNotIn('--allowedTools so agents can post lessons', text)
 
     def test_policy_step_shows_approvals_from_repository_visibility(self):
@@ -432,7 +436,7 @@ class FlowTests(unittest.TestCase):
         code, text = self.run_flow(Script(Which_agent='claude', Extras=['uberblick'], Set_up='later'))
         self.assertEqual(code, 0)
         self.assertEqual(load_config(self.path).runtime_updates.policies,
-                         {'claude': 'auto', 'codex': 'off', 'gh': 'auto', 'ub': 'auto', 'ub-agents': 'off'})
+                         {'claude': 'auto', 'codex': 'auto', 'gh': 'auto', 'ub': 'auto', 'ub-agents': 'off'})
         self.assertIn('ub also updates once a day between runs (Homebrew only)', text)
 
     def test_uberblick_extra_leaves_declined_updates_off(self):

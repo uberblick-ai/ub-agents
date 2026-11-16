@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from tests.test_log_reader import NOW, record, result, tool
-from ub_agents.logs.log_format import ClaudeFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED
+from ub_agents.logs.log_format import ClaudeFormatter, MAX_RECORD, MAX_TEXT, MAX_TOOLS, SHORTENED, raw_entry
 from ub_agents.logs.log_reader import LogReader, MAX_ENTRIES, READ_BUDGET, RECORD_BUDGET
 from ub_agents.view.logs import PAGE_BYTES, ViewReader
 
@@ -21,6 +21,15 @@ def image_result():
                                        'data': 'QUJD' * MAX_RECORD}}
     return {'type': 'user', 'message': {'role': 'user', 'content': [
         result(content=[image])]}, 'note': 'café', 'timestamp': NOW.isoformat()}
+
+
+class ClaudeDiagnosticTests(unittest.TestCase):
+    def test_codex_model_refresh_text_stays_raw(self):
+        message = b'failed to refresh available models: request timed out'
+        for raw in (message, b'\x1b[2m2026-11-07T07:42:30Z\x1b[0m \x1b[31mERROR\x1b[0m ' + message):
+            with self.subTest(raw=raw):
+                projected = ClaudeFormatter().decode(raw, NOW.isoformat())
+                self.assertEqual(projected, raw_entry(raw, NOW.isoformat()))
 
 
 class OversizedClaudeTests(unittest.TestCase):

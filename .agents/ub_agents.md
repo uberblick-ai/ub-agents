@@ -13,8 +13,8 @@ integrator's own base merge, starts a new run: wait with `gh pr checks N --watch
 No agent enables auto-merge, changes branch protection or publishes a release.
 Leave the merge to `@uberblick-ai/maintainers` when the PR:
 
-- changes agent configuration or guidance: `ub-agents.yaml`, `.agents/` or `AGENTS.md`
-  beyond what the closing issue asks for;
+- changes agent configuration or guidance: `ub-agents.yaml`, `.agents/`, `.claude/`,
+  `AGENTS.md` or `CLAUDE.md` beyond what the closing issue asks for;
 - changes setup, CI or release tooling: `mise.toml`, `.github/` or `scripts/`
   beyond what the closing issue asks for;
 - changes what decides the `Test result` check: any file under `.github/workflows/`,

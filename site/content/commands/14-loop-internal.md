@@ -20,7 +20,7 @@ Agents use `read` to look at another issue or pull request, filtered by [approva
 
 ## retrospective
 
-Agents post what slowed them down to their [retrospective board](/docs/best-practices/retrospectives.html). A failed post never blocks the run.
+Agents post what slowed them down to their [retrospective board](/docs/best-practices/retrospectives.html). With `upstream-retrospectives: on`, `--upstream` sends general feedback about ub-agents itself to its public Field reports board; upstream posts must not link their item. See the [content rules](/docs/best-practices/retrospectives.html#send-feedback-about-ub-agents). A failed post never blocks the run.
 
 ```text
 {{help retrospective}}

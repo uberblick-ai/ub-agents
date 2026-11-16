@@ -18,7 +18,7 @@ from textual.message import Message
 from textual.widgets import Collapsible, Markdown, Static, TabbedContent, TabPane, Tree
 
 from .clipboard import copy_with_pbcopy, local_pbcopy
-from .data import (context_header, context_text, item_header, item_history, mapping,
+from .data import (SELECT_ITEM, context_header, context_text, item_header, item_history, mapping,
                         related_assignment, related_plan, run_status, text, work_pane)
 from .github import DescriptionLoads
 from .log_pane import LogPane, MAX_RENDER_LINES, Reading
@@ -206,7 +206,7 @@ class View(App):
                         yield Static('', id='issue_note', markup=False)
                 with TabPane('3 Runs', id='runs'):
                     with PaneScroll():
-                        yield Static('Select an item to see its history.', id='runs_text', markup=False)
+                        yield Static(SELECT_ITEM, id='runs_text', markup=False)
                 with TabPane('4 Unblock', id='unblock'):
                     with PaneScroll():
                         yield Markdown('', id='unblock_body', parser_factory=description_parser, open_links=False)
@@ -611,7 +611,7 @@ class View(App):
             self.select(pane.selected, chosen=False)
             if self.selected in nodes:
                 tree.move_cursor(nodes[self.selected])
-            else:
+            elif self.selected is not None:
                 recent.cursor = self.selected
                 recent.focus()
         elif cursor:
@@ -794,6 +794,8 @@ class View(App):
             extra += f'\nGitHub cooldown until {reset}; no loads or retries before then.'
         elif self.descriptions.pending is not None and (self.descriptions.pending != key or self.descriptions.pending_kind != 'issue'):
             extra += '\nAnother GitHub read is pending; no requests are queued.'
+        if not row:
+            details, extra = Text(), ''
         value = context_text(row, description) + extra
         if value != self.last_context:
             self.query_one('#issue_text', Static).update(Text(context_header(row, description)))

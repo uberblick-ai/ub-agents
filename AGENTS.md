@@ -27,8 +27,10 @@ Run them in your own worktree while you work.
 - The Uberblick corpus holds why the product works this way: product reasoning
   and workflow context, rather than copies of the repository documentation.
 
-Keep these homes accurate for any behavior you change. `README.md` stays an
-overview and links to the relevant home for details.
+Keep the site and `docs/` accurate for any behavior you change. The
+[corpus rule](docs/development/uberblick-corpus.md#who-writes-the-corpus) says who
+updates the corpus and when. `README.md` stays an overview and links to the
+relevant home for details.
 
 ## Contributor guidance
 

@@ -14,7 +14,7 @@ implementer:
 
 ## Starter permissions
 
-`ub-agents init` writes a commented top-level `runtime-args` entry for the selected CLI. When [init](/docs/commands/init.html) asks whether agents may work without asking, Yes (the default) uncomments it for all starter agents; `--use-defaults` and runs without a terminal leave it commented. Review it before you launch. The retrospectives extra also adds Claude's `retrospective` rule.
+`ub-agents init` writes a commented top-level `runtime-args` entry for the selected CLI, or both CLIs when both are logged in and reviewers use the other CLI. When [init](/docs/commands/init.html) asks whether agents may work without asking, Yes (the default) uncomments the entries for all starter agents; `--use-defaults` and runs without a terminal leave the selected CLI's entry commented. Review them before you launch. The retrospectives extra also adds Claude's `retrospective` rule, including when Claude only runs reviewers.
 
 ## Claude Code
 

@@ -75,6 +75,11 @@ Running always shows. Empty sections are hidden.
 | Needs attention | Plans parked by stop labels or approval gates, blocked plans, and plans that reached their attempt limit |
 | Eligible | Up to ten items in claim order: ready and recovery plans first, then delayed plans |
 
+An item appears in only one of these sections. Running wins over every plan for
+that item. Otherwise, plans from the current pass replace the item's carried
+plans. Within one pass, Eligible wins over Needs attention because the launcher
+will work the item next. Stopped agents show again when only their plans remain.
+
 Eligible's heading counts every eligible item, for example
 `Eligible · 23 · showing 10`. [Selection order](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#selection-order)
 defines claim order. Plans claimed by other launchers and plans waiting for
@@ -112,7 +117,7 @@ counts up while the view is open: minutes below an hour, hours below two days,
 then days.
 
 While a planning pass runs, the Work title reads `Work · pass partial`. Rows from
-the previous pass stay until the pass replans them or completes. Items seen
+the previous pass stay until the pass replans that item or completes. Items seen
 closed or merged leave at once. After each run, the launcher replans that item
 before it claims again, and its rows update immediately.
 
@@ -127,8 +132,9 @@ run handed off to a new PR. Each half scrolls on its own. Arrow keys move betwee
 them.
 
 Until you pick a row, the view selects the launcher's own run whenever one
-starts. Your selection, tab, focus and log position survive refreshes. A
-selected row that leaves Work stays in the right pane as an earlier observation
+starts. When that run ends, the right pane clears until the next run starts or
+you pick a row. Your selection, tab, focus and log position survive refreshes. A
+row you picked that leaves Work stays in the right pane as an earlier observation
 until you select another.
 
 ## Item tabs
@@ -170,6 +176,7 @@ Formatted mode turns Claude and Codex output into a compact transcript:
 - Times are local. `~07:42:30` marks a supervisor observation time for a record without its own timestamp (including Codex), or the view's capture time for live output. These times remain available when reopening a run, paging back with `h` or reloading with `g`. Runs supervised before timing was recorded have no historical times. Producer timestamps appear without `~`; continuation lines keep a blank time column.
 - `▸` is a tool call with its main argument. Edit and Write add green `+N` and red `-N` line counts. `· 1m` is a Claude call's elapsed time.
 - Assistant text is italic. A dim `·` line is a thinking summary, an unfamiliar record type, or a notice about skipped or omitted output.
+- The dim `· codex: model list refresh failed (background)` line marks a failed background refresh of Codex's model list. The run can continue; raw mode shows the original diagnostic.
 - A red `✗` line is a failed tool call, command or run, with its first error line. `✓ run finished` marks a successful end.
 
 Successful tool output, IDs and usage appear only in raw mode. Other runtimes
@@ -230,10 +237,16 @@ available source, the same one that sets the Work row's reason and waiting time:
 1. The item's latest trusted action-needed notice since the last claim or reset.
 2. The finished outcome that added a stop label still on the item.
 3. The approval gate's reason, with no waiting time.
-4. For a blocked or failed plan, the last finished run's reported actions or summary.
+4. For a blocked or failed plan, that role's last finished run's reported actions or summary, with its release time.
 
 `ub-agents status` uses the same rule. Only notices from accounts the launcher
 already trusts for coordination records count.
+
+A released block drops out of Needs attention when its role's trigger is absent
+and another role has moved the item on. A live lease or an accepted outcome with a
+complete transition suffices, provided it was created after the blocked run's
+release. Unconfirmed cleanup and expired runs without an outcome still need
+attention. If the role's trigger returns, the existing retry rules apply.
 
 A notice shows its reason, asks and numbered options, with the recommended
 option first. Its resume steps sit in a collapsed fold:
