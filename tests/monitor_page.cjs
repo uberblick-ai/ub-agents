@@ -118,6 +118,28 @@ const needsPanel = (page) => page.nodes.app.descendants().find((node) => node.ta
 const needsItems = (page) => needsPanel(page).descendants().filter((node) => node.className === "cell item").map((node) => node.textContent);
 const dismissals = (page) => JSON.parse(page.storage.get("ub-agents-monitor.dismissed-stops") ?? "[]");
 
+async function discussLinksNameRepository() {
+  const backend = successful("org/backend", { folder: "/checkout/backend workspace + copy",
+    needs_human: [waiting("org/backend", 2464)] });
+  const other = successful("other/backend", { needs_human: [stopped("other/backend", 2464)] });
+  for (const sources of [[backend], [backend, other]]) {
+    const page = await browser(sources);
+    const checkLinks = (shown) => {
+      const links = needsPanel(page).descendants().filter((node) => node.className === "discuss");
+      assert.deepEqual(links.map((node) => Object.fromEntries(new URL(node.attributes.href).searchParams)),
+        shown.map((source) => ({
+          q: `help me unblock ${source.repository}#2464 using the ub-agents-unblock skill`,
+          folder: source.folder,
+        })));
+    };
+    checkLinks(sources);
+    if (sources.length > 1) {
+      page.change("Repository", "other/backend");
+      checkLinks([other]);
+    }
+  }
+}
+
 async function dismissalControlsAndMemory() {
   const backend = successful("org/backend", { needs_human: [stopped("org/backend", 1), waiting("org/backend", 2)],
     running: [run("org/backend", 3, "server")] });
@@ -453,6 +475,7 @@ async function main() {
 
   await repositoryFiltering();
   await repositoryMemoryAndFailures();
+  await discussLinksNameRepository();
   await notificationsIgnoreRepositoryChoice();
   await dismissalControlsAndMemory();
   await dismissalIdentityAndNotifications();

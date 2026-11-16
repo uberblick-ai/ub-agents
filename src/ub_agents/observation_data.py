@@ -92,7 +92,26 @@ def omitted_plan(row):
     return row.get('state') == 'owned' or plan_group(row) is None
 
 
-def work_rows(data, root, *, plan_limit=100):  # noqa: C901
+def newest_plans(latest, limit):
+    started = stamp(latest.get('started_at'))
+    plans = []
+    for row in rows(latest.get('rows'), limit):
+        observed = stamp(row.get('observed_at'))
+        current = started is None or observed is None or observed >= started
+        plans.append((row, current))
+    current_items = {row.get('item') for row, current in plans if current}
+    return [row for row, current in plans if current or row.get('item') not in current_items]
+
+
+def work_plans(latest, assignment, limit):
+    """Prefer Running, then the current pass, then Eligible for each item."""
+    plans = [row for row in newest_plans(latest, limit)
+             if not omitted_plan(row) and not (assignment and row.get('item') == assignment.get('item'))]
+    eligible = {row.get('item') for row in plans if plan_group(row) == 'Eligible'}
+    return [row for row in plans if plan_group(row) == 'Eligible' or row.get('item') not in eligible]
+
+
+def work_rows(data, root, *, plan_limit=100):
     result = []
     assignment = mapping(data.get('assignment'))
     if assignment:
@@ -103,11 +122,7 @@ def work_rows(data, root, *, plan_limit=100):  # noqa: C901
                               runtime_type(assignment.get('runtime')), run / 'process.log' if run else None,
                               run / 'context.json' if run else None))
     latest = mapping(data.get('latest_pass'))
-    for row in rows(latest.get('rows'), plan_limit):
-        if omitted_plan(row):
-            continue
-        if assignment and (row.get('item'), row.get('agent')) == (assignment.get('item'), assignment.get('agent')):
-            continue
+    for row in work_plans(latest, assignment, plan_limit):
         owner = mapping(row.get('owner'))
         reason = (f'Owner: @{text(owner.get("actor"))} on {text(owner.get("host"))}' if owner else text(row.get('reason')))
         result.append(WorkRow(f'plan:{row.get("item")}:{text(row.get("agent"))}',

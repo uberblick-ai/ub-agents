@@ -190,11 +190,12 @@ class Pane:
         return next((section.next for section in self.sections if section.next is not None), None)
 
 
-def earlier_selection(session, earlier):
+def earlier_selection(session, earlier, work):
     omitted = any(omitted_plan(plan) and
                   (plan.get('item'), text(plan.get('agent'))) == (earlier.item, earlier.agent)
                   for plan in rows(mapping(session.data.get('latest_pass')).get('rows'), 100))
-    selection = replace(earlier, hidden=earlier.hidden or earlier.group != 'Eligible' or omitted)
+    superseded = any(row.item == earlier.item and row.group != 'Recent activity' for row in work)
+    selection = replace(earlier, hidden=earlier.hidden or earlier.group != 'Eligible' or omitted or superseded)
     if selection.state != 'earlier observation':
         selection = replace(selection, state='earlier observation',
                             reason=f'Last observed state: {selection.state}. {selection.reason}')
@@ -248,7 +249,7 @@ def work_pane(session, root, previous=None, selected=None, chosen=False):
             # The followed run ended: show no item rather than its last output.
             released = True
         elif selection is None:
-            selection = earlier_selection(session, earlier)
+            selection = earlier_selection(session, earlier, work)
             work.append(selection)
     if selection is None and work and not released:
         selection = work[0]

@@ -542,7 +542,7 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(style.dim)
                 self.assertEqual(style.foreground.hex.lower(), self.app.theme_variables['view-muted'].lower())
 
-    async def test_merged_item_keeps_actions_and_selection_when_an_agent_leaves(self):
+    async def test_merged_item_hides_actions_while_eligible_and_restores_remaining_stop(self):
         first = self.state['latest_pass']['rows'][-2]
         first.update(state='blocked', reason='Earlier review defer', attention_reason='Sonner conflicts',
                      description={'available': True, 'text': 'Item description'})
@@ -573,11 +573,21 @@ class UnblockUITests(unittest.IsolatedAsyncioTestCase):
             second.update(reason='New implementation blocker', attention_reason='New conflict')
             self.state['latest_pass']['state'] = 'partial'
             publish_snapshot(self.path, self.state)
-            await self.ready(pilot, lambda: len(app.rows['plan:178:attention'].attention_rows) == 1)
+            await self.ready(pilot, lambda: app.selected == 'plan:178' and not app.unblock_visible)
+            self.assertNotIn('plan:178:attention', app.query_one(WorkTree).nodes)
+            self.assertEqual(app.query_one(ItemTabs).active, 'log')
+            self.assertEqual(app.query_one('#issue_actions', Markdown).source, '')
+            first['state'] = 'owned'
+            publish_snapshot(self.path, self.state)
+            await self.ready(pilot, lambda: 'plan:178:attention' in app.query_one(WorkTree).nodes)
+            app.select('plan:178:attention')
+            await pilot.press('4')
+            await self.ready(pilot, lambda: app.query_one(ItemTabs).active == 'unblock')
+            self.assertEqual(len(app.rows['plan:178:attention'].attention_rows), 1)
             self.assertEqual(app.selected, 'plan:178:attention')
             self.assertEqual(app.query_one(ItemTabs).active, 'unblock')
             self.assertTrue(app.unblock_visible)
-            self.assertIn('plan:178', app.query_one(WorkTree).nodes)
+            self.assertNotIn('plan:178', app.query_one(WorkTree).nodes)
             body = app.query_one('#unblock_body', Markdown).source
             self.assertIn('New implementation blocker', body)
             self.assertIn('New conflict', body)

@@ -323,7 +323,7 @@
       // Opens a Claude Code session in the Claude app, in this checkout, with the
       // prompt filled in: the app asks to confirm the folder, and the viewer sends it.
       const discussUrl = (item) => {
-        const params = new URLSearchParams({ q: `help me unblock #${item.number} using the ub-agents-unblock skill` });
+        const params = new URLSearchParams({ q: `help me unblock ${item.repository}#${item.number} using the ub-agents-unblock skill` });
         if (item.folder) params.set("folder", item.folder);
         return `claude://code/new?${params.toString().replace(/\+/g, "%20")}`;
       };

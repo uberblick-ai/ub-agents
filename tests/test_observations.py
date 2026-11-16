@@ -312,6 +312,86 @@ class ObservationTests(unittest.TestCase):
         self.assertFalse(cached['trusted'])
         self.assertIn('could not be read', cached['reason'])
 
+    def test_running_item_hides_every_agents_plan_and_moves_next(self):
+        self.observer.begin_pass()
+        plans = [Plan(issue(number), replace(self.cfg.agents[0], name=name), None, state, 'Reason', 1)
+                 for number, name, state in ((1, 'preparer', 'blocked'), (1, 'reviewer', 'ready'),
+                                             (2, 'worker', 'backoff'), (3, 'worker', 'recover'),
+                                             (4, 'worker', 'ready'))]
+        for plan in plans:
+            self.observer.plan(plan)
+        self.observer.complete_pass()
+        before = self.memory.snapshots[-1]
+        self.assertEqual(before['latest_pass']['eligible_count'], 4)
+        self.assertEqual(work_pane(Session(self.root / 'launcher.json', before), self.root).next, 'plan:1')
+
+        self.observer.state['assignment'] = {'item': 1, 'agent': 'implementer', 'run': 'current',
+                                             'process': 'running'}
+        self.observer.state['outcomes'] = [{'item': 1, 'agent': 'preparer', 'run': 'earlier',
+                                           'result': 'blocked', 'summary': 'Waiting for a decision'}]
+        self.observer.emit()
+        snapshot = self.memory.snapshots[-1]
+        pane = work_pane(Session(self.root / 'launcher.json', snapshot), self.root)
+        self.assertEqual([(section.name, [row.item for row in section.rows]) for section in pane.sections],
+                         [('Running', [1]), ('Eligible', [3, 4, 2])])
+        self.assertEqual(snapshot['latest_pass']['eligible_count'], 3)
+        self.assertEqual(pane.sections[-1].label, 'Eligible · 3')
+        self.assertEqual(pane.next, 'plan:3')
+        self.assertEqual([(row.item, row.run) for row in pane.recent], [(1, 'earlier')])
+
+    def test_partial_pass_current_plans_replace_carried_agents_in_either_section(self):
+        for old_state, new_state, group in (('blocked', 'ready', 'Eligible'),
+                                             ('ready', 'blocked', 'Needs attention')):
+            with self.subTest(old=old_state, current=new_state):
+                self.observer.clock = lambda: 1000
+                self.observer.begin_pass()
+                old = Plan(issue(), self.cfg.agents[0], None, old_state, 'Old reason', 1)
+                self.observer.plan(old)
+                self.observer.plan(Plan(issue(2), self.cfg.agents[0], None, 'ready', 'Ready', 1))
+                self.observer.complete_pass()
+                self.observer.clock = lambda: 1000.5
+                self.observer.begin_pass()
+                self.observer.clock = lambda: 1000.75
+                self.observer.plan(replace(old, agent=replace(old.agent, name='reviewer'),
+                                           state=new_state, reason='Current reason'))
+                self.observer.clock = lambda: 1001
+                self.observer.plan(replace(old, agent=replace(old.agent, name='integrator'),
+                                           state=new_state, reason='Another current reason'))
+                snapshot = self.memory.snapshots[-1]
+                # The raw partial pass still carries the old agent's row.
+                self.assertEqual(len(snapshot['latest_pass']['rows']), 4)
+                session = Session(self.root / 'launcher.json', snapshot)
+                current = [row for row in work_rows(session, self.root) if row.item == 1]
+                self.assertEqual(len(current), 1)
+                self.assertEqual((current[0].group, current[0].reason), (group, 'Current reason'))
+                agents = ([plan['agent'] for plan in current[0].eligible_plans] if group == 'Eligible'
+                          else [row.agent for row in current[0].attention_rows])
+                self.assertEqual(agents, ['reviewer', 'integrator'])
+                self.assertEqual(snapshot['latest_pass']['eligible_count'], 2 if group == 'Eligible' else 1)
+                self.assertEqual(work_pane(session, self.root).next, 'plan:2')
+
+    def test_same_pass_eligible_wins_until_only_stopped_plans_remain(self):
+        self.observer.clock = lambda: 1000
+        self.observer.begin_pass()
+        stopped = Plan(issue(), self.cfg.agents[0], None, 'blocked', 'Waiting for a decision', 1)
+        self.observer.clock = lambda: 1000.1
+        self.observer.plan(replace(stopped, agent=replace(stopped.agent, name='reviewer'), state='ready'))
+        self.observer.clock = lambda: 1000.2
+        self.observer.plan(replace(stopped, agent=replace(stopped.agent, name='integrator'), state='ready'))
+        self.observer.clock = lambda: 1000.3
+        self.observer.plan(stopped)
+        snapshot = self.memory.snapshots[-1]
+        work = work_rows(Session(self.root / 'launcher.json', snapshot), self.root)
+        self.assertEqual([(row.item, row.group) for row in work], [(1, 'Eligible')])
+        self.assertEqual([plan['agent'] for plan in work[0].eligible_plans], ['reviewer', 'integrator'])
+        self.assertEqual(snapshot['latest_pass']['eligible_count'], 1)
+
+        self.observer.replanned_item(1, [('plan', (stopped,))])
+        snapshot = self.memory.snapshots[-1]
+        work = work_rows(Session(self.root / 'launcher.json', snapshot), self.root)
+        self.assertEqual([(row.item, row.group, row.agent) for row in work], [(1, 'Needs attention', 'worker')])
+        self.assertEqual(snapshot['latest_pass']['eligible_count'], 0)
+
     def test_partial_pass_keeps_rows_details_and_order_until_completion(self):
         plans = [Plan(replace(issue(n), body=f'Body {n}'), self.cfg.agents[0], None,
                       state, 'Reason', 1, history=({'kind': 'lease', 'assignment': n,
@@ -549,7 +629,7 @@ class ObservationTests(unittest.TestCase):
         self.assertFalse(any(name == 'observe' or (name == 'item' and args[0] == 1)
                              for name, args in github.reads))
 
-    def test_kept_agent_uses_its_previous_item_history_without_descriptions(self):
+    def test_hidden_carried_agent_keeps_previous_history_without_descriptions(self):
         first = Plan(replace(issue(), body='Previous body'), self.cfg.agents[0], None,
                      'ready', 'Ready', 1)
         second = replace(first, agent=replace(first.agent, name='reviewer'))
@@ -564,11 +644,12 @@ class ObservationTests(unittest.TestCase):
             'created': iso(1000), 'expires': iso(2000), 'state': 'released'},)))
         session = Session(self.root / 'launcher.json', self.memory.snapshots[-1])
         merged, = work_rows(session, self.root)
-        refreshed, kept = merged.eligible_plans
+        refreshed, = merged.eligible_plans
+        kept = next(row for row in session.data['latest_pass']['rows'] if row['agent'] == 'reviewer')
         self.assertFalse(local_description(merged, session).available)
-        self.assertEqual([plan['agent'] for plan in merged.eligible_plans], ['worker', 'reviewer'])
+        self.assertEqual([plan['agent'] for plan in merged.eligible_plans], ['worker'])
         self.assertNotIn('description', kept)
-        self.assertEqual(kept['history'], previous)
+        self.assertEqual(session.data['histories'][kept['history_key']], previous)
         self.assertNotIn('runs', refreshed['history'])
         self.assertEqual(len(self.memory.histories[-1]['1']['runs']), 1)
         self.observer.complete_pass()
