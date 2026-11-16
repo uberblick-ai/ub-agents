@@ -73,7 +73,7 @@ class RetryableExecutionError(AgentError):
 
 
 class RuntimePaused(AgentError):
-    """Eligible runtimes are temporarily waiting for usage resets."""
+    """Eligible runtimes await usage resets or command/version changes."""
 
     def __init__(self, message, clis=()):
         super().__init__(message)

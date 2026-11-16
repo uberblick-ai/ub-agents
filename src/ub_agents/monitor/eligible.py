@@ -11,7 +11,7 @@ from ..loop import Loop
 from ..observation_data import work_rows
 from ..records import iso
 from ..run_planning import ObservationReads
-from .local import runtime_pauses
+from .local import held_block, runtime_blocks, runtime_pauses
 
 LIMIT = 20
 PLAN_SECONDS = 300
@@ -51,6 +51,8 @@ class EligiblePlanning:
             self.loop = Loop(self.config, self.github, self.actor, output=lambda *_: None)
             self.loop.coordinator.clock = self.clock
         self.loop.usage.pauses = runtime_pauses(self.config, now)
+        blocks = runtime_blocks(self.config, now)
+        self.loop.coordinator.runtime_blocked = lambda agent, runtime: held_block(blocks, agent, runtime)
         plans = [self.plan_row(plan) for plan in self.loop.iter_plans()]
         rows = [row for row in work_rows({'latest_pass': {'rows': plans}}, self.config.root,
                                          plan_limit=len(plans)) if row.group == 'Eligible']
