@@ -95,11 +95,15 @@ order until it fits:
 
 1. Notices for items outside Needs attention.
 2. Older outcomes.
-3. Plans outside Running, Needs attention and the first ten Eligible items in claim
-   order, with history metadata nothing else refers to.
-4. Notices for Needs attention items.
-5. Visible titles, reasons and summaries, shortened in steps.
-6. Visible plans, starting with the last. The current assignment always stays.
+3. All plans hidden from Work, with history metadata nothing else refers to.
+4. Remaining plans outside Running, Needs attention and the first ten Eligible
+   items in claim order, with history metadata nothing else refers to.
+5. Notices for Needs attention items.
+6. Visible titles, reasons and summaries, shortened in steps.
+7. Visible plans, starting with the last. The current assignment always stays.
+
+Hidden plans leave before their winning plans, so trimming cannot bring a hidden
+plan back into Work.
 
 History files are outside the snapshot's 64 KiB budget. Runs have no count or
 size-based trimming; their text fields retain the 2,048-character limit.

@@ -294,6 +294,42 @@ class ObservationTests(unittest.TestCase):
             self.assertEqual(self.memory.histories[-1][str(number)]['runs'][-1]['time'], iso(1002))
         self.assertEqual(self.observer.state, retained)
 
+    def test_byte_trimming_does_not_restore_attention_hidden_by_eligible_overflow(self):
+        for carried in (False, True):
+            with self.subTest(carried=carried):
+                self.observer = Observations(self.cfg, 'operator', None, self.memory, clock=lambda: 1000)
+                self.observer._batching = True
+                self.observer.begin_pass()
+                self.observer.plan(Plan(issue(11), replace(self.cfg.agents[0], name='reviewer'),
+                                        None, 'blocked', 'Hidden attention', 1))
+                if carried:
+                    self.observer.complete_pass()
+                    self.observer.clock = lambda: 1001
+                    self.observer.begin_pass()
+                # Dropping the winning overflow row alone must free enough
+                # space for the hidden attention row to survive the old trim.
+                for number in range(1, 12):
+                    self.observer.plan(Plan(replace(issue(number), title='T' * MAX_TEXT),
+                                            self.cfg.agents[0], None, 'ready', 'R' * 1500, 1))
+                retained = deepcopy(self.observer.state)
+                untrimmed = self.observer.snapshot(self.observer.snapshot_histories())
+                self.assertGreater(Observations.byte_size(untrimmed), MAX_BYTES)
+                before = work_pane(Session(self.root / 'launcher.json', untrimmed), self.root)
+                self.assertEqual([row.item for row in work_rows(
+                    Session(self.root / 'launcher.json', untrimmed), self.root)], list(range(1, 12)))
+                self.observer._batching = False
+                self.observer.emit()
+                snapshot = self.memory.snapshots[-1]
+                after = work_pane(Session(self.root / 'launcher.json', snapshot), self.root)
+                self.assertEqual([(section.name, [row.key for row in section.rows]) for section in after.sections],
+                                 [(section.name, [row.key for row in section.rows]) for section in before.sections])
+                self.assertEqual(after.sections[-1].label, 'Eligible · 11 · showing 10')
+                self.assertFalse(any(row['item'] == 11 for row in snapshot['latest_pass']['rows']))
+                self.assertNotIn('11', snapshot['histories'])
+                self.assertGreaterEqual(snapshot['omitted']['plans'], 2)
+                self.assertLessEqual(Observations.byte_size(snapshot), MAX_BYTES)
+                self.assertEqual(self.observer.state, retained)
+
     def test_author_observations_use_existing_role_reads_and_fail_closed(self):
         github = FakeGitHub(issue())
         loop = self.loop(github)
