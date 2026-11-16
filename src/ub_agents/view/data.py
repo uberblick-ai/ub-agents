@@ -89,6 +89,8 @@ def load_session(path):  # noqa: C901
                 raise ValueError(f'Invalid {key}')
         if 'outcomes' in data and not isinstance(data['outcomes'], list):
             raise ValueError('Invalid outcomes')
+        if 'runtime_blocks' in data and not isinstance(data['runtime_blocks'], list):
+            raise ValueError('Invalid runtime blocks')
         if mapping(data.get('latest_pass')).get('rows') is not None and not isinstance(data['latest_pass']['rows'], list):
             raise ValueError('Invalid pass rows')
         groups = [data.get('outcomes', []), mapping(data.get('latest_pass')).get('rows', [])]

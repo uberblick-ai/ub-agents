@@ -48,6 +48,27 @@ Pauses are held in memory per launcher; alternatives skip paused CLIs, and an it
 with every runtime paused stays `waiting`. See the [usage pause contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#runtime-usage-pauses)
 for detection and reset rules.
 
+## Rejected CLI settings
+
+If Claude Code or Codex rejects an option or value at startup, before producing
+any JSON output, the launcher releases the run as `retry` without charging an
+attempt. It blocks that role's runtime alternative. Other alternatives and roles
+keep running. An item with every eligible alternative blocked stays `waiting`;
+this failure adds no stop label or action-needed notice.
+
+`status`, the terminal view and `doctor` show this checkout's live launcher blocks,
+including the role, alternative, rejected setting and how to clear it. Doctor
+reports them as warnings. Blocks stay in that launcher's memory and have no timer;
+they do not change the shared installation health.
+
+To clear a block, change the affected alternative's `runtime-args`, model or effort,
+install a different CLI version, update launcher flags, or restart the launcher.
+The launcher rechecks commands on configuration reload and versions at runtime
+maintenance boundaries. A successful `--version` with the same version leaves the
+block in place. Per-run scratch and report-command substitutions do not clear it.
+See the [rejection contract](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#runtime-command-rejections)
+for the recognised diagnostics. Other startup failures spend an attempt as usual.
+
 ## Not allowed
 
 `runtime-args` must not change the model or effort or resume a session. Claude arguments must not set `-c` (continue a session) or `--output-format`; Codex arguments must not set `--ephemeral`. `ub-agents doctor --offline` rejects them.

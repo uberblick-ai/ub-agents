@@ -23,6 +23,7 @@ from .run_prompt import run_context, run_environment
 from .usage.run_usage import usage_fields
 from .settlement import Settlement
 from .usage.usage_output import UsageOutput, collect_usage
+from .runtime_rejections import rejected_setting
 from .worktree_setup import run_worktree_setup
 
 
@@ -127,7 +128,11 @@ class AssignmentRun:
             self.outcome = loop.coordinator.outcome(lease)
             if self.outcome is not None and diagnostics:
                 loop.coordinator.update_outcome(lease, self.outcome, **diagnostics)
-            if self.outcome is None:
+            rejection = self.runtime_rejection(plan, code, env)
+            if rejection:
+                result, summary, effect = "retry", rejection, "unchanged"
+                self.completing = False
+            elif self.outcome is None:
                 result = "retry"
                 summary = f"Execution exited {code} without an explicit GitHub outcome; inspect process.log"
             else:
@@ -244,6 +249,7 @@ class AssignmentRun:
                              expires=lambda: loop.coordinator.execution_deadline(lease), process_started=self.process_started,
                              process_exited=lambda: loop.coordinator.execution_finished(lease),
                              observe_output=self.observe_output if self.usage_output or loop.updates else None,
+                             separate_output=plan.runtime is not None,
                              pass_fds=code_descriptors() + (reservation.descriptors if reservation is not None else ()))
             loop.coordinator.execution_deadline(lease)
             return code
@@ -261,6 +267,17 @@ class AssignmentRun:
             return None
         finally:
             loop.coordinator.execution_finished(lease)
+
+    def runtime_rejection(self, plan, code, env):
+        if plan.runtime is None:
+            return None
+        setting = rejected_setting(plan.runtime.cli, code, self.run_dir)
+        if setting is None:
+            return None
+        version = self.loop.maintenance.version(plan.runtime.cli, env)
+        summary = self.loop.runtime_blocks.reject(plan.agent, plan.runtime, setting, version)
+        self.loop.output(summary)
+        return summary
 
     def diagnostic(self, event, **details):
         self.loop._diagnostic(self.run_dir, event, **details)

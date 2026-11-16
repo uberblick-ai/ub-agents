@@ -19,7 +19,9 @@ from ..labels import LabelUse, configured_labels, confirm_label_creation
 from ..launcher_lock import running_launcher
 from .mcp_probe import PROBE_TIMEOUT
 from .registry import CHECK_AREAS, areas, check
-from ..records import iso
+from ..records import iso, timestamp
+from ..monitor.local import runtime_blocks
+from ..runtime_rejections import block_reason
 from ..refresh import control_checkout_checks
 from ..trust import WRITERS
 
@@ -443,10 +445,13 @@ class Doctor:
             if agent.retrospectives is not None:
                 self.add("github-retrospectives", "skip", "offline: GitHub discussions are not checked", agent=agent)
 
-    @check("runtimes", "commands")
+    @check("runtimes", "commands", "runtime-command-block")
     def _runtimes(self, config, offline):
         from .doctor_mcp import MCPChecks
         if config:
+            for block in runtime_blocks(config, timestamp()):
+                self._record(Check(f"runtime-command-block:{block['agent']}:{block['runtime']}", "warn", False,
+                                   block['agent'], block['runtime'], public(block_reason(block)), public(block['remedy'])))
             if offline:
                 self._offline_runtimes(config)
             else:

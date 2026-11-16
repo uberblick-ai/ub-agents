@@ -185,6 +185,7 @@ class Observations:
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None, "update": None,
             "health_notice": None,
             "runtime_pauses": {},
+            "runtime_blocks": [],
             "outcomes": [], "histories": {}, "history_storage": "files",
             "action_needed": {}, "coordination_authors": {},
             "omitted": {"plans": 0, "outcomes": 0},
@@ -434,6 +435,10 @@ class Observations:
 
     def runtime_pauses(self, pauses):
         self.state["runtime_pauses"] = dict(pauses)
+        self.emit()
+
+    def runtime_blocks(self, blocks):
+        self.state["runtime_blocks"] = [dict(block) for block in blocks]
         self.emit()
 
     def poll_now(self, cooldown_until, rate_limit_until, waiting=False):

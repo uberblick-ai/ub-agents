@@ -75,6 +75,7 @@ class ObservationPlanner:
         self.health = loop.health
         self.maintenance = loop.maintenance
         self.coordinator.runtime_paused = self.usage.paused
+        self.coordinator.runtime_blocked = loop.runtime_blocks.blocked
         self.coordinator.runtime_available = self.maintenance.available
         self.pass_output = PassOutput(self.output)
         self.pass_messages = PassMessages(self.output)
