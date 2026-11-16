@@ -3,6 +3,7 @@
 from contextlib import chdir, redirect_stderr, redirect_stdout
 from dataclasses import replace
 from io import BytesIO, StringIO
+import base64
 import json
 from pathlib import Path
 import subprocess
@@ -52,7 +53,155 @@ def checkout(root, name):
     return folder
 
 
+def contents(content):
+    return {'encoding': 'base64', 'content': base64.encodebytes(content.encode()).decode()}
+
+
 class MonitorTests(unittest.TestCase):
+    def test_repository_targets_load_once_without_overrides_or_checkout_file_checks(self):
+        content = ('repository: ORG/Remote\nshared-instructions: absent-shared.md\n'
+                   'checkout-setup: {command: [echo], when-changed: [local]}\n'
+                   'agents:\n  worker:\n    runtime: claude:model:high\n'
+                   '    instructions: absent.md\n    trigger: ready\n    outcomes: {done: {}}\n')
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            root = Path(folder).resolve()
+            local = checkout(root, 'local')
+            (root / 'ub-agents.local.yaml').write_text('stop-labels: [wrong]\n')
+            (local / 'ub-agents.local.yaml').write_text('stop-labels: [pause]\n')
+            (root / 'ub-agents-monitor.yaml').write_text('checkouts: [org/remote, local]\n')
+            for arguments, expected in ((['monitor', 'org/remote'], ['ORG/Remote']),
+                                        (['monitor'], ['ORG/Remote', 'org/local'])):
+                with self.subTest(arguments=arguments), \
+                        patch.object(GitHub, 'request', return_value=contents(content)) as read, \
+                        patch('ub_agents.monitor.GitHub', side_effect=lambda *args, **kwargs: FakeGitHub()), \
+                        patch('ub_agents.monitor.serve', return_value=0) as serve:
+                    self.assertEqual(main(arguments), 0)
+                    sources = serve.call_args.args[0]
+                    self.assertEqual([source.config.repository for source in sources], expected)
+                    self.assertIsNone(sources[0].folder)
+                    self.assertEqual(sources[0].config.stop_labels, ('needs-human',))
+                    self.assertEqual(sources[0].config.checkout_setup.when_changed, ('local',))
+                    for source in sources:
+                        source.snapshot()
+                        source.snapshot()
+                    if len(sources) > 1:
+                        self.assertEqual(sources[1].folder, str(local))
+                        self.assertEqual(sources[1].config.stop_labels, ('pause',))
+                    read.assert_called_once_with('repos/org/remote/contents/ub-agents.yaml')
+
+    def test_repository_config_errors_name_repository_and_stop_before_serving(self):
+        valid = ('repository: org/remote\nagents:\n  worker:\n    command: [echo]\n'
+                 '    trigger: ready\n    outcomes: {done: {}}\n')
+        cases = [(AgentError('404 not found'), '404'), ({'encoding': 'none'}, 'Unreadable'),
+                 ({'encoding': 'base64', 'content': '!'}, 'Unreadable'),
+                 ({'encoding': 'base64', 'content': '/w=='}, 'Unreadable'),
+                 (contents('agents: ['), 'Invalid'), (contents('[]'), 'mapping'),
+                 (contents(valid.replace('org/remote', 'org/other')), 'differs'),
+                 (contents(valid + 'poll-seconds: 0\n'), 'poll-seconds'),
+                 (contents(valid + 'unknown: value\n'), 'Unknown'),
+                 (contents(valid.replace('command: [echo]', 'runtime: claude:model:high')), 'requires instructions')]
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            (Path(folder) / 'ub-agents-monitor.yaml').write_text('checkouts: [org/remote]\n')
+            for arguments in (['monitor', 'org/remote', '--background'], ['monitor', '--background']):
+                for response, message in cases:
+                    with self.subTest(arguments=arguments, message=message, response=response), \
+                            patch.object(GitHub, 'request', side_effect=[response]) as read, \
+                            patch('ub_agents.monitor.serve') as serve, \
+                            patch('ub_agents.monitor.monitor_background') as background, \
+                            redirect_stderr(StringIO()) as error:
+                        self.assertEqual(main(arguments), 1)
+                        self.assertIn('org/remote', error.getvalue())
+                        self.assertIn(message, error.getvalue())
+                        read.assert_called_once()
+                        serve.assert_not_called()
+                        background.assert_not_called()
+
+    def test_existing_owner_name_paths_win_relative_to_the_monitor_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            owner = root / 'org'
+            owner.mkdir()
+            local = checkout(owner, 'local')
+            config_path = owner / 'custom'
+            config_path.write_text((local / 'ub-agents.yaml').read_text().replace('org/local', 'org/custom'))
+            monitor = root / 'ub-agents-monitor.yaml'
+            monitor.write_text('checkouts: [org/local, org/custom]\n')
+            with chdir(root), patch.object(GitHub, 'request') as read, \
+                    patch('ub_agents.monitor.monitor_sources') as sources, \
+                    patch('ub_agents.monitor.serve', return_value=0):
+                for arguments in (['monitor', 'org/local', 'org/custom'], ['monitor']):
+                    self.assertEqual(main(arguments), 0)
+                    self.assertEqual([cfg.repository for cfg in sources.call_args.args[0]], ['org/local', 'org/custom'])
+                (local / 'ub-agents.yaml').unlink()
+                with redirect_stderr(StringIO()) as error:
+                    self.assertEqual(main(['monitor', 'org/local']), 1)
+                self.assertIn('org/local', error.getvalue())
+                read.assert_not_called()
+
+    def test_repository_and_checkout_duplicates_keep_the_existing_error(self):
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            local = checkout(Path(folder), 'local')
+            response = contents((local / 'ub-agents.yaml').read_text().replace('org/local', 'ORG/LOCAL'))
+            for targets in (['org/local', 'local'], ['local', 'org/local']):
+                with self.subTest(targets=targets), patch.object(GitHub, 'request', return_value=response), \
+                        patch('ub_agents.monitor.serve') as serve, redirect_stderr(StringIO()) as error:
+                    self.assertEqual(main(['monitor', *targets]), 1)
+                    self.assertIn('same repository', error.getvalue())
+                    self.assertIn('org/local', error.getvalue())
+                    serve.assert_not_called()
+
+    def test_background_passes_repository_targets_unchanged_and_chooses_log_folder(self):
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            root = Path(folder).resolve()
+            local = checkout(root, 'local')
+            response = contents((local / 'ub-agents.yaml').read_text().replace('org/local', 'org/remote'))
+            for targets, log_root in ((['org/remote'], root), (['org/remote', 'local'], local), ([], root)):
+                (root / 'ub-agents-monitor.yaml').write_text('checkouts: [org/remote, local]\n')
+                with self.subTest(targets=targets), patch.object(GitHub, 'request', return_value=response), \
+                        patch('ub_agents.monitor.already_serving', side_effect=[False, True]), \
+                        patch('ub_agents.monitor.subprocess.Popen') as popen, redirect_stdout(StringIO()):
+                    self.assertEqual(main(['monitor', *targets, '--background', '--no-open']), 0)
+                    child_targets = ['org/remote'] + ([str(local / 'ub-agents.yaml')] if len(targets) != 1 else [])
+                    self.assertEqual(popen.call_args.args[0][3:], ['monitor', *child_targets, '--port', '4377', '--no-open'])
+                    self.assertEqual(popen.call_args.kwargs['stdout'].name, str(log_root / '.ub-agents' / 'monitor.log'))
+
+    def test_repository_eligible_ignores_local_pauses_while_checkout_keeps_them(self):
+        root, now = Path('/checkout'), timestamp()
+        worker = agent(root, command=(), runtimes=(Runtime('claude', 'model', 'high'),))
+        githubs = [FakeGitHub(issue(1)), FakeGitHub(issue(1))]
+        with patch('ub_agents.monitor.GitHub', side_effect=githubs):
+            sources = monitor_sources([config(root, worker), replace(config(root, worker), repository='org/remote')],
+                                      repository_targets=['org/remote'])
+        with patch('ub_agents.updates.runtime_updates.RuntimeMaintenance.available', return_value=True), \
+                patch('ub_agents.monitor.eligible.runtime_pauses', return_value={'claude': now + 100}) as pauses:
+            local, remote = Repositories(sources).get()['repositories']
+            pauses.assert_called_once()
+        self.assertEqual(local['eligible']['rows'][0]['pauses'], {'claude': iso(now + 100)})
+        self.assertEqual(remote['eligible']['rows'][0]['pauses'], {})
+        self.assertEqual((local['eligible']['rows'][0]['state'], remote['eligible']['rows'][0]['state']), ('waiting', 'next'))
+        self.assertEqual((remote['folder'], remote['local_host']), (None, None))
+        self.assertEqual(local['folder'], str(root))
+        with patch.object(sources[1], 'snapshot', side_effect=AgentError('offline')):
+            unread = Repositories([sources[1]]).get()['repositories'][0]
+        self.assertEqual(unread['folder'], None)
+
+    def test_repository_planning_never_checks_local_executables_or_runs_health_commands(self):
+        root = Path('/checkout')
+        workers = [agent(root, command=('/absent/worker',), health_check=('/absent/check',)),
+                   agent(root, command=(), runtimes=(Runtime('claude', 'model', 'high'),),
+                         health_check=('/absent/check',))]
+        for worker in workers:
+            with self.subTest(worker=worker), \
+                    patch('ub_agents.coordination.shutil.which', side_effect=AssertionError('local executable read')), \
+                    patch('ub_agents.updates.runtime_updates.RuntimeMaintenance.available',
+                          side_effect=AssertionError('local maintenance read')), \
+                    patch('ub_agents.agent_health.run_check', side_effect=AssertionError('local health command')):
+                github = FakeGitHub(issue(1))
+                source = MonitorSource(config(root, worker), github, Coordinator(github, None), timestamp, checkout=False)
+                result = source.snapshot()
+                self.assertIsNone(result['eligible_error'])
+                self.assertEqual(result['eligible']['rows'][0]['state'], 'next')
+
     def test_monitor_file_works_without_a_project_and_preserves_checkout_order_and_overrides(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder).resolve()
@@ -409,7 +558,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn('host === state.data?.local_host ? "this machine"', html)
         self.assertIn('runs.filter((run) => run.host === state.machine)', html)
         self.assertIn('panel("Running", shown.length', html)
-        self.assertIn('state.machine === null ? "any machine" : machine(state.machine)', html)
+        self.assertIn('state.machine === null ? "any machine" : machine(state.machine, Boolean(data.local_host))', html)
         self.assertIn('needsPanel(data.needs_human, data.stop_labels,', html)
         self.assertIn('recentPanel(data.recent)', html)
         self.assertIn('started: new Set(data.running.map(runKey))', html)

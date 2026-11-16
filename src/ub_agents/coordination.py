@@ -53,7 +53,7 @@ class Coordinator:
                  runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None,
                  on_author=None, on_action=None, trusted_bots=(), on_decline=None,
                  lease_seconds=LEASE_SECONDS, lease_renew_seconds=LEASE_RENEW_SECONDS, trusted_pr_authors=(),
-                 on_release=None):
+                 on_release=None, check_executables=True):
         self.github = github
         self.actor = actor
         self.trust = LauncherTrust(github, launchers, role, on_author, trusted_bots=trusted_bots,
@@ -69,6 +69,7 @@ class Coordinator:
         self.on_decline = on_decline
         self.on_record = on_record
         self.runtime_available = runtime_available
+        self.check_executables = check_executables
         self.runtime_paused = runtime_paused or (lambda cli: None)
         self.notices = Notices(github, actor, output, trusted=self.trust, on_action=on_action)
         # Renewal and the supervising launcher's state edits share one writer.
@@ -269,7 +270,7 @@ class Coordinator:
 
     def choose_runtime(self, item, agent, history):
         if agent.command:
-            if not shutil.which(agent.command[0]):
+            if self.check_executables and not shutil.which(agent.command[0]):
                 raise AgentError(f"Command is not installed: {agent.command[0]}")
             return None
         eligible = list(agent.runtimes)
@@ -284,7 +285,7 @@ class Coordinator:
                     raise AgentError("No runtime has a different CLI and model from the candidate author")
         paused = {}
         for runtime in eligible:
-            if (self.runtime_available or shutil.which)(runtime.cli):
+            if not self.check_executables or (self.runtime_available or shutil.which)(runtime.cli):
                 pause = self.runtime_paused(runtime.cli)
                 if pause:
                     paused[runtime.cli] = pause

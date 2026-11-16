@@ -51,7 +51,7 @@ def _untriggered_plan(item, agent, history, record, now):
 class QueuePlanner:
     def __init__(self, config, github, coordinator, approvals, *, health, usage, maintenance,
                  output, observe, observing, before_claim, reconcile_blocked_notices, targeted, claiming,
-                 notice_agent, discovery, pass_stats, launch_agent, launch_number):
+                 notice_agent, discovery, pass_stats, launch_agent, launch_number, local_checks=True):
         self._config = config
         self._github = github
         self._coordinator = coordinator
@@ -61,6 +61,7 @@ class QueuePlanner:
         self.health = health
         self.usage = usage
         self.maintenance = maintenance
+        self.local_checks = local_checks
         self.output = output
         self.observe = observe
         self.observing = observing
@@ -408,6 +409,7 @@ class QueuePlanner:
                            queue=self.config.queue, output=self.output,
                            runtime_available=self.maintenance().available,
                            runtime_paused=self.usage().paused, launchers=self.config.launchers,
+                           check_executables=self.local_checks,
                            role=github.current_role, trusted_bots=self.config.trusted_bots,
                            trusted_pr_authors=self.coordinator.trust.trusted_pr_authors,
                            on_author=lambda *args: observe("coordination_author", *args))
@@ -482,7 +484,7 @@ class QueuePlanner:
                                            and (self.notice_agent() is None or r["agent"] == self.notice_agent())], coordinator)
 
     def health_plan(self, plan, checked=None, *, announce=False):
-        if plan.state == "ready":
+        if plan.state == "ready" and self.local_checks:
             reason = self.health().check(self.config.root, plan.agent, checked, announce=announce)
             if reason is not None:
                 return replace(plan, state="waiting", runtime=None, reason=reason, health_wait=True)

@@ -11,18 +11,22 @@ ub-agents monitor --port 4400          # another port
 ub-agents monitor --no-open            # serves without opening a browser
 ub-agents monitor --background         # keeps serving after the command exits
 ub-agents monitor ~/code/backend ~/code/studio
+ub-agents monitor owner/name
+ub-agents monitor . owner/name
 ub-agents monitor . ../studio --background
 ```
 
-Give any number of checkout folders or paths to their `ub-agents.yaml` files.
-Each checkout applies its own `ub-agents.local.yaml` overrides. With none, the
-monitor can read a list saved in the current folder:
+Give any number of checkout folders, paths to their `ub-agents.yaml` files or
+repositories as `owner/name`. An existing folder or config file wins over the
+repository reading. Each checkout applies its own `ub-agents.local.yaml` overrides.
+With no targets, the monitor can read a list saved in the current folder:
 
 ```yaml
 # ~/Projects/Uberblick/ub-agents-monitor.yaml
 checkouts:
   - uberblick-2
   - ub-agents
+  - owner/name
 ```
 
 Keep those checkouts next to the file, then run `ub-agents monitor` from
@@ -31,29 +35,47 @@ relative to the file, and `~` expands to your home folder. You can also list pat
 to the checkouts' `ub-agents.yaml` files. This folder needs no `ub-agents.yaml` of
 its own.
 
-The command chooses checkouts in this order:
+The command chooses targets in this order:
 
-1. Checkouts on the command line, or `--config PATH`, skip the monitor file.
+1. Targets on the command line, or `--config PATH`, skip the monitor file.
 2. Otherwise, `ub-agents-monitor.yaml` in the current folder wins, even when that
    folder also has `ub-agents.yaml`. Parent folders are never searched.
 3. Without a monitor file, it uses the current folder's `ub-agents.yaml` as usual.
 
-The monitor file accepts only `checkouts`, a list of at least one path. An unknown
-key, a missing or empty list, or a non-path entry is an error naming the file.
-An entry whose checkout is missing or whose configuration is invalid stops the
+The monitor file accepts only `checkouts`, a list of at least one path or
+`owner/name` repository. Its folder is where paths are checked before reading an
+entry as a repository. An unknown key, a missing or empty list, or an entry that
+isn't a nonempty string is an error naming the file.
+An entry whose path is missing or whose configuration is invalid stops the
 command at start, naming both the entry and the monitor file. The list and the
 checkouts' configurations are read once at start; restart to apply edits.
 
-You cannot combine checkouts with `--config`, or give two checkouts that configure
-the same repository. Every
-configuration must load before the monitor starts; an error names its checkout.
+You cannot combine targets with `--config`, or watch the same repository twice,
+including through a repository target and a checkout. Every configuration must
+load before the monitor starts; an error names its target.
+
+For a repository without a checkout, the monitor reads `ub-agents.yaml` through
+GitHub's contents API from its default branch once at start. Restart to read a
+changed configuration. A missing, unreadable or invalid configuration stops the
+command at start, as does a `repository` value that differs from the target
+(case ignored). It applies no `ub-agents.local.yaml` overrides and skips checks
+on checkout files, such as instructions, shared instructions and checkout setup
+files. All other configuration checks still apply.
+
+That repository's Eligible plan uses GitHub alone, without this machine's runtime
+pauses, executable checks or agent health commands. Its rows have no **discuss with
+Claude** link because there is no folder to open; item links remain available.
+Machine names stay as recorded and never
+read **this machine**. Checkouts in the same monitor keep their usual behavior.
 
 It reads GitHub with your `gh` login, as the launcher does, so there's no token to
 paste. Ctrl-C stops it. With `--background` it keeps serving after the terminal
 closes: the command waits until the page answers, prints the process id, and
 `kill PID` stops it; its output goes to `.ub-agents/monitor.log` next to the monitor
-file when using that file, or in the first checkout otherwise.
-The background process receives absolute paths for every checkout's configuration.
+file when using that file, or in the first checkout otherwise. With only repository
+targets and no monitor file, the log goes in the current folder.
+The background process receives absolute paths for every checkout's configuration
+and repository targets unchanged.
 Running it again while it runs just opens the page.
 
 Closing or reloading the page while a reply is pending is quiet. Other server
@@ -164,7 +186,8 @@ backend, studio
 
 Records count only from accounts that the launcher trusts: write access or higher,
 and listed in [`launchers`](/docs/configuration/launchers.html) when that is set.
-The host serving the monitor reads **this machine** in every panel and run detail.
+For checkout targets, the host serving the monitor reads **this machine** in every
+panel and run detail. Repository targets always use recorded machine names.
 
 Within each repository, an item appears in only one current section: Needs human
 takes precedence over Running, then Expired, then Eligible. Recent activity keeps

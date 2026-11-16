@@ -69,7 +69,7 @@ class RepositorySnapshot(Snapshots):
 
     def __init__(self, source):
         super().__init__(source)
-        self.value = {"repository": source.config.repository, "folder": str(source.config.root)}
+        self.value = {"repository": source.config.repository, "folder": source.folder}
         self.error = None
 
     def get(self, fresh=False):
@@ -90,7 +90,7 @@ class RepositorySnapshot(Snapshots):
 
 
 class Repositories:
-    """Read one source per checkout in parallel, with independent reuse windows."""
+    """Read one source per repository in parallel, with independent reuse windows."""
 
     def __init__(self, sources):
         self.snapshots = [RepositorySnapshot(source) for source in sources]

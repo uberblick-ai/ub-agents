@@ -18,8 +18,9 @@ PLAN_SECONDS = 300
 
 
 class EligiblePlanning:
-    def __init__(self, config, github, coordinator, clock):
+    def __init__(self, config, github, coordinator, clock, *, checkout=True):
         self.config, self.clock = config, clock
+        self.checkout = checkout
         self.github = ObservationReads(github, threading.Event())
         self.actor = coordinator.actor
         self.loop = None
@@ -50,7 +51,8 @@ class EligiblePlanning:
         if self.loop is None:
             self.loop = Loop(self.config, self.github, self.actor, output=lambda *_: None)
             self.loop.coordinator.clock = self.clock
-        self.loop.usage.pauses = runtime_pauses(self.config, now)
+            self.loop.queue_planner.local_checks = self.checkout
+        self.loop.usage.pauses = runtime_pauses(self.config, now) if self.checkout else {}
         plans = [self.plan_row(plan) for plan in self.loop.iter_plans()]
         rows = [row for row in work_rows({'latest_pass': {'rows': plans}}, self.config.root,
                                          plan_limit=len(plans)) if row.group == 'Eligible']
