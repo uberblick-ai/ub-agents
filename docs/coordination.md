@@ -167,7 +167,10 @@ v4 record blocks its item.
 By default, records count when the comment author's current repository role is
 `write`, `maintain` or `admin`. [`launchers`](https://agents.uberblick.ai/docs/configuration/launchers.html)
 narrows trust to listed accounts, matched ignoring case, which still need `write` or
-higher. Any trusted account, including a person with write access, can post records
+higher. A bot listed in `trusted-bots` or `trusted-pr-authors` supplies feedback or PR
+authorship, never records, whatever its role.
+
+Any trusted account, including a person with write access, can post records
 that count; this adds little authority, because that person can already change
 labels and push. Unlisted authors are ignored without a role read. Roles are judged
 at read time, so demoting or unlisting an account revokes all its records, including
@@ -347,11 +350,11 @@ fails before any GitHub request. Outside a run, only `read N` works, using local
 configuration.
 
 `run.json` pins `repository`, `run`, `assignment`, `lease_id`, `agent`, `approvals`,
-`trusted-bots`, `trusted-pr-authors`, `triggers` and `retrospectives`, plus
-`upstream-retrospectives` and the selected lease's `runtime` (`cli:model:effort`,
-or `direct` for command agents). `launchers` and `sub-issue-labels` appear when
-configured. Older contexts without the upstream fields keep local commands working
-and treat the upstream opt-in as off.
+`trusted-bots`, `trusted-pr-authors`, `triggers`, `retrospectives`, `outcomes` and
+`stop-labels`, plus `upstream-retrospectives` and the selected lease's `runtime`
+(`cli:model:effort`, or `direct` for command agents). `launchers` and
+`sub-issue-labels` appear when configured. Older contexts without the upstream fields
+keep local commands working and treat the upstream opt-in as off.
 
 `retrospective` posts to the role's pinned local board. `retrospective --upstream`
 requires the pinned [upstream-retrospectives opt-in](https://agents.uberblick.ai/docs/best-practices/retrospectives.html#send-feedback-about-ub-agents),
@@ -558,7 +561,7 @@ and issue closure without rechecking CI or requiring the old trigger labels.
 
 Projects without `merge` keep their existing agent-managed merge procedure.
 Every launcher must support the key before the project's configuration uses it;
-older launchers reject it. This repository adopts the key in a later change.
+older launchers reject it.
 
 ## Recovery
 
@@ -644,7 +647,8 @@ with `No runtime has a different CLI and model from the candidate author`.
 
 Without an accepted report from any named agent on the issue or for the current PR
 head, the agent uses only its first configured runtime. If that runtime's CLI is
-not installed, planning blocks with `No eligible runtime executable is installed`.
+missing, unusable or unavailable, planning blocks with
+`No eligible runtime executable is installed, usable and available`.
 The launcher does not detect authorship or guess the source runtime.
 
 When the source is identified, the eligible runtime must differ from it in CLI
