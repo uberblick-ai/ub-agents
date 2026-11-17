@@ -140,6 +140,39 @@ async function discussLinksNameRepository() {
   }
 }
 
+async function repositoryTargetsKeepCheckoutControlsScoped() {
+  const remote = { ...busy("org/remote", 1, "laptop"), folder: null };
+  const local = busy("org/local", 10, "laptop");
+  const page = await browser([remote, local]);
+  const links = needsPanel(page).descendants().filter((node) => node.className === "discuss");
+  assert.equal(links.length, 1);
+  assert.equal(new URL(links[0].attributes.href).searchParams.get("folder"), local.folder);
+  const rows = page.nodes.app.descendants().filter((node) => node.className === "row");
+  assert.ok(rows.some((row) => row.textContent.includes("remote #2") && row.textContent.includes("laptop")));
+  assert.ok(rows.some((row) => row.textContent.includes("local #11") && row.textContent.includes("this machine")));
+  for (const remotePage of [await browser([remote]), page]) {
+    if (remotePage === page) remotePage.change("Repository", "org/remote");
+    assert.doesNotMatch(remotePage.nodes.app.textContent, /this machine|discuss with Claude/);
+    assert.deepEqual(options(remotePage.select("Running machine")), ["All Machines (1)", "laptop"]);
+    assert.ok(needsPanel(remotePage).descendants().some((node) => node.tag === "a" &&
+      node.textContent === "open the item" && node.attributes.href === item("org/remote", 1).url));
+    remotePage.change("Running machine", "laptop");
+    const idle = { ...remote, running: [], recent: [], expired: [] };
+    await remotePage.poll(remotePage === page ? [idle, local] : [idle]);
+    assert.doesNotMatch(remotePage.nodes.app.textContent, /this machine/);
+    assert.match(remotePage.nodes.app.textContent, /nothing running on laptop/);
+  }
+  page.change("Repository", "org/local");
+  assert.match(page.nodes.app.textContent, /this machine|discuss with Claude/);
+  page.enableNotifications();
+  page.storage.set("ub-agents-monitor.notify-events-v2", JSON.stringify(["started", "expired"]));
+  await page.poll([{ ...remote, running: [run("org/remote", 20, "laptop")] }, local]);
+  assert.ok(page.notifications.length > 0);
+  assert.ok(page.notifications.every((notification) => !notification.body.includes("this machine")));
+  const empty = await browser([successful("org/remote", { folder: null })]);
+  assert.deepEqual(options(empty.select("Running machine")), ["All Machines (0)"]);
+}
+
 async function dismissalControlsAndMemory() {
   const backend = successful("org/backend", { needs_human: [stopped("org/backend", 1), waiting("org/backend", 2)],
     running: [run("org/backend", 3, "server")] });
@@ -476,6 +509,7 @@ async function main() {
   await repositoryFiltering();
   await repositoryMemoryAndFailures();
   await discussLinksNameRepository();
+  await repositoryTargetsKeepCheckoutControlsScoped();
   await notificationsIgnoreRepositoryChoice();
   await dismissalControlsAndMemory();
   await dismissalIdentityAndNotifications();

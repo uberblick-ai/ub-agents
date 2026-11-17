@@ -15,8 +15,10 @@ from .snapshot import MonitorSource
 START_SECONDS = 15
 
 
-def monitor_sources(configs):
-    return [MonitorSource(config, GitHub(config.repository, print_retries=False), None, timestamp) for config in configs]
+def monitor_sources(configs, *, repository_targets=()):
+    repositories = {repository.casefold() for repository in repository_targets}
+    return [MonitorSource(config, GitHub(config.repository, print_retries=False), None, timestamp,
+                          checkout=config.repository.casefold() not in repositories) for config in configs]
 
 
 def serve(sources, port, open_page=True):
@@ -44,7 +46,7 @@ def serve(sources, port, open_page=True):
     return 0
 
 
-def monitor_background(config_paths, root, port, open_page=True):
+def monitor_background(targets, root, port, open_page=True):
     """Start the monitor in its own session, so it outlives this terminal."""
     url = f"http://127.0.0.1:{port}/"
     if not already_serving(url):
@@ -52,7 +54,7 @@ def monitor_background(config_paths, root, port, open_page=True):
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("ab") as output:
             process = subprocess.Popen(
-                [sys.executable, "-m", "ub_agents", "monitor", *(str(path.resolve()) for path in config_paths),
+                [sys.executable, "-m", "ub_agents", "monitor", *(str(target) for target in targets),
                  "--port", str(port), "--no-open"],
                 stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
         deadline = monotonic() + START_SECONDS

@@ -41,14 +41,16 @@ def ask(outcome, lease=None):
 
 
 class MonitorSource:
-    def __init__(self, config, github, coordinator, clock):
+    def __init__(self, config, github, coordinator, clock, *, checkout=True):
         self.config = config
+        self.folder = str(config.root) if checkout else None
         self.github = github
         self.trust = coordinator.trust if coordinator is not None else None
         self.coordinator = coordinator
         self.clock = clock
         self.titles = {}
-        self.planning = EligiblePlanning(config, github, coordinator, clock) if coordinator is not None else None
+        self.planning = (EligiblePlanning(config, github, coordinator, clock, checkout=checkout)
+                         if coordinator is not None else None)
 
     def prepare(self):
         # Defer GitHub setup to the source's read so one failing repository can
@@ -60,7 +62,7 @@ class MonitorSource:
                 trusted_pr_authors=pr_author_exclusions(config.trusted_pr_authors, config.approvals, github))
             self.coordinator = coordinator
             self.trust = coordinator.trust
-            self.planning = EligiblePlanning(config, github, coordinator, self.clock)
+            self.planning = EligiblePlanning(config, github, coordinator, self.clock, checkout=self.folder is not None)
 
     def snapshot(self):
         self.prepare()
@@ -99,8 +101,8 @@ class MonitorSource:
         eligible = self.planning.snapshot(excluded=occupied)
         return {
             "repository": self.config.repository,
-            "folder": str(self.config.root),
-            "local_host": socket.gethostname(),
+            "folder": self.folder,
+            "local_host": socket.gethostname() if self.folder is not None else None,
             "stop_labels": list(self.config.stop_labels),
             "stop_outcomes": self.stop_outcomes(),
             "generated_at": iso(now),

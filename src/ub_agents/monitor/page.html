@@ -271,6 +271,7 @@
         })));
         return { ...snapshot, repositories, multiple: repositories.length > 1,
           repository: repositories[0].repository, folder: repositories[0].folder,
+          local_host: repositories.some((source) => source.folder) ? snapshot.local_host : null,
           stop_labels: repositories.some((source) => source.generated_at)
             ? [...new Set(repositories.flatMap((source) => source.stop_labels ?? []))] : undefined,
           stop_outcomes: combinedOutcomes(repositories),
@@ -314,7 +315,7 @@
       const FORMATS = { ago: (ms) => `${duration(ms)} ago`, for: duration };
       // Times the per-second tick rewrites in place, so open rows and focus survive.
       const clock = (stamp, format) => el("span", { "data-since": stamp, "data-format": format }, FORMATS[format](Date.now() - time(stamp)));
-      const machine = (host) => host && host === state.data?.local_host ? "this machine" : host || "unknown machine";
+      const machine = (host, checkout = true) => checkout && host && host === state.data?.local_host ? "this machine" : host || "unknown machine";
       const ref = (item) => `${item.kind === "pr" ? "PR " : ""}#${item.number}`;
       const itemLink = (item, showRepository = state.data?.multiple && state.repository === null) => el("div", { class: "cell item" }, link(item.url, [showRepository ? `${item.repository_name} ` : "", el("span", { class: "ref" }, ref(item)), item.title || ""]));
       const panel = (title, count, classes, children) =>
@@ -359,7 +360,7 @@
             : ask?.summary ? el("div", { class: "block" }, ask.summary) : null,
           ask?.options.length ? [el("div", { class: "block" }, "Options, recommended first:"), el("ol", { class: "block" }, ask.options.map((o) => el("li", {}, o)))] : null,
           el("div", { class: "block" },
-            el("a", { class: "discuss", href: discussUrl(item), title: "Opens a Claude Code session in this checkout with the unblock prompt filled in" }, "discuss with Claude"),
+            item.folder ? el("a", { class: "discuss", href: discussUrl(item), title: "Opens a Claude Code session in this checkout with the unblock prompt filled in" }, "discuss with Claude") : null,
             notice ? [link(notice, "action needed"), " · "] : null,
             ask ? link(ask.url, "outcome record") : link(item.url, "open the item"),
             " · ", el("button", { class: "link", type: "button", onclick: () => toggleDismissal(entry) }, dismissed ? "restore" : "dismiss")));
@@ -384,7 +385,7 @@
           el("span", { class: tone }, glyph),
           itemLink(run.item),
           el("div", { class: "cell wide" }, run.agent),
-          el("div", { class: "cell wide" }, machine(run.host)),
+          el("div", { class: "cell wide" }, machine(run.host, Boolean(run.item.folder))),
           last,
           el("div", { class: "sub" }, `attempt ${run.attempt} · ${run.runtime} · by ${run.actor}`));
 
@@ -402,8 +403,8 @@
       const machinePicker = (data) => {
         const others = new Set([...data.running, ...data.recent].map((run) => run.host).filter(Boolean));
         if (state.machine) others.add(state.machine);
-        others.delete(data.local_host);
-        const hosts = [data.local_host, ...[...others].sort()];
+        if (data.local_host) others.delete(data.local_host);
+        const hosts = [data.local_host, ...[...others].sort()].filter(Boolean);
         return el("div", { class: "machine-picker muted" },
           el("select", { "aria-label": "Running machine", onchange: (event) => {
             state.machine = event.target.value || null;
@@ -412,7 +413,7 @@
             document.querySelector('.machine-picker select').focus();
           } },
             el("option", { value: "", selected: state.machine === null }, `All Machines (${hosts.length})`),
-            hosts.map((host) => el("option", { value: host, selected: state.machine === host }, machine(host)))),
+            hosts.map((host) => el("option", { value: host, selected: state.machine === host }, machine(host, Boolean(data.local_host))))),
           el("span", { "aria-hidden": "true" }, "▾"));
       };
 
@@ -422,7 +423,7 @@
           shown.length
             ? shown.map((run) => runRow(run, SPINNER[frame], "spinner", el("div", { class: "cell right running", title: run.renewed ? `renewed ${new Date(run.renewed).toLocaleTimeString()}` : null },
                 run.state === "claiming" ? "claiming" : clock(run.started, "for"))))
-            : el("div", { class: "muted" }, `Idle · nothing running on ${state.machine === null ? "any machine" : machine(state.machine)}`));
+            : el("div", { class: "muted" }, `Idle · nothing running on ${state.machine === null ? "any machine" : machine(state.machine, Boolean(data.local_host))}`));
         result.append(machinePicker(data));
         return result;
       };
@@ -491,12 +492,12 @@
                     el("span", { class: tone(run) }, { success: "✓", blocked: "⏸", retry: "×" }[run.status] ?? "·"),
                     itemLink(run.item),
                     el("div", { class: `cell wide ${tone(run)}` }, run.result),
-                    el("div", { class: "cell wide" }, `${machine(run.host)} · ${duration(time(run.ended) - time(run.started))}`),
+                    el("div", { class: "cell wide" }, `${machine(run.host, Boolean(run.item.folder))} · ${duration(time(run.ended) - time(run.started))}`),
                     el("div", { class: "cell right muted" }, clock(run.ended, "ago")),
                     el("div", { class: "sub cell" }, `${run.agent} · ${run.summary || "no summary"}`)),
                   el("div", { class: "detail" },
                     run.summary ? el("p", {}, run.summary) : null,
-                    el("div", { class: "muted" }, `${run.agent} · ${machine(run.host)} · attempt ${run.attempt} · ${run.runtime} · by ${run.actor}`, usage(run) ? ` · ${usage(run)}` : "", " · ", link(run.url, "coordination record")))))
+                    el("div", { class: "muted" }, `${run.agent} · ${machine(run.host, Boolean(run.item.folder))} · attempt ${run.attempt} · ${run.runtime} · by ${run.actor}`, usage(run) ? ` · ${usage(run)}` : "", " · ", link(run.url, "coordination record")))))
             : el("div", { class: "muted" }, "No runs ended in the last 24 hours."));
       };
 
@@ -570,9 +571,9 @@
         return [
           ...data.needs_human.filter((e) => !isDismissed(e) && fresh(stopEvent(e, data), stopKey(e)))
             .map((e) => change(stopEvent(e, data), e.item, stopEvent(e, data).startsWith("outcome:") ? e.ask.outcome : e.labels.join(", "), ask(e))),
-          ...data.expired.filter((r) => fresh("expired", runKey(r))).map((r) => change("expired", r.item, "expired", `${r.agent} on ${machine(r.host)} stopped renewing its run.`)),
+          ...data.expired.filter((r) => fresh("expired", runKey(r))).map((r) => change("expired", r.item, "expired", `${r.agent} on ${machine(r.host, Boolean(r.item.folder))} stopped renewing its run.`)),
           ...data.recent.filter((r) => fresh("ended", runKey(r))).map((r) => change("ended", r.item, r.result, [r.agent, r.summary].filter(Boolean).join(" · "))),
-          ...data.running.filter((r) => fresh("started", runKey(r))).map((r) => change("started", r.item, "started", `${r.agent} on ${machine(r.host)}`)),
+          ...data.running.filter((r) => fresh("started", runKey(r))).map((r) => change("started", r.item, "started", `${r.agent} on ${machine(r.host, Boolean(r.item.folder))}`)),
         ];
       };
 

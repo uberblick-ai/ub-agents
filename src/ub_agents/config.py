@@ -327,7 +327,20 @@ def preview_config(content, path, planned):
         raise type(exc)(f"Invalid configuration {path} with local overrides {local_path}: {exc}") from exc
 
 
-def _parse_config(data, root, *, planned=()):
+def load_repository_config(content, repository):
+    """Parse remote YAML without local overrides or checks on checkout files."""
+    try:
+        data = yaml.load(content, Loader=UniqueLoader)
+    except yaml.YAMLError as exc:
+        raise AgentError(f"Invalid {DEFAULT_CONFIG}: {exc}") from exc
+    # The read-only planner needs a root for path values, but never opens them.
+    config = _parse_config(data, Path.cwd(), check_files=False)
+    if config.repository.casefold() != repository.casefold():
+        raise AgentError(f"{DEFAULT_CONFIG} repository {config.repository} differs from {repository}")
+    return config
+
+
+def _parse_config(data, root, *, planned=(), check_files=True):
     data = mapping(data, {"repository", "agents", "limits", "poll-seconds", "stop-labels", "queue", "cleanup",
                           "checkout-setup", "runtime-updates", "runtime-args", "launchers", "approvals", "trusted-bots",
                           "trusted-pr-authors", "shared-instructions", "events", "upstream-retrospectives"},
@@ -337,7 +350,7 @@ def _parse_config(data, root, *, planned=()):
     # Keep symlinks in the configured path so each run revalidates their targets.
     shared = (root / string(data["shared-instructions"], "shared-instructions")
               if "shared-instructions" in data else None)
-    if shared is not None:
+    if shared is not None and check_files:
         project_path(root, str(shared), "shared-instructions", planned=planned)
     approvals = data.get("approvals")
     if "approvals" in data and (not isinstance(approvals, str) or approvals not in {"on", "off"}):
@@ -351,7 +364,7 @@ def _parse_config(data, root, *, planned=()):
     runtime_updates = _parse_runtime_updates(data, root)
     cleanup = _parse_cleanup(data)
     events = _parse_events(data)
-    checkout_setup = _parse_checkout_setup(data, root)
+    checkout_setup = _parse_checkout_setup(data, root, check_files=check_files)
     queue = _parse_queue(data)
     repo = string(data.get("repository"), "repository")
     if not re.fullmatch(REPOSITORY, repo):
@@ -364,7 +377,7 @@ def _parse_config(data, root, *, planned=()):
     agents = []
     for name, definition in definitions.items():
         agents.append(_parse_agent(name, definition, definitions, root, runtime_defaults,
-                                   limits, lease_seconds, stop, planned))
+                                   limits, lease_seconds, stop, planned, check_files=check_files))
     _validate_agent_relationships(agents, stop)
     poll = number(data.get("poll-seconds", 30), "poll-seconds")
     return Config(root, repo, tuple(agents), poll, stop, queue, cleanup,
@@ -439,7 +452,7 @@ def _parse_events(data):
     return events
 
 
-def _parse_checkout_setup(data, root):
+def _parse_checkout_setup(data, root, *, check_files=True):
     checkout_setup = None
     if "checkout-setup" in data:
         setup = mapping(data["checkout-setup"], {"command", "when-changed", "timeout-seconds"}, "checkout-setup")
@@ -447,7 +460,8 @@ def _parse_checkout_setup(data, root):
                  if "when-changed" in setup else None)
         for value in paths or ():
             path = Path(value)
-            if path.is_absolute() or ".." in path.parts or not path.parts or (root / path).is_dir():
+            if (path.is_absolute() or ".." in path.parts or not path.parts
+                    or (check_files and (root / path).is_dir())):
                 raise AgentError("checkout-setup when-changed must contain repository-relative file paths")
         timeout = number(setup.get("timeout-seconds", 600), "checkout-setup timeout-seconds")
         if timeout > 3600:
@@ -489,7 +503,7 @@ def _parse_limits(data):
     return limits, lease_seconds, renew_seconds
 
 
-def _parse_agent_execution(name, item, root, runtime_defaults, planned):
+def _parse_agent_execution(name, item, root, runtime_defaults, planned, *, check_files=True):
     command = argv(item["command"], f"{name} command") if "command" in item else ()
     if command and "/" in command[0] and not Path(command[0]).is_absolute():
         # Relative executables resolve against the operator's checkout, like instructions.
@@ -509,7 +523,7 @@ def _parse_agent_execution(name, item, root, runtime_defaults, planned):
     # Retain the configured path, including symlinks, for validation on each run.
     instruction = (root / string(item["instructions"], f"{name} instructions")
                    if "instructions" in item else None)
-    if instruction is not None:
+    if instruction is not None and check_files:
         project_path(root, str(instruction), f"{name} instructions", planned=planned)
     if runtimes and instruction is None:
         raise AgentError(f"{name}: runtime execution requires instructions")
@@ -588,7 +602,8 @@ def _parse_outcomes(name, item, kind, triggers, stop):
     return outcomes
 
 
-def _parse_agent(name, definition, definitions, root, runtime_defaults, limits, lease_seconds, stop, planned):
+def _parse_agent(name, definition, definitions, root, runtime_defaults, limits, lease_seconds, stop, planned,
+                 *, check_files=True):
     if not re.fullmatch(r"[a-z][a-z0-9_-]*", name):
         raise AgentError("Agent names must be lowercase slugs")
     item = mapping(definition, CLOCKS | {"runtime", "trigger", "instructions",
@@ -600,7 +615,7 @@ def _parse_agent(name, definition, definitions, root, runtime_defaults, limits, 
     if ("runtime" in item) == ("command" in item):
         raise AgentError(f"{name}: specify exactly one of runtime or command")
     command, health_check, runtimes, instruction, runtime_args = _parse_agent_execution(
-        name, item, root, runtime_defaults, planned)
+        name, item, root, runtime_defaults, planned, check_files=check_files)
     different = _parse_different_runtime(name, item, definitions, command)
     kind = item.get("kind", "either")
     if kind not in ("issue", "pr", "either"):

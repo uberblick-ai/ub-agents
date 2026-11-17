@@ -54,7 +54,7 @@ class Coordinator:
                  runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None,
                  on_author=None, on_action=None, trusted_bots=(), on_decline=None,
                  lease_seconds=LEASE_SECONDS, lease_renew_seconds=LEASE_RENEW_SECONDS, trusted_pr_authors=(),
-                 on_release=None, runtime_blocked=None):
+                 on_release=None, runtime_blocked=None, check_executables=True):
         self.github = github
         self.actor = actor
         self.trust = LauncherTrust(github, launchers, role, on_author, trusted_bots=trusted_bots,
@@ -70,6 +70,7 @@ class Coordinator:
         self.on_decline = on_decline
         self.on_record = on_record
         self.runtime_available = runtime_available
+        self.check_executables = check_executables
         self.runtime_paused = runtime_paused or (lambda cli: None)
         self.runtime_blocked = runtime_blocked or (lambda agent, runtime: None)
         self.notices = Notices(github, actor, output, trusted=self.trust, on_action=on_action)
@@ -271,7 +272,7 @@ class Coordinator:
 
     def choose_runtime(self, item, agent, history):
         if agent.command:
-            if not shutil.which(agent.command[0]):
+            if self.check_executables and not shutil.which(agent.command[0]):
                 raise AgentError(f"Command is not installed: {agent.command[0]}")
             return None
         waits, paused = [], []
@@ -279,7 +280,7 @@ class Coordinator:
             block = self.runtime_blocked(agent, runtime)
             if block:
                 waits.append(block_reason(block))
-            elif (self.runtime_available or shutil.which)(runtime.cli):
+            elif not self.check_executables or (self.runtime_available or shutil.which)(runtime.cli):
                 pause = self.runtime_paused(runtime.cli)
                 if not pause:
                     return runtime
