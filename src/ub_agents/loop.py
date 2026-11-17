@@ -808,12 +808,19 @@ class Loop:
         self.output(f"Configuration valid at {commit}; resuming claims")
         return True
 
+    def _execution_wait(self, plan):
+        if plan.state == "ready":
+            return False
+        self._observe_plan(plan, self.discovery)
+        if self._targeted_pass:
+            self._refuse_plan(plan)
+        elif not plan.health_wait:
+            self.declined(plan, plan.reason, plan.state)
+        return True
+
     def _execute(self, plan):  # noqa: C901, PLR0912
         plan = self.queue_planner.health_plan(plan, announce=True)
-        if plan.health_wait:
-            self._observe_plan(plan, self.discovery)
-            if self._targeted_pass:
-                self._refuse_plan(plan)
+        if self._execution_wait(plan):
             return False
         previous, texts, shared = self._refresh_policy(plan.agent)
         self._refreshing_checkout = True
@@ -854,10 +861,7 @@ class Loop:
         # A slow refresh or maintenance can outlive the cached pass. Recheck
         # before reserving a runtime and before the first assignment write.
         plan = self.queue_planner.health_plan(plan, announce=True)
-        if plan.health_wait:
-            self._observe_plan(plan, self.discovery)
-            if self._targeted_pass:
-                self._refuse_plan(plan)
+        if self._execution_wait(plan):
             return False
         runtime = plan.runtime
         with self.maintenance.reserve_run(runtime.cli if runtime is not None else None,

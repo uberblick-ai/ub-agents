@@ -513,7 +513,7 @@ class QueuePlanner:
             raise
         except AgentError as exc:
             # Availability or provenance can change after the initial plan.
-            return replace(plan, state="waiting", runtime=None, reason=str(exc), health_wait=True)
+            return replace(plan, state="waiting", runtime=None, reason=str(exc))
         auth.notice(root, plan.agent, None, announce=announce)
         return replace(plan, runtime=runtime)
 

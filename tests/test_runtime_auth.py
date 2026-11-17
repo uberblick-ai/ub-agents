@@ -213,6 +213,23 @@ class RuntimeAuthTests(unittest.TestCase):
                 self.assertIn('codex is not logged in; run codex login', stdout.getvalue())
         self.assertEqual(self.github.writes, [])
 
+    def test_launch_writes_the_login_notice_to_its_log(self):
+        path = self.root / 'ub-agents.yaml'
+        path.touch()
+        stdout = io.StringIO()
+        with patch('ub_agents.cli._runtime.load_config', return_value=self.loop.config), \
+                patch('ub_agents.cli._runtime.GitHub', return_value=self.github), \
+                patch('ub_agents.updates.runtime_updates.RuntimeMaintenance.available', return_value=True), \
+                patch('ub_agents.cli.launch.repository_checks', return_value=[]), \
+                patch('ub_agents.cleanup.Cleaner.inventory', return_value=[]), \
+                patch('ub_agents.cli.launch.launch_checks'), redirect_stdout(stdout):
+            self.assertEqual(main(['--config', str(path), 'launch', '--once', '--no-ui']), 0)
+        notice = 'worker: waiting — codex is not logged in; run codex login'
+        self.assertEqual(stdout.getvalue().count(notice), 1)
+        self.assertEqual((self.root / '.ub-agents/launch.log').read_text().count(notice), 1)
+        self.assertEqual(self.probe.call_count, 1)
+        self.assertEqual(self.github.writes, [])
+
 
 class LoginProbeTests(unittest.TestCase):
     def test_nonzero_timeout_and_start_failure_hold_with_private_output(self):

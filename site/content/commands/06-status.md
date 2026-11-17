@@ -38,11 +38,11 @@ without loading invalid files or planning assignments, including for `status NUM
   Action needed: https://github.com/OWNER/REPO/issues/1574#issuecomment-6166713718 · waiting 16h
 ```
 
-## JSON output
-
 Status runs the launcher's local login probes for otherwise-ready work. A held
 item shows the CLI's login command in `reason`, for example
 `codex is not logged in; run codex login`, with no attempt spent or GitHub write.
+
+## JSON output
 
 `--json` prints `{"assignments": [...], "launcher": ...}`. The top-level `launcher`
 is `{"pid": 1234, "host": "machine", "started_at": "2026-10-25T11:00:00Z"}`
