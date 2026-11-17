@@ -57,12 +57,12 @@
 | src/ub\_agents/init/checks.py                    |       33 |        1 |     97% |        25 |
 | src/ub\_agents/init/edit.py                      |       91 |        7 |     92% |37, 40, 51, 54, 62, 93, 113 |
 | src/ub\_agents/init/extend.py                    |      174 |        9 |     95% |31, 35-36, 41, 110, 143, 166, 180-181 |
-| src/ub\_agents/init/flow.py                      |      440 |        9 |     98% |47, 68, 70, 128-129, 217, 326-327, 522 |
+| src/ub\_agents/init/flow.py                      |      443 |        9 |     98% |47, 68, 70, 128-129, 217, 326-327, 527 |
 | src/ub\_agents/init/inline.py                    |       92 |        2 |     98% |   92, 103 |
 | src/ub\_agents/init/mcp.py                       |      129 |       10 |     92% |28, 90, 96-97, 125-127, 155, 166-167 |
-| src/ub\_agents/init/probes.py                    |      185 |       18 |     90% |68-69, 84-86, 89, 91, 126, 130-131, 140, 161, 171-172, 177, 179, 186-187 |
+| src/ub\_agents/init/probes.py                    |      190 |       18 |     91% |68-69, 84-86, 89, 91, 135, 139-140, 149, 170, 180-181, 186, 188, 195-196 |
 | src/ub\_agents/init/prompts.py                   |      152 |        6 |     96% |120, 158, 168, 176, 192, 209 |
-| src/ub\_agents/init/setup.py                     |      302 |       20 |     93% |34-35, 40-41, 145, 151, 154, 161, 169, 186, 190, 261, 269, 303-305, 310, 323, 372, 375 |
+| src/ub\_agents/init/setup.py                     |      303 |       20 |     93% |34-35, 40-41, 145, 151, 154, 161, 169, 186, 190, 263, 271, 305-307, 312, 325, 374, 377 |
 | src/ub\_agents/init/tailoring.py                 |        5 |        0 |    100% |           |
 | src/ub\_agents/keep\_awake.py                    |       70 |        5 |     93% |66, 70-71, 77-78 |
 | src/ub\_agents/labels.py                         |       67 |        0 |    100% |           |
@@ -86,7 +86,7 @@
 | src/ub\_agents/notices.py                        |      236 |        2 |     99% |  151, 238 |
 | src/ub\_agents/observation\_data.py              |      114 |        1 |     99% |        29 |
 | src/ub\_agents/observation\_worker.py            |      145 |       13 |     91% |24, 36-37, 49, 58-59, 62-63, 68, 72-73, 97, 116 |
-| src/ub\_agents/observations.py                   |      583 |       13 |     98% |84, 102, 108-109, 133, 137-139, 323, 396, 423, 561, 719 |
+| src/ub\_agents/observations.py                   |      583 |       10 |     98% |84, 102, 108-109, 133, 323, 396, 423, 561, 719 |
 | src/ub\_agents/own\_merge.py                     |       24 |        1 |     96% |        15 |
 | src/ub\_agents/pass\_messages.py                 |       54 |        0 |    100% |           |
 | src/ub\_agents/poll\_now.py                      |       68 |        1 |     99% |        29 |
@@ -148,7 +148,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **19038** |  **691** | **96%** |           |
+| **TOTAL**                                        | **19047** |  **688** | **96%** |           |
 
 
 ## Setup coverage badge
