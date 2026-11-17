@@ -792,6 +792,27 @@ five minutes. Failed checks hold that agent's ready items without claims, attemp
 or label changes; other agents keep working and active runs are not interrupted.
 `status` runs the check too; `doctor` never does.
 
+### Runtime login checks
+
+The launcher also checks runtime CLI login for otherwise-ready work, after start
+and input gates, without a configuration key or opt-out. It runs the same probes
+as `doctor`: `codex login status` and `claude auth status`. The probes use the
+health-check timeout and pass cache above. A failed, nonzero or timed-out probe
+holds that CLI until a later poll passes; ready items share one probe per CLI in
+each planning pass, across agents and runtime alternatives.
+
+A logged-out CLI is unavailable for runtime selection. An agent uses its next
+eligible alternative on a logged-in CLI. If no alternative can run, the item is
+`waiting`, naming each logged-out CLI and its login command. The hold writes no
+lease, attempt, label or comment. Other CLIs, `command` agents, active runs and
+outcome recovery continue unaffected. A later passing probe resumes claims in
+the same launcher. Its log and terminal Health line announce each agent's wait
+and recovery once, rather than on every poll. Raw probe output stays private.
+
+`status` performs these local checks and shows the same waiting reason. A monitor
+without a checkout never probes login. `doctor` is unchanged. Operator usage lives
+on [Agents](https://agents.uberblick.ai/docs/configuration/agents.html#runtime-login).
+
 ## Checkout setup
 
 See [Checkout setup](https://agents.uberblick.ai/docs/configuration/checkout-setup.html)

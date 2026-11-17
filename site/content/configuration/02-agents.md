@@ -39,6 +39,26 @@ The agent CLI, model and effort. See [Runtimes](/docs/configuration/runtimes.htm
 runtime: "codex:gpt-6.1-sol:high"
 ```
 
+### Runtime login
+
+Before claiming ready work, the launcher checks the CLI's login with
+`codex login status` or `claude auth status`. A logged-out CLI is unavailable:
+the agent uses its next eligible runtime on a logged-in CLI. If none is available,
+its items stay `waiting` with each CLI's login command, such as
+`codex is not logged in; run codex login` or
+`claude is not logged in; run claude auth login`.
+
+The probe has a 60-second timeout. A pass is reused for up to five minutes;
+a failure, nonzero exit or timeout is retried on the next poll. Ready items using
+the same CLI share one probe per planning pass. While held, they spend no attempts
+and write no claims, labels or comments. Other CLIs and `command` agents keep
+working, and active runs continue. Login restores claiming without a restart.
+
+This check is automatic and has no configuration switch. `ub-agents status` runs
+it too; `monitor` without a checkout does not. `doctor` keeps its existing login
+diagnostics. The launcher log and terminal view's Health line announce when an
+agent starts waiting and when claiming resumes, without repeating each poll.
+
 ## Instructions
 
 The Markdown file that describes this agent's job. Required with `runtime`. See [Instructions](/docs/configuration/instructions.html).

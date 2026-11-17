@@ -28,7 +28,7 @@ without loading invalid files or planning assignments, including for `status NUM
 - `ready`: launch can start it now.
 - `owned`: a launcher has claimed it. For a run on this machine, status shows `running` while its agent runs.
 - `recover`: an expired run left a report, which the next launcher checks without running the agent again.
-- `waiting`: something holds it for now, such as a blocker, a milestone or a failing [health check](/docs/configuration/agents.html#health-check). The line below says what.
+- `waiting`: something holds it for now, such as a blocker, a milestone, a failing [health check](/docs/configuration/agents.html#health-check) or a logged-out [runtime CLI](/docs/configuration/agents.html#runtime-login). The line below says what.
 - `backoff`: the last run failed, and it waits a while before the next attempt.
 - `parked`, `blocked` or `failed`: it needs a person. The Action needed link says what to decide.
 
@@ -39,6 +39,10 @@ without loading invalid files or planning assignments, including for `status NUM
 ```
 
 ## JSON output
+
+Status runs the launcher's local login probes for otherwise-ready work. A held
+item shows the CLI's login command in `reason`, for example
+`codex is not logged in; run codex login`, with no attempt spent or GitHub write.
 
 `--json` prints `{"assignments": [...], "launcher": ...}`. The top-level `launcher`
 is `{"pid": 1234, "host": "machine", "started_at": "2026-10-25T11:00:00Z"}`

@@ -12,7 +12,7 @@ from .coordination import Coordinator, Plan
 from .dependencies import Dependencies
 from .discovery import ApprovalInput, Discovery
 from .eligibility import AgentMatches, check_start, open_blockers
-from .errors import AgentError, GitHubError, RecordError
+from .errors import AgentError, GitHubError, RecordError, RuntimePaused
 from .github import APPROVAL_BATCH_SIZE, closing_issues
 from .records import attempts, display_provenance, latest_leases, lease_summary, live_leases, records, seconds
 
@@ -49,7 +49,7 @@ def _untriggered_plan(item, agent, history, record, now):
 
 
 class QueuePlanner:
-    def __init__(self, config, github, coordinator, approvals, *, health, usage, maintenance,
+    def __init__(self, config, github, coordinator, approvals, *, health, runtime_auth, usage, maintenance,
                  output, observe, observing, before_claim, reconcile_blocked_notices, targeted, claiming,
                  notice_agent, discovery, pass_stats, launch_agent, launch_number, local_checks=True):
         self._config = config
@@ -59,9 +59,11 @@ class QueuePlanner:
         # Tests can replace runtime helpers, the coordinator or GitHub client.
         # Keep those and reloadable config live.
         self.health = health
+        self.runtime_auth = runtime_auth
         self.usage = usage
         self.maintenance = maintenance
         self.local_checks = local_checks
+        self.checked = {}
         self.output = output
         self.observe = observe
         self.observing = observing
@@ -117,7 +119,7 @@ class QueuePlanner:
             self._has_trigger = False
             self.observe("queue_idle", self.idle_message())
             return
-        checked = {}
+        checked = self.checked = {}
         self.resolve_approvals()
         github = self.discovery() if cached else Discovery(self.github)
         lookback = max(LEASE_SECONDS, self.config.lease_seconds) + COMMENT_RECOVERY_SECONDS
@@ -311,8 +313,9 @@ class QueuePlanner:
                                           on_skips=lambda value: setattr(self, "milestone_skips", value))
         blockers = self.open_blockers(item, github)
         matches = AgentMatches.for_item(item, self.config.agents)
+        self.checked = {}
         plans = self.item_plans(item, coordinator.clock(), github, coordinator, matches, blockers, agents,
-                                reconcile_notices=reconcile_notices, checked={},
+                                reconcile_notices=reconcile_notices, checked=self.checked,
                                 health_notices=health_notices or reconcile_notices)
 
         def observed_plans():
@@ -469,7 +472,7 @@ class QueuePlanner:
                 yield plan
                 continue
             plan = self._gate_plan(replace(plan, matches=matches), starts[plan.agent.name], blockers)
-            plan = self.health_plan(plan, checked, announce=health_notices)
+            plan = self.health_plan(plan, checked, announce=health_notices, coordinator=coordinator)
             if reconcile_notices:
                 self.before_claim()
                 reconciled.add(plan.agent.name)
@@ -484,12 +487,35 @@ class QueuePlanner:
             self.reconcile_blocked_notices([r for r in history if r["agent"] not in reconciled
                                            and (self.notice_agent() is None or r["agent"] == self.notice_agent())], coordinator)
 
-    def health_plan(self, plan, checked=None, *, announce=False):
+    def health_plan(self, plan, checked=None, *, announce=False, coordinator=None):
+        checked = self.checked if checked is None else checked
         if plan.state == "ready" and self.local_checks:
             reason = self.health().check(self.config.root, plan.agent, checked, announce=announce)
             if reason is not None:
                 return replace(plan, state="waiting", runtime=None, reason=reason, health_wait=True)
+            if plan.runtime is not None:
+                return self.runtime_auth_plan(plan, checked, announce=announce, coordinator=coordinator)
         return plan
+
+    def runtime_auth_plan(self, plan, checked=None, *, announce=False, coordinator=None):
+        coordinator = coordinator or self.coordinator
+        auth, root = self.runtime_auth(), self.config.root
+        try:
+            runtime = coordinator.choose_runtime(
+                plan.item, plan.agent, list(plan.history),
+                runtime_ready=lambda cli: auth.check(root, cli, checked))
+        except RuntimePaused as exc:
+            reason = str(exc).removeprefix("Waiting for ")
+            auth.notice(root, plan.agent, reason, announce=announce)
+            return replace(plan, state="waiting", runtime=None, reason=reason, health_wait=True,
+                           paused_clis=exc.clis)
+        except GitHubError:
+            raise
+        except AgentError as exc:
+            # Availability or provenance can change after the initial plan.
+            return replace(plan, state="waiting", runtime=None, reason=str(exc), health_wait=True)
+        auth.notice(root, plan.agent, None, announce=announce)
+        return replace(plan, runtime=runtime)
 
     def _ungated_item_plans(self, item, now, github, coordinator, matches, starts, agents,  # noqa: C901
                              history, matched, approval, *, check_input=True, defer_input=False):

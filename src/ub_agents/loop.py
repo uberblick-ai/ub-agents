@@ -38,6 +38,7 @@ from .usage.request_stats import DiscoveryPass, PassOutput, request_counts, requ
 from .updates.runtime_updates import RuntimeMaintenance
 from .usage.runtime_usage import RuntimeUsage
 from .runtime_rejections import RuntimeBlocks
+from .runtime_auth import RuntimeAuth
 from .settlement import Settlement
 from .uberblick import workspace_binding
 from .trust import LauncherTrust
@@ -101,7 +102,8 @@ class Loop:
         self._discovery_requests = None
         self.usage = RuntimeUsage(clock=lambda: self.coordinator.clock(), output=output,
                                   on_change=lambda pauses: self.observe("runtime_pauses", pauses))
-        self.health = AgentHealth(output=self._health_notice)
+        self.health, self.runtime_auth = (AgentHealth(output=self._health_notice),
+                                          RuntimeAuth(output=self._health_notice))
         self.coordinator.runtime_paused = self.usage.paused
         self.runtime_blocks = RuntimeBlocks(on_change=lambda blocks: self.observe("runtime_blocks", blocks))
         self.coordinator.runtime_blocked = self.runtime_blocks.blocked
@@ -121,7 +123,7 @@ class Loop:
         self.coordinator.runtime_available = self.maintenance.available
         self.queue_planner = QueuePlanner(
             lambda: self.config, lambda: self.github, lambda: self.coordinator, approvals,
-            health=lambda: self.health, usage=lambda: self.usage,
+            health=lambda: self.health, runtime_auth=lambda: self.runtime_auth, usage=lambda: self.usage,
             maintenance=lambda: self.maintenance,
             output=lambda line: self.output(line), observe=lambda *args: self.observe(*args),
             observing=lambda: self.observer is not None,
@@ -806,7 +808,7 @@ class Loop:
         self.output(f"Configuration valid at {commit}; resuming claims")
         return True
 
-    def _execute(self, plan):  # noqa: C901, PLR0912, PLR0915
+    def _execute(self, plan):  # noqa: C901, PLR0912
         plan = self.queue_planner.health_plan(plan, announce=True)
         if plan.health_wait:
             self._observe_plan(plan, self.discovery)
@@ -857,17 +859,7 @@ class Loop:
             if self._targeted_pass:
                 self._refuse_plan(plan)
             return False
-        # The snapshot runtime may have become guarded/broken since discovery,
-        # or a reload may have enabled maintenance. Reapply runtime eligibility.
-        runtime = None
-        try:
-            if plan.runtime is not None:
-                runtime = self.coordinator.choose_runtime(plan.item, plan.agent, list(plan.history))
-        except GitHubError:
-            raise
-        except AgentError as exc:
-            self.declined(plan, str(exc), "waiting")
-            return False
+        runtime = plan.runtime
         with self.maintenance.reserve_run(runtime.cli if runtime is not None else None,
                                           github=self._github_reservation, root=self.config.root) as reservation:
             if reservation is None:
@@ -906,6 +898,8 @@ class Loop:
         lease = self.coordinator.claim(plan, self.config.stop_labels,
                                        before_write=self._end_poll, authorize=authorize,
                                        confirm_stopped=confirm_stopped,
+                                       runtime_ready=lambda cli: self.runtime_auth.check(
+                                           self.config.root, cli, self.queue_planner.checked),
                                        on_refusal=self.declined if self._targeted_pass else None)
         if lease is None:
             self.discovery.invalidate(plan.item.number)
