@@ -22,6 +22,7 @@ from tests.support import FakeGitHub, MemoryPublisher, agent, config, issue, pr,
 class RuntimeAuthTests(unittest.TestCase):
     def setUp(self):
         stub_refresh(self)
+        self.enterContext(patch('ub_agents.coordination.shutil.which', return_value='installed'))
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
