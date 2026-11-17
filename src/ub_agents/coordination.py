@@ -270,7 +270,7 @@ class Coordinator:
                    and r["lease_id"] != source["id"] and seconds(r["created"]) > blocked_at
                    for r in history)
 
-    def choose_runtime(self, item, agent, history):
+    def choose_runtime(self, item, agent, history, *, runtime_ready=None):
         if agent.command:
             if self.check_executables and not shutil.which(agent.command[0]):
                 raise AgentError(f"Command is not installed: {agent.command[0]}")
@@ -281,16 +281,24 @@ class Coordinator:
             if block:
                 waits.append(block_reason(block))
             elif not self.check_executables or (self.runtime_available or shutil.which)(runtime.cli):
-                pause = self.runtime_paused(runtime.cli)
-                if not pause:
+                wait, pause = self.runtime_wait(runtime, runtime_ready)
+                if wait is None:
                     return runtime
-                paused.append(runtime.cli)
-                waits.append(f"{runtime.cli}: {pause['reason']}; pause ends {pause['ends_at']}")
+                if pause:
+                    paused.append(runtime.cli)
+                if wait not in waits:
+                    waits.append(wait)
         if waits:
             raise RuntimePaused("Waiting for " + "; ".join(waits), clis=tuple(dict.fromkeys(paused)))
         reason = ("No eligible runtime executable is installed, usable and available"
                   if self.runtime_available else "No eligible runtime executable is installed")
         raise AgentError(reason)
+
+    def runtime_wait(self, runtime, runtime_ready):
+        pause = self.runtime_paused(runtime.cli)
+        if pause:
+            return f"{runtime.cli}: {pause['reason']}; pause ends {pause['ends_at']}", True
+        return runtime_ready(runtime.cli) if runtime_ready else None, False
 
     def eligible_runtimes(self, item, agent, history):
         eligible = list(agent.runtimes)
@@ -417,7 +425,7 @@ class Coordinator:
         return None
 
     def claim(self, plan, stop_labels=(), recovery=False, before_write=None, authorize=None,
-              confirm_stopped=None, on_refusal=None):
+              confirm_stopped=None, on_refusal=None, runtime_ready=None):
         reason = self.trust.reason(self.actor)
         if reason:
             if on_refusal is not None:
@@ -425,7 +433,7 @@ class Coordinator:
             else:
                 self.output(f"{reason}; claiming no work")
             return None
-        observed = self._claim_input(plan, stop_labels, recovery)
+        observed = self._claim_input(plan, stop_labels, recovery, runtime_ready)
         if observed is None:
             return None
         current, matches, history, outcome = observed
@@ -443,7 +451,7 @@ class Coordinator:
         self.notices.resumed(current.number)
         return created
 
-    def _claim_input(self, plan, stop_labels, recovery):
+    def _claim_input(self, plan, stop_labels, recovery, runtime_ready=None):
         # Reobserve state immediately before claiming. This also handles a label/head
         # changing after queue enumeration, without charging an attempt.
         current = self.github.item(plan.item.number, plan.item.kind)
@@ -470,13 +478,29 @@ class Coordinator:
             if fresh.state != "ready":
                 return self.decline(plan, f"Fresh plan is no longer ready: {fresh.state} — {fresh.reason}",
                                     fresh=replace(fresh, history=tuple(history)))
-            if fresh.runtime != plan.runtime:
-                return self.decline(plan, "Runtime changed before claim")
+            if not self._claim_runtime(plan, fresh, history, runtime_ready):
+                return None
             blockers = (open_blockers(self.github, current) if current.kind == "issue"
                         and self.queue.dependencies == "wait" else ())
             if not check_start(current, plan.agent, matches, stop_labels, self.queue, blockers).allowed:
                 return self.decline(plan, f"Open blockers: {', '.join(blockers)}")
         return current, matches, history, outcome
+
+    def _claim_runtime(self, plan, fresh, history, runtime_ready):
+        if runtime_ready is not None and fresh.runtime is not None:
+            try:
+                runtime = self.choose_runtime(fresh.item, fresh.agent, history, runtime_ready=runtime_ready)
+            except GitHubError:
+                raise
+            except AgentError as exc:
+                self.decline(plan, str(exc), fresh=replace(fresh, state="waiting", runtime=None, reason=str(exc)))
+                return False
+        else:
+            runtime = fresh.runtime
+        if runtime != plan.runtime:
+            self.decline(plan, "Runtime changed before claim")
+            return False
+        return True
 
     def _claim_record(self, plan, current, history, outcome, recovery, now):
         record = {"kind": "lease", "run": uuid.uuid4().hex,

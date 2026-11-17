@@ -22,15 +22,12 @@ from .registry import CHECK_AREAS, areas, check
 from ..records import iso, timestamp
 from ..monitor.local import runtime_blocks
 from ..runtime_rejections import block_reason
+from ..runtime_auth import AUTH_PROBES
 from ..refresh import control_checkout_checks
 from ..trust import WRITERS
 
 
 PERMISSIONS_URL = "https://agents.uberblick.ai/docs/configuration/permissions.html"
-
-
-AUTH_PROBES = {"codex": ("codex", "login", "status"),
-               "claude": ("claude", "auth", "status")}
 
 
 # Configuration errors can quote YAML. Keep diagnostics on one line and redact

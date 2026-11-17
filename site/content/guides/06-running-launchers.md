@@ -201,6 +201,13 @@ clear the pause early. See [runtime usage pauses](/docs/configuration/runtimes.h
 Fix the dependency; claiming resumes on its own. See
 [project health checks](/docs/configuration/agents.html#health-check).
 
+**A runtime CLI logs out.** Its agents use an eligible alternative on a logged-in
+CLI or leave their items `waiting`, with a login command in the reason. Run
+`codex login` or `claude auth login` as shown. Claims resume on a later poll
+without a restart, and the hold spends no attempts or GitHub writes. The launcher
+log and terminal Health line announce the wait and recovery once. See
+[runtime login](/docs/configuration/agents.html#runtime-login) for probe timing.
+
 **A runtime update broke a CLI.** The launcher marks the CLI unavailable and uses an
 alternative runtime if one is configured. While `gh` is unavailable, no run starts.
 Repair or reinstall the CLI; a later check between runs finds it working and resumes.

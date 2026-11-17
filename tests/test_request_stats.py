@@ -179,7 +179,7 @@ class RequestStatsTests(unittest.TestCase):
     def test_existing_runtime_wait_coalesces_without_second_decline_message(self):
         self.loop.config = config(self.root, agent(self.root, runtimes=(Runtime('codex', 'model', 'high'),),
                                                  command=None))
-        def unavailable(*args):
+        def unavailable(*args, **kwargs):
             from ub_agents.errors import AgentError
             raise AgentError('Runtime became unavailable')
 

@@ -150,6 +150,7 @@ class LauncherTrustTests(unittest.TestCase):
         self.assertEqual(next(loop.iter_plans()).state, "ready")
 
     def test_trusted_discovery_keeps_runtime_health_filter(self):
+        self.enterContext(patch('ub_agents.runtime_auth.run_check', return_value=None))
         self.start(self.b)
         codex, claude = Runtime("codex", "model", "high"), Runtime("claude", "model", "high")
         worker = replace(self.worker, command=None, runtimes=(codex, claude))

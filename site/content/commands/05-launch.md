@@ -56,6 +56,11 @@ Unsafe checkouts and failed fetches or fast-forwards still stop launch.
 
 [Checkout setup](/docs/configuration/checkout-setup.html) runs your own setup, such as installing dependencies, in every new worktree. Agents with a [health check](/docs/configuration/agents.html#health-check) wait until it passes, without using up attempts.
 
+Launch also checks [runtime login](/docs/configuration/agents.html#runtime-login)
+before claiming ready work. A logged-out CLI holds its items at `waiting` without
+spending attempts; eligible alternatives and agents on other CLIs keep working.
+Log in with the command shown to resume automatically, without restarting launch.
+
 ## Leftovers from earlier runs
 
 Each launch first clears worktrees, run branches and scratch that earlier runs left on this machine, keeping anything still in use. A removed branch with unpushed commits has its SHA in the cleanup log under `.ub-agents/sessions/`; restore it with `git branch <name> <sha>`. To run your own code after each run, see [Cleanup](/docs/configuration/cleanup.html).

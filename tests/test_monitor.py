@@ -195,7 +195,8 @@ class MonitorTests(unittest.TestCase):
                     patch('ub_agents.coordination.shutil.which', side_effect=AssertionError('local executable read')), \
                     patch('ub_agents.updates.runtime_updates.RuntimeMaintenance.available',
                           side_effect=AssertionError('local maintenance read')), \
-                    patch('ub_agents.agent_health.run_check', side_effect=AssertionError('local health command')):
+                    patch('ub_agents.agent_health.run_check', side_effect=AssertionError('local health command')), \
+                    patch('ub_agents.runtime_auth.run_check', side_effect=AssertionError('local login probe')):
                 github = FakeGitHub(issue(1))
                 source = MonitorSource(config(root, worker), github, Coordinator(github, None), timestamp, checkout=False)
                 result = source.snapshot()
@@ -567,6 +568,7 @@ class MonitorTests(unittest.TestCase):
         root, now = Path('/checkout'), [timestamp()]
         worker = agent(root, command=(), runtimes=(Runtime('claude', 'model', 'high'),))
         self.enterContext(patch('ub_agents.updates.runtime_updates.RuntimeMaintenance.available', return_value=True))
+        self.enterContext(patch('ub_agents.runtime_auth.run_check', return_value=None))
         github = FakeGitHub(issue(1))
         source = MonitorSource(config(root, worker), github, Coordinator(github, None), lambda: now[0])
         with patch('ub_agents.monitor.eligible.runtime_pauses', return_value={'claude': now[0] + 100}):

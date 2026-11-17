@@ -56,7 +56,7 @@ Ctrl-C still work.
 Banners can appear above the panes:
 
 - **Update.** For an installed release, the launcher checks GitHub at startup and at most once a day, and the banner names the upgrade command. For an editable install from the control checkout, the banner asks you to restart when the launcher's normal fetch finds commits its running code lacks. The view reads the result from the snapshot. Restart the launcher to clear it.
-- **Health.** The latest [agent health check](/docs/configuration/agents.html#health-check) failure or recovery.
+- **Health.** The latest [agent health check](/docs/configuration/agents.html#health-check) or [runtime login check](/docs/configuration/agents.html#runtime-login) failure or recovery.
 - **Configuration.** A wrapped error, checkout commit and next step when refreshed files are invalid. Claims, including recoveries, pause until validation succeeds on a later poll or `r`. Unknown keys or values offer file correction or upgrading ub-agents. `q` stops as it does while idle. See [configuration pauses](/docs/guides/running-launchers.html#when-things-go-wrong).
 
 The default theme is dark, with a purple accent, blue Running, red Needs

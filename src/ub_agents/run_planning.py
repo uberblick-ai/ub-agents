@@ -73,6 +73,7 @@ class ObservationPlanner:
         self.coordinator.clock = loop.coordinator.clock
         self.usage = loop.usage
         self.health = loop.health
+        self.runtime_auth = loop.runtime_auth
         self.maintenance = loop.maintenance
         self.coordinator.runtime_paused = self.usage.paused
         self.coordinator.runtime_blocked = loop.runtime_blocks.blocked
@@ -82,7 +83,8 @@ class ObservationPlanner:
         self._pass_stats = None
         self.queue_planner = QueuePlanner(
             lambda: self.config, lambda: self.github, lambda: self.coordinator, approvals,
-            health=lambda: self.health, usage=lambda: self.usage, maintenance=lambda: self.maintenance,
+            health=lambda: self.health, runtime_auth=lambda: self.runtime_auth,
+            usage=lambda: self.usage, maintenance=lambda: self.maintenance,
             output=self.output, observe=self.observe, observing=lambda: self.observer is not None,
             before_claim=None, reconcile_blocked_notices=None,
             targeted=lambda: False, claiming=lambda: False, notice_agent=lambda: self._launch_agent,

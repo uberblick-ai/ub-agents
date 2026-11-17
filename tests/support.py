@@ -236,6 +236,9 @@ class MemoryPublisher:
 def isolate_observations(test):
     from unittest.mock import patch
     join_startup_cleanup(test)
+    # Synthetic runtime agents do not inspect the developer's CLI login. Login
+    # gating tests replace this probe with explicit success/failure responses.
+    test.enterContext(patch("ub_agents.runtime_auth.run_check", return_value=None))
     mock = patch("ub_agents.observations.Publisher", MemoryPublisher)
     test.addCleanup(mock.stop)
     mock.start()
