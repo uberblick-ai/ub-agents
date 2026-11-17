@@ -16,7 +16,7 @@ from .github import closing_issues
 from .eligibility import AgentMatches
 from .run_history import display_run, merge_record, observed_blockers, sort_runs
 from .run_config import run_directory
-from .observation_data import ELIGIBLE_LIMIT, work_rows
+from .observation_data import ELIGIBLE_LIMIT, work_plans, work_rows
 from . import __version__
 from .launcher_code import descriptors, helper_command
 
@@ -185,6 +185,7 @@ class Observations:
             "activity": {"state": "polling"}, "assignment": None, "latest_pass": None, "update": None,
             "health_notice": None,
             "runtime_pauses": {},
+            "runtime_blocks": [],
             "outcomes": [], "histories": {}, "history_storage": "files",
             "action_needed": {}, "coordination_authors": {},
             "omitted": {"plans": 0, "outcomes": 0},
@@ -269,6 +270,7 @@ class Observations:
         # any visible plan, together with their unreferenced histories.
         while excess > 0 and state["outcomes"]:
             excess = self.omit_row(state, "outcomes", state["outcomes"], 0, excess)
+        excess = self.omit_hidden_plans(state, excess)
         for row in reversed(tuple(rows)):
             if excess <= 0:
                 break
@@ -330,6 +332,21 @@ class Observations:
         state["omitted"][kind] += 1
         for history in cls.prune_histories(state):
             excess -= cls.byte_size(history) + 1
+        return excess
+
+    @classmethod
+    def omit_hidden_plans(cls, state, excess):
+        latest = state["latest_pass"]
+        if excess <= 0 or latest is None:
+            return excess
+        kept = {(row["item"], row["agent"])
+                for row in work_plans(latest, state["assignment"], MAX_PLANS)}
+        # Remove the whole hidden set: an omitted current plan can itself
+        # hide an older plan, even if dropping it alone frees enough space.
+        for index in reversed(range(len(latest["rows"]))):
+            row = latest["rows"][index]
+            if (row["item"], row["agent"]) not in kept:
+                excess = cls.omit_row(state, "plans", latest["rows"], index, excess)
         return excess
 
     @classmethod
@@ -434,6 +451,10 @@ class Observations:
 
     def runtime_pauses(self, pauses):
         self.state["runtime_pauses"] = dict(pauses)
+        self.emit()
+
+    def runtime_blocks(self, blocks):
+        self.state["runtime_blocks"] = [dict(block) for block in blocks]
         self.emit()
 
     def poll_now(self, cooldown_until, rate_limit_until, waiting=False):

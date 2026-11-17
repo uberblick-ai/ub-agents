@@ -49,7 +49,9 @@ If a human decision is required, explain it on the issue and report
 When the work does not fit one reviewable PR, create native GitHub sub-issues of the
 assigned issue. Give each a prepared body and no workflow label; a maintainer must
 label each one before it can start. Record every sub-issue as a blocker of the parent
-using the blocked-by relationship above. Keep the parent open, then report
+using the blocked-by relationship above. Keep the parent open; the generated
+`.github/workflows/close-parent-issues.yml` closes it after its last sub-issue
+closes, provided it has no workflow label or open closing PR. Then report
 `ub-agents report --outcome split --summary "Issue split into prepared sub-issues"`.
 
 For small, bounded and clear work, report

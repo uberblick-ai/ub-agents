@@ -13,11 +13,13 @@ import uuid
 
 from .errors import AgentError, CleanupError, LostOwnership, RetryableExecutionError
 from .logs.log_times import LogTimes
+from .process_output import capture_streams
 from .report_command import launcher_report_command
 from .state import user_state_directory
 
 
-def command_for(agent, runtime, scratch, report_command=None):
+def command_template(agent, runtime):
+    """Return argv with run placeholders intact, including the launcher's flags."""
     if agent.command:
         return list(agent.command)
     if runtime.cli == "codex":
@@ -28,10 +30,16 @@ def command_for(agent, runtime, scratch, report_command=None):
         command = ["claude", "--print", "--output-format", "stream-json", "--verbose",
                    "--model", runtime.model, "--effort", runtime.effort,
                    "--thinking-display", "summarized"]
+    return command + list(agent.runtime_args_for(runtime))
+
+
+def command_for(agent, runtime, scratch, report_command=None):
+    if agent.command:
+        return list(agent.command)
     # No permission flags, auth stores, or hidden provider fallback; never a shell.
     values = {"{scratch}": str(scratch), "{report_command}": report_command or launcher_report_command()}
-    return command + [re.sub(r"\{(?:scratch|report_command)\}", lambda match: values[match[0]], arg)
-                      for arg in agent.runtime_args_for(runtime)]
+    return [re.sub(r"\{(?:scratch|report_command)\}", lambda match: values[match[0]], arg)
+            for arg in command_template(agent, runtime)]
 
 
 def git(root, *arguments, strip=True):
@@ -330,26 +338,27 @@ def _stop_group(process, grace):
 
 
 def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expires=None,  # noqa: C901, PLR0912
-              process_started=None, pass_fds=(), observe_output=None, process_exited=None):
+              process_started=None, pass_fds=(), observe_output=None, process_exited=None, separate_output=False):
     if os.name != "posix":
         raise AgentError("Process supervision requires Linux or macOS")
     run_dir.mkdir(parents=True, exist_ok=True)
     input_path = run_dir / "prompt.txt"
     input_path.write_text(prompt or "")
-    with input_path.open("rb") as stdin, (run_dir / "process.log").open("wb") as log:
+    with input_path.open("rb") as stdin, capture_streams(run_dir, separate_output) as output:
         try:
             process = subprocess.Popen(command, cwd=cwd, env=env,
                 stdin=stdin if prompt is not None else subprocess.DEVNULL,
-                stdout=log, stderr=subprocess.STDOUT, start_new_session=True, pass_fds=pass_fds)
+                stdout=output.stdout, stderr=output.stderr, start_new_session=True, pass_fds=pass_fds)
         except OSError as exc:
             raise RetryableExecutionError(f"Cannot start configured execution: {exc}") from exc
         deadline = time.monotonic() + timeout
-        times = LogTimes(run_dir / "process.times", log)
+        times = LogTimes(run_dir / "process.times", output.log)
         try:
             (run_dir / "pid").write_text(str(process.pid))
             if process_started is not None:
                 process_started(process.pid)
             while process.poll() is None:
+                output.poll()
                 times.observe()
                 if observe_output is not None:
                     observe_output()
@@ -374,6 +383,7 @@ def supervise(command, cwd, env, run_dir, timeout, stop_event, prompt=None, expi
             try:
                 stop_group(process)
             finally:
+                output.poll()
                 times.observe()
                 times.close()
             if observe_output is not None:

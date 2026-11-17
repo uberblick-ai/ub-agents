@@ -10,6 +10,8 @@ from ..denials import denial_count
 from ..launcher_lock import launcher_summary, running_launcher
 from ..records import latest_leases, lease_by_id, live_leases, same_run, timestamp
 from ..status import lease_summary, process_details
+from ..monitor.local import held_block, runtime_blocks
+from ..runtime_rejections import block_reason
 from ._registry import command
 
 
@@ -80,8 +82,10 @@ def paused_launcher_status(args):
     return True
 
 
-def _print_status_json(rows, launcher, loop, explanation):
+def _print_status_json(rows, launcher, loop, explanation, blocks=()):
     result = {"assignments": rows, "launcher": launcher}
+    if blocks:
+        result["runtime_blocks"] = blocks
     if loop.milestone_skips:
         result["milestone_skips"] = list(loop.milestone_skips)
     if loop.milestone_wait:
@@ -128,12 +132,24 @@ def configuration_paused(args):
     return launcher is not None and bool(launcher.get("configuration_pause"))
 
 
+def _print_launcher_status(launcher, blocks, loop):
+    print(launcher_summary(launcher))
+    for block in blocks:
+        print(block_reason(block))
+    for line in loop.milestone_skips:
+        print(line)
+    if loop.milestone_wait:
+        print(loop.milestone_wait)
+
+
 @command("status", arguments, number="optional", config_required=True,
          missing_config=configuration_paused, early_return=paused_launcher_status,
          build=("config", "github", "coordinator", "loop"))
 def status_run(args, config, github, actor, coordinator, loop, stop, interrupt):
     launcher = running_launcher(config.root)
     now = timestamp()
+    blocks = runtime_blocks(config, now)
+    loop.coordinator.runtime_blocked = lambda agent, runtime: held_block(blocks, agent, runtime)
     explanation = None
     if args.number is None:
         rows = status_rows(loop, now)
@@ -145,7 +161,7 @@ def status_run(args, config, github, actor, coordinator, loop, stop, interrupt):
         if not rows:
             explanation = loop.item_explanation(item)
     if args.json:
-        _print_status_json(rows, launcher, loop, explanation)
+        _print_status_json(rows, launcher, loop, explanation, blocks)
     elif explanation is not None:
         print(f"#{args.number}: {explanation}")
     elif not rows:
@@ -154,9 +170,5 @@ def status_run(args, config, github, actor, coordinator, loop, stop, interrupt):
         for row in rows:
             _print_status_row(row, config, now)
     if not args.json:
-        print(launcher_summary(launcher))
-        for line in loop.milestone_skips:
-            print(line)
-        if loop.milestone_wait:
-            print(loop.milestone_wait)
+        _print_launcher_status(launcher, blocks, loop)
     return

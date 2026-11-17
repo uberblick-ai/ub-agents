@@ -10,6 +10,8 @@ from .data import mapping, text
 from .scroll import PaneScroll
 from .status import pane_line
 from ..launcher_lock import configuration_pause_summary
+from ..monitor.local import valid_blocks
+from ..runtime_rejections import block_reason
 
 SIZE_WARNING = 'Please enlarge the terminal to at least 60×16.'
 
@@ -59,6 +61,20 @@ class ConfigurationPause(Static):
         if pause != self.pause:
             self.pause = pause
             self.update(Text(configuration_pause_summary(pause)) if pause else '')
+
+
+class RuntimeBlockNotice(Static):
+    """Show every held command rejection and its remedy without truncating it."""
+    def __init__(self):
+        super().__init__('', id='runtime_blocks', markup=False)
+        self.blocks = []
+
+    def set_blocks(self, blocks):
+        blocks = valid_blocks(blocks)
+        self.display = bool(blocks) and not self.app.too_small and self.app.shutdown is None
+        if blocks != self.blocks:
+            self.blocks = blocks
+            self.update(Text('\n'.join(block_reason(block) for block in blocks)))
 
 
 class ItemHeader(Static):

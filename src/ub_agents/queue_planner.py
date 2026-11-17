@@ -410,6 +410,7 @@ class QueuePlanner:
                            runtime_available=self.maintenance().available,
                            runtime_paused=self.usage().paused, launchers=self.config.launchers,
                            check_executables=self.local_checks,
+                           runtime_blocked=self.coordinator.runtime_blocked,
                            role=github.current_role, trusted_bots=self.config.trusted_bots,
                            trusted_pr_authors=self.coordinator.trust.trusted_pr_authors,
                            on_author=lambda *args: observe("coordination_author", *args))

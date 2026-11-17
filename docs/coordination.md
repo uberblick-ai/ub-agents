@@ -920,3 +920,36 @@ them. Claude limits come from a rejected `rate_limit_event`, `error: rate_limit`
 A run that ends at a limit without an outcome is released as `retry`, with no attempt
 charged. Alternatives skip paused CLIs; an item with all runtimes paused stays
 `waiting`.
+
+## Runtime command rejections
+
+Operator recovery is on [Runtimes](https://agents.uberblick.ai/docs/configuration/runtimes.html#rejected-cli-settings).
+
+A runtime that exits with one of the following stderr prefixes before emitting
+any JSON event on stdout is released as `retry` with `attempt_effect: unchanged`,
+without backoff, stop labels or an action-needed notice:
+
+| CLI | Exit | stderr begins with |
+| --- | --- | --- |
+| `claude` | 1 | `error: unknown option '…'` |
+| `claude` | 1 | `error: option '…' argument '…' is invalid.` |
+| `codex` | 2 | `error: unexpected argument '…' found` |
+| `codex` | 2 | `error: invalid value '…' for '…'` |
+| `codex` | 1 | ``Error loading config.toml: unknown configuration field `…` in -c/--config override`` |
+
+The launcher holds a block for that role and runtime alternative, quoting the
+rejected setting. Other alternatives, including ones on the same CLI, remain
+eligible. If all eligible alternatives are blocked the item stays `waiting` with
+the role, alternative, setting and recovery step in its reason. Blocks are in
+memory per launcher and never change shared executable or version health. They
+clear on restart, a changed command, or an observed change of installed CLI
+version. Command identity includes the launcher's fixed flags and configured
+arguments before `{scratch}` and `{report_command}` substitution. Configuration
+reloads remove blocks for changed or removed alternatives. A successful version
+probe with the same version does not clear a block, and there is no timer.
+
+Unrecognised diagnostics, wrong exit codes, diagnostics on stdout and recognised
+diagnostics after JSON output remain ordinary failures. Claude's
+`Warning: Unknown --effort value` is not a rejection. Advisory local observations
+expose held blocks to status, the terminal view and doctor; they never restore a
+block into a new launcher.

@@ -522,7 +522,9 @@ class InitTests(unittest.TestCase):
 
     def test_template_shell_examples_need_no_expansion(self):
         templates = Path(__file__).resolve().parents[1] / 'src/ub_agents/templates'
-        for path in templates.iterdir():
+        # These are instructions executed by agents; the Actions YAML has its
+        # own expression and GraphQL variable syntax, checked by its script tests.
+        for path in [*templates.glob('*.md'), templates / 'ub-agents.yaml']:
             text = path.read_text()
             with self.subTest(template=path.name):
                 self.assertNotRegex(text, r'\$(?:[A-Za-z_{?(])')
@@ -541,6 +543,7 @@ class InitTests(unittest.TestCase):
                 self.github.reads.clear()
                 if self.path.exists():
                     self.path.unlink()
+                    (self.path.parent / '.github/workflows/close-parent-issues.yml').unlink()
                     for path in (self.path.parent / '.agents').glob('*.md'):
                         path.unlink()
                 code, output, _, prompt = self.init(terminal=terminal, stdout_terminal=stdout_terminal, ci=ci,
@@ -679,7 +682,7 @@ class InitTests(unittest.TestCase):
     def test_any_existing_starter_refuses_before_writing_guidance_or_labels(self):
         for name in ('starter.yaml', '.agents/implementer.md', '.agents/reviewer.md',
                      '.agents/issue-preparer.md', '.agents/issue-reviewer.md',
-                     '.agents/integrator.md', '.agents/ub_agents.md'):
+                     '.agents/integrator.md', '.agents/ub_agents.md', '.github/workflows/close-parent-issues.yml'):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 self.path = Path(directory) / 'starter.yaml'
                 existing = self.path.parent / name

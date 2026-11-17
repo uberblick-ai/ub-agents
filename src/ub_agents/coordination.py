@@ -20,6 +20,7 @@ from .records import (MARKER, attempt_effect, attempts, backoff, body, display_p
                       same_handoff, same_run, seconds, stop_report, timestamp)
 from .trust import LauncherTrust
 from .usage.run_usage import usage_fields
+from .runtime_rejections import block_reason
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,7 @@ class Coordinator:
                  runtime_available=None, runtime_paused=None, launchers=None, role=None, on_record=None,
                  on_author=None, on_action=None, trusted_bots=(), on_decline=None,
                  lease_seconds=LEASE_SECONDS, lease_renew_seconds=LEASE_RENEW_SECONDS, trusted_pr_authors=(),
-                 on_release=None, check_executables=True):
+                 on_release=None, runtime_blocked=None, check_executables=True):
         self.github = github
         self.actor = actor
         self.trust = LauncherTrust(github, launchers, role, on_author, trusted_bots=trusted_bots,
@@ -71,6 +72,7 @@ class Coordinator:
         self.runtime_available = runtime_available
         self.check_executables = check_executables
         self.runtime_paused = runtime_paused or (lambda cli: None)
+        self.runtime_blocked = runtime_blocked or (lambda agent, runtime: None)
         self.notices = Notices(github, actor, output, trusted=self.trust, on_action=on_action)
         # Renewal and the supervising launcher's state edits share one writer.
         # Never hold this lock over a rate-limit wait.
@@ -273,6 +275,24 @@ class Coordinator:
             if self.check_executables and not shutil.which(agent.command[0]):
                 raise AgentError(f"Command is not installed: {agent.command[0]}")
             return None
+        waits, paused = [], []
+        for runtime in self.eligible_runtimes(item, agent, history):
+            block = self.runtime_blocked(agent, runtime)
+            if block:
+                waits.append(block_reason(block))
+            elif not self.check_executables or (self.runtime_available or shutil.which)(runtime.cli):
+                pause = self.runtime_paused(runtime.cli)
+                if not pause:
+                    return runtime
+                paused.append(runtime.cli)
+                waits.append(f"{runtime.cli}: {pause['reason']}; pause ends {pause['ends_at']}")
+        if waits:
+            raise RuntimePaused("Waiting for " + "; ".join(waits), clis=tuple(dict.fromkeys(paused)))
+        reason = ("No eligible runtime executable is installed, usable and available"
+                  if self.runtime_available else "No eligible runtime executable is installed")
+        raise AgentError(reason)
+
+    def eligible_runtimes(self, item, agent, history):
         eligible = list(agent.runtimes)
         if agent.different_from:
             sources = [runtime for name in agent.different_from
@@ -283,21 +303,7 @@ class Coordinator:
                 eligible = [r for r in eligible if all(r.different_from(source) for source in sources)]
                 if not eligible:
                     raise AgentError("No runtime has a different CLI and model from the candidate author")
-        paused = {}
-        for runtime in eligible:
-            if not self.check_executables or (self.runtime_available or shutil.which)(runtime.cli):
-                pause = self.runtime_paused(runtime.cli)
-                if pause:
-                    paused[runtime.cli] = pause
-                    continue
-                return runtime
-        if paused:
-            raise RuntimePaused("Waiting for " + "; ".join(
-                f"{cli}: {pause['reason']}; pause ends {pause['ends_at']}" for cli, pause in paused.items()),
-                clis=tuple(paused))
-        reason = ("No eligible runtime executable is installed, usable and available"
-                  if self.runtime_available else "No eligible runtime executable is installed")
-        raise AgentError(reason)
+        return eligible
 
     def source_runtime(self, item, name, history):
         reports = [r for r in history if r["kind"] == "outcome" and r["status"] == "success"

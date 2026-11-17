@@ -155,7 +155,9 @@ class FlowTests(unittest.TestCase):
             ('switch',), ('add',), ('commit',), ('push',)}]
         self.assertEqual([c[3] if c[0] == 'git' else 'gh' for c in commands],
                          ['switch', 'add', 'commit', 'push', 'gh', 'switch', 'gh'])
-        self.assertEqual(set(commands[1][5:]), {'ub-agents.yaml', '.gitignore', *(
+        self.assertIn('+ .github/workflows/close-parent-issues.yml', text)
+        self.assertTrue((self.root / '.github/workflows/close-parent-issues.yml').is_file())
+        self.assertEqual(set(commands[1][5:]), {'ub-agents.yaml', '.gitignore', '.github/workflows/close-parent-issues.yml', *(
             f'.agents/{name}.md' for name in ('ub_agents', 'issue-preparer', 'issue-reviewer',
                                             'implementer', 'reviewer', 'integrator'))})
         self.assertEqual(commands[4][3:9], ('--repo', 'org/project', '--base', 'main', '--head', 'setup-ub-agents'))
@@ -335,7 +337,7 @@ class FlowTests(unittest.TestCase):
         for script, expected in ((Script(), '@org/core'), (Script(Who_answers='@operator'), '@operator'),
                                  (Script(Who_answers='', **{'Which @user': '@org/leads'}), '@org/leads')):
             with self.subTest(expected=expected):
-                for path in [self.path, self.root / '.gitignore']:
+                for path in [self.path, self.root / '.gitignore', self.root / '.github/workflows/close-parent-issues.yml']:
                     path.unlink(missing_ok=True)
                 for child in sorted(self.root.glob('.agents/*')):
                     child.unlink()
@@ -411,7 +413,7 @@ class FlowTests(unittest.TestCase):
         for answer, expected in (('hub', "Join your team's Uberblick workspace: ub auth login, then ub workspace use"),
                                  ('create', 'Bind an Uberblick workspace: ub workspace create <name>')):
             with self.subTest(answer=answer):
-                for path in [self.path, self.root / '.gitignore']:
+                for path in [self.path, self.root / '.gitignore', self.root / '.github/workflows/close-parent-issues.yml']:
                     path.unlink(missing_ok=True)
                 for child in sorted(self.root.glob('.agents/*')):
                     child.unlink()
@@ -469,6 +471,33 @@ class FlowTests(unittest.TestCase):
             self.run_flow()
         self.assertEqual(self.script.asked, [])
         self.assertEqual(self.github.reads, [])
+
+    def test_existing_workflow_refuses_before_any_question_or_read(self):
+        workflow = self.root / '.github/workflows/close-parent-issues.yml'
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text('keep')
+        with self.assertRaisesRegex(AgentError, 'already exist'):
+            self.run_flow()
+        self.assertEqual(self.script.asked, [])
+        self.assertEqual(self.github.reads, [])
+        self.assertEqual(self.github.writes, [])
+        self.assertEqual(workflow.read_text(), 'keep')
+        self.assertFalse(self.path.exists())
+
+    def test_missing_workflow_scope_warns_before_write(self):
+        self.github.quota_headers['x-oauth-scopes'] = 'repo, read:org'
+        code, text = self.run_flow(Script(Write=False))
+        self.assertEqual(code, 1)
+        self.assertIn('Token cannot push the starter workflow', text)
+        self.assertIn('Run gh auth refresh -s workflow before pushing the setup PR', text)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.github.writes, [])
+
+    def test_workflow_scope_does_not_warn(self):
+        self.github.quota_headers['x-oauth-scopes'] = 'repo, workflow, read:org'
+        code, text = self.run_flow(Script(Write=False))
+        self.assertEqual(code, 1)
+        self.assertNotIn('Token cannot push the starter workflow', text)
 
     def test_unknown_repository_is_asked_for(self):
         self.runner.responses[('gh', 'repo', 'view', '--json', 'nameWithOwner')] = subprocess.CompletedProcess([], 1, '', '')
@@ -562,6 +591,8 @@ class FlowTests(unittest.TestCase):
         self.assertIn('Setup PR not opened remote: rejected Init created setup-ub-agents, committed the files; '
                       'open the PR yourself', text)
         self.assertIn('Open a PR with these files and merge it', text)
+        self.assertIn('gh auth refresh -s workflow', text)
+        self.assertIn('fine-grained tokens need Workflows write permission', text)
         self.assertTrue(text.endswith('└ Then run ub-agents launch'))
         self.assert_manual_tailoring_command()
 

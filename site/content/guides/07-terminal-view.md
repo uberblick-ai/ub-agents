@@ -79,6 +79,7 @@ An item appears in only one of these sections. Running wins over every plan for
 that item. Otherwise, plans from the current pass replace the item's carried
 plans. Within one pass, Eligible wins over Needs attention because the launcher
 will work the item next. Stopped agents show again when only their plans remain.
+Snapshot size trimming preserves these precedence rules.
 
 Eligible's heading counts every eligible item, for example
 `Eligible · 23 · showing 10`. [Selection order](https://github.com/uberblick-ai/ub-agents/blob/main/docs/coordination.md#selection-order)

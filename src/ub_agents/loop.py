@@ -1,6 +1,7 @@
 """One serial observe → claim → execute → observe → release loop."""
 
 import json
+import os
 import socket
 import threading
 from contextlib import contextmanager, nullcontext
@@ -36,6 +37,7 @@ from .renewal import LeaseRenewal
 from .usage.request_stats import DiscoveryPass, PassOutput, request_counts, request_delta
 from .updates.runtime_updates import RuntimeMaintenance
 from .usage.runtime_usage import RuntimeUsage
+from .runtime_rejections import RuntimeBlocks
 from .settlement import Settlement
 from .uberblick import workspace_binding
 from .trust import LauncherTrust
@@ -101,6 +103,8 @@ class Loop:
                                   on_change=lambda pauses: self.observe("runtime_pauses", pauses))
         self.health = AgentHealth(output=self._health_notice)
         self.coordinator.runtime_paused = self.usage.paused
+        self.runtime_blocks = RuntimeBlocks(on_change=lambda blocks: self.observe("runtime_blocks", blocks))
+        self.coordinator.runtime_blocked = self.runtime_blocks.blocked
         self.discovery = Discovery(self.github)
         self._poll_complete = False
         self._finalizing = False
@@ -706,6 +710,7 @@ class Loop:
             # Test/embedding callers can replace the loop's stop event.
             self.maintenance.stop_event = self.stop_event
             self.maintenance.boundary(self.config)
+            self.runtime_blocks.reconcile(self.config, lambda cli: self.maintenance.version(cli, os.environ.copy()))
         finally:
             self._maintaining = False
         if self._maintenance_graceful_stop and self.interrupt_event is self.stop_event:
@@ -767,6 +772,7 @@ class Loop:
         self.observe("configure", config, self.coordinator.actor, path)
         self.coordinator.reconfigure(config, pr_author_exclusions(
             config.trusted_pr_authors, self.approvals, self.github))
+        self.runtime_blocks.reconcile(config, lambda cli: None)
         return texts, shared
 
     def _configuration_paused(self, error):
@@ -1106,6 +1112,7 @@ class Loop:
 
     def _launch(self, once):  # noqa: C901, PLR0912, PLR0915
         self.usage.reset()
+        self.runtime_blocks.reset()
         self.discovery_budget = DiscoveryBudget(clock=lambda: monotonic())
         self._planning_rate_until = None
         self._continuous = not once

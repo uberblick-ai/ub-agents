@@ -377,6 +377,7 @@ class Flow:
     def confirm_write(self, plan, labels):
         root = plan.path.parent
         lines = [Text.assemble(("+ ", GREEN), str(plan.path.relative_to(root))),
+                 Text.assemble(("+ ", GREEN), ".github/workflows/close-parent-issues.yml"),
                  Text.assemble(("+ ", GREEN), ".agents/ ", (f"ub_agents.md and {len(ROLES)} role files", DIM))]
         if plan.ignore_after != (plan.ignore_before or b""):
             added = len(plan.ignore_after.splitlines()) - len((plan.ignore_before or b"").splitlines())
@@ -439,8 +440,12 @@ class Flow:
         except AgentError as exc:
             reason = (str(exc).removeprefix("Git operation failed: ").splitlines() or [""])[-1]
             state = f"Init {', '.join(done)}; " if done else ""
-            self.t.step("Setup PR not opened", [Text(reason, style=RED),
-                                               Text(f"{state}open the PR yourself", style=DIM)], "▲", YELLOW)
+            lines = [Text(reason, style=RED), Text(f"{state}open the PR yourself", style=DIM)]
+            if "committed the files" in done and "pushed" not in done:
+                lines.append(Text("If the credential cannot push workflow files, run gh auth refresh -s workflow; "
+                                  "fine-grained tokens need Workflows write permission. "
+                                  "Then push this branch and open the PR.", style=DIM))
+            self.t.step("Setup PR not opened", lines, "▲", YELLOW)
             return None
         self.t.step("Setup PR opened", [Text(url, style=DIM), Text(f"Back on {default}", style=DIM)])
         return url
