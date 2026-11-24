@@ -13,6 +13,7 @@ from ..errors import AgentError
 from ..labels import Label, LabelUse, configured_labels
 
 ROLES = ("issue-preparer", "issue-reviewer", "implementer", "reviewer", "integrator")
+DEFAULT_CODEX_RUNTIME = "codex:gpt-6.2-sol:high"
 
 
 def runtime_guidance(root, cli, *, fallback=False):
@@ -173,7 +174,7 @@ def make_plan(path, repository, choices):
     # Quote values to prevent runtime/model or repository input becoming YAML structure.
     content = templates.joinpath("ub-agents.yaml").read_text().replace(
         "your-org/your-project", json.dumps(repository)).replace(
-        '"codex:gpt-6.1-sol:high"', json.dumps(choices.runtime))
+        json.dumps(DEFAULT_CODEX_RUNTIME), json.dumps(choices.runtime))
     cli = choices.runtime.split(":", 1)[0]
     content = configure_runtimes(content, choices)
     if choices.priority_labels:

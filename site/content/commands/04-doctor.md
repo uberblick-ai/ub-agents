@@ -33,9 +33,9 @@ uberblick-ai/ub-agents · ub-agents from source (updates need the Homebrew tap) 
       ! Launcher account bk-one has admin, so agents can start and approve their own work
         → Use a dedicated launcher account with the write repository role
   ! Runtimes        19 passed, 2 warnings
-      ! implementer · codex:gpt-6.1-sol:xhigh: MCP server uberblick-agents is missing
+      ! implementer · codex:gpt-6.2-sol:xhigh: MCP server uberblick-agents is missing
         → Define it in runtime-args with -c mcp_servers.uberblick-agents.command=...
-      ! implementer · codex:gpt-6.1-sol:xhigh: MCP server uberblick-product is missing
+      ! implementer · codex:gpt-6.2-sol:xhigh: MCP server uberblick-product is missing
         → Define it in runtime-args with -c mcp_servers.uberblick-product.command=...
 
 3 warnings, no failures. Launch will start. (9.8s)

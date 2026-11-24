@@ -4,7 +4,7 @@ A second model catches what the first one missed. Make the reviewer run on a [di
 
 ```yaml
 reviewer:
-  runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.1-sol:high"]
+  runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.2-sol:high"]
   different-runtime-from: implementer
 ```
 

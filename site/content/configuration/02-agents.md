@@ -36,7 +36,7 @@ kind: pr    # issue, pr or either
 The agent CLI, model and effort. See [Runtimes](/docs/configuration/runtimes.html).
 
 ```yaml
-runtime: "codex:gpt-6.1-sol:high"
+runtime: "codex:gpt-6.2-sol:high"
 ```
 
 ### Runtime login
@@ -112,7 +112,7 @@ effort alone does not count. A successful source release or outcome recovery mus
 back the outcome; invalid provenance or a started, unfinished source handoff blocks.
 
 ```yaml
-runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.1-sol:high"]
+runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.2-sol:high"]
 different-runtime-from: implementer
 ```
 

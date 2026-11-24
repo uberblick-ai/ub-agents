@@ -1,7 +1,9 @@
 """Read-only setup checks, grouped into one line per area."""
 
 from dataclasses import dataclass, field
+import json
 import os
+import re
 import subprocess
 import sys
 
@@ -11,10 +13,34 @@ from ..errors import AgentError
 from ..execution import parse_process_table, repository_checks
 from ..github import repository_visibility
 from ..refresh import control_checkout_checks
+from .setup import DEFAULT_CODEX_RUNTIME
 
 ACCOUNT_GUIDANCE = "https://agents.uberblick.ai/docs/best-practices/launcher-account"
 PROBE_ERRORS = (AgentError, OSError, UnicodeError, subprocess.TimeoutExpired)
 CLIS = ("claude", "codex")
+
+
+def codex_runtime(runner):
+    """Suggest the newest listed Sol model, quietly falling back if Codex cannot list it."""
+    try:
+        result = runner(["codex", "debug", "models"], capture_output=True, text=True,
+                        timeout=5, check=False, stdin=subprocess.DEVNULL)
+        if result.returncode:
+            return DEFAULT_CODEX_RUNTIME
+        data = json.loads(result.stdout)
+        if not isinstance(data, dict) or not isinstance(data.get("models"), list):
+            return DEFAULT_CODEX_RUNTIME
+        models = {}
+        for model in data["models"]:
+            if not isinstance(model, dict) or model.get("visibility") != "list":
+                continue
+            slug = model.get("slug")
+            match = re.fullmatch(r"gpt-([0-9]+)(?:\.([0-9]+))?-sol", slug) if isinstance(slug, str) else None
+            if match:
+                models[(int(match[1]), int(match[2] or 0))] = slug
+        return f"codex:{models[max(models)]}:high" if models else DEFAULT_CODEX_RUNTIME
+    except (*PROBE_ERRORS, ValueError, TypeError):
+        return DEFAULT_CODEX_RUNTIME
 
 
 @dataclass
@@ -35,6 +61,7 @@ class Probes:
         self.doctor = doctor or Doctor(github=github)
         self.groups = []
         self.clis = {}
+        self.codex_runtime = DEFAULT_CODEX_RUNTIME
         self.existing_labels = None
         self.discussions = None
         self.discussions_off = False
@@ -164,6 +191,8 @@ class Probes:
                 self.clis[cli] = "logged in"
             except PROBE_ERRORS:
                 self.clis[cli] = "not logged in"
+        if self.clis.get("codex") == "logged in":
+            self.codex_runtime = codex_runtime(d.runner)
         if all(state == "not installed" for state in self.clis.values()):
             d.add("runtime", "fail", "Neither claude nor codex is installed", "Install Claude Code or Codex before launch")
         elif "logged in" not in self.clis.values():

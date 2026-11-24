@@ -138,7 +138,7 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn('ub also updates', text)
         self.assertIn('✓ Machine', text)
         self.assertIn('✓ Agents claude logged in · codex logged in', text)
-        self.assertIn('Codex · gpt-6.1-sol · high', text)
+        self.assertIn('Codex · gpt-6.2-sol · high', text)
         self.assertIn('Codex is the default; Claude Code reviews issues and PRs. Review later; '
                       'see https://agents.uberblick.ai/docs/configuration/runtimes', text)
         self.assertIn('Yes · review runtime-args for codex and claude in ub-agents.yaml before you launch', text)
@@ -351,7 +351,7 @@ class FlowTests(unittest.TestCase):
 
     def test_claude_retrospectives_get_the_retrospective_permission(self):
         code, text = self.run_flow(Script(Which_agent='claude', Extras=['retrospectives']),
-                                   runtime='codex:gpt-6.1-sol:high')
+                                   runtime='codex:gpt-6.2-sol:high')
         self.assertEqual(code, 0)
         self.assertIn('"Bash({report_command} retrospective *)"', self.path.read_text())
         self.assertEqual({runtime.cli for agent in load_config(self.path).agents for runtime in agent.runtimes},

@@ -22,6 +22,12 @@ Run `ub-agents init` from the root of a clean checkout of your project. It check
 
 The wizard asks which agent CLI runs the loop, whether agents may work without asking (for Codex, [full access without a sandbox](/docs/configuration/permissions.html#codex)), whether to keep the CLIs and `gh` up to date, who answers the agents' questions, and which extras you want: priority labels, [retrospective boards](/docs/best-practices/retrospectives.html), Uberblick and tailoring the loop policy (selected by default). Then it shows every change for you to confirm.
 
+The Codex suggestion uses the newest Sol model the installed Codex lists through
+`codex debug models`, at high effort. If the lookup fails or lists no Sol model,
+init quietly uses the fixed fallback `codex:gpt-6.2-sol:high`. An explicit
+`--runtime` stays as you supplied it. Init makes no network request of its own
+for this lookup and keeps no cache. Review the concrete model in the setup PR.
+
 When both Claude Code and Codex are logged in, your choice stays the default for
 issue preparation, implementation and integration. The issue reviewer and PR
 reviewer use the other CLI's default model and effort, with
@@ -117,7 +123,8 @@ ub-agents init --use-defaults --repository org/project
 Writes the starter files without asking, with safe defaults: Codex runs the loop (pick another with `--runtime`), agent permissions and updates stay off, and only **Tailor loop policy** is selected. The repository's first maintaining team answers the agents' questions, or you if there is none. It opens no PR, files no issue and creates no labels; it prints the commands instead. Runs without a terminal, such as CI, work the same way. Exit code 0 means everything was written, 1 that something failed.
 
 Unattended setup skips CLI probes and uses the chosen runtime for every role,
-even when both CLIs are installed and logged in.
+even when both CLIs are installed and logged in. Without `--runtime`, it uses
+the fixed Codex fallback above.
 
 ```text
 {{help init}}
