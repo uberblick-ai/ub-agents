@@ -12,17 +12,17 @@ box review-merge col=main title="reviewer + integrator" "merges the PR into the 
 box update-branch col=sync row=review-merge title="update the branch" "merges main in, fixes a trivial conflict"
 
 section "The milestone"
-box branch col=main title="Milestone branch" tone=system "one preview of every landed issue"
+box branch col=main title="Milestone branch" tone=system "every landed issue, tried together"
 panel description col=note row=branch tone=muted
   strong "Milestone description"
   text "names the milestone branch"
-  muted "and its preview URL"
-box milestone-pr col=main title="Milestone PR" tone=neutral "from the milestone branch into main"
+  muted "and its preview URL, if any"
+box milestone-pr col=main title="Milestone PR" tone=neutral "from the branch into main, lists what landed"
 end production "In main · deployed"
 
 panel human col=stop row=branch span=3 tone=stop
   strong "The team decides"
-  text "tries the milestone preview"
+  text "tries the milestone"
   muted "decides to release the milestone"
   rule
   muted "resolves a complex conflict with main"
@@ -32,13 +32,13 @@ issue-preparer --> implementer : ready
 implementer --> review-merge : handed-off
 review-merge --> branch : merged
 implementer --> create-branch from=right.1 to=left.1 : no branch yet
-create-branch --> implementer from=left.2 to=right.2 label=end : Branch and Preview lines added
+create-branch --> implementer from=left.2 to=right.2 label=end : Branch line added
 description -.-> branch tone=muted
 review-merge --> update-branch from=right.1 to=left.1 : main has changed
 update-branch --> review-merge from=left.2 to=right.2 label=end : branch up to date
 update-branch --> human tone=stop : complex conflict, with suggestions
-branch -.-> milestone-pr tone=muted
-human --> milestone-pr tone=stop : opens it
+branch -.-> milestone-pr tone=muted : opens with the first issue
+human --> milestone-pr tone=stop : releases it
 milestone-pr --> production : gates pass, merged by hand
 
 legend
@@ -56,6 +56,7 @@ play "First issue"
   step implementer 2.6s actor="Implementer" "Builds the change, opens a PR against the milestone branch"
   step review-merge 2.6s actor="Integrator" "PR reviewed; main is unchanged"
   step branch 3s actor="Integrator" "Adds the PR to the milestone branch, closes the issue"
+  step milestone-pr 2.6s actor="Workflow" "Opens the milestone PR into main, listing what landed"
 
 play "Next issue"
   tempo 1.8s
@@ -63,7 +64,7 @@ play "Next issue"
   step issue-preparer 2.4s actor="Issue preparer" "Prepares the issue and attaches the ready label"
   step implementer 2.6s actor="Implementer" "Creates a PR against the existing milestone branch"
   step review-merge 2.6s actor="Integrator" "PR reviewed; main is unchanged"
-  step branch 2.6s actor="Integrator" "Adds the PR; the branch preview now shows both changes"
+  step branch 2.6s actor="Integrator" "Adds the PR; the milestone now holds both changes"
 
 play "Main moved"
   tempo 1.8s
@@ -71,14 +72,14 @@ play "Main moved"
   step review-merge 2.6s actor="Integrator" "PR reviewed, but main has changed"
   step update-branch 3s actor="Integrator" "Merges main into the milestone branch"
   step review-merge 2.6s actor="Integrator" "Back on the PR: the branch is up to date"
-  step branch 3s actor="Integrator" "Adds the PR; the preview runs on current main"
+  step branch 3s actor="Integrator" "Adds the PR; the milestone runs on current main"
 
 play "Trivial conflict"
   tempo 1.8s
   step review-merge 2.6s actor="Integrator" "PR reviewed, but main has changed"
   step update-branch 3s actor="Integrator" "Only the lockfile conflicts: regenerates it, merges main"
   step review-merge 2.6s actor="Integrator" "Back on the PR: the branch is up to date"
-  step branch 3s actor="Integrator" "Adds the PR; the branch preview runs on current main"
+  step branch 3s actor="Integrator" "Adds the PR; the milestone runs on current main"
 
 play "Complex conflict"
   tempo 1.8s
@@ -89,6 +90,6 @@ play "Complex conflict"
 
 play "Milestone lands"
   tempo 1.8s
-  step human 3s actor="Team" "Tries the preview and decides to release the milestone"
-  step milestone-pr 3s actor="Team" "Opens the milestone PR into main, checks the gates"
+  step human 3s actor="Team" "Tries the milestone on its preview or staging, decides to release"
+  step milestone-pr 3s actor="Team" "Checks the gates on the milestone PR"
   step production 3s actor="Team" "Merges the milestone PR into main by hand"
