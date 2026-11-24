@@ -666,6 +666,7 @@ class RecordingRunner:
             ("git", "-C", str(root), "check-ignore", "-q", ".ub-agents/"): "",
             ("ps", "-axo", "pid=,pgid=,stat="): f"{os.getpid()} {os.getpgrp()} S\n",
             ("codex", "login", "status"): "sk-auth-secret\n",
+            ("codex", "debug", "models"): '{"models": []}',
             ("claude", "auth", "status"): "sk-auth-secret\n",
         }
 

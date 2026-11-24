@@ -235,7 +235,7 @@ commands, and open no PR:
 │  Unattended setup
 │
 ◇  Which agent runs the loop?
-│  Codex · gpt-6.1-sol · high
+│  Codex · gpt-6.2-sol · high
 │  Great, Codex is the default for all agents.
 │  Review later; see https://agents.uberblick.ai/docs/configuration/runtimes
 │

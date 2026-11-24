@@ -8,7 +8,7 @@ shared-instructions: .agents/ub_agents.md
 
 agents:
   implementer:
-    runtime: "codex:gpt-6.1-sol:high"
+    runtime: "codex:gpt-6.2-sol:high"
     trigger: [ready, needs-changes]
     instructions: .agents/implementer.md
     worktree: true
@@ -99,7 +99,7 @@ To change settings on one machine only, put them in `ub-agents.local.yaml` next 
 # ub-agents.local.yaml
 agents:
   implementer:
-    runtime: ["codex:gpt-6.1-sol:high", "claude:claude-opus-5-5:high"]
+    runtime: ["codex:gpt-6.2-sol:high", "claude:claude-opus-5-5:high"]
 ```
 
 An optional, untracked `ub-agents.local.yaml` in the base file's directory, after

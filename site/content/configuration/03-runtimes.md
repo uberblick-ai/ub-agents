@@ -12,7 +12,7 @@ Written as `cli:model:effort`. The CLI is `claude` or `codex`.
 
 ```yaml
 runtime: "claude:claude-opus-5-5:high"
-runtime: "codex:gpt-6.1-sol:high"
+runtime: "codex:gpt-6.2-sol:high"
 ```
 
 ## Alternatives
@@ -20,7 +20,7 @@ runtime: "codex:gpt-6.1-sol:high"
 Give a list. The first one that is installed and allowed runs. To change the list on one machine, use a [machine-local override](/docs/configuration/index.html#machine-local-overrides).
 
 ```yaml
-runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.1-sol:high"]
+runtime: ["claude:claude-opus-5-5:high", "codex:gpt-6.2-sol:high"]
 ```
 
 ## What runs

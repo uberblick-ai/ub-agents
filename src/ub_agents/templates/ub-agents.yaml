@@ -38,7 +38,7 @@ queue:
 # Customize these outcomes and rules with the project's owners.
 agents:
   issue-preparer:
-    runtime: "codex:gpt-6.1-sol:high"
+    runtime: "codex:gpt-6.2-sol:high"
     kind: issue
     trigger: needs-preparation
     outcomes:
@@ -51,7 +51,7 @@ agents:
     agent-timeout-minutes: 60
 
   issue-reviewer:
-    runtime: "codex:gpt-6.1-sol:high"
+    runtime: "codex:gpt-6.2-sol:high"
     kind: issue
     trigger: needs-review
     outcomes:
@@ -66,7 +66,7 @@ agents:
     # different-runtime-from: issue-preparer
 
   implementer:
-    runtime: "codex:gpt-6.1-sol:high"
+    runtime: "codex:gpt-6.2-sol:high"
     trigger: [ready, needs-changes]
     outcomes:
       handed-off: {add: [needs-review]}
@@ -76,7 +76,7 @@ agents:
     agent-timeout-minutes: 180
 
   reviewer:
-    runtime: "codex:gpt-6.1-sol:high"
+    runtime: "codex:gpt-6.2-sol:high"
     kind: pr
     trigger: needs-review
     outcomes:
@@ -91,7 +91,7 @@ agents:
     # Native GitHub approval requires an identity other than the PR author.
 
   integrator:
-    runtime: "codex:gpt-6.1-sol:high"
+    runtime: "codex:gpt-6.2-sol:high"
     kind: pr
     trigger: ready-to-merge
     outcomes:

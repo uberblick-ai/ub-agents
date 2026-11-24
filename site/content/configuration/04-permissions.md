@@ -67,7 +67,7 @@ runtime-args:
            --add-dir, "{scratch}"]
 agents:
   reviewer:
-    runtime: ["codex:gpt-6.1-sol:xhigh", "claude:claude-opus-5-5:xhigh"]
+    runtime: ["codex:gpt-6.2-sol:xhigh", "claude:claude-opus-5-5:xhigh"]
     instructions: .agents/reviewer.md
     trigger: needs-review
     outcomes: {approved: {add: [ready-to-merge]}}

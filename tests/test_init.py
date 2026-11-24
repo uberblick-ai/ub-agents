@@ -1,4 +1,5 @@
 from contextlib import redirect_stdout, redirect_stderr
+from importlib.resources import files
 import io
 import json
 import re
@@ -15,7 +16,7 @@ from ub_agents.init.setup import runtime_guidance
 from ub_agents.config import load_config
 from ub_agents.errors import AgentError
 from ub_agents.init.flow import PRIORITIES
-from ub_agents.init.setup import Choices, priority_labels
+from ub_agents.init.setup import DEFAULT_CODEX_RUNTIME, ROLES, Choices, priority_labels
 from ub_agents.labels import configured_labels
 from tests.support import DoctorGitHub, RecordingRunner
 
@@ -124,6 +125,21 @@ class InitTests(unittest.TestCase):
                          ['issue-preparer', 'issue-reviewer', 'implementer', 'reviewer', 'integrator'])
         self.assertEqual(config.shared_instructions, self.path.parent / '.agents/ub_agents.md')
         self.assertTrue(all(agent.worktree for agent in config.agents))
+        self.assertEqual({agent.runtimes[0].name for agent in config.agents}, {DEFAULT_CODEX_RUNTIME})
+
+    def test_template_matches_fallback_and_chosen_runtime_replaces_every_role(self):
+        template = yaml.safe_load(files('ub_agents').joinpath('templates/ub-agents.yaml').read_text())
+        self.assertEqual(set(template['agents']), set(ROLES))
+        self.assertEqual({agent['runtime'] for agent in template['agents'].values()}, {DEFAULT_CODEX_RUNTIME})
+        for runtime in (None, 'codex:chosen-model:low', 'claude:chosen-model:high'):
+            with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as directory:
+                self.path = Path(directory) / 'ub-agents.yaml'
+                self.runner.calls.clear()
+                code, _, error, _ = self.init(runtime=runtime)
+                self.assertEqual((code, error), (0, ''))
+                self.assertEqual({agent.runtimes[0].name for agent in load_config(self.path).agents},
+                                 {runtime or DEFAULT_CODEX_RUNTIME})
+                self.assertEqual(self.runner.calls, [])
 
     def test_unattended_off_adds_no_visibility_read_or_outside_input_defaults(self):
         self.path.parent.mkdir()
@@ -318,7 +334,7 @@ class InitTests(unittest.TestCase):
         implementer = next(agent for agent in config.agents if agent.name == 'implementer')
         self.assertEqual(tuple(runtime.name for runtime in implementer.runtimes), ('claude:machine:high',))
         self.assertEqual(local.read_text(), content)
-        self.assertIn('runtime: "codex:gpt-6.1-sol:high"', self.path.read_text())
+        self.assertIn('runtime: "codex:gpt-6.2-sol:high"', self.path.read_text())
 
     def test_init_rejects_invalid_existing_local_overrides(self):
         self.path.parent.mkdir()

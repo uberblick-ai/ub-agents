@@ -16,13 +16,13 @@ from .boards import Boards
 from .mcp import preview as mcp_preview
 from .probes import ACCOUNT_GUIDANCE, PROBE_ERRORS, Probes
 from .prompts import DIM, GREEN, RED, YELLOW, Cancelled, Option
-from .setup import (PERMISSIONS_GUIDE, ROLES, Choices, apply_plan, guidance_summary, infer_repository, make_plan, next_steps,
-                         priority_labels, recovery_content)
+from .setup import (DEFAULT_CODEX_RUNTIME, PERMISSIONS_GUIDE, ROLES, Choices, apply_plan, guidance_summary,
+                    infer_repository, make_plan, next_steps, priority_labels, recovery_content)
 from .tailoring import TITLE as TAILOR_TITLE, command as tailoring_command
 from ..labels import configured_labels
 from ..uberblick import WORKSPACE_FILE, workspace_binding
 
-RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", "codex:gpt-6.1-sol:high")}
+RUNTIMES = {"claude": ("Claude Code", "claude:claude-opus-5-5:high"), "codex": ("Codex", DEFAULT_CODEX_RUNTIME)}
 PRIORITIES = "prio:urgent, prio:high, prio:medium, prio:low"
 WORKFLOW_GUIDE = "https://agents.uberblick.ai/docs/configuration/"
 UPDATES_GUIDE = "https://agents.uberblick.ai/docs/configuration/runtime-updates"
@@ -215,7 +215,7 @@ class Flow:
         clis = list(RUNTIMES)
         if preferred and preferred not in RUNTIMES:
             clis.append(preferred)
-        values = {name: self.runtime if self.runtime and name == preferred else RUNTIMES[name][1] for name in clis}
+        values = {name: self.runtime if self.runtime and name == preferred else self.suggested_runtime(name) for name in clis}
         options = []
         for name in clis:
             _, model, effort = (values[name].split(":") + ["", ""])[:3]
@@ -233,10 +233,13 @@ class Flow:
                               Text(f"Review later; see {RUNTIMES_GUIDE}", style=DIM)])
         return values[cli]
 
+    def suggested_runtime(self, cli):
+        return self.probes.codex_runtime if cli == "codex" and self.probes else RUNTIMES[cli][1]
+
     def reviewer_runtime(self, runtime):
         cli = runtime.split(":", 1)[0]
         if cli in RUNTIMES and self.probes and all(self.probes.clis.get(name) == "logged in" for name in RUNTIMES):
-            return next(value[1] for name, value in RUNTIMES.items() if name != cli)
+            return next(self.suggested_runtime(name) for name in RUNTIMES if name != cli)
         return ""
 
     def choose_permissions(self, choices):
