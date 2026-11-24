@@ -14,6 +14,7 @@ import logging
 import socket
 import threading
 from time import monotonic
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import urlopen
 
@@ -56,6 +57,9 @@ class Snapshots:
         self.value = None
         self.read_at = None
 
+    def repositories(self):
+        return [self.source.config.repository]
+
     def get(self, fresh=False):
         with self.lock:
             if fresh or self.read_at is None or self.clock() - self.read_at >= REUSE_SECONDS:
@@ -96,6 +100,9 @@ class Repositories:
         self.snapshots = [RepositorySnapshot(source) for source in sources]
         self.lock = threading.Lock()
 
+    def repositories(self):
+        return [snapshot.source.config.repository for snapshot in self.snapshots]
+
     def get(self, fresh=False):
         with self.lock:
             with ThreadPoolExecutor(max_workers=len(self.snapshots)) as workers:
@@ -118,6 +125,14 @@ class Repositories:
         return rates
 
 
+def snapshot_response(snapshots, query):
+    try:
+        data = snapshots.get(fresh="fresh" in parse_qs(query))
+        return 200, json.dumps(data).encode()
+    except AgentError as exc:
+        return 502, json.dumps({"error": str(exc)}).encode()
+
+
 def handler(snapshots, page):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -127,12 +142,11 @@ def handler(snapshots, page):
                 return self.reply(403, b"", "text/plain")
             if parts.path == "/":
                 return self.reply(200, page, "text/html; charset=utf-8")
+            if parts.path == "/repositories.json":
+                return self.reply(200, json.dumps(snapshots.repositories()).encode(), "application/json")
             if parts.path == "/snapshot.json":
-                try:
-                    data = snapshots.get(fresh="fresh" in parse_qs(parts.query))
-                    return self.reply(200, json.dumps(data).encode(), "application/json")
-                except AgentError as exc:
-                    return self.reply(502, json.dumps({"error": str(exc)}).encode(), "application/json")
+                status, content = snapshot_response(snapshots, parts.query)
+                return self.reply(status, content, "application/json")
             return self.reply(404, b"", "text/plain")
 
         def reply(self, status, content, kind):
@@ -170,3 +184,19 @@ def already_serving(url):
             return response.headers.get(SIGNATURE) == "1"
     except OSError:
         return False
+
+
+def watched_repositories(url):
+    """Read configured identities without a GitHub snapshot; older monitors return 404."""
+    try:
+        with urlopen(url + "repositories.json", timeout=2) as response:
+            repositories = json.load(response)
+        if not isinstance(repositories, list) or any(not isinstance(name, str) for name in repositories):
+            raise ValueError("expected a list of repository names")
+        return repositories
+    except HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise AgentError(f"Cannot check the monitor's repositories on {url}: {exc}; retry or restart the monitor.") from exc
+    except (OSError, ValueError) as exc:
+        raise AgentError(f"Cannot check the monitor's repositories on {url}: {exc}; retry or restart the monitor.") from exc

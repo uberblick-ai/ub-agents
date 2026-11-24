@@ -9,7 +9,7 @@ import webbrowser
 from ..errors import AgentError
 from ..github import GitHub
 from ..records import timestamp
-from .server import Repositories, already_serving, create
+from .server import Repositories, already_serving, create, watched_repositories
 from .snapshot import MonitorSource
 
 START_SECONDS = 15
@@ -21,6 +21,20 @@ def monitor_sources(configs, *, repository_targets=()):
                           checkout=config.repository.casefold() not in repositories) for config in configs]
 
 
+def reuse_monitor(url, repositories):
+    watched = watched_repositories(url)
+    if watched is not None:
+        watched = {repository.casefold() for repository in watched}
+        missing = [repository for repository in repositories if repository.casefold() not in watched]
+        if missing:
+            raise AgentError(f"The monitor on {url} is missing repositories: {', '.join(missing)}. "
+                             "Stop the running monitor and restart with all checkouts or "
+                             "ub-agents-monitor.yaml, or pass --port for a second monitor.")
+    print(f"The monitor already runs on {url}")
+    if watched is None:
+        print("Couldn't check which repositories this monitor watches; restart the monitor to enable this check.")
+
+
 def serve(sources, port, open_page=True):
     url = f"http://127.0.0.1:{port}/"
     try:
@@ -30,7 +44,7 @@ def serve(sources, port, open_page=True):
             raise
         if not already_serving(url):
             raise AgentError(f"Port {port} is taken by something else; pass --port to use another") from exc
-        print(f"The monitor already runs on {url}")
+        reuse_monitor(url, [source.config.repository for source in sources])
         if open_page:
             webbrowser.open(url)
         return 0
@@ -46,7 +60,7 @@ def serve(sources, port, open_page=True):
     return 0
 
 
-def monitor_background(targets, root, port, open_page=True):
+def monitor_background(targets, root, port, open_page=True, *, repositories):
     """Start the monitor in its own session, so it outlives this terminal."""
     url = f"http://127.0.0.1:{port}/"
     if not already_serving(url):
@@ -64,7 +78,7 @@ def monitor_background(targets, root, port, open_page=True):
             sleep(0.2)
         print(f"ub-agents monitor on {url} in the background (pid {process.pid}); stop it with: kill {process.pid}")
     else:
-        print(f"The monitor already runs on {url}")
+        reuse_monitor(url, repositories)
     if open_page:
         webbrowser.open(url)
     return 0

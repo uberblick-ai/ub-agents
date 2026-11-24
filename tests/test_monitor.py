@@ -4,6 +4,7 @@ from contextlib import chdir, redirect_stderr, redirect_stdout
 from dataclasses import replace
 from io import BytesIO, StringIO
 import base64
+import errno
 import json
 from pathlib import Path
 import subprocess
@@ -12,6 +13,7 @@ import threading
 import unittest
 from unittest.mock import Mock, call, patch
 from urllib.parse import unquote
+from urllib.error import HTTPError
 
 from ub_agents.config import Priority, Queue, Runtime
 from ub_agents.cli import main
@@ -22,7 +24,7 @@ from ub_agents.loop import Loop
 from ub_agents.monitor import monitor_background, monitor_sources
 from ub_agents.monitor.eligible import EligiblePlanning, PLAN_SECONDS
 from ub_agents.monitor.local import runtime_pauses
-from ub_agents.monitor.server import Repositories, Snapshots, allowed, create, page
+from ub_agents.monitor.server import Repositories, SIGNATURE, Snapshots, allowed, create, page
 from ub_agents.monitor.snapshot import MonitorSource
 from ub_agents.records import body, iso, timestamp
 from tests.support import FakeGitHub, PollGitHub, agent, config, issue, pr
@@ -37,11 +39,17 @@ def lease(number, run, **changes):
             "attempt_effect": "pending", "host": "server"} | changes
 
 
-def snapshot_request(port):
+def snapshot_request(port, path='/snapshot.json'):
     request = Mock()
     request.makefile.return_value = BytesIO(
-        f"GET /snapshot.json HTTP/1.0\r\nHost: localhost:{port}\r\n\r\n".encode())
+        f"GET {path} HTTP/1.0\r\nHost: localhost:{port}\r\n\r\n".encode())
     return request
+
+
+def monitor_response(repositories):
+    response = BytesIO(json.dumps(repositories).encode())
+    response.headers = {SIGNATURE: '1'}
+    return response
 
 
 def checkout(root, name):
@@ -58,6 +66,128 @@ def contents(content):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_running_monitor_opens_when_it_covers_every_requested_repository(self):
+        url = 'http://127.0.0.1:4400/'
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            root = Path(folder)
+            checkout(root, 'a')
+            checkout(root, 'b')
+            for arguments in (['a'], ['a', 'b'], ['b', '--background'],
+                              ['a', '--no-open'], ['b', '--background', '--no-open']):
+                with self.subTest(arguments=arguments), \
+                        patch('ub_agents.monitor.create', side_effect=OSError(errno.EADDRINUSE, 'in use')), \
+                        patch('ub_agents.monitor.server.urlopen',
+                              side_effect=lambda *args, **kwargs: monitor_response(['org/a', 'org/b'])) as read, \
+                        patch.object(GitHub, 'request') as github, \
+                        patch('ub_agents.monitor.webbrowser.open') as open_page, \
+                        patch('ub_agents.monitor.subprocess.Popen') as popen, redirect_stdout(StringIO()) as output:
+                    self.assertEqual(main(['monitor', *arguments, '--port', '4400']), 0)
+                    self.assertIn(f'The monitor already runs on {url}', output.getvalue())
+                    self.assertNotIn("Couldn't check", output.getvalue())
+                    self.assertEqual(read.call_args_list, [call(url, timeout=2),
+                                                           call(url + 'repositories.json', timeout=2)])
+                    self.assertEqual(open_page.call_args_list, [] if '--no-open' in arguments else [call(url)])
+                    popen.assert_not_called()
+                    github.assert_not_called()
+
+    def test_running_monitor_rejects_missing_repositories_from_every_target_source(self):
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            root = Path(folder)
+            checkout(root, 'a')
+            missing = checkout(root, 'c')
+            (root / 'ub-agents.yaml').write_text((missing / 'ub-agents.yaml').read_text())
+            for target_form in ('arguments', 'config', 'current', 'monitor-file'):
+                if target_form == 'monitor-file':
+                    (root / 'ub-agents-monitor.yaml').write_text('checkouts: [a, c]\n')
+                targets = {'arguments': ['a', 'c'], 'config': ['--config', 'c/ub-agents.yaml'],
+                           'current': [], 'monitor-file': []}[target_form]
+                for options in ([], ['--background'], ['--no-open'], ['--background', '--no-open']):
+                    with self.subTest(target_form=target_form, options=options), \
+                            patch('ub_agents.monitor.create', side_effect=OSError(errno.EADDRINUSE, 'in use')), \
+                            patch('ub_agents.monitor.server.urlopen',
+                                  side_effect=lambda *args, **kwargs: monitor_response(['org/a'])), \
+                            patch('ub_agents.monitor.webbrowser.open') as open_page, \
+                            patch('ub_agents.monitor.subprocess.Popen') as popen, \
+                            patch.object(GitHub, 'request') as github, \
+                            redirect_stdout(StringIO()) as output, redirect_stderr(StringIO()) as error:
+                        self.assertEqual(main(['monitor', *targets, *options]), 1)
+                        self.assertIn('missing repositories: org/c', error.getvalue())
+                        self.assertNotIn('missing repositories: org/a', error.getvalue())
+                        self.assertIn('Stop the running monitor', error.getvalue())
+                        self.assertIn('restart with all checkouts', error.getvalue())
+                        self.assertIn('ub-agents-monitor.yaml', error.getvalue())
+                        self.assertIn('--port', error.getvalue())
+                        self.assertNotIn('already runs', output.getvalue())
+                        open_page.assert_not_called()
+                        popen.assert_not_called()
+                        github.assert_not_called()
+
+    def test_running_monitor_matches_repository_and_checkout_targets_ignoring_case(self):
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            local = checkout(Path(folder), 'local')
+            content = (local / 'ub-agents.yaml').read_text()
+            for targets, watched in ((['local'], ['ORG/LOCAL']), (['ORG/LOCAL'], ['org/local']),
+                                     (['local', '--background'], ['ORG/LOCAL']),
+                                     (['ORG/LOCAL', '--background'], ['org/local'])):
+                with self.subTest(targets=targets), \
+                        patch('ub_agents.monitor.create', side_effect=OSError(errno.EADDRINUSE, 'in use')), \
+                        patch('ub_agents.monitor.server.urlopen',
+                              side_effect=lambda *args, **kwargs: monitor_response(watched)), \
+                        patch.object(GitHub, 'request', return_value=contents(content)) as github, \
+                        patch('ub_agents.monitor.webbrowser.open') as open_page, \
+                        patch('ub_agents.monitor.subprocess.Popen') as popen, redirect_stdout(StringIO()):
+                    self.assertEqual(main(['monitor', *targets]), 0)
+                    open_page.assert_called_once_with('http://127.0.0.1:4377/')
+                    popen.assert_not_called()
+                    self.assertEqual(github.call_args_list,
+                                     [call('repos/ORG/LOCAL/contents/ub-agents.yaml')] if targets[0] == 'ORG/LOCAL' else [])
+
+    def test_older_running_monitor_opens_with_a_note_when_repositories_cannot_be_checked(self):
+        url = 'http://127.0.0.1:4377/'
+        with tempfile.TemporaryDirectory() as folder, chdir(folder):
+            checkout(Path(folder), 'a')
+            for options in ([], ['--background'], ['--no-open'], ['--background', '--no-open']):
+                with self.subTest(options=options), \
+                        patch('ub_agents.monitor.create', side_effect=OSError(errno.EADDRINUSE, 'in use')), \
+                        patch('ub_agents.monitor.server.urlopen', side_effect=[monitor_response(None),
+                              HTTPError(url + 'repositories.json', 404, 'Not Found', {}, None)]), \
+                        patch('ub_agents.monitor.webbrowser.open') as open_page, \
+                        patch('ub_agents.monitor.subprocess.Popen') as popen, redirect_stdout(StringIO()) as output:
+                    self.assertEqual(main(['monitor', 'a', *options]), 0)
+                    self.assertIn(f'The monitor already runs on {url}', output.getvalue())
+                    self.assertIn("Couldn't check which repositories", output.getvalue())
+                    self.assertIn('restart the monitor', output.getvalue())
+                    self.assertEqual(open_page.call_args_list, [] if '--no-open' in options else [call(url)])
+                    popen.assert_not_called()
+
+    def test_repository_check_errors_do_not_open_the_browser_or_start_a_process(self):
+        url = 'http://127.0.0.1:4377/'
+        for response in (OSError('connection lost'), HTTPError(url, 500, 'read failed', {}, None),
+                         monitor_response({'repositories': []}), BytesIO(b'invalid JSON'), monitor_response([None])):
+            with self.subTest(response=response), \
+                    patch('ub_agents.cli.monitor.load_config', return_value=config(Path('/checkout'))), \
+                    patch('ub_agents.monitor.server.urlopen', side_effect=[monitor_response(None), response]), \
+                    patch('ub_agents.monitor.webbrowser.open') as open_page, \
+                    patch('ub_agents.monitor.subprocess.Popen') as popen, redirect_stderr(StringIO()) as error:
+                self.assertEqual(main(['monitor', '--background']), 1)
+                self.assertIn("Cannot check the monitor's repositories", error.getvalue())
+                open_page.assert_not_called()
+                popen.assert_not_called()
+
+    def test_server_reports_configured_repositories_without_reading_github(self):
+        sources = monitor_sources([replace(config(Path('/a')), repository='org/a'),
+                                   replace(config(Path('/b')), repository='ORG/B')])
+        for source, expected in ((sources[0], ['org/a']), (Repositories(sources), ['org/a', 'ORG/B'])):
+            with self.subTest(expected=expected), patch.object(GitHub, 'request') as github, \
+                    patch.object(MonitorSource, 'snapshot') as snapshot, create(source, port=0) as server:
+                request = snapshot_request(server.server_address[1], '/repositories.json')
+                server.process_request_thread(request, ('127.0.0.1', 12345))
+                response = b''.join(part.args[0] for part in request.sendall.call_args_list)
+                self.assertIn(b'200 OK', response)
+                self.assertEqual(json.loads(response.split(b'\r\n\r\n', 1)[1]), expected)
+                snapshot.assert_not_called()
+                github.assert_not_called()
+
     def test_repository_targets_load_once_without_overrides_or_checkout_file_checks(self):
         content = ('repository: ORG/Remote\nshared-instructions: absent-shared.md\n'
                    'checkout-setup: {command: [echo], when-changed: [local]}\n'
@@ -337,7 +467,7 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(sources.call_args.args[0][0].repository, 'org/project')
             self.assertEqual(main(['monitor', '--config', 'ub-agents.yaml', '--background', '--no-open']), 0)
             background.assert_called_once_with([Path('ub-agents.yaml').resolve()], Path('/checkout'), 4377,
-                                               open_page=False)
+                                               open_page=False, repositories=['org/project'])
         with patch('ub_agents.cli.monitor.load_config', side_effect=[config(Path('/a')),
                 replace(config(Path('/b')), repository='org/second')]), \
                 patch('ub_agents.monitor.monitor_background', return_value=0) as background:
@@ -1021,7 +1151,7 @@ class MonitorTests(unittest.TestCase):
             root = Path(folder).resolve()
             popen.return_value.poll.return_value = None
             monitor_background([Path(root) / "ub-agents.yaml", Path(root) / "other.yaml"],
-                               Path(root), 4400, open_page=False)
+                               Path(root), 4400, open_page=False, repositories=['org/project', 'org/other'])
         command, options = popen.call_args.args[0], popen.call_args.kwargs
         self.assertEqual(command[-6:], ["monitor", f"{root}/ub-agents.yaml", f"{root}/other.yaml", "--port", "4400", "--no-open"])
         self.assertEqual(options['stdout'].name, f'{root}/.ub-agents/monitor.log')

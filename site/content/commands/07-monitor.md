@@ -76,7 +76,16 @@ file when using that file, or in the first checkout otherwise. With only reposit
 targets and no monitor file, the log goes in the current folder.
 The background process receives absolute paths for every checkout's configuration
 and repository targets unchanged.
-Running it again while it runs just opens the page.
+Running it again while it runs opens the page and exits 0 if that monitor watches
+every requested repository, even when it also watches others. Repository names
+compare as `owner/name`, ignoring case, across checkout and repository targets.
+If any are missing, the command exits 1 without opening the browser or starting
+another process, and names the missing repositories. Stop the running monitor and
+restart with all checkouts or `ub-agents-monitor.yaml`, or pass `--port` for a second
+monitor. This applies with `--background` and `--no-open` too.
+An older monitor that cannot report its repositories still opens as before; the
+command says it could not check and asks you to restart the monitor to enable the
+check. Asking the running monitor what it watches makes no GitHub requests.
 
 Closing or reloading the page while a reply is pending is quiet. Other server
 errors still print in the terminal or background log.
