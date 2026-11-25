@@ -78,10 +78,10 @@
 | src/ub\_agents/logs/log\_times.py                |      115 |        4 |     97% |35, 50-51, 123 |
 | src/ub\_agents/loop.py                           |      932 |       32 |     97% |265, 295, 356, 366, 375, 442-444, 572, 578, 589, 659, 739, 772, 796-797, 804, 816, 860, 918-919, 936, 971-974, 981, 1016-1017, 1025, 1044, 1133 |
 | src/ub\_agents/merging.py                        |      135 |        7 |     95% |54, 72, 74, 130, 154, 160, 165 |
-| src/ub\_agents/monitor/\_\_init\_\_.py           |       53 |       24 |     55% |25-46, 63, 67, 69 |
+| src/ub\_agents/monitor/\_\_init\_\_.py           |       63 |       12 |     81% |44, 46, 51-60, 77 |
 | src/ub\_agents/monitor/eligible.py               |       54 |        0 |    100% |           |
 | src/ub\_agents/monitor/local.py                  |       30 |        2 |     93% |     18-19 |
-| src/ub\_agents/monitor/server.py                 |      113 |        9 |     92% |127, 129, 135-136, 168-172 |
+| src/ub\_agents/monitor/server.py                 |      136 |        6 |     96% |133, 142, 144, 150, 185-186 |
 | src/ub\_agents/monitor/snapshot.py               |      114 |        7 |     94% |76, 141-143, 166, 195-196 |
 | src/ub\_agents/notices.py                        |      236 |        2 |     99% |  151, 238 |
 | src/ub\_agents/observation\_data.py              |      114 |        1 |     99% |        29 |
@@ -149,7 +149,7 @@
 | src/ub\_agents/view/work.py                      |      474 |        4 |     99% |37-38, 96, 318 |
 | src/ub\_agents/view/worker.py                    |      118 |       17 |     86% |60-61, 97, 112, 117-118, 130-134, 140-146 |
 | src/ub\_agents/worktree\_setup.py                |       64 |        1 |     98% |        47 |
-| **TOTAL**                                        | **19188** |  **691** | **96%** |           |
+| **TOTAL**                                        | **19221** |  **676** | **96%** |           |
 
 
 ## Setup coverage badge
