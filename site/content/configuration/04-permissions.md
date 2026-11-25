@@ -16,6 +16,13 @@ implementer:
 
 `ub-agents init` writes a commented top-level `runtime-args` entry for the selected CLI, or both CLIs when both are logged in and reviewers use the other CLI. When [init](/docs/commands/init.html) asks whether agents may work without asking, Yes (the default) uncomments the entries for all starter agents; `--use-defaults` and runs without a terminal leave the selected CLI's entry commented. Review them before you launch. The retrospectives extra also adds Claude's `retrospective` rule, including when Claude only runs reviewers.
 
+The Uberblick extra adds `mcp__uberblick__*` to Claude's `--allowedTools`, allowing
+the registered `uberblick` server's tools, including memory reads and writes.
+Codex uses the project `.codex/config.toml` registration with its existing
+`--sandbox danger-full-access` entry; it needs no additional MCP flag. The grant
+follows the permissions answer, including when Claude only runs reviewers: it
+stays in the commented entry until you enable permissions.
+
 ## Claude Code
 
 File edits plus the commands the role needs, with no prompts. Commands not listed in `--allowedTools` are denied, so add your project's check commands. Read-only commands such as `cat`, `grep`, `ls` and `sed -n` need no rule inside the worktree and the run's scratch directory, and Claude Code refuses paths outside those even with one.

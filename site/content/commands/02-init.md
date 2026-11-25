@@ -49,6 +49,16 @@ With updates enabled, selecting the Uberblick extra also writes `runtime-updates
 | `.gitignore` | Keeps the launcher's local state out of Git. |
 | `.mcp.json` and/or `.codex/config.toml` | Only with [Uberblick](https://uberblick.ai): connects the configured CLIs to it, plus `.uberblick.json` when init creates a workspace. |
 
+The Uberblick extra also appends a **Memory** section to `.agents/ub_agents.md`.
+All five starter roles read the memory index with `get_memories` before work and
+save lasting lessons in Uberblick, using their agent name and repository to scope
+them. They use this shared memory instead of the runtime's own memory.
+The extra adds `mcp__uberblick__*` to Claude's `--allowedTools`; Codex uses its
+project MCP registration with the existing starter permissions. These
+[`runtime-args`](/docs/configuration/permissions.html#starter-permissions) stay
+commented or active according to your permissions answer. Use a `ub` release
+that provides `get_memories` and memory writes.
+
 The files go to a setup PR on your default branch, and init offers to create the missing workflow labels. On another branch, init offers to switch and writes nothing if you decline. With [approvals on](/docs/configuration/approvals.html#outside-input-label), the labels include `outside-input`, and on public repositories the new policy leaves PRs with it to maintainers.
 
 The shared policy judges merge rules by the diff's effect; paths show where those

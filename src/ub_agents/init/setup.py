@@ -42,12 +42,13 @@ def infer_repository(root):
         raise AgentError("Unreadable gh repository response") from None
 
 
-def permission_args(cli, retrospectives=False):
+def permission_args(cli, retrospectives=False, *, uberblick=False):
     if cli == "claude":
         return ["--permission-mode", "acceptEdits", "--permission-prompts", "none", "--allowedTools",
                 "Bash(git *)", "Bash(gh *)", "Bash({report_command} report *)",
                 "Bash({report_command} read *)",
-                *(["Bash({report_command} retrospective *)"] if retrospectives else []), "--add-dir", "{scratch}"]
+                *(["Bash({report_command} retrospective *)"] if retrospectives else []),
+                *(["mcp__uberblick__*"] if uberblick else []), "--add-dir", "{scratch}"]
     return ["--sandbox", "danger-full-access"]
 
 
@@ -82,7 +83,8 @@ def configure_runtimes(content, choices):
     prefix = "" if choices.permissions else "# "
     args.append(prefix + "runtime-args:")
     for cli in choices.clis:
-        value = json.dumps(permission_args(cli, bool(choices.retrospectives or choices.board_requests)))
+        value = json.dumps(permission_args(cli, bool(choices.retrospectives or choices.board_requests),
+                                           uberblick=choices.uberblick))
         if cli != "claude":
             value = "[--sandbox, danger-full-access]"
         args.append(f"{prefix}  {cli}: {value}")
@@ -162,9 +164,23 @@ class Plan:
             raise AgentError(f"{LOCAL_CONFIG} changed during setup; cancel and run init again to review its effective settings")
 
 
-def make_plan(path, repository, choices):
+def make_policy(root, cli, choices):
     from .checks import project_checks
 
+    templates = files("ub_agents").joinpath("templates")
+    guidance = runtime_guidance(root, cli, fallback=True)
+    checks = (f"Project checks are documented in `{guidance.relative_to(root)}`." if guidance else
+              project_checks(root))
+    policy = templates.joinpath("ub_agents.md").read_text().replace("{checks}", checks)
+    if choices.owner:
+        policy = policy.replace("; replace this handle with the\nproject's person or team", "").replace(
+            "@org/maintainers", choices.owner)
+    if choices.uberblick:
+        policy += "\n" + templates.joinpath("ub_agents_memory.md").read_text()
+    return policy
+
+
+def make_plan(path, repository, choices):
     path = Path(path).absolute()
     if path.is_symlink():
         raise AgentError(f"Starter files already exist; nothing overwritten: {path}")
@@ -203,13 +219,7 @@ def make_plan(path, repository, choices):
             "This starter runs the reviewer on a different CLI and model from the implementer,\n"
             "with `different-runtime-from: implementer`. Keep an eligible runtime configured\n"
             "when changing either role.")
-    guidance = runtime_guidance(root, cli, fallback=True)
-    checks = (f"Project checks are documented in `{guidance.relative_to(root)}`." if guidance else
-              project_checks(root))
-    policy = templates.joinpath("ub_agents.md").read_text().replace("{checks}", checks)
-    if choices.owner:
-        policy = policy.replace("; replace this handle with the\nproject's person or team", "").replace(
-            "@org/maintainers", choices.owner)
+    policy = make_policy(root, cli, choices)
     targets[root / ".agents" / "ub_agents.md"] = policy
     ignore = root / ".gitignore"
     before = ignore.read_bytes() if ignore.exists() else None
