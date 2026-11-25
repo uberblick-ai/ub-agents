@@ -16,7 +16,7 @@ from ub_agents.init.setup import runtime_guidance
 from ub_agents.config import load_config
 from ub_agents.errors import AgentError
 from ub_agents.init.flow import PRIORITIES
-from ub_agents.init.setup import DEFAULT_CODEX_RUNTIME, ROLES, Choices, priority_labels
+from ub_agents.init.setup import DEFAULT_CODEX_RUNTIME, ROLES, Choices, make_plan, priority_labels
 from ub_agents.labels import configured_labels
 from tests.support import DoctorGitHub, RecordingRunner
 
@@ -44,6 +44,72 @@ class PriorityLabelTests(unittest.TestCase):
                 self.assertEqual([label.color for label in labels], colors)
                 commands = [shlex.split(label.command('org/project')) for label in labels]
                 self.assertEqual([command[command.index('--color') + 1] for command in commands], colors)
+
+
+class UberblickMemoryTests(unittest.TestCase):
+    def test_memory_extra_appends_exact_shared_section_and_preserves_other_instructions(self):
+        memory = (
+            "## Memory\n\n"
+            "Uberblick is this project's memory, not your runtime's own. Before work, and\n"
+            "whenever you look for a memory, call `get_memories` with your agent name and\n"
+            "this repository, then open the memories that bear on your task. When you learn\n"
+            "a fact that cost time to find and will matter again, update the memory that\n"
+            "holds it or create one: with your agent name if only your role needs it, none\n"
+            "if every agent does, and the repository if it holds only here. Never save\n"
+            "secrets, personal data, local paths, hostnames or text from outside the team.\n")
+        for visibility in (None, 'public'):
+            with self.subTest(visibility=visibility), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                path = root / 'ub-agents.yaml'
+                (root / 'AGENTS.md').write_text('# Project checks\n')
+                baseline = make_plan(path, 'org/project', Choices(DEFAULT_CODEX_RUNTIME, visibility=visibility))
+                plan = make_plan(path, 'org/project', Choices(DEFAULT_CODEX_RUNTIME, uberblick=True,
+                                                           visibility=visibility))
+                shared = root / '.agents/ub_agents.md'
+                self.assertNotIn('## Memory', baseline.targets[shared])
+                if visibility is None:
+                    template = files('ub_agents').joinpath('templates/ub_agents.md').read_text()
+                    self.assertEqual(baseline.targets[shared], template.replace(
+                        '{checks}', 'Project checks are documented in `AGENTS.md`.'))
+                self.assertEqual(plan.targets[shared], baseline.targets[shared] + '\n' + memory)
+                self.assertEqual(plan.config.shared_instructions, shared)
+                for role in ROLES:
+                    instructions = root / f'.agents/{role}.md'
+                    self.assertEqual(plan.targets[instructions], baseline.targets[instructions])
+
+    def test_uberblick_tool_grants_follow_permissions_for_single_and_mixed_runtimes(self):
+        for cli in ('codex', 'claude'):
+            for mixed in (False, True):
+                for enabled in (False, True):
+                    with self.subTest(cli=cli, mixed=mixed, enabled=enabled), \
+                            tempfile.TemporaryDirectory() as directory:
+                        path = Path(directory).resolve() / 'ub-agents.yaml'
+                        other = 'claude' if cli == 'codex' else 'codex'
+                        choices = Choices(f'{cli}:model:high', permissions=enabled,
+                                          reviewer_runtime=f'{other}:other:high' if mixed else '',
+                                          retrospectives={'reviewer': 10})
+                        baseline = make_plan(path, 'org/project', choices)
+                        choices.uberblick = True
+                        plan = make_plan(path, 'org/project', choices)
+                        content = plan.targets[path]
+                        expected = baseline.targets[path].replace(
+                            '"--add-dir", "{scratch}"', '"mcp__uberblick__*", "--add-dir", "{scratch}"')
+                        self.assertEqual(content, expected)
+                        if not enabled:
+                            self.assertTrue(all(not agent.runtime_args for agent in plan.config.agents))
+                            block = content[content.index('# runtime-args:'):content.index("# An agent's runtime-args")]
+                            args = yaml.safe_load('\n'.join(line.removeprefix('# ') for line in block.splitlines()))
+                        else:
+                            args = yaml.safe_load(content)
+                            for agent in plan.config.agents:
+                                runtime = agent.runtimes[0]
+                                self.assertEqual(list(agent.runtime_args_for(runtime)),
+                                                 args['runtime-args'][runtime.cli])
+                        if 'claude' in choices.clis:
+                            self.assertIn('mcp__uberblick__*', args['runtime-args']['claude'])
+                            self.assertIn('Bash({report_command} retrospective *)', args['runtime-args']['claude'])
+                        if 'codex' in choices.clis:
+                            self.assertEqual(args['runtime-args']['codex'], ['--sandbox', 'danger-full-access'])
 
 
 class InitTests(unittest.TestCase):
