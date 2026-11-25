@@ -119,7 +119,7 @@ def monitor_run(args):
         root = monitor_path.parent if monitor_path else next(
             (config.root for path, config in loaded if isinstance(path, Path)), Path.cwd())
         return monitor_background([path for path, _ in loaded], root, args.port,
-                                  open_page=not args.no_open)
+                                  open_page=not args.no_open, repositories=[config.repository for _, config in loaded])
     repositories = [config.repository for path, config in loaded if isinstance(path, str)]
     return serve(monitor_sources([config for _, config in loaded], repository_targets=repositories),
                  args.port, open_page=not args.no_open)
